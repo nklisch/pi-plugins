@@ -59,29 +59,73 @@ import { GenerationSchema, type Generation } from "./config-state.js";
 import { migrateVersionedDocument, StateSchemaVersionSchema } from "./versioning.js";
 
 
-/** Safe corruption metadata. It intentionally has no raw payload or cause. */
-export const StateCorruptionCodeSchema = z.enum([
-  "DOCUMENT_INVALID",
-  "VERSION_UNSUPPORTED",
-  "GENERATION_MISMATCH",
-  "SCOPE_MISMATCH",
-  "RECORD_INVALID",
-  "RECORD_DUPLICATE",
-  "DIGEST_MISMATCH",
-]);
+/** Registry-owned corruption codes and fixed summaries. */
+export const StateCorruptionCodeRegistry = {
+  documentInvalid: { code: "DOCUMENT_INVALID", summary: "state document is invalid" },
+  versionUnsupported: { code: "VERSION_UNSUPPORTED", summary: "state document version is unsupported" },
+  generationMismatch: { code: "GENERATION_MISMATCH", summary: "state document generation is not selected" },
+  scopeMismatch: { code: "SCOPE_MISMATCH", summary: "state document scope is not selected" },
+  recordInvalid: { code: "RECORD_INVALID", summary: "state record was quarantined" },
+  recordDuplicate: { code: "RECORD_DUPLICATE", summary: "duplicate state record was quarantined" },
+  digestMismatch: { code: "DIGEST_MISMATCH", summary: "state document digest does not match" },
+} as const;
+const corruptionDefinitions = Object.values(StateCorruptionCodeRegistry);
+const corruptionCodes = corruptionDefinitions.map((definition) => definition.code) as [string, ...string[]];
+const corruptionSummaries = corruptionDefinitions.map((definition) => definition.summary) as [string, ...string[]];
+export const StateCorruptionCodeSchema = z.enum(corruptionCodes);
+export const StateCorruptionSummarySchema = z.enum(corruptionSummaries);
 export type StateCorruptionCode = z.infer<typeof StateCorruptionCodeSchema>;
+export type StateCorruptionSummary = z.infer<typeof StateCorruptionSummarySchema>;
 
-export const StateCorruptionSchema = z
-  .object({
-    document: StateDocumentKindSchema,
-    scope: ScopeReferenceSchema,
-    code: StateCorruptionCodeSchema,
-    recordKey: z.string().min(1).optional(),
-    schemaPath: z.string().min(1).optional(),
-    message: z.string().min(1),
-  })
-  .strict()
-  .readonly();
+/** Registry-owned field ids are safer than exposing parser paths or messages. */
+export const StateCorruptionFieldRegistry = {
+  root: "root",
+  schemaVersion: "schemaVersion",
+  generation: "generation",
+  scope: "scope",
+  document: "document",
+  records: "records",
+  marketplaces: "marketplaces",
+  plugins: "plugins",
+  revisions: "revisions",
+  projectKey: "projectKey",
+  identity: "identity",
+  declarationDigest: "declarationDigest",
+  documents: "documents",
+  digest: "digest",
+  blob: "blob",
+} as const;
+const corruptionFieldIds = Object.values(StateCorruptionFieldRegistry) as [string, ...string[]];
+export const StateCorruptionFieldIdSchema = z.enum(corruptionFieldIds);
+export type StateCorruptionFieldId = z.infer<typeof StateCorruptionFieldIdSchema>;
+
+const corruptionPointerSegments = new Set(corruptionFieldIds);
+export const StateCorruptionPointerSchema = z.string().max(128).regex(/^(?:\/(?:[A-Za-z][A-Za-z0-9]*|[0-9]+|~0|~1))*$/).superRefine((value, context) => {
+  for (const segment of value.split("/").slice(1)) {
+    if (/^[0-9]+$/.test(segment)) continue;
+    if (!corruptionPointerSegments.has(segment.replaceAll("~1", "/").replaceAll("~0", "~"))) {
+      context.addIssue({ code: "custom", message: "state corruption pointer uses an unknown field" });
+      return;
+    }
+  }
+});
+export type StateCorruptionPointer = z.infer<typeof StateCorruptionPointerSchema>;
+
+const StateRecordIdentitySchema = z.union([MarketplaceNameSchema, PluginKeySchema, TrustSubjectRefSchema]);
+export const StateCorruptionLocationSchema = z.union([
+  z.object({ kind: z.literal("field"), id: StateCorruptionFieldIdSchema }).strict().readonly(),
+  z.object({ kind: z.literal("pointer"), value: StateCorruptionPointerSchema }).strict().readonly(),
+]);
+export type StateCorruptionLocation = z.infer<typeof StateCorruptionLocationSchema>;
+
+export const StateCorruptionSchema = z.object({
+  document: StateDocumentKindSchema,
+  scope: ScopeReferenceSchema,
+  code: StateCorruptionCodeSchema,
+  recordIdentity: StateRecordIdentitySchema.optional(),
+  location: StateCorruptionLocationSchema.optional(),
+  summary: StateCorruptionSummarySchema,
+}).strict().readonly();
 export type StateCorruption = z.infer<typeof StateCorruptionSchema>;
 
 export type StateCodecContext = Readonly<{
@@ -102,9 +146,10 @@ export class StateCodecError extends Error {
   readonly corruption: StateCorruption;
 
   constructor(corruption: StateCorruption) {
-    super(corruption.message);
+    const safe = StateCorruptionSchema.parse(corruption);
+    super(safe.summary);
     this.name = "StateCodecError";
-    this.corruption = corruption;
+    this.corruption = safe;
   }
 }
 
@@ -129,29 +174,25 @@ function assertContext(context: StateCodecContext): {
   };
 }
 
-const safeMessages: Record<StateCorruptionCode, string> = {
-  DOCUMENT_INVALID: "state document failed schema validation",
-  VERSION_UNSUPPORTED: "state document schema version is unsupported",
-  GENERATION_MISMATCH: "state document generation is not the requested generation",
-  SCOPE_MISMATCH: "state document scope is not the requested scope",
-  RECORD_INVALID: "state record failed validation and was quarantined",
-  RECORD_DUPLICATE: "duplicate state record was quarantined",
-  DIGEST_MISMATCH: "state document digest does not match its pointer",
-};
+function summaryFor(code: StateCorruptionCode): StateCorruptionSummary {
+  const definition = corruptionDefinitions.find((candidate) => candidate.code === code);
+  if (definition === undefined) throw new Error("unregistered state corruption code");
+  return StateCorruptionSummarySchema.parse(definition.summary);
+}
 
 function corruption(
   document: StateDocumentKind,
   scope: ScopeReference,
   code: StateCorruptionCode,
-  options: Readonly<{ recordKey?: string; schemaPath?: string }> = {},
+  options: Readonly<{ recordIdentity?: string; location?: StateCorruptionLocation }> = {},
 ): StateCorruption {
   return StateCorruptionSchema.parse({
     document,
     scope,
     code,
-    ...(options.recordKey === undefined ? {} : { recordKey: options.recordKey }),
-    ...(options.schemaPath === undefined ? {} : { schemaPath: options.schemaPath }),
-    message: safeMessages[code],
+    ...(options.recordIdentity === undefined ? {} : { recordIdentity: options.recordIdentity }),
+    ...(options.location === undefined ? {} : { location: options.location }),
+    summary: summaryFor(code),
   });
 }
 
@@ -159,9 +200,13 @@ function fatal(
   document: StateDocumentKind,
   scope: ScopeReference,
   code: StateCorruptionCode,
-  options?: Readonly<{ recordKey?: string; schemaPath?: string }>,
+  options?: Readonly<{ recordIdentity?: string; location?: StateCorruptionLocation }>,
 ): never {
   throw new StateCodecError(corruption(document, scope, code, options));
+}
+
+function recordPointer(field: StateCorruptionFieldId, index: number): StateCorruptionLocation {
+  return { kind: "pointer", value: StateCorruptionPointerSchema.parse(`/${field}/${index}`) };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -284,6 +329,7 @@ function decodeRecords<T>(
   scope: ScopeReference,
   decode: (candidate: unknown) => T,
   keyOf: (candidate: unknown) => string | undefined = (candidate) => candidateKey(kind, candidate),
+  field: StateCorruptionFieldId = kind === "hostConfig" || kind === "trust" ? "records" : "plugins",
 ): { readonly records: readonly T[]; readonly corruptions: readonly StateCorruption[] } {
   if (!Array.isArray(input)) fatal(kind, scope, "DOCUMENT_INVALID");
   const occurrences = new Map<string, number>();
@@ -297,17 +343,16 @@ function decodeRecords<T>(
   for (const [index, candidate] of input.entries()) {
     const key = keyOf(candidate);
     if (key === undefined) {
-      corruptions.push(corruption(kind, scope, "RECORD_INVALID", { schemaPath: `records[${index}]` }));
-      continue;
+      fatal(kind, scope, "DOCUMENT_INVALID", { location: recordPointer(field, index) });
     }
     if (occurrences.get(key)! > 1) {
-      corruptions.push(corruption(kind, scope, "RECORD_DUPLICATE", { recordKey: key, schemaPath: `records[${index}]` }));
+      corruptions.push(corruption(kind, scope, "RECORD_DUPLICATE", { recordIdentity: key, location: recordPointer(field, index) }));
       continue;
     }
     try {
       records.push(decode(candidate));
     } catch {
-      corruptions.push(corruption(kind, scope, "RECORD_INVALID", { recordKey: key, schemaPath: `records[${index}]` }));
+      corruptions.push(corruption(kind, scope, "RECORD_INVALID", { recordIdentity: key, location: recordPointer(field, index) }));
     }
   }
   return { records, corruptions };
@@ -345,10 +390,10 @@ function filterDependentInstalledRecords(
     const marketplace = record.plugin.slice(record.plugin.lastIndexOf("@") + 1);
     const snapshotRevision = snapshots.get(marketplace);
     const invalid = snapshotRevision === undefined || record.revisions.some((revision) =>
-      revision.plugin.source.kind === "marketplace-path" && revision.plugin.source.marketplaceRevision !== snapshotRevision,
+      revision.evidence.source.kind === "marketplace-path" && revision.evidence.source.marketplaceRevision !== snapshotRevision,
     );
     if (invalid) {
-      nextCorruptions.push(corruption(kind, scope, "RECORD_INVALID", { recordKey: record.plugin, schemaPath: "plugins" }));
+      nextCorruptions.push(corruption(kind, scope, "RECORD_INVALID", { recordIdentity: record.plugin, location: { kind: "field", id: "plugins" } }));
     } else {
       kept.push(record);
     }
@@ -381,7 +426,7 @@ function decodeDocument<K extends StateDocumentKind>(
     return { value: value as StateDocumentFor<K>, corruptions: decoded.corruptions };
   }
 
-  const marketplaces = decodeRecords(kind, root.marketplaces, scope, (candidate) => createMarketplaceSnapshotRecord(candidate, sha256), marketplaceCandidateKey);
+  const marketplaces = decodeRecords(kind, root.marketplaces, scope, (candidate) => createMarketplaceSnapshotRecord(candidate, sha256), marketplaceCandidateKey, "marketplaces");
   const installed = decodeInstalledCollection(kind, root.plugins, scope, sha256);
   const filtered = filterDependentInstalledRecords(kind, installed.records, marketplaces.records, scope, [...marketplaces.corruptions, ...installed.corruptions]);
   if (kind === "installedUser") {
@@ -504,6 +549,26 @@ export function hashStateDocument(input: JsonValue, sha256: Sha256): ContentDige
   return hashContent(jsonBytes(input), sha256);
 }
 
+/** Verify the raw canonical document before any migration, normalization, or record isolation. */
+function verifyRawDigest(
+  kind: StateDocumentKind,
+  input: unknown,
+  scope: ScopeReference,
+  expectedDigest: ContentDigest | undefined,
+  sha256: Sha256,
+): void {
+  if (expectedDigest === undefined) return;
+  const raw = JsonValueSchema.safeParse(input);
+  const expected = ContentDigestSchema.safeParse(expectedDigest);
+  if (!raw.success || !expected.success) {
+    fatal(kind, scope, "DIGEST_MISMATCH", { location: { kind: "field", id: "digest" } });
+  }
+  const actual = hashStateDocument(raw.data, sha256);
+  if (actual !== expected.data) {
+    fatal(kind, scope, "DIGEST_MISMATCH", { location: { kind: "field", id: "digest" } });
+  }
+}
+
 export function decodeStateDocument<K extends StateDocumentKind>(
   kind: K,
   input: unknown,
@@ -511,6 +576,7 @@ export function decodeStateDocument<K extends StateDocumentKind>(
 ): DecodedDocument<StateDocumentFor<K>> {
   const parsedKind = StateDocumentKindSchema.parse(kind) as K;
   const parsedContext = assertContext(context);
+  verifyRawDigest(parsedKind, input, parsedContext.scopeReference, context.expectedDigest, parsedContext.sha256);
   const root = parseRoot(parsedKind, input, parsedContext.scopeReference);
   validateEnclosingContext(parsedKind, root, parsedContext);
   let decoded: DecodedDocument<StateDocumentFor<K>>;
@@ -519,17 +585,6 @@ export function decodeStateDocument<K extends StateDocumentKind>(
   } catch (error) {
     if (error instanceof StateCodecError) throw error;
     fatal(parsedKind, parsedContext.scopeReference, "DOCUMENT_INVALID");
-  }
-  if (context.expectedDigest !== undefined) {
-    const encoded = encodeStateDocument(parsedKind, decoded.value, {
-      scope: parsedContext.scope,
-      generation: parsedContext.generation,
-      sha256: parsedContext.sha256,
-    });
-    const actual = hashStateDocument(encoded, parsedContext.sha256);
-    if (actual !== ContentDigestSchema.parse(context.expectedDigest)) {
-      fatal(parsedKind, parsedContext.scopeReference, "DIGEST_MISMATCH");
-    }
   }
   return decoded;
 }

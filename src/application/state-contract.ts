@@ -181,13 +181,13 @@ function sameJson(left: unknown, right: unknown): boolean {
 }
 
 /**
- * Parse a mutation and, when supplied, re-verify canonical evidence before an
- * adapter writes it. The schema is the shape gate; the constructors are the
- * cross-field/digest gate.
+ * Parse a mutation only with an injected verifier. The schema is the shape
+ * gate; constructors are the cross-field and canonical-evidence gate. There is
+ * deliberately no unverified overload for adapter callers to accidentally use.
  */
-export function parseStateMutation(input: unknown, sha256?: Sha256): StateMutation {
+export function parseStateMutation(input: unknown, sha256: Sha256): StateMutation {
+  if (typeof sha256 !== "function") throw new TypeError("state mutation parsing requires a SHA-256 verifier");
   const mutation = StateMutationSchema.parse(input);
-  if (sha256 === undefined) return mutation;
   const scope = ScopeContextSchema.parse(mutation.scope);
   if ("project" in mutation.replace) {
     if (scope.kind !== "project") throw new Error("project replacement requires project scope");

@@ -42,7 +42,7 @@ describe("state codecs", () => {
       "RECORD_DUPLICATE",
     ]);
     expect(decoded.corruptions[0]).not.toHaveProperty("value");
-    expect(decoded.corruptions[0]?.message).not.toContain("unexpected");
+    expect(decoded.corruptions[0]?.summary).not.toContain("unexpected");
   });
 
   it("keeps valid siblings when one record is malformed", () => {

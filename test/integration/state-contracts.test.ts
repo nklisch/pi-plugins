@@ -377,8 +377,8 @@ describe("state contract integration", () => {
     const controller = new AbortController();
     const user = await store.read(userScope, controller.signal);
     const project = await store.read(projectScope, controller.signal);
-    expect(user.ok && user.snapshot.installed.plugins[0]?.revisions[0]?.plugin).toEqual(plugin);
-    expect(project.ok && project.snapshot.project.plugins[0]?.revisions[0]?.compatibility).toEqual(report);
+    expect(user.ok && user.snapshot.installed.plugins[0]?.revisions[0]?.evidence.plugin).toEqual(plugin.identity);
+    expect(project.ok && project.snapshot.project.plugins[0]?.revisions[0]?.evidence.compatibility.activatable).toBe(true);
     if (!user.ok || !project.ok) throw new Error("fake store did not return snapshots");
     expect(user.snapshot.installed.plugins[0]!.revisions[0]!.dataRef)
       .not.toBe(project.snapshot.project.plugins[0]!.revisions[0]!.dataRef);

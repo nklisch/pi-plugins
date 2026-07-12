@@ -75,11 +75,11 @@ export const ProjectLocalStateDocumentSchemaV1 = z
         continue;
       }
       for (const [revisionIndex, revision] of plugin.revisions.entries()) {
-        if (revision.plugin.source.kind === "marketplace-path" &&
-            revision.plugin.source.marketplaceRevision !== snapshot.source.revision) {
+        if (revision.evidence.source.kind === "marketplace-path" &&
+            revision.evidence.source.marketplaceRevision !== snapshot.source.revision) {
           context.addIssue({
             code: "custom",
-            path: ["plugins", index, "revisions", revisionIndex, "plugin", "source", "marketplaceRevision"],
+            path: ["plugins", index, "revisions", revisionIndex, "evidence", "source", "marketplaceRevision"],
             message: "marketplace-relative plugin source must match the marketplace snapshot revision",
           });
         }
@@ -211,8 +211,7 @@ export function decodeProjectPlugins(
   for (const [index, candidate] of input.entries()) {
     const key = projectCandidateKey(candidate);
     if (key === undefined) {
-      quarantined.push({ index, code: "RECORD_INVALID" });
-      continue;
+      throw new Error(`project plugin record identity is missing or invalid at index ${index}`);
     }
     try {
       const record = createInstalledPluginRecord({

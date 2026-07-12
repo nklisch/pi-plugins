@@ -98,9 +98,11 @@ describe("installed lifecycle state", () => {
   it("reuses canonical source, plugin, report, and manifest contracts", () => {
     const revision = makeRevision();
     expect(InstalledRevisionRecordSchema.parse(revision)).toEqual(revision);
-    expect(revision.plugin).toEqual(plugin);
-    expect(revision.compatibility).toEqual(report);
-    expect(ContentManifestSchema.parse(revision.content)).toEqual(content);
+    expect(revision.evidence.plugin).toEqual(plugin.identity);
+    expect(revision.evidence.compatibility.activatable).toBe(true);
+    expect(revision.evidence.components).toEqual([]);
+    expect(revision.contentDigest).toBe(content.rootDigest);
+    expect(() => ContentManifestSchema.parse(revision.contentDigest)).toThrow();
     expect(revision.revision).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(PluginContentRefSchema.parse(revision.contentRef)).toBe(revision.contentRef);
   });

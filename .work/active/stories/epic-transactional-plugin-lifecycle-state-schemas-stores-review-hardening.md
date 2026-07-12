@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores-review-hardening
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-state-schemas-stores
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores-contract-hardening]
@@ -37,3 +37,12 @@ Resolve all accepted blocker and important findings from the state-contract feat
 - [ ] Public corruption/failure JSON cannot represent arbitrary messages, native causes, secrets, or physical paths.
 - [ ] Existing valid state round trips, deterministic encodings, and scope isolation remain intact.
 - [ ] Full `npm test`, build, boundaries, and exact compiled package import pass.
+
+## Implementation notes
+
+- Execution capability: direct-read, single-owner implementation; the caller explicitly prohibited agents and required stopping at review.
+- Review weight: standard default, with the caller's explicit implementing-to-review boundary; no independent review agent was invoked.
+- Files changed: `src/domain/state/installed-state.ts`, `src/domain/state/codec.ts`, `src/domain/state/project-state.ts`, `src/application/state-contract.ts`, `src/index.ts`, package export allowlist, and state contract tests.
+- Tests added: `test/domain/state/review-hardening-repro.test.ts` directly covers all five reproducers, raw-digest ordering, sibling isolation, mutation verification, and serialized canary exclusion.
+- Discrepancies from design: the earlier installed-record design embedded canonical normalized declarations and manifests; this hardening replaces them with strict evidence summaries, fingerprints, and immutable logical references as required by the review findings.
+- Adjacent issues parked: none.

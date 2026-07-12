@@ -628,9 +628,9 @@ The least recoverable mistake is exposing unvalidated unknown state through the 
 
 ## Implementation summary
 
-All five child stories are done. The implementation delivers strict versioned state families, secure project/scope identity, portable project intent, installed user/project evidence, trust/pointer codecs, corruption isolation, deterministic mutations and an adapter-neutral lifecycle state port. Physical storage, locks, trust policy, secrets, promotion, operations, projections and recovery remain outside this feature.
+The initial state-schema units delivered strict versioned state families, secure project/scope identity, portable project intent, installed user/project evidence, trust/pointer codecs, corruption isolation, deterministic mutations, and an adapter-neutral lifecycle state port. The review-hardening implementation now replaces unrestricted installed declarations with safe evidence summaries, verifies raw digests before isolation, requires mutation verifiers, fails unidentified records closed, and exposes fixed corruption projections. The story remains at `stage: review`; physical storage, locks, trust policy, secrets, promotion, operations, projections, and recovery remain outside this feature.
 
-Integrated verification: `npm test` passes 417 tests plus clean typecheck and dependency boundaries, build, and exact 238-export package import.
+Integrated verification: `npm test` passes 422 tests plus clean typecheck and dependency boundaries, build, and exact 253-export package import.
 
 ## Other agent review
 
@@ -640,4 +640,4 @@ Integrated verification: `npm test` passes 417 tests plus clean typecheck and de
 
 ## Review findings
 
-The feature returns to `stage: implementing` until persisted evidence is safe-by-construction, raw digests precede isolation, canonical mutation verification is mandatory, unidentified records fail closed, and corruption projections are schema-redacted.
+The feature remains at `stage: implementing` while the review-hardening story awaits its review-stage verdict; its implementation now has safe persisted evidence, raw-digest ordering, mandatory canonical mutation verification, closed unidentified-record handling, and schema-redacted corruption projections.

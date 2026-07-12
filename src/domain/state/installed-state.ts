@@ -3,14 +3,17 @@ import {
   ContentDigestSchema,
   ContentManifestSchema,
   createMaterializationBinding,
+  hashContent,
   verifyContentManifest,
   type ContentDigest,
   type ContentManifest,
 } from "../content-manifest.js";
 import {
-  CompatibilityReportSchema,
-  type CompatibilityReport,
-} from "../compatibility.js";
+  ComponentKindRegistry,
+  ComponentIdSchema,
+  flattenComponents,
+} from "../components.js";
+import { CompatibilityReportSchema, type CompatibilityReport } from "../compatibility.js";
 import {
   MarketplaceNameSchema,
   PluginKeySchema,
@@ -41,8 +44,10 @@ import {
 } from "./references.js";
 import { ScopeReferenceSchema, type ScopeReference } from "./scope.js";
 import {
+  GitRevisionSchema,
   ResolvedMarketplaceSourceSchema,
   ResolvedPluginSourceSchema,
+  SourceHashSchema,
   verifyResolvedMarketplaceSource,
   verifyResolvedPluginSource,
   type ResolvedMarketplaceSource,
@@ -68,16 +73,6 @@ function addIssue(
   context.addIssue({ code: "custom", path: [...path], message });
 }
 
-function samePluginIdentity(
-  left: NormalizedPlugin["identity"],
-  right: CompatibilityReport["plugin"],
-): boolean {
-  return left.key === right.key &&
-    left.marketplaceName === right.marketplaceName &&
-    left.marketplaceEntryName === right.marketplaceEntryName &&
-    left.manifestName === right.manifestName;
-}
-
 function addDuplicateIssues<T extends string>(
   values: readonly T[],
   path: readonly (string | number)[],
@@ -95,99 +90,143 @@ function addDuplicateIssues<T extends string>(
   }
 }
 
-/** A verified, immutable marketplace catalog snapshot used by installed state. */
-export const MarketplaceSnapshotRecordSchema = z
-  .object({
-    marketplace: MarketplaceNameSchema,
-    source: ResolvedMarketplaceSourceSchema,
-    content: ContentManifestSchema,
-    binding: ContentDigestSchema,
-    contentRef: MarketplaceContentRefSchema,
-  })
-  .strict()
-  .readonly();
-export type MarketplaceSnapshotRecord = z.infer<typeof MarketplaceSnapshotRecordSchema>;
+const ComponentEvidenceKindSchema = z.enum([
+  ComponentKindRegistry.skill.tag,
+  ComponentKindRegistry.hook.tag,
+  ComponentKindRegistry.mcpServer.tag,
+  ComponentKindRegistry.foreign.tag,
+]);
+export type ComponentEvidenceKind = z.infer<typeof ComponentEvidenceKindSchema>;
+
+/** The only source facts retained in an installed record. No URL, declaration, or path is stored. */
+export const InstalledSourceEvidenceSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("marketplace-path"),
+    sourceHash: SourceHashSchema,
+    marketplaceRevision: GitRevisionSchema,
+  }).strict().readonly(),
+  z.object({
+    kind: z.literal("git"),
+    sourceHash: SourceHashSchema,
+    revision: GitRevisionSchema,
+  }).strict().readonly(),
+  z.object({
+    kind: z.literal("git-subdir"),
+    sourceHash: SourceHashSchema,
+    revision: GitRevisionSchema,
+  }).strict().readonly(),
+  z.object({
+    kind: z.literal("npm"),
+    sourceHash: SourceHashSchema,
+  }).strict().readonly(),
+]);
+export type InstalledSourceEvidence = z.infer<typeof InstalledSourceEvidenceSchema>;
+
+/** Stable plugin identity only; manifest presentation names are not authoritative state. */
+export const InstalledPluginIdentitySchema = z.object({
+  key: PluginKeySchema,
+  marketplaceName: MarketplaceNameSchema,
+  marketplaceEntryName: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
+}).strict().readonly();
+export type InstalledPluginIdentity = z.infer<typeof InstalledPluginIdentitySchema>;
+
+/** Safe structural inventory; executable declarations are represented only by immutable ids and kinds. */
+export const InstalledComponentEvidenceSchema = z.object({
+  id: ComponentIdSchema,
+  kind: ComponentEvidenceKindSchema,
+}).strict().readonly();
+export type InstalledComponentEvidence = z.infer<typeof InstalledComponentEvidenceSchema>;
+
+export const InstalledCompatibilityEvidenceSchema = z.object({
+  activatable: z.boolean(),
+  fingerprint: ContentDigestSchema,
+}).strict().readonly();
+export type InstalledCompatibilityEvidence = z.infer<typeof InstalledCompatibilityEvidenceSchema>;
+
+export const InstalledTrustEvidenceSchema = z.object({
+  executableSurfaceDigest: ContentDigestSchema,
+}).strict().readonly();
+export type InstalledTrustEvidence = z.infer<typeof InstalledTrustEvidenceSchema>;
 
 /**
- * One immutable plugin revision. The normalized plugin and compatibility
- * report are deliberately embedded canonical contracts: state records do not
- * invent lifecycle-shaped copies of foreign declarations.
+ * Persisted installed evidence is intentionally a lossy, strict projection of
+ * the normalized bundle. The immutable content ref is the authority for later
+ * projection generation; this summary cannot become a declaration store.
  */
-export const InstalledRevisionRecordSchema = z
-  .object({
-    revision: ContentDigestSchema,
-    plugin: NormalizedPluginSchema,
-    compatibility: CompatibilityReportSchema,
-    content: ContentManifestSchema,
-    contentRef: PluginContentRefSchema,
-    dataRef: PluginDataRefSchema,
-    configurationRef: PluginConfigurationRefSchema.optional(),
-  })
-  .strict()
-  .readonly()
-  .superRefine((record, context) => {
-    if (!samePluginIdentity(record.plugin.identity, record.compatibility.plugin)) {
-      addIssue(
-        context,
-        ["compatibility", "plugin"],
-        "compatibility report identity must match the normalized plugin identity",
-      );
-    }
-  });
+export const InstalledEvidenceSummarySchema = z.object({
+  plugin: InstalledPluginIdentitySchema,
+  source: InstalledSourceEvidenceSchema,
+  components: z.array(InstalledComponentEvidenceSchema).readonly(),
+  compatibility: InstalledCompatibilityEvidenceSchema,
+  trust: InstalledTrustEvidenceSchema,
+}).strict().readonly();
+export type InstalledEvidenceSummary = z.infer<typeof InstalledEvidenceSummarySchema>;
+
+/** A verified, immutable marketplace catalog snapshot used by installed state. */
+export const MarketplaceSourceEvidenceSchema = z.object({
+  kind: z.enum(["github", "git", "local-git"]),
+  sourceHash: SourceHashSchema,
+  revision: GitRevisionSchema,
+}).strict().readonly();
+export type MarketplaceSourceEvidence = z.infer<typeof MarketplaceSourceEvidenceSchema>;
+
+export const MarketplaceSnapshotRecordSchema = z.object({
+  marketplace: MarketplaceNameSchema,
+  source: MarketplaceSourceEvidenceSchema,
+  contentDigest: ContentDigestSchema,
+  binding: ContentDigestSchema,
+  contentRef: MarketplaceContentRefSchema,
+}).strict().readonly();
+export type MarketplaceSnapshotRecord = z.infer<typeof MarketplaceSnapshotRecordSchema>;
+
+export const InstalledRevisionRecordSchema = z.object({
+  revision: ContentDigestSchema,
+  evidence: InstalledEvidenceSummarySchema,
+  contentDigest: ContentDigestSchema,
+  contentRef: PluginContentRefSchema,
+  dataRef: PluginDataRefSchema,
+  configurationRef: PluginConfigurationRefSchema.optional(),
+}).strict().readonly();
 export type InstalledRevisionRecord = z.infer<typeof InstalledRevisionRecordSchema>;
 
-export const InstalledPluginRecordSchema = z
-  .object({
-    plugin: PluginKeySchema,
-    activation: ActivationIntentSchema,
-    selectedRevision: ContentDigestSchema,
-    revisions: z.array(InstalledRevisionRecordSchema).min(1).readonly(),
-    // This is intentionally only an opaque reference. Operation and recovery
-    // payloads belong to their own later state families.
-    pendingTransition: PendingTransitionRefSchema.optional(),
-  })
-  .strict()
-  .readonly()
-  .superRefine((record, context) => {
-    addDuplicateIssues(
-      record.revisions.map((revision) => revision.revision),
-      ["revisions"],
-      "revision",
-      context,
-    );
+export const InstalledPluginRecordSchema = z.object({
+  plugin: PluginKeySchema,
+  activation: ActivationIntentSchema,
+  selectedRevision: ContentDigestSchema,
+  revisions: z.array(InstalledRevisionRecordSchema).min(1).readonly(),
+  // This is intentionally only an opaque reference. Operation and recovery
+  // payloads belong to their own later state families.
+  pendingTransition: PendingTransitionRefSchema.optional(),
+}).strict().readonly().superRefine((record, context) => {
+  addDuplicateIssues(
+    record.revisions.map((revision) => revision.revision),
+    ["revisions"],
+    "revision",
+    context,
+  );
 
-    const revisionKeys = new Set(record.revisions.map((revision) => revision.plugin.identity.key));
-    if (revisionKeys.size !== 1 || !revisionKeys.has(record.plugin)) {
-      addIssue(context, ["plugin"], "installed revisions must all belong to the installed plugin key");
-    }
-    if (!record.revisions.some((revision) => revision.revision === record.selectedRevision)) {
-      addIssue(context, ["selectedRevision"], "selected revision must refer to an installed revision");
-    }
-  });
+  const revisionKeys = new Set(record.revisions.map((revision) => revision.evidence.plugin.key));
+  if (revisionKeys.size !== 1 || !revisionKeys.has(record.plugin)) {
+    addIssue(context, ["plugin"], "installed revisions must all belong to the installed plugin key");
+  }
+  if (!record.revisions.some((revision) => revision.revision === record.selectedRevision)) {
+    addIssue(context, ["selectedRevision"], "selected revision must refer to an installed revision");
+  }
+});
 export type InstalledPluginRecord = z.infer<typeof InstalledPluginRecordSchema>;
 
 function addDuplicateMarketplaceIssues(
   records: readonly MarketplaceSnapshotRecord[],
   context: z.RefinementCtx,
 ): void {
-  addDuplicateIssues(
-    records.map((record) => record.marketplace),
-    ["marketplaces"],
-    "marketplace snapshot",
-    context,
-  );
+  addDuplicateIssues(records.map((record) => record.marketplace), ["marketplaces"], "marketplace snapshot", context);
 }
 
 function addDuplicatePluginIssues(
   records: readonly InstalledPluginRecord[],
   context: z.RefinementCtx,
 ): void {
-  addDuplicateIssues(
-    records.map((record) => record.plugin),
-    ["plugins"],
-    "installed plugin",
-    context,
-  );
+  addDuplicateIssues(records.map((record) => record.plugin), ["plugins"], "installed plugin", context);
 }
 
 function validateMarketplaceCoverage(
@@ -200,23 +239,15 @@ function validateMarketplaceCoverage(
     const pluginMarketplace = plugin.plugin.slice(plugin.plugin.lastIndexOf("@") + 1) as MarketplaceName;
     const snapshot = snapshotsByName.get(pluginMarketplace);
     if (snapshot === undefined) {
-      addIssue(
-        context,
-        ["plugins", index, "plugin"],
-        "installed plugin must have a corresponding marketplace snapshot",
-      );
+      addIssue(context, ["plugins", index, "plugin"], "installed plugin must have a corresponding marketplace snapshot");
       continue;
     }
-
-    // Marketplace-relative plugin sources are only valid against the exact
-    // immutable catalog revision that supplied their content. External plugin
-    // sources have their own immutable source identity and need no such link.
     for (const [revisionIndex, revision] of plugin.revisions.entries()) {
-      if (revision.plugin.source.kind === "marketplace-path" &&
-          revision.plugin.source.marketplaceRevision !== snapshot.source.revision) {
+      if (revision.evidence.source.kind === "marketplace-path" &&
+          revision.evidence.source.marketplaceRevision !== snapshot.source.revision) {
         addIssue(
           context,
-          ["plugins", index, "revisions", revisionIndex, "plugin", "source", "marketplaceRevision"],
+          ["plugins", index, "revisions", revisionIndex, "evidence", "source", "marketplaceRevision"],
           "marketplace-relative plugin source must match the marketplace snapshot revision",
         );
       }
@@ -224,21 +255,16 @@ function validateMarketplaceCoverage(
   }
 }
 
-/** Independently versioned user installed state envelope. */
-export const InstalledUserStateDocumentSchemaV1 = z
-  .object({
-    schemaVersion: z.literal(1),
-    generation: GenerationSchema,
-    marketplaces: z.array(MarketplaceSnapshotRecordSchema).readonly(),
-    plugins: z.array(InstalledPluginRecordSchema).readonly(),
-  })
-  .strict()
-  .readonly()
-  .superRefine((document, context) => {
-    addDuplicateMarketplaceIssues(document.marketplaces, context);
-    addDuplicatePluginIssues(document.plugins, context);
-    validateMarketplaceCoverage(document.marketplaces, document.plugins, context);
-  });
+export const InstalledUserStateDocumentSchemaV1 = z.object({
+  schemaVersion: z.literal(1),
+  generation: GenerationSchema,
+  marketplaces: z.array(MarketplaceSnapshotRecordSchema).readonly(),
+  plugins: z.array(InstalledPluginRecordSchema).readonly(),
+}).strict().readonly().superRefine((document, context) => {
+  addDuplicateMarketplaceIssues(document.marketplaces, context);
+  addDuplicatePluginIssues(document.plugins, context);
+  validateMarketplaceCoverage(document.marketplaces, document.plugins, context);
+});
 export type InstalledUserStateDocumentV1 = z.infer<typeof InstalledUserStateDocumentSchemaV1>;
 
 export const InstalledUserStateSchemaFamily = defineVersionedSchemaFamily({
@@ -249,186 +275,307 @@ export const InstalledUserStateSchemaFamily = defineVersionedSchemaFamily({
 export const InstalledUserStateDocumentSchema = InstalledUserStateDocumentSchemaV1;
 export type InstalledUserStateDocument = InstalledUserStateDocumentV1;
 
+function isRecord(input: unknown): input is Record<string, unknown> {
+  return input !== null && typeof input === "object" && !Array.isArray(input);
+}
+
 function parseScope(input: unknown): ScopeReference {
   return ScopeReferenceSchema.parse(input ?? { kind: "user" });
 }
 
-function sourceAndContentIdentity(
-  source: ResolvedMarketplaceSource | ResolvedPluginSource,
-  content: ContentManifest,
-  binding: ContentDigest,
-): Record<string, JsonValue> {
-  const immutableRevision = "version" in source
-    ? source.version
-    : "revision" in source
-      ? source.revision
-      : source.marketplaceRevision;
+function canonicalize(value: JsonValue): JsonValue {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value !== null && typeof value === "object") {
+    const record = value as Record<string, JsonValue>;
+    return Object.fromEntries(Object.keys(record).sort().map((key) => [key, canonicalize(record[key]!) ]));
+  }
+  return value;
+}
+
+function asJsonValue(value: unknown): JsonValue {
+  // Schema inputs are JSON-shaped. This copy exists only as a hashing preimage;
+  // it is never returned as persisted state and therefore cannot reintroduce
+  // declarations through a structural type assertion.
+  return JSON.parse(JSON.stringify(value)) as JsonValue;
+}
+
+function evidenceFingerprint(tag: string, value: JsonValue, sha256: Sha256): ContentDigest {
+  return hashContent(new TextEncoder().encode(`${tag}\0${JSON.stringify(canonicalize(value))}`), sha256);
+}
+
+function sourceEvidence(source: ResolvedPluginSource): InstalledSourceEvidence {
+  switch (source.kind) {
+    case "marketplace-path":
+      return { kind: source.kind, sourceHash: source.hash, marketplaceRevision: source.marketplaceRevision };
+    case "git":
+    case "git-subdir":
+      return { kind: source.kind, sourceHash: source.hash, revision: source.revision };
+    case "npm":
+      return { kind: source.kind, sourceHash: source.hash };
+  }
+}
+
+function marketplaceSourceEvidence(source: ResolvedMarketplaceSource): MarketplaceSourceEvidence {
+  return { kind: source.declared.kind, sourceHash: source.hash, revision: source.revision };
+}
+
+function sourceIdentity(source: InstalledSourceEvidence): JsonValue {
+  return source;
+}
+
+function componentEvidence(plugin: NormalizedPlugin): InstalledComponentEvidence[] {
+  return flattenComponents(plugin.components)
+    .map((component) => ({ id: component.id, kind: component.kind }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function executableSurface(plugin: NormalizedPlugin): JsonValue {
+  return flattenComponents(plugin.components).map((component): JsonValue => {
+    switch (component.kind) {
+      case "skill":
+        return { id: component.id, kind: component.kind, name: component.name.value, root: component.root.value };
+      case "hook":
+        return asJsonValue({ id: component.id, kind: component.kind, event: component.event.value, matcher: component.matcher?.value, handler: component.handler.value });
+      case "mcp-server":
+        return asJsonValue({ id: component.id, kind: component.kind, nativeKey: component.nativeKey.value, declaration: component.declaration.value });
+      case "foreign":
+        return asJsonValue({ id: component.id, kind: component.kind, nativeHost: component.nativeHost, nativeKind: component.nativeKind.value, declarationSubkey: component.declarationSubkey, declaration: component.declaration.value });
+    }
+  }).sort((left, right) => String((left as Record<string, unknown>).id).localeCompare(String((right as Record<string, unknown>).id)));
+}
+
+function compatibilitySurface(report: CompatibilityReport): JsonValue {
   return {
-    source: source.canonical,
-    sourceHash: source.hash,
-    sourceRevision: immutableRevision,
-    content: content.rootDigest,
-    binding,
+    activatable: report.activatable,
+    components: report.components.map((component) => ({
+      componentId: component.componentId,
+      verdict: component.verdict,
+      requirementIds: [...component.requirementIds].sort(),
+    })).sort((left, right) => left.componentId.localeCompare(right.componentId)),
+    requirements: report.requirements.map((requirement) => ({
+      id: requirement.requirement.id,
+      status: requirement.status,
+    })).sort((left, right) => left.id.localeCompare(right.id)),
   };
+}
+
+function configurationSurface(plugin: NormalizedPlugin): JsonValue {
+  return plugin.configuration.options.map((option) => asJsonValue({
+    key: option.key,
+    value: option.value,
+    required: option.required,
+    sensitive: option.sensitive,
+  })).sort((left, right) => String((left as Record<string, unknown>).key).localeCompare(String((right as Record<string, unknown>).key)));
+}
+
+function samePluginIdentity(
+  left: NormalizedPlugin["identity"],
+  right: CompatibilityReport["plugin"],
+): boolean {
+  return left.key === right.key &&
+    left.marketplaceName === right.marketplaceName &&
+    left.marketplaceEntryName === right.marketplaceEntryName &&
+    left.manifestName === right.manifestName;
 }
 
 function pluginRevisionIdentity(
   scope: ScopeReference,
-  plugin: NormalizedPlugin,
-  content: ContentManifest,
+  evidence: InstalledEvidenceSummary,
+  contentDigest: ContentDigest,
   binding: ContentDigest,
 ): Record<string, JsonValue> {
   return {
     scope,
-    plugin: plugin.identity.key,
-    ...sourceAndContentIdentity(plugin.source, content, binding),
+    plugin: evidence.plugin.key,
+    source: sourceIdentity(evidence.source),
+    content: contentDigest,
+    binding,
   };
 }
 
 function pluginDataIdentity(
   scope: ScopeReference,
-  plugin: NormalizedPlugin,
-  content: ContentManifest,
+  evidence: InstalledEvidenceSummary,
+  contentDigest: ContentDigest,
   binding: ContentDigest,
 ): Record<string, JsonValue> {
-  return {
-    ...pluginRevisionIdentity(scope, plugin, content, binding),
-    purpose: "persistent-plugin-data",
-  };
+  return { ...pluginRevisionIdentity(scope, evidence, contentDigest, binding), purpose: "persistent-plugin-data" };
 }
 
 function pluginConfigurationIdentity(
   scope: ScopeReference,
-  plugin: NormalizedPlugin,
-  content: ContentManifest,
+  evidence: InstalledEvidenceSummary,
+  contentDigest: ContentDigest,
   binding: ContentDigest,
 ): Record<string, JsonValue> {
-  return {
-    ...pluginRevisionIdentity(scope, plugin, content, binding),
-    purpose: "plugin-configuration",
-    configuration: plugin.configuration as unknown as JsonValue,
-  };
+  return { ...pluginRevisionIdentity(scope, evidence, contentDigest, binding), purpose: "plugin-configuration" };
 }
 
-const MarketplaceSnapshotInputSchema = z
-  .object({
-    marketplace: MarketplaceNameSchema,
-    source: ResolvedMarketplaceSourceSchema,
-    content: ContentManifestSchema,
-    binding: ContentDigestSchema.optional(),
-    contentRef: MarketplaceContentRefSchema.optional(),
-  })
-  .strict();
+const MarketplaceSnapshotInputSchema = z.object({
+  marketplace: MarketplaceNameSchema,
+  source: ResolvedMarketplaceSourceSchema,
+  content: z.unknown(),
+  binding: ContentDigestSchema.optional(),
+  contentRef: MarketplaceContentRefSchema.optional(),
+}).strict();
 
-/**
- * Verify all supplied marketplace evidence and derive its binding/reference.
- * Optional caller claims are checked, never trusted or silently retained.
- */
-export function createMarketplaceSnapshotRecord(
-  input: unknown,
-  sha256: Sha256,
-): MarketplaceSnapshotRecord {
+const PersistedMarketplaceSnapshotInputSchema = MarketplaceSnapshotRecordSchema;
+
+/** Verify raw marketplace evidence, then retain only safe fingerprints and refs. */
+export function createMarketplaceSnapshotRecord(input: unknown, sha256: Sha256): MarketplaceSnapshotRecord {
+  if (isRecord(input) && isRecord(input.source) && "sourceHash" in input.source) {
+    const value = PersistedMarketplaceSnapshotInputSchema.parse(input);
+    const identity = { marketplace: value.marketplace, source: value.source, content: value.contentDigest, binding: value.binding } satisfies Record<string, JsonValue>;
+    const contentRef = deriveMarketplaceContentRef(identity, sha256);
+    if (value.contentRef !== contentRef) throw new Error("marketplace content reference does not match its evidence");
+    return value;
+  }
+
   const value = MarketplaceSnapshotInputSchema.parse(input);
   const source = verifyResolvedMarketplaceSource(value.source, sha256);
-  const content = verifyContentManifest(value.content, sha256);
+  const content = verifyContentManifest(ContentManifestSchema.parse(value.content), sha256);
   const binding = createMaterializationBinding(source.hash, content.rootDigest, sha256);
-  if (value.binding !== undefined && value.binding !== binding) {
-    throw new Error("marketplace materialization binding does not match source and content");
-  }
-  const identity = sourceAndContentIdentity(source, content, binding);
+  if (value.binding !== undefined && value.binding !== binding) throw new Error("marketplace materialization binding does not match source and content");
+  const identity = { marketplace: value.marketplace, source: marketplaceSourceEvidence(source), content: content.rootDigest, binding } satisfies Record<string, JsonValue>;
   const contentRef = deriveMarketplaceContentRef(identity, sha256);
-  if (value.contentRef !== undefined) {
-    verifyMarketplaceContentRef(value.contentRef, identity, sha256);
-  }
+  if (value.contentRef !== undefined) verifyMarketplaceContentRef(value.contentRef, identity, sha256);
   return MarketplaceSnapshotRecordSchema.parse({
     marketplace: value.marketplace,
-    source,
-    content,
+    source: marketplaceSourceEvidence(source),
+    contentDigest: content.rootDigest,
     binding,
     contentRef,
   });
 }
 
-const InstalledRevisionInputSchema = z
-  .object({
-    revision: ContentDigestSchema.optional(),
-    plugin: NormalizedPluginSchema,
-    compatibility: CompatibilityReportSchema,
-    content: ContentManifestSchema,
-    contentRef: PluginContentRefSchema.optional(),
-    dataRef: PluginDataRefSchema.optional(),
-    configurationRef: PluginConfigurationRefSchema.optional(),
-    // Scope is constructor input only and is deliberately removed from the
-    // persisted record. It makes user/project data refs non-interchangeable.
-    scope: ScopeReferenceSchema.optional(),
-  })
-  .strict();
+const InstalledRevisionRawInputSchema = z.object({
+  revision: ContentDigestSchema.optional(),
+  plugin: NormalizedPluginSchema,
+  compatibility: CompatibilityReportSchema,
+  content: ContentManifestSchema,
+  contentRef: PluginContentRefSchema.optional(),
+  dataRef: PluginDataRefSchema.optional(),
+  configurationRef: PluginConfigurationRefSchema.optional(),
+  scope: ScopeReferenceSchema.optional(),
+}).strict();
 
-/** Verify canonical plugin evidence and derive all scope-bound references. */
-export function createInstalledRevisionRecord(
-  input: unknown,
-  sha256: Sha256,
-): InstalledRevisionRecord {
-  const value = InstalledRevisionInputSchema.parse(input);
+function createEvidenceSummary(plugin: NormalizedPlugin, compatibility: CompatibilityReport, sha256: Sha256): InstalledEvidenceSummary {
+  const components = componentEvidence(plugin);
+  const componentIds = new Set(components.map((component) => component.id));
+  const assessedIds = new Set(compatibility.components.map((component) => component.componentId));
+  if (componentIds.size !== assessedIds.size || [...componentIds].some((id) => !assessedIds.has(id))) {
+    throw new Error("compatibility report component inventory does not match normalized plugin evidence");
+  }
+  return InstalledEvidenceSummarySchema.parse({
+    plugin: {
+      key: plugin.identity.key,
+      marketplaceName: plugin.identity.marketplaceName,
+      marketplaceEntryName: plugin.identity.marketplaceEntryName,
+    },
+    source: sourceEvidence(plugin.source),
+    components,
+    compatibility: {
+      activatable: compatibility.activatable,
+      fingerprint: evidenceFingerprint("compatibility-evidence-v1", compatibilitySurface(compatibility), sha256),
+    },
+    trust: {
+      executableSurfaceDigest: evidenceFingerprint("executable-surface-v1", {
+        components: executableSurface(plugin),
+        configuration: configurationSurface(plugin),
+      }, sha256),
+    },
+  });
+}
+
+function persistedRevisionValue(input: Record<string, unknown>): Record<string, unknown> {
+  const { scope: _scope, ...value } = input;
+  return value;
+}
+
+function verifyPersistedRevision(input: unknown, scope: ScopeReference, sha256: Sha256): InstalledRevisionRecord {
+  const record = InstalledRevisionRecordSchema.parse(input);
+  const revisionIdentity = pluginRevisionIdentity(scope, record.evidence, record.contentDigest, record.revision);
+  const dataIdentity = pluginDataIdentity(scope, record.evidence, record.contentDigest, record.revision);
+  verifyPluginContentRef(record.contentRef, revisionIdentity, sha256);
+  verifyPluginDataRef(record.dataRef, dataIdentity, sha256);
+  if (record.configurationRef !== undefined) {
+    verifyPluginConfigurationRef(record.configurationRef, pluginConfigurationIdentity(scope, record.evidence, record.contentDigest, record.revision), sha256);
+  }
+  return record;
+}
+
+/** Verify a persisted safe record and all scope-bound immutable references. */
+export function verifyInstalledRevisionRecord(input: unknown, sha256: Sha256): InstalledRevisionRecord {
+  const value = isRecord(input) ? input : {};
+  return verifyPersistedRevision(persistedRevisionValue(value), parseScope(value.scope), sha256);
+}
+
+/** Verify an installed record without accepting runtime declarations as state. */
+export function verifyInstalledPluginRecord(input: unknown, sha256: Sha256): InstalledPluginRecord {
+  const value = isRecord(input) ? input : {};
+  const scope = parseScope(value.scope);
+  const record = z.object({
+    plugin: PluginKeySchema,
+    activation: ActivationIntentSchema,
+    selectedRevision: ContentDigestSchema,
+    revisions: z.array(z.unknown()).min(1),
+    pendingTransition: PendingTransitionRefSchema.optional(),
+  }).strict().parse(persistedRevisionValue(value));
+  const revisions = record.revisions.map((revision) => verifyPersistedRevision(revision, scope, sha256));
+  return InstalledPluginRecordSchema.parse({ ...record, revisions });
+}
+
+/** Verify canonical plugin evidence and derive all safe persisted evidence. */
+export function createInstalledRevisionRecord(input: unknown, sha256: Sha256): InstalledRevisionRecord {
+  if (isRecord(input) && "evidence" in input) {
+    return verifyInstalledRevisionRecord(input, sha256);
+  }
+  const value = InstalledRevisionRawInputSchema.parse(input);
   const plugin = NormalizedPluginSchema.parse(value.plugin);
   const source = verifyResolvedPluginSource(plugin.source, sha256);
   const compatibility = CompatibilityReportSchema.parse(value.compatibility);
-  if (!samePluginIdentity(plugin.identity, compatibility.plugin)) {
-    throw new Error("compatibility report identity does not match normalized plugin identity");
-  }
+  if (!samePluginIdentity(plugin.identity, compatibility.plugin)) throw new Error("compatibility report identity does not match normalized plugin identity");
   const content = verifyContentManifest(value.content, sha256);
   const revision = createMaterializationBinding(source.hash, content.rootDigest, sha256);
-  if (value.revision !== undefined && value.revision !== revision) {
-    throw new Error("installed revision does not match the source/content materialization binding");
-  }
-
+  if (value.revision !== undefined && value.revision !== revision) throw new Error("installed revision does not match the source/content materialization binding");
   const scope = parseScope(value.scope);
-  const revisionIdentity = pluginRevisionIdentity(scope, plugin, content, revision);
-  const dataIdentity = pluginDataIdentity(scope, plugin, content, revision);
-  const configurationIdentity = pluginConfigurationIdentity(scope, plugin, content, revision);
+  const evidence = createEvidenceSummary({ ...plugin, source }, compatibility, sha256);
+  const revisionIdentity = pluginRevisionIdentity(scope, evidence, content.rootDigest, revision);
+  const dataIdentity = pluginDataIdentity(scope, evidence, content.rootDigest, revision);
+  const configurationIdentity = pluginConfigurationIdentity(scope, evidence, content.rootDigest, revision);
   const contentRef = derivePluginContentRef(revisionIdentity, sha256);
   const dataRef = derivePluginDataRef(dataIdentity, sha256);
   const configurationRef = value.configurationRef !== undefined || plugin.configuration.options.length > 0
     ? derivePluginConfigurationRef(configurationIdentity, sha256)
     : undefined;
-
   if (value.contentRef !== undefined) verifyPluginContentRef(value.contentRef, revisionIdentity, sha256);
   if (value.dataRef !== undefined) verifyPluginDataRef(value.dataRef, dataIdentity, sha256);
-  if (value.configurationRef !== undefined) {
-    verifyPluginConfigurationRef(value.configurationRef, configurationIdentity, sha256);
-  }
-
+  if (value.configurationRef !== undefined) verifyPluginConfigurationRef(value.configurationRef, configurationIdentity, sha256);
   return InstalledRevisionRecordSchema.parse({
     revision,
-    plugin: { ...plugin, source },
-    compatibility,
-    content,
+    evidence,
+    contentDigest: content.rootDigest,
     contentRef,
     dataRef,
     ...(configurationRef === undefined ? {} : { configurationRef }),
   });
 }
 
-const InstalledPluginInputSchema = z
-  .object({
-    plugin: PluginKeySchema,
-    activation: ActivationIntentSchema,
-    selectedRevision: ContentDigestSchema.optional(),
-    revisions: z.array(z.unknown()).min(1),
-    pendingTransition: PendingTransitionRefSchema.optional(),
-    scope: ScopeReferenceSchema.optional(),
-  })
-  .strict();
+const InstalledPluginInputSchema = z.object({
+  plugin: PluginKeySchema,
+  activation: ActivationIntentSchema,
+  selectedRevision: ContentDigestSchema.optional(),
+  revisions: z.array(z.unknown()).min(1),
+  pendingTransition: PendingTransitionRefSchema.optional(),
+  scope: ScopeReferenceSchema.optional(),
+}).strict();
 
 /** Construct one plugin record while isolating scope-only constructor input. */
-export function createInstalledPluginRecord(
-  input: unknown,
-  sha256: Sha256,
-): InstalledPluginRecord {
+export function createInstalledPluginRecord(input: unknown, sha256: Sha256): InstalledPluginRecord {
   const value = InstalledPluginInputSchema.parse(input);
   const scope = parseScope(value.scope);
   const revisions = value.revisions.map((revision) =>
-    createInstalledRevisionRecord({ ...revision as Record<string, unknown>, scope }, sha256),
+    createInstalledRevisionRecord({ ...(revision as Record<string, unknown>), scope }, sha256),
   );
   const selectedRevision = value.selectedRevision ?? revisions[0]!.revision;
   return InstalledPluginRecordSchema.parse({
@@ -440,36 +587,23 @@ export function createInstalledPluginRecord(
   });
 }
 
-const InstalledUserStateInputSchema = z
-  .object({
-    schemaVersion: z.literal(1).optional(),
-    generation: GenerationSchema,
-    marketplaces: z.array(z.unknown()),
-    plugins: z.array(z.unknown()),
-  })
-  .strict();
+const InstalledUserStateInputSchema = z.object({
+  schemaVersion: z.literal(1).optional(),
+  generation: GenerationSchema,
+  marketplaces: z.array(z.unknown()),
+  plugins: z.array(z.unknown()),
+}).strict();
 
 /** Build a complete user document; malformed known records fail the write. */
-export function createInstalledUserStateDocument(
-  input: unknown,
-  sha256: Sha256,
-): InstalledUserStateDocumentV1 {
+export function createInstalledUserStateDocument(input: unknown, sha256: Sha256): InstalledUserStateDocumentV1 {
   const value = InstalledUserStateInputSchema.parse(input);
-  const marketplaces = value.marketplaces.map((marketplace) =>
-    createMarketplaceSnapshotRecord(marketplace, sha256),
-  );
+  const marketplaces = value.marketplaces.map((marketplace) => createMarketplaceSnapshotRecord(marketplace, sha256));
   const plugins = value.plugins.map((plugin) =>
-    createInstalledPluginRecord({ ...plugin as Record<string, unknown>, scope: { kind: "user" } }, sha256),
+    createInstalledPluginRecord({ ...(plugin as Record<string, unknown>), scope: { kind: "user" } }, sha256),
   );
-  return InstalledUserStateDocumentSchemaV1.parse({
-    schemaVersion: 1,
-    generation: value.generation,
-    marketplaces,
-    plugins,
-  });
+  return InstalledUserStateDocumentSchemaV1.parse({ schemaVersion: 1, generation: value.generation, marketplaces, plugins });
 }
 
-/** A safe, redacted result for record-level recovery/quarantine callers. */
 export type InstalledRecordQuarantine = Readonly<{
   index: number;
   recordKey?: string;
@@ -481,39 +615,24 @@ export type InstalledRecordCollectionDecode = Readonly<{
 }>;
 
 function candidatePluginKey(input: unknown): string | undefined {
-  if (input === null || typeof input !== "object") return undefined;
-  const candidate = (input as { readonly plugin?: unknown }).plugin;
-  return typeof candidate === "string" && PluginKeySchema.safeParse(candidate).success
-    ? candidate
-    : undefined;
+  if (!isRecord(input)) return undefined;
+  const candidate = input.plugin;
+  return typeof candidate === "string" && PluginKeySchema.safeParse(candidate).success ? candidate : undefined;
 }
 
-/**
- * Decode plugin records independently. Invalid records are not allowed to
- * poison valid siblings; when a key occurs more than once every occurrence is
- * quarantined, so input order can never select a winner.
- */
-export function decodeInstalledPluginRecords(
-  input: unknown,
-  sha256: Sha256,
-): InstalledRecordCollectionDecode {
-  if (!Array.isArray(input)) {
-    throw new Error("installed plugin collection must be an array");
-  }
-
+/** Decode plugin records independently; an unidentified record is document-fatal. */
+export function decodeInstalledPluginRecords(input: unknown, sha256: Sha256): InstalledRecordCollectionDecode {
+  if (!Array.isArray(input)) throw new Error("installed plugin collection must be an array");
   const parsed: Array<{ readonly index: number; readonly key: string; readonly record: InstalledPluginRecord }> = [];
   const quarantined: InstalledRecordQuarantine[] = [];
   const occurrences = new Map<string, number>();
   for (const candidate of input) {
     const key = candidatePluginKey(candidate);
-    if (key !== undefined) occurrences.set(key, (occurrences.get(key) ?? 0) + 1);
+    if (key === undefined) throw new Error("installed plugin record identity is missing or invalid");
+    occurrences.set(key, (occurrences.get(key) ?? 0) + 1);
   }
   for (const [index, candidate] of input.entries()) {
-    const key = candidatePluginKey(candidate);
-    if (key === undefined) {
-      quarantined.push({ index, code: "RECORD_INVALID" });
-      continue;
-    }
+    const key = candidatePluginKey(candidate)!;
     try {
       const record = createInstalledPluginRecord(candidate, sha256);
       parsed.push({ index, key, record });
@@ -521,7 +640,6 @@ export function decodeInstalledPluginRecords(
       quarantined.push({ index, recordKey: key, code: "RECORD_INVALID" });
     }
   }
-
   const records: InstalledPluginRecord[] = [];
   for (const candidate of parsed) {
     if (occurrences.get(candidate.key)! > 1) {
@@ -534,15 +652,10 @@ export function decodeInstalledPluginRecords(
 }
 
 /** Decode a user plugin collection with the same duplicate-quarantine policy. */
-export function decodeInstalledUserPlugins(
-  input: unknown,
-  sha256: Sha256,
-): InstalledRecordCollectionDecode {
+export function decodeInstalledUserPlugins(input: unknown, sha256: Sha256): InstalledRecordCollectionDecode {
   if (!Array.isArray(input)) throw new Error("installed plugin collection must be an array");
   const withUserScope = input.map((value) =>
-    value !== null && typeof value === "object"
-      ? { ...value as Record<string, unknown>, scope: { kind: "user" } }
-      : value,
+    isRecord(value) ? { ...value, scope: { kind: "user" } } : value,
   );
   return decodeInstalledPluginRecords(withUserScope, sha256);
 }

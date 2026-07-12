@@ -445,6 +445,13 @@ export type {
 
 export {
   ActivationIntentSchema,
+  InstalledPluginIdentitySchema,
+  InstalledSourceEvidenceSchema,
+  InstalledComponentEvidenceSchema,
+  InstalledCompatibilityEvidenceSchema,
+  InstalledTrustEvidenceSchema,
+  InstalledEvidenceSummarySchema,
+  MarketplaceSourceEvidenceSchema,
   MarketplaceSnapshotRecordSchema,
   InstalledRevisionRecordSchema,
   InstalledPluginRecordSchema,
@@ -454,6 +461,8 @@ export {
   InstalledUserStateSchemaFamily,
   createMarketplaceSnapshotRecord,
   createInstalledRevisionRecord,
+  verifyInstalledRevisionRecord,
+  verifyInstalledPluginRecord,
   createInstalledPluginRecord,
   createInstalledUserStateDocument,
   decodeInstalledPluginRecords,
@@ -461,6 +470,14 @@ export {
 } from "./domain/state/installed-state.js";
 export type {
   ActivationIntent,
+  ComponentEvidenceKind,
+  InstalledPluginIdentity,
+  InstalledSourceEvidence,
+  InstalledComponentEvidence,
+  InstalledCompatibilityEvidence,
+  InstalledTrustEvidence,
+  InstalledEvidenceSummary,
+  MarketplaceSourceEvidence,
   MarketplaceSnapshotRecord,
   InstalledRevisionRecord,
   InstalledPluginRecord,
@@ -537,7 +554,13 @@ export type {
 } from "./domain/state/registry.js";
 
 export {
+  StateCorruptionCodeRegistry,
   StateCorruptionCodeSchema,
+  StateCorruptionSummarySchema,
+  StateCorruptionFieldRegistry,
+  StateCorruptionFieldIdSchema,
+  StateCorruptionPointerSchema,
+  StateCorruptionLocationSchema,
   StateCorruptionSchema,
   StateCodecError,
   hashStateDocument,
@@ -546,6 +569,10 @@ export {
 } from "./domain/state/codec.js";
 export type {
   StateCorruptionCode,
+  StateCorruptionSummary,
+  StateCorruptionFieldId,
+  StateCorruptionPointer,
+  StateCorruptionLocation,
   StateCorruption,
   StateCodecContext,
   DecodedDocument,
