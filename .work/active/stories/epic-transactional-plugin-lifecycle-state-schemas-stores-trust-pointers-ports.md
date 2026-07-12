@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores-trust-pointers-ports
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-state-schemas-stores
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores-scope-versioning]
@@ -49,3 +49,12 @@ Trust collection/revocation policy, executable-surface canonicalization, configu
 - [ ] Writes never persist known-invalid partial records.
 - [ ] Mutation schemas reject empty user writes, caller-supplied next generations, and wrong-scope documents.
 - [ ] Store port has no transaction callback, filesystem path, lock, trust policy, promotion, projection, operation, journal, or recovery API.
+
+## Implementation notes
+
+- Execution capability: inline single-owner implementation; the state schemas, registry/codecs, application contracts, and adapter-neutral port form one cohesive boundary, and the caller explicitly prohibited agents.
+- Review weight: standard (default); implementation stops at the requested `stage: review` boundary.
+- Files changed: `src/domain/state/trust-state.ts`, `src/domain/state/pointers.ts`, `src/domain/state/registry.ts`, `src/domain/state/codec.ts`, `src/application/state-contract.ts`, `src/application/ports/lifecycle-state-store.ts`, and matching domain/application tests.
+- Tests added: trust subject derivation and policy/secrets exclusion; exact user/project pointer sets; corruption isolation, duplicate quarantine, redacted fatal failures, digest verification, and deterministic encoding; mutation boundary and empty/wrong-generation/forbidden-field validation.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
