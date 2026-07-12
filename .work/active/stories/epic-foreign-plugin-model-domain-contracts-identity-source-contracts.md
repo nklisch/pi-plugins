@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-domain-contracts-identity-source-contracts
 kind: story
-stage: review
+stage: done
 tags: [compatibility, infra]
 parent: epic-foreign-plugin-model-domain-contracts
 depends_on: [epic-foreign-plugin-model-domain-contracts-package-schema-foundation]
@@ -53,3 +53,13 @@ Use the exact schemas, brands, function signatures, `source-v1` length-prefixed 
 ## Stage readiness
 
 Implementation is complete and ready for review. No design flaw or blocker was discovered.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane story review. Independently confirmed `npm test` (51 tests, typecheck, and boundaries) and `npm run build`. Verdict: Approve - story verified by implement; fast-lane advance.
