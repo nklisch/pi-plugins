@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: []
@@ -630,7 +630,7 @@ The least recoverable mistake is exposing unvalidated unknown state through the 
 
 The initial state-schema units delivered strict versioned state families, secure project/scope identity, portable project intent, installed user/project evidence, trust/pointer codecs, corruption isolation, deterministic mutations, and an adapter-neutral lifecycle state port. Review hardening replaces unrestricted declarations with safe evidence summaries, verifies raw digests before isolation, fails unidentified records closed, exposes fixed corruption projections, and separates unverified mutation input from opaque verified store mutations. Physical storage, locks, trust policy, secrets, promotion, operations, projections, and recovery remain outside this feature.
 
-Integrated verification: `npm test` passes 425 tests plus clean typecheck and dependency boundaries, build, and exact 257-export package import.
+Integrated verification: `npm test` performs real production and test-file typechecking and passes 426 tests plus clean dependency boundaries, build, and exact 257-export package import.
 
 ## Other agent review
 
@@ -640,4 +640,4 @@ Integrated verification: `npm test` passes 425 tests plus clean typecheck and de
 
 ## Review findings
 
-The first two review-hardening stories close the state and verified-mutation boundaries. Final completeness confirmation found `tsconfig.test.json` inherited `rootDir: "src"`, causing Vitest to skip real test-file typechecking while reporting no type errors. `epic-transactional-plugin-lifecycle-state-schemas-stores-review-hardening-3` tracks restoration of the verification pipeline and all surfaced strict test errors; the feature remains at `stage: implementing` until it closes.
+All three review-hardening stories are done. Test files now participate in strict typechecking, every surfaced suite error is repaired, verified-mutation compile-time rejection is actually exercised, and a participation regression prevents silent exclusion. The feature returns to `stage: review` for final confirmation.
