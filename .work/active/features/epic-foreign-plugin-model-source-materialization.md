@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization
 kind: feature
-stage: review
+stage: implementing
 tags: [security, infra]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-domain-contracts]
@@ -540,3 +540,15 @@ All four child stories are done:
 The implementation delivers the deterministic content-manifest and lifecycle handoff, one hardened write/extraction policy, deterministic archive-only Git acquisition, direct integrity-verified npm acquisition with no scripts, and a Node composition root covering every source form. Lifecycle cache, state, promotion, locking, journaling, rollback, recovery, and collection remain outside this feature.
 
 Integrated verification: `npm test` passes 176 tests plus typecheck, 152 dependency edges with no violations, build, and exact 91-export compiled package import.
+
+## Other agent review
+
+- Invoked because: completed security-boundary feature requires deep two-model review.
+- Phase 1 — completeness: Z.AI GLM 5.2 xhigh, three-pass convergence. Approved criteria but identified out-of-slot scratch, buffered stream mode, whole-file memory, and cancellation/cleanup semantics.
+- Phase 2 — adversarial: fresh-context GPT-5.6 Sol high, five-pass convergence. Reproduced decompressed-metadata limit bypass, unbound declaration/context/result/tree handoff, crash-unrecoverable OS scratch, ignored short writes, and the Phase 1 memory/cancellation findings; additionally challenged credential scope, process-tree termination, manifest complexity, and adversarial coverage.
+- Accepted: all blockers and important findings because they violate security, durability, or explicit foundation guarantees. Tracked by `epic-foreign-plugin-model-source-materialization-review-hardening`.
+- Rejected/deferred: empty Git trees, ignored harmless global PAX metadata, and user-controlled `GIT_SSH_COMMAND` are intentional or non-impacting within the stated threat model.
+
+## Review findings
+
+The feature is bounced once to `stage: implementing` for `epic-foreign-plugin-model-source-materialization-review-hardening`. Approval requires cryptographic end-to-end binding, total decompression accounting, slot-owned scratch, write-all persistence, live streaming/incremental hashing, explicit combined failure semantics, bounded manifest verification, exact credential claims, and executable adversarial regressions.
