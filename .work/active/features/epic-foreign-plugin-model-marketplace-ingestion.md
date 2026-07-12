@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-domain-contracts]
@@ -417,4 +417,4 @@ Integrated verification: `npm test` passes 174 tests plus typecheck, dependency 
 
 ## Review findings
 
-The feature is bounced once to `stage: implementing` for `epic-foreign-plugin-model-marketplace-ingestion-review-hardening`. Approval requires fixture-backed regressions for nested declaration atomicity, path equivalence, RFC 6901 root provenance, metadata retention, GitHub grammar, original indexes, and merger host binding.
+The feature was bounced once to `stage: implementing` for `epic-foreign-plugin-model-marketplace-ingestion-review-hardening`. That story is now done: field-specific declaration schemas, canonical subdirectories, RFC 6901 roots, retained presentation metadata, strict GitHub shorthand, original array indexes, host-bound merge inputs, and committed fixture contract tests are implemented. Independent integrated verification now passes 184 tests plus typecheck, dependency boundaries, build, and the exact 91-export package allowlist. The feature returns to `stage: review` for final convergence.
