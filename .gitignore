@@ -1,1 +1,3 @@
 .pi/goal-monitor/
+node_modules/
+dist/

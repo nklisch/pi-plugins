@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-domain-contracts-package-schema-foundation
 kind: story
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: epic-foreign-plugin-model-domain-contracts
 depends_on: []
@@ -33,8 +33,23 @@ Follow the exact scripts, compiler constraints, `JsonValueSchema`, `schemaValues
 
 ## Acceptance criteria
 
-- [ ] `npm test` runs typecheck, dependency boundaries, and Vitest successfully under Node.js 24.
-- [ ] `npm run build` emits importable ESM JavaScript and declarations under `dist/`.
-- [ ] Public data contracts demonstrate schema-to-`z.infer` type ownership rather than mirrored interfaces.
-- [ ] Dependency-cruiser catches domain imports from `node:*`, application, formats, infrastructure, runtime, and Pi modules, and catches cycles.
-- [ ] Empty schema registries and invalid JSON values fail deterministically.
+- [x] `npm test` runs typecheck, dependency boundaries, and Vitest successfully under Node.js 24.
+- [x] `npm run build` emits importable ESM JavaScript and declarations under `dist/`.
+- [x] Public data contracts demonstrate schema-to-`z.infer` type ownership rather than mirrored interfaces.
+- [x] Dependency-cruiser catches domain imports from `node:*`, application, formats, infrastructure, runtime, and Pi modules, and catches cycles.
+- [x] Empty schema registries and invalid JSON values fail deterministically.
+
+## Implementation notes
+
+- Added the Node.js 24 / ESM package foundation with the prescribed TypeScript 7 strict compiler settings, declaration/source-map output, Zod 4 runtime dependency, and Vitest typechecking through the no-emit `tsconfig.test.json` project.
+- Implemented the recursive `JsonValueSchema` with finite-number validation, plus `schemaValues` and `nonEmptyReadonly` tuple helpers that fail immediately on empty input. Tests cover nested valid JSON, invalid JSON-shaped values, inferred type agreement, registry order, and both empty-input failures.
+- Dependency-cruiser 17.4.3 currently advertises TypeScript support only below 7.0. The package therefore includes `@swc/core` and selects its parser so the mandated TypeScript 7 sources are actually cruised rather than silently skipped. The boundary policy rejects domain imports of core Node modules, all outer layers, undeclared/unknown packages, and cycles. Temporary fixture probes verified Node/infrastructure, undeclared-package, and cycle violations fail the boundary command.
+- `.gitignore` now excludes package-manager/build output; `tsconfig.test.json` is the narrowly scoped no-emit test configuration needed to keep emitted production output under `dist/`.
+- The public root barrel remains intentionally deferred to Unit 4, as prescribed by the parent feature; this unit exposes and verifies the domain schema foundation only.
+
+## Verification
+
+- `node --version` — `v24.17.0`.
+- `npm test` — passed: TypeScript typecheck, dependency boundaries, 11 Vitest tests, and Vitest typecheck.
+- `npm run build` — passed: emitted `dist/src/domain/schema.js`, source map, and declaration.
+- Compiled ESM import probe — passed through `dist/src/domain/schema.js`.
