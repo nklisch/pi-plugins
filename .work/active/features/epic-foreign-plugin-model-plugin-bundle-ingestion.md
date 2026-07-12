@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-plugin-bundle-ingestion
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-source-materialization, epic-foreign-plugin-model-marketplace-ingestion]
@@ -624,4 +624,4 @@ Integrated verification: `npm test` passes 300 tests plus typecheck, dependency 
 
 ## Review findings
 
-The feature returns to `stage: implementing` until the review-hardening story restores complete foreign inventory, strict unknown-field classification, value-boundary decoding, verifiable hook IDs, end-to-end limits, and focused service/reconciler coverage.
+The feature's review-hardening story is done and restores complete catalog foreign inventory, explicit presentation-only classification, value-boundary UTF-8 handling, verifiable hook IDs, end-to-end JSON limits, and focused service/reconciler matrices. Independent integrated verification passes 313 tests plus clean typecheck and dependency boundaries, build, and exact 114-export package import. The feature returns to `stage: review` for final convergence.
