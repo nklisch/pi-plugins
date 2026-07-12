@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion-review-hardening
 kind: story
-stage: review
+stage: done
 tags: [compatibility, security, tests]
 parent: epic-foreign-plugin-model-marketplace-ingestion
 depends_on: [epic-foreign-plugin-model-marketplace-ingestion-domain-contracts, epic-foreign-plugin-model-marketplace-ingestion-claude-reader, epic-foreign-plugin-model-marketplace-ingestion-codex-reader, epic-foreign-plugin-model-marketplace-ingestion-dual-catalog-merge]
@@ -52,3 +52,13 @@ Resolve the accepted findings from the marketplace-ingestion feature's two-phase
 
 - `npm test` — passed (184 tests, typecheck, dependency boundaries, build, and 91-export compiled package allowlist).
 - Independent `npm run build` plus compiled marketplace-schema import — passed.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane hardening-story review. Independently confirmed `npm test`: 184 tests, typecheck, 152 dependency edges with no violations, build, and exact 91-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
