@@ -426,7 +426,7 @@ interface MaterializedPlugin {
 }
 ```
 
-Marketplace-relative sources require marketplace context; external Git/npm sources reject it. Git subprocess and npm/HTTP/filesystem details remain inside infrastructure adapters. Credentials come from existing noninteractive Git/SSH/npm configuration, never source declarations or materializer results. Cancellation propagates through every port and is rethrown after cleanup rather than converted to a domain diagnostic.
+Marketplace-relative sources require marketplace context; external Git/npm sources reject it. Git subprocess and npm/HTTP/filesystem details remain inside infrastructure adapters. The Node composition root wires those adapters behind the application ports and exports only the lifecycle-facing materializers; command, tar, HTTP, filesystem, and credential adapters are not package API. Credentials come from existing noninteractive Git/SSH/npm configuration, never source declarations or materializer results. Cancellation propagates through every port and is rethrown after cleanup rather than converted to a domain diagnostic. Cleanup failure is reported as an adapter failure with no materialization handoff.
 
 ## Authoritative state
 

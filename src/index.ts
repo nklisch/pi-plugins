@@ -201,6 +201,7 @@ export type {
   GitSourceAcquirer,
   MarketplaceMaterializer,
   MarketplacePathAcquirer,
+  MaterializationFailureClassification,
   MaterializationLimits,
   MaterializedMarketplace,
   MaterializedPlugin,
@@ -212,3 +213,6 @@ export type {
   SourceMaterializationDependencies,
   StagingSlot,
 } from "./application/source-materialization.js";
+
+export { createNodeSourceMaterializers } from "./infrastructure/source/create-source-materializers.js";
+export type { NodeSourceMaterializerOptions } from "./infrastructure/source/create-source-materializers.js";

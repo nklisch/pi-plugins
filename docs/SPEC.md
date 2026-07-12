@@ -396,7 +396,7 @@ commits successfully.
 
 ## Install transaction
 
-Source materializers do not allocate installed, cache, or marketplace storage. The lifecycle operation supplies an empty private staging slot. Materialization writes only inside that slot and returns a verified resolved source, content root, and deterministic content manifest; cancellation or failure returns no partial result and cleans materializer-owned writes. Lifecycle code owns atomic promotion, state and locks, journaling/fsync, rollback, recovery, retention, and garbage collection.
+Source materializers do not allocate installed, cache, or marketplace storage. The lifecycle operation supplies an empty private staging slot. The Node factory composes Git, npm, bounded HTTPS, archive, filesystem, process, crypto, and credential adapters behind the application ports; those adapter details are not public API. Materialization writes only inside that slot and returns a verified resolved source, content root, and deterministic content manifest; cancellation or failure returns no partial result and cleans materializer-owned writes. A cleanup failure is explicit and cannot become a successful handoff. Lifecycle code owns atomic promotion, state and locks, journaling/fsync, rollback, recovery, retention, and garbage collection.
 
 Installation and update follow one transaction:
 

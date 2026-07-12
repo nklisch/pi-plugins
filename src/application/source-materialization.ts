@@ -9,6 +9,7 @@ import {
 import {
   MarketplaceSourceSchema,
   PluginSourceSchema,
+  createResolvedPluginSource,
   verifyResolvedMarketplaceSource,
   verifyResolvedPluginSource,
   type MarketplaceSource,
@@ -341,11 +342,15 @@ function createMarketplacePluginSource(
   context: Extract<SourceContext, { kind: "marketplace" }>,
   sha256: SourceMaterializationDependencies["sha256"],
 ): ResolvedPluginSource {
-  return verifyPluginResult({
-    kind: "marketplace-path",
-    marketplaceRevision: context.source.revision,
-    path: source.path,
-  }, sha256);
+  try {
+    return createResolvedPluginSource({
+      kind: "marketplace-path",
+      marketplaceRevision: context.source.revision,
+      path: source.path,
+    }, sha256);
+  } catch (error) {
+    throw asResolutionFailure("materializePlugin", error);
+  }
 }
 
 export interface MarketplaceMaterializer {

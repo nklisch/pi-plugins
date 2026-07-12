@@ -71,6 +71,7 @@ const expectedExports = [
   "claim",
   "createCompatibilityReport",
   "createContentManifest",
+  "createNodeSourceMaterializers",
   "createPluginIdentity",
   "createSourceMaterializers",
   "createResolvedMarketplaceSource",

@@ -82,9 +82,12 @@ integrity is incompatible.
 
 Materialization writes only into a caller-provided private staging slot and
 returns a resolved source, content root, and deterministic content manifest.
-It does not choose cache or marketplace paths or perform promotion, locking,
-state commit, journaling, rollback, recovery, or collection. Error and
-cancellation return no partial handoff and clean materializer-owned writes.
+The public Node factory exposes this lifecycle-facing handoff while keeping
+filesystem, process, archive, HTTP, Git, npm, crypto, and credential adapters
+private. It does not choose cache or marketplace paths or perform promotion,
+locking, state commit, journaling, rollback, recovery, or collection. Error and
+cancellation return no partial handoff and clean materializer-owned writes; a
+cleanup failure remains an explicit adapter failure.
 
 Resolved sources retain their immutable URL/path/package fields and revision.
 Their `source-v1` canonical form is derived from those fields and the injected

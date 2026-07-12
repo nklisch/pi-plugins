@@ -60,6 +60,7 @@ export interface NpmRegistryClient {
 type RegistryClientOptions = Readonly<{
   fetch: BoundedFetch;
   credentials: NpmCredentialProvider;
+  limits?: Partial<MaterializationLimits>;
 }>;
 
 type ParsedVersion = Readonly<{
@@ -102,7 +103,7 @@ function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw signal.reason ?? new DOMException("The operation was aborted", "AbortError");
 }
 
-function limitsWithDefaults(input: MaterializationLimits): MaterializationLimits {
+function limitsWithDefaults(input: Partial<MaterializationLimits> = {}): MaterializationLimits {
   const limits = { ...DEFAULT_MATERIALIZATION_LIMITS, ...(input ?? {}) };
   for (const [name, value] of Object.entries(limits)) {
     if (!Number.isSafeInteger(value) || value <= 0) throw new TypeError(`materialization limit ${name} must be positive`);
@@ -376,7 +377,7 @@ export function createNpmRegistryClient(options: RegistryClientOptions): NpmRegi
       const packageName = validatePackageName(source.package);
       const registry = source.registry ?? DEFAULT_REGISTRY;
       const url = packageDocumentUrl(registry, packageName);
-      const limits = DEFAULT_MATERIALIZATION_LIMITS;
+      const limits = limitsWithDefaults(options.limits ?? {});
       const result = await responseBytes(options.fetch, options.credentials, url, limits.maxPackumentBytes, signal, "resolveNpmSource");
       throwIfAborted(signal);
       let parsed: z.infer<typeof PackumentSchema>;

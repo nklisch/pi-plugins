@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization-integration-hardening
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-foreign-plugin-model-source-materialization
 depends_on: [epic-foreign-plugin-model-source-materialization-git-acquisition, epic-foreign-plugin-model-source-materialization-npm-acquisition]
@@ -24,6 +24,8 @@ This story integrates but does not absorb lifecycle work. The caller still alloc
 ## Files
 
 - `src/infrastructure/source/create-source-materializers.ts`
+- `src/application/source-materialization.ts` (marketplace-path resolved-source construction exposed by integration)
+- `src/infrastructure/npm/npm-registry-client.ts` (composition limit forwarding)
 - `src/index.ts`
 - `.dependency-cruiser.cjs`
 - `test/integration/source-materialization.test.ts`
@@ -44,9 +46,24 @@ This story integrates but does not absorb lifecycle work. The caller still alloc
 
 ## Acceptance criteria
 
-- [ ] Every supported source returns resolved source + `<slot>/content` + verified deterministic manifest from hermetic fixtures.
-- [ ] Failure injection before/mid/after acquisition and finalization returns no partial object and leaves no materializer-owned path; cleanup failure remains explicit.
-- [ ] Lifecycle can verify the returned root digest without source-specific knowledge, and materialization contains no cache/state/promotion/locking/recovery logic.
-- [ ] Public source/compiled exports match the exact allowlist and expose no credential/process/filesystem internals.
-- [ ] Foundation docs accurately state staging ownership, malicious-content policy, Git ambiguity/submodule behavior, and direct verified script-free npm acquisition.
-- [ ] Full `npm test` and independent `npm run build` pass.
+- [x] Every supported source returns resolved source + `<slot>/content` + verified deterministic manifest from hermetic fixtures.
+- [x] Failure injection before/mid/after acquisition and finalization returns no partial object and leaves no materializer-owned path; cleanup failure remains explicit.
+- [x] Lifecycle can verify the returned root digest without source-specific knowledge, and materialization contains no cache/state/promotion/locking/recovery/GC logic.
+- [x] Public source/compiled exports match the exact allowlist and expose no credential/process/filesystem internals.
+- [x] Foundation docs accurately state staging ownership, malicious-content policy, Git ambiguity/submodule behavior, and direct verified script-free npm acquisition.
+- [x] Full `npm test` and independent `npm run build` pass.
+
+## Implementation notes
+
+- Added the Node composition root with one SHA-256 port, the secure content writer, tar/gzip reader, Git command/acquirer, bounded HTTPS and npm credential/registry/acquirer graph, and marketplace-relative filesystem copier. Raw adapter modules remain unexported.
+- Added hermetic integration coverage for local-Git, Git URL, GitHub shorthand, Git plugin, Git subdirectory, marketplace-relative, and npm sources. Fixtures assert common manifests, resolved revisions, `.work` cleanup, lifecycle digest verification, cancellation preservation, transient classification, and script-free npm extraction.
+- Fixed marketplace-relative result construction to create its canonical/hash-bearing resolved source before application verification. Forwarded configured materialization limits to packument resolution so composition applies one limit policy end to end.
+- Updated the public source and compiled-package allowlists and rolled the foundation docs forward to the staging/security handoff without introducing lifecycle state or promotion mechanics.
+
+## Verification
+
+- `npm test`
+- `npm run build`
+- `node test/compiled-package-import.mjs`
+- `npx vitest run test/integration/source-materialization.test.ts`
+- `npm run boundaries`
