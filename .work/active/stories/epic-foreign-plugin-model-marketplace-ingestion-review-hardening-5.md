@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion-review-hardening-5
 kind: story
-stage: review
+stage: done
 tags: [compatibility, tests]
 parent: epic-foreign-plugin-model-marketplace-ingestion
 depends_on: [epic-foreign-plugin-model-marketplace-ingestion-review-hardening-4]
@@ -41,3 +41,13 @@ Close two reproducible provenance-integrity findings from final marketplace cert
 - Discrepancies from design: none. Source materialization and later lifecycle surfaces were not touched.
 - Adjacent issues parked: none.
 - Verification: reproduced both certification failures before implementation; `npm test` passed 234 tests with typecheck, boundaries, build, and compiled package import; independent `npm run build && node test/compiled-package-import.mjs` passed.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane provenance-integrity review. Independently confirmed `npm test`: 234 tests, typecheck, 156 dependency edges with no violations, build, and exact 94-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
