@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-review-hardening
 kind: story
-stage: review
+stage: done
 tags: [compatibility, security, tests]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-marketplace-ingestion, epic-foreign-plugin-model-source-materialization, epic-foreign-plugin-model-plugin-bundle-ingestion]
@@ -46,3 +46,13 @@ Close the cross-feature source-binding bypass found by epic certification.
 - Verification: reproduced both pre-fix bypasses first; after the fix both reject with `SOURCE_RESOLUTION_FAILED`. `npm test` passes 354 tests, clean boundaries, build, and 131-export compiled package import. Independent `npm run build && node test/compiled-package-import.mjs` passes.
 - Discrepancies from design: none.
 - Adjacent issues parked: none.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane cross-feature handoff review. Independently confirmed 354 tests, clean typecheck and dependency boundaries, build, and exact 131-export package import. Verdict: Approve - story verified by implement; fast-lane advance.
