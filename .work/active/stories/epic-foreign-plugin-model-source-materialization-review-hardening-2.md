@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization-review-hardening-2
 kind: story
-stage: review
+stage: done
 tags: [security, infra, tests]
 parent: epic-foreign-plugin-model-source-materialization
 depends_on: [epic-foreign-plugin-model-source-materialization-review-hardening]
@@ -46,3 +46,13 @@ Close residual source-materialization failures reproduced after the primary secu
 - Adjacent issues parked: none.
 - Reproduced findings before implementation: exact npm/Git selector mismatch acceptance, relative-slot forged-root acceptance, archive cancellation hanging on a pending `next()`, path token non-matching/first-match behavior, and the public verifier declaration's unexported incremental hash option. The early tree-limit probe also confirmed hashing occurred before the final entry-count rejection.
 - Verification: `npm test` passed 26 files/229 tests, dependency boundaries (154 dependencies), build, and compiled package import; `npm run build && node test/compiled-package-import.mjs` passed independently. The public declaration now exposes only lifecycle verifier options and the Node composition returns a bound verifier.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane selector/slot/cancellation hardening review. Independently confirmed `npm test`: 229 tests, typecheck, 154 dependency edges with no violations, build, and exact 94-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
