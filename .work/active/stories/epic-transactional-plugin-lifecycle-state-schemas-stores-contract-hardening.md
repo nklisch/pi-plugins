@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores-contract-hardening
 kind: story
-stage: review
+stage: done
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-state-schemas-stores
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores-config-portable, epic-transactional-plugin-lifecycle-state-schemas-stores-installed-project, epic-transactional-plugin-lifecycle-state-schemas-stores-trust-pointers-ports]
@@ -59,3 +59,13 @@ No production storage/lock/trust/secret/promotion/operation/recovery adapter is 
 - Tests added: exact source/compiled export allowlists, six-family fixture loading, fake public-port user/project round trips, deterministic encoding, corruption isolation/fatal-root and digest/scope/future-version checks, portable canary exclusions, migration fixture coverage, and dedicated dependency-boundary regressions.
 - Discrepancies from design: none; no production adapter, lock, trust policy, secret store, promotion, operation, projection, or recovery implementation was added.
 - Adjacent issues parked: none.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane state-contract hardening review. Independently confirmed 417 tests, clean typecheck and dependency boundaries, build, and exact 238-export package import. Verdict: Approve - story verified by implement; fast-lane advance.
