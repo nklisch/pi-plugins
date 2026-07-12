@@ -195,6 +195,18 @@ export function mergeEquivalentClaims<T>(
   const leftProvenance = validatedProvenance(left, "left");
   const rightProvenance = validatedProvenance(right, "right");
 
+  // A source location identifies one declaration. If two claims reuse that
+  // exact location with different raw data, retaining only the first claim
+  // would make provenance lie about what the reader observed. This check is
+  // intentionally stricter than normalized-value equality: equivalent
+  // normalization does not erase a contradictory raw declaration.
+  if (leftProvenance.some((leftSource) =>
+    rightProvenance.some((rightSource) =>
+      sameSourceLocation(leftSource.location, rightSource.location) &&
+      !defaultEquals(leftSource.declaration, rightSource.declaration)))) {
+    throw new ClaimConflictError(left, right);
+  }
+
   if (!equals(left.value, right.value)) {
     throw new ClaimConflictError(left, right);
   }

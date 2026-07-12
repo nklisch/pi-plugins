@@ -6,6 +6,41 @@ import {
 } from "../../../src/formats/codex/marketplace-reader.js";
 
 describe("Codex marketplace reader", () => {
+  it("retains complete provenance when pluginRoot derives a local marketplace path", () => {
+    const result = readCodexMarketplace({
+      name: "rooted-catalog",
+      metadata: { pluginRoot: "./plugins" },
+      plugins: [{
+        name: "rooted",
+        source: { source: "local", path: "./entry" },
+        policy: { installation: "AVAILABLE" },
+      }],
+    });
+
+    const source = result.marketplace.entries[0]?.source;
+    expect(source?.value).toEqual({ kind: "marketplace-path", path: "./plugins/entry" });
+    expect(source?.provenance).toEqual([
+      {
+        location: {
+          host: "codex",
+          documentKind: "marketplace",
+          path: ".agents/plugins/marketplace.json",
+          pointer: "/metadata/pluginRoot",
+        },
+        declaration: "./plugins",
+      },
+      {
+        location: {
+          host: "codex",
+          documentKind: "marketplace",
+          path: ".agents/plugins/marketplace.json",
+          pointer: "/plugins/0/source",
+        },
+        declaration: { source: "local", path: "./entry" },
+      },
+    ]);
+  });
+
   it("normalizes native and Claude-compatible sources", () => {
     const result = readCodexMarketplace({
       name: "codex-catalog",

@@ -99,17 +99,18 @@ describe("claim merging", () => {
 
   it("deduplicates repeated source locations without losing distinct fields", () => {
     const sameLocation = location("manifest.json", { pointer: "/description" });
+    const duplicateDeclaration = { value: "same" };
     const left: Claimed<string> = {
       value: "same",
       provenance: [
-        { location: sameLocation },
+        { location: sameLocation, declaration: duplicateDeclaration },
         { location: location("claude.json", { pointer: "/description" }) },
       ],
     };
     const right: Claimed<string> = {
       value: "same",
       provenance: [
-        { location: sameLocation, declaration: { value: "same" } },
+        { location: sameLocation, declaration: duplicateDeclaration },
         { location: location("codex.json", { pointer: "/description" }) },
       ],
     };
@@ -121,6 +122,14 @@ describe("claim merging", () => {
       "claude.json",
       "codex.json",
     ]);
+  });
+
+  it("rejects unequal raw declarations at one exact source location", () => {
+    const sourceLocation = location("manifest.json", { pointer: "/description" });
+    const left = claim("same", { location: sourceLocation, declaration: "left" });
+    const right = claim("same", { location: sourceLocation, declaration: "right" });
+
+    expect(() => mergeEquivalentClaims(left, right)).toThrowError(ClaimConflictError);
   });
 
   it("supports structural equality for normalized JSON values by default", () => {

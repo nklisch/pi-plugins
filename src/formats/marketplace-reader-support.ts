@@ -358,10 +358,14 @@ export function readPluginRoot(
   nativeHost: NativeHost,
   path: string,
   operation: string,
-): { readonly root: string | undefined; readonly metadata: RetainedMetadata[] } {
+): {
+  readonly root: string | undefined;
+  readonly pluginRootProvenance: Provenance | undefined;
+  readonly metadata: RetainedMetadata[];
+} {
   const metadataValue = root.metadata;
   if (metadataValue === undefined) {
-    return { root: undefined, metadata: [] };
+    return { root: undefined, pluginRootProvenance: undefined, metadata: [] };
   }
   if (!isJsonRecord(metadataValue)) {
     throw rootInvalid(operation, nativeHost, path, "Marketplace root metadata must be an object", {
@@ -370,11 +374,18 @@ export function readPluginRoot(
   }
 
   let pluginRoot: string | undefined;
+  let pluginRootProvenance: Provenance | undefined;
   if (own(metadataValue, "pluginRoot")) {
     try {
       pluginRoot = validateCatalogRelativePath(
         metadataValue.pluginRoot,
         jsonPointer("metadata", "pluginRoot"),
+      );
+      pluginRootProvenance = provenanceAt(
+        nativeHost,
+        path,
+        jsonPointer("metadata", "pluginRoot"),
+        metadataValue.pluginRoot,
       );
     } catch (cause) {
       throw rootInvalid(
@@ -399,7 +410,7 @@ export function readPluginRoot(
       claimed: claimAt(value, nativeHost, path, jsonPointer("metadata", key), value),
     }));
   }
-  return { root: pluginRoot, metadata: retained };
+  return { root: pluginRoot, pluginRootProvenance, metadata: retained };
 }
 
 export function collectRootMetadata(

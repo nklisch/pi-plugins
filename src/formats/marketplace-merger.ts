@@ -136,16 +136,34 @@ function firstProvenance<T>(claim: ClaimLike<T>): Provenance {
 function mergeProvenance<T>(
   left: ClaimLike<T>,
   right: ClaimLike<T>,
+  field: string,
+  plugin: string,
 ): readonly [Provenance, ...Provenance[]] {
-  const values = [...left.provenance, ...right.provenance]
-    .sort(compareProvenance);
+  const values = [...left.provenance, ...right.provenance];
+  for (let leftIndex = 0; leftIndex < values.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < values.length; rightIndex += 1) {
+      const first = values[leftIndex] as Provenance;
+      const second = values[rightIndex] as Provenance;
+      if (
+        locationKey(first.location) === locationKey(second.location) &&
+        stableJson(first.declaration) !== stableJson(second.declaration)
+      ) {
+        // A location identifies one foreign declaration. Keeping one raw
+        // value here would make an otherwise valid merge unauditable, so the
+        // entry-level merger reports a typed conflict instead.
+        conflict(field, left, right, plugin);
+      }
+    }
+  }
+
   const unique: Provenance[] = [];
-  for (const candidate of values) {
-    if (!unique.some((existing) => locationKey(existing.location) === locationKey(candidate.location))) {
+  for (const candidate of values.sort(compareProvenance)) {
+    if (!unique.some((existing) =>
+      locationKey(existing.location) === locationKey(candidate.location) &&
+      stableJson(existing.declaration) === stableJson(candidate.declaration))) {
       unique.push(candidate);
     }
   }
-  unique.sort(compareProvenance);
   return unique as [Provenance, ...Provenance[]];
 }
 
@@ -196,16 +214,21 @@ function mergeClaim<T>(
   }
   return {
     value: first.value,
-    provenance: mergeProvenance(first, second),
+    provenance: mergeProvenance(first, second, field, plugin),
   };
 }
 
 /** Keep both raw declarations while selecting the canonical host's normalized value. */
-function mergeRawClaim<T>(left: ClaimLike<T>, right: ClaimLike<T>): Claimed<T> {
+function mergeRawClaim<T>(
+  field: string,
+  left: ClaimLike<T>,
+  right: ClaimLike<T>,
+  plugin: string,
+): Claimed<T> {
   const [first, second] = orderedClaims(left, right);
   return {
     value: first.value,
-    provenance: mergeProvenance(first, second),
+    provenance: mergeProvenance(first, second, field, plugin),
   };
 }
 
@@ -250,7 +273,7 @@ function mergePolicy(
     // The normalized policy claims above determine compatibility. The raw
     // declaration is retained from both hosts for auditability even when
     // equivalent host documents use different object shapes or key order.
-    declaration: mergeRawClaim(left.declaration, right.declaration),
+    declaration: mergeRawClaim("policy.declaration", left.declaration, right.declaration, plugin),
   };
 }
 
@@ -446,7 +469,7 @@ export function mergeMarketplaceEntries(
     authorities: mergeAuthorities(first.authorities, second.authorities, plugin),
     declarations: mergeDeclarations(first.declarations, second.declarations, plugin),
     metadata: mergeMetadata(first.metadata, second.metadata, plugin),
-    rawDeclaration: mergeRawClaim(first.rawDeclaration, second.rawDeclaration),
+    rawDeclaration: mergeRawClaim("rawDeclaration", first.rawDeclaration, second.rawDeclaration, plugin)
   };
   return NormalizedMarketplaceEntrySchema.parse(merged);
 }

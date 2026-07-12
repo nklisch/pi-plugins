@@ -14,6 +14,7 @@ import {
 } from "../../domain/identity.js";
 import { PluginSourceSchema, type PluginSource } from "../../domain/source.js";
 import { type JsonValue } from "../../domain/schema.js";
+import type { Provenance } from "../../domain/provenance.js";
 import {
   MarketplaceEntryDeclarationRegistry,
   MarketplaceEntryError,
@@ -172,6 +173,7 @@ function readCodexEntry(
   path: string,
   index: number,
   pluginRoot: string | undefined,
+  pluginRootProvenance: Provenance | undefined,
 ): NormalizedMarketplaceEntry {
   const entryPointer = jsonPointer("plugins", index);
   if (!isJsonRecord(raw)) {
@@ -193,6 +195,10 @@ function readCodexEntry(
   }
 
   const source = parsePluginSource(rawSource, entryPointerPath(entryPointer, "source"), pluginRoot);
+  const sourceProvenance = provenanceAt("codex", path, entryPointerPath(entryPointer, "source"), rawSource);
+  const sourceClaim = source.kind === "marketplace-path" && pluginRootProvenance !== undefined
+    ? claimedFrom(source, [pluginRootProvenance, sourceProvenance])
+    : claimedFrom(source, [sourceProvenance]);
   const identity = PluginIdentitySchema.parse({
     key,
     marketplaceName: rootName,
@@ -233,7 +239,7 @@ function readCodexEntry(
 
   return {
     identity: identityClaim,
-    source: claimAt(source, "codex", path, entryPointerPath(entryPointer, "source"), rawSource),
+    source: sourceClaim,
     ...(version === undefined ? {} : { version }),
     ...(description === undefined ? {} : { description }),
     policy,
@@ -276,14 +282,26 @@ function readMarketplaceInput(
       pointer: jsonPointer("plugins"),
     }, undefined, jsonPointer("plugins"));
   }
-  const { root: pluginRoot, metadata: nestedMetadata } = readPluginRoot(root, "codex", path, operation);
+  const {
+    root: pluginRoot,
+    pluginRootProvenance,
+    metadata: nestedMetadata,
+  } = readPluginRoot(root, "codex", path, operation);
   const entries: NormalizedMarketplaceEntry[] = [];
   const entryIndexes: number[] = [];
   const diagnostics = [] as ReturnType<typeof entryDiagnostic>[];
 
   for (const [index, rawEntry] of rawPlugins.entries()) {
     try {
-      entries.push(readCodexEntry(rawEntry, marketplaceName, rawName, path, index, pluginRoot));
+      entries.push(readCodexEntry(
+        rawEntry,
+        marketplaceName,
+        rawName,
+        path,
+        index,
+        pluginRoot,
+        pluginRootProvenance,
+      ));
       entryIndexes.push(index);
     } catch (error) {
       const entryFailure = error instanceof MarketplaceEntryError

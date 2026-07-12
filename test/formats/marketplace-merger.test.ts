@@ -146,6 +146,72 @@ describe("dual marketplace merger", () => {
     expect(mergeMarketplaceEntries("shared-catalog", right, left)).toEqual(merged);
   });
 
+  it("rejects unequal raw declarations at one location in direct entry merging", () => {
+    const left = readClaudeMarketplace({
+      name: "shared-catalog",
+      plugins: [{ name: "shared", source: "./shared" }],
+    }).marketplace.entries[0]!;
+    const sourceProvenance = left.source.provenance[0]!;
+    const right = {
+      ...left,
+      source: {
+        ...left.source,
+        provenance: [{ ...sourceProvenance, declaration: "./different" }],
+      },
+    };
+
+    expect(() => mergeMarketplaceEntries("shared-catalog", left, right)).toThrowError();
+    try {
+      mergeMarketplaceEntries("shared-catalog", left, right);
+      throw new Error("expected same-location conflict");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "CLAIM_CONFLICT",
+        details: { field: "source" },
+      });
+    }
+  });
+
+  it("rejects contradictory same-location provenance in catalog merging and keeps permutation output stable", () => {
+    const claude = claudeCatalog([{ name: "shared", source: "./shared" }]);
+    const original = claude.marketplace.entries[0]!;
+    const sourceProvenance = original.source.provenance[0]!;
+    const forgedClaude = {
+      ...claude,
+      marketplace: {
+        ...claude.marketplace,
+        entries: [{
+          ...original,
+          source: {
+            ...original.source,
+            provenance: [
+              sourceProvenance,
+              { ...sourceProvenance, declaration: "./different" },
+            ],
+          },
+        }],
+      },
+    };
+    const codex = codexCatalog([{ name: "shared", source: "./shared", policy: { installation: "AVAILABLE" } }]);
+
+    const normal = mergeMarketplaces([
+      { nativeHost: "claude", result: forgedClaude },
+      { nativeHost: "codex", result: codex },
+    ]);
+    const permuted = mergeMarketplaces([
+      { nativeHost: "codex", result: codex },
+      { nativeHost: "claude", result: forgedClaude },
+    ]);
+
+    expect(normal).toEqual(permuted);
+    expect(normal.marketplace.entries).toEqual([]);
+    expect(normal.diagnostics).toHaveLength(1);
+    expect(normal.diagnostics[0]).toMatchObject({
+      code: "CLAIM_CONFLICT",
+      details: { field: "source" },
+    });
+  });
+
   it.each([
     [undefined, ""],
     [undefined, "/"],

@@ -34,6 +34,37 @@ const catalog = {
 };
 
 describe("Claude marketplace reader", () => {
+  it("retains complete provenance when pluginRoot derives a marketplace path", () => {
+    const result = readClaudeMarketplace({
+      name: "rooted-catalog",
+      metadata: { pluginRoot: "./plugins" },
+      plugins: [{ name: "rooted", source: "./entry" }],
+    });
+
+    const source = result.marketplace.entries[0]?.source;
+    expect(source?.value).toEqual({ kind: "marketplace-path", path: "./plugins/entry" });
+    expect(source?.provenance).toEqual([
+      {
+        location: {
+          host: "claude",
+          documentKind: "marketplace",
+          path: ".claude-plugin/marketplace.json",
+          pointer: "/metadata/pluginRoot",
+        },
+        declaration: "./plugins",
+      },
+      {
+        location: {
+          host: "claude",
+          documentKind: "marketplace",
+          path: ".claude-plugin/marketplace.json",
+          pointer: "/plugins/0/source",
+        },
+        declaration: "./entry",
+      },
+    ]);
+  });
+
   it("normalizes the real-shaped catalog forms without resolving content", () => {
     const result = readClaudeMarketplace(catalog);
     expect(result.diagnostics).toEqual([]);
