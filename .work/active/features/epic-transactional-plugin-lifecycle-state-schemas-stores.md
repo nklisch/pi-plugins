@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores
 kind: feature
-stage: review
+stage: implementing
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: []
@@ -640,4 +640,4 @@ Integrated verification: `npm test` passes 422 tests plus clean typecheck and de
 
 ## Review findings
 
-The review-hardening story is done. Persisted installed evidence is safe-by-construction, raw document digests precede identifiable-record isolation, canonical mutation verification is mandatory, unidentified records fail their document, and corruption projections are schema-redacted. Independent integrated verification passes 422 tests plus clean typecheck and dependency boundaries, build, and exact 253-export package import. The feature returns to `stage: review` for final convergence.
+The first review-hardening story closes persisted-evidence, digest/isolation, unidentified-record and corruption-redaction findings. Final certification found the public structural mutation schema could still mint the store-facing type without evidence verification. `epic-transactional-plugin-lifecycle-state-schemas-stores-review-hardening-2` tracks the opaque verified-mutation boundary; the feature remains at `stage: implementing` until it closes.
