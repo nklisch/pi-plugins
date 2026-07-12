@@ -31,6 +31,24 @@ describe("Claude plugin manifest reader", () => {
     });
   });
 
+  it("normalizes Claude userConfig descriptors without retaining a configured value", () => {
+    const result = readClaudePluginManifest({
+      name: "demo",
+      userConfig: {
+        API_KEY: { type: "string", title: "API key", sensitive: true },
+        RETRIES: { type: "number", default: 2, min: 0, max: 3 },
+      },
+    }, context);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.configuration).toMatchObject([
+      { key: "API_KEY", label: { value: "API key" }, sensitive: true, value: { kind: "string" } },
+      { key: "RETRIES", value: { kind: "number", default: 2, min: 0, max: 3 } },
+    ]);
+    expect(result.value.foreign).toEqual([]);
+    expect(result.value).not.toHaveProperty("configured");
+  });
+
   it("keeps unsupported runtime declarations as foreign data", () => {
     const result = readClaudePluginManifest({
       name: "demo",

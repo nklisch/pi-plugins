@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-plugin-bundle-ingestion-skills-configuration
 kind: story
-stage: implementing
+stage: review
 tags: [compatibility]
 parent: epic-foreign-plugin-model-plugin-bundle-ingestion
 depends_on: [epic-foreign-plugin-model-plugin-bundle-ingestion-manifest-reconciliation]
@@ -45,3 +45,13 @@ Commit hermetic snapshots from `/home/nathan/dev/skills` commit `8d312608113b2e6
 ## Out of scope
 
 No compatibility interpretation of invocation fields, configured-value collection, secret storage, substitution, runtime activation, or lifecycle behavior.
+
+## Implementation notes
+
+- Execution capability: direct-read only; the caller prohibited nested agents and peeragent, and the pure reader/fixture surface is cohesive.
+- Review weight: standard by project default; explicit stop at `stage: review` because the caller requested the implementing→review transition and prohibited independent agents.
+- Files changed: `src/formats/agent-skills/frontmatter-reader.ts`, `src/formats/agent-skills/skill-reader.ts`, `src/formats/claude/user-config-reader.ts`, Claude manifest wiring, `package.json`, `package-lock.json`, committed real and adversarial fixtures, and focused format tests.
+- Tests added: bounded YAML/frontmatter adversarial cases, real folded Agent Skills and Codex presentation snapshots, normalized skill metadata/identity, and descriptor-only Claude `userConfig` validation.
+- Discrepancies from design: discovery remains an application-layer responsibility; these pure readers accept only caller-supplied manifest-indexed paths/content and import no filesystem or runtime modules. The bounded YAML parser is pinned to `yaml@2.8.1`.
+- Adjacent issues parked: none.
+- Verification: focused tests, full `npm test`, and independent build/import verification passed.

@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "semver": "7.8.1",
+    "yaml": "2.8.1",
     "zod": "^4.0.0"
   },
   "devDependencies": {
