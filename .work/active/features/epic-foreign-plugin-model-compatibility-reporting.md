@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-compatibility-reporting
 kind: feature
-stage: review
+stage: implementing
 tags: [compatibility]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-plugin-bundle-ingestion]
@@ -432,4 +432,4 @@ Integrated verification: `npm test` passes 347 tests plus clean typecheck and de
 
 ## Review findings
 
-The review-hardening story is done and enforces registry-recognized hook-condition grammar, coherent exclusive OAuth, exact nested MCP feature shapes, and complete positive/negative fixture outcome contracts. Independent integrated verification passes 348 tests plus clean typecheck and dependency boundaries, build, and exact 131-export package import. The feature returns to `stage: review` for final convergence.
+The first review-hardening story enforces hook-condition grammar, coherent OAuth flow selection, exact nested MCP features, and complete fixture outcomes. Final certification then found bearer/OAuth selector conflicts and embedded URL credentials still failed open. `epic-foreign-plugin-model-compatibility-reporting-review-hardening-2` tracks these MCP credential-semantics fixes; the feature remains at `stage: implementing` until they close.
