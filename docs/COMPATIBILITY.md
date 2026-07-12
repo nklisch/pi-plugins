@@ -41,9 +41,12 @@ logs but are omitted from serialized diagnostics.
 | Marketplace ref | Supported | Supported | Supported |
 | Sparse marketplace checkout | Supported | Supported | Supported |
 
-A repository containing both catalog files is valid when their marketplace
-identity and overlapping plugin entries agree. Conflicts identify both source
-files and prevent registration.
+The catalog-declared root `name` is authoritative; a caller or registration
+alias cannot rename the marketplace. A repository containing both catalog files
+is valid when those root names and overlapping plugin entries agree. Root-name
+conflicts identify both source files and prevent registration. Entry conflicts
+identify both declarations and omit only that entry while valid siblings remain
+browsable.
 
 ## Plugin source forms
 
@@ -81,10 +84,12 @@ or hash mismatch is rejected.
 
 | Declaration | Status |
 |---|---|
-| Name, owner, description, category, tags | Metadata-only |
+| Root marketplace `name` | Supported; authoritative identity |
+| Owner, description, category, tags, interface | Metadata-only |
 | Plugin `version` | Supported |
-| Claude `strict: true` manifest merge | Supported |
-| Claude `strict: false` marketplace authority | Supported |
+| Claude `strict: true` or omitted | Supported; manifest required, catalog runtime declarations supplemental |
+| Claude `strict: false` marketplace authority | Supported; manifest optional, catalog runtime declarations authoritative |
+| Codex catalog authority | Supported; manifest required, catalog runtime declarations supplemental |
 | Codex installation/authentication policy | Metadata-only except availability |
 | Available/installable policy | Supported |
 | Not-available policy | Supported |
@@ -95,9 +100,19 @@ or hash mismatch is rejected.
 | Enterprise marketplace restrictions | Incompatible as runtime policy |
 | Product-specific visibility restrictions | Metadata-only |
 
-A marketplace entry may declare supported components directly. Those
-declarations participate in the same normalization and conflict checks as a
-plugin manifest.
+A marketplace entry may declare components and plugin dependencies directly.
+Catalog readers retain those raw declarations and their JSON Pointer provenance
+without assigning a verdict. After materialization, bundle ingestion applies
+the recorded authority and a separate manifest merger; marketplace merging does
+not double as manifest merging.
+
+Invalid raw JSON, an invalid root identity/shape, invalid root-wide path
+configuration, duplicate surviving names, or conflicting dual root identities
+make the catalog root unusable. A malformed entry, malformed nested runtime or
+dependency declaration, or dual-entry conflict omits the complete entry and
+reports an error while valid siblings survive. Readers check relative path
+syntax; realpath, symlink, and containment checks occur against materialized
+content.
 
 ## Plugin manifests
 

@@ -51,9 +51,13 @@ A Git-backed marketplace contains either:
 - `.agents/plugins/marketplace.json`
 - `.claude-plugin/marketplace.json`
 
-When both files exist, Pi validates both. Entries with the same plugin identity
-must resolve consistently. A disagreement is a compatibility error rather than
-an implicit precedence choice.
+The catalog-declared root `name` is the marketplace identity; registration
+aliases never replace it. When both files exist, Pi requires those root names to
+match before reading entries. Root disagreement prevents registration and
+reports both source locations. Entries with the same plugin identity must
+resolve consistently. Entry disagreement drops that overlapping entry with a
+compatibility diagnostic while valid siblings remain available; neither host
+receives implicit precedence.
 
 Raw remote `marketplace.json` URLs are not marketplace sources.
 
@@ -76,8 +80,12 @@ resolved npm integrity values are canonical `sha512-` strings containing the
 must not contain embedded credentials. Malformed percent escapes are rejected;
 encoded delimiters are normalized without aliasing distinct path segments.
 
-Paths are canonicalized before use. A relative or subdirectory source cannot
-escape its containing marketplace or materialized repository.
+Catalog readers validate relative path syntax before use: paths begin with
+`./`, contain no empty, `.`, `..`, backslash, NUL, or absolute segments, and
+retain their declaration provenance. Filesystem realpath, symlink, and
+materialized-root containment are enforced only after source materialization. A
+relative or subdirectory source cannot escape its containing marketplace or
+materialized repository.
 
 Unknown source types fail validation with their source location and type.
 Resolved source contracts retain the immutable URL/path/package fields and
@@ -92,9 +100,19 @@ The stable external identity is:
 <plugin-name>@<marketplace-name>
 ```
 
-The marketplace entry name controls lookup and enablement. A differing internal
-manifest name is retained as component-namespace metadata and reported to the
-user.
+The marketplace entry name controls lookup and enablement. Catalog ingestion
+represents it as an unresolved `NormalizedMarketplaceEntry` with a declared
+source and per-claim provenance; it does not fabricate the resolved source or
+complete inventory required by `NormalizedPlugin`. A differing internal
+manifest name is retained later as component-namespace metadata and reported to
+the user.
+
+Raw JSON syntax, an untrusted root shape or identity, invalid root-wide path
+configuration, duplicate surviving entry names, and conflicting dual root
+identities are root-fatal. Malformed entries and dual-entry conflicts are
+entry-recoverable: the complete bad entry is omitted, an error diagnostic is
+returned, and valid siblings survive. A malformed nested runtime or dependency
+field never produces a partial entry.
 
 An installed revision records:
 

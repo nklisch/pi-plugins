@@ -87,6 +87,7 @@ src/
 │   ├── schema.ts
 │   ├── configuration.ts
 │   ├── components.ts
+│   ├── marketplace.ts
 │   ├── plugin.ts
 │   ├── compatibility.ts
 │   ├── error-contract.ts
@@ -113,7 +114,9 @@ src/
 │   │   └── state-reader.ts
 │   ├── agent-skills/
 │   │   └── skill-reader.ts
-│   └── merger.ts
+│   ├── marketplace-reader-support.ts
+│   ├── marketplace-merger.ts
+│   └── manifest-merger.ts
 ├── infrastructure/
 │   ├── filesystem/
 │   ├── git/
@@ -186,6 +189,40 @@ percent escapes in URI forms, unknown fields, lone UTF-16 surrogates, and
 non-full Git SHA pins fail at the boundary. Canonical bytes use the injective
 `source-v1|<kind>|<field>:<UTF-8-byte-length>:<value>` grammar; malformed
 percent escapes are rejected rather than treated as literal text.
+
+### Normalized marketplace
+
+Catalog entries are unresolved declarations, not partial plugin bundles:
+
+```typescript
+interface NormalizedMarketplace {
+  name: Claimed<MarketplaceName>;
+  entries: NormalizedMarketplaceEntry[];
+  metadata: RetainedMetadata[];
+  sourceDocuments: Provenance[];
+}
+
+interface NormalizedMarketplaceEntry {
+  identity: Claimed<PluginIdentity>;
+  source: Claimed<PluginSource>;
+  version?: Claimed<string>;
+  description?: Claimed<string>;
+  policy?: MarketplaceInstallationPolicy;
+  authorities: MarketplaceAuthority[];
+  declarations: MarketplaceEntryDeclaration[];
+  metadata: RetainedMetadata[];
+  rawDeclaration: Claimed<JsonValue>;
+}
+```
+
+The catalog-declared root name is authoritative. Claude authority metadata
+preserves explicit or default `strict`: strict entries require manifests and
+treat catalog runtime fields as supplemental, while `strict: false` permits a
+catalog-authoritative entry. Codex requires its plugin manifest and treats
+catalog runtime declarations as supplemental. Bundle ingestion resolves those
+authority records after materialization. Runtime-bearing and dependency
+declarations remain raw, source-located data until compatibility policy assigns
+meaning.
 
 ### Normalized bundle
 
@@ -273,6 +310,20 @@ Each format reader:
 2. Resolves only syntax and semantics belonging to that format.
 3. Emits normalized claims with provenance.
 4. Does not access state or activate resources.
+
+Format modules import only domain and sibling format modules, never Node,
+filesystem, application, runtime, or Pi APIs. Marketplace readers validate path
+syntax only; materialized containment is a later boundary. Every claim uses an
+RFC 6901 JSON Pointer and preserves its raw declaration. A malformed nested
+runtime-bearing field invalidates the complete entry rather than producing a
+partial entry.
+
+Raw JSON errors and untrustworthy catalog roots throw `BoundaryError`; malformed
+entries return diagnostics beside valid siblings. The dedicated marketplace
+merger orders provenance Claude then Codex, compares sources through canonical
+source serialization (selectors included), treats root identity disagreement as
+fatal, and isolates entry conflicts. It is separate from manifest merging
+because the two boundaries have different authority and fatality rules.
 
 The reader reports unknown runtime fields rather than discarding them.
 
