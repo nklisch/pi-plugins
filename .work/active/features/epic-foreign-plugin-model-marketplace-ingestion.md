@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-domain-contracts]
@@ -393,3 +393,16 @@ The two host readers have independent write ownership after the shared domain/su
 ## Pre-mortem
 
 This feature fails in production if two catalogs with different selectors merge, a malformed nested runtime declaration leaks through as a seemingly valid partial plugin, caller aliases change installed identity, or `strict: false` silently bypasses manifest/catalog conflict checks. The design prevents those outcomes with canonical source comparison, atomic entry parsing, root-declared identity only, and deferred authority resolution. If actual Codex catalog fixtures contradict the documented required policy or source set, implementation should add a verified reader variant and fixture while preserving the normalized contract; it must not weaken root identity, provenance, or no-partial-entry guarantees.
+
+## Implementation summary
+
+All four child stories are done:
+
+- `epic-foreign-plugin-model-marketplace-ingestion-domain-contracts`
+- `epic-foreign-plugin-model-marketplace-ingestion-claude-reader`
+- `epic-foreign-plugin-model-marketplace-ingestion-codex-reader`
+- `epic-foreign-plugin-model-marketplace-ingestion-dual-catalog-merge`
+
+The implementation adds unresolved marketplace domain contracts, isolated Claude and Codex catalog readers, shared provenance/path support, deterministic dual-catalog reconciliation, and executable format-boundary rules. The only noted adjustment accepts both documented `plugin` and `./plugin` Git-subdirectory paths because the verified `nklisch-skills` catalog uses the former.
+
+Integrated verification: `npm test` passes 174 tests plus typecheck, dependency boundaries, build, and exact 90-export compiled package import.
