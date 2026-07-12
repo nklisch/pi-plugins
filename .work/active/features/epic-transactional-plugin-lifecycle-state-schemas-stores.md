@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores
 kind: feature
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: []
@@ -640,4 +640,14 @@ Integrated verification: `npm test` performs real production and test-file typec
 
 ## Review findings
 
-All three review-hardening stories are done. Test files now participate in strict typechecking, every surfaced suite error is repaired, verified-mutation compile-time rejection is actually exercised, and a participation regression prevents silent exclusion. The feature returns to `stage: review` for final confirmation.
+All three review-hardening stories are done. Test files participate in strict typechecking, every surfaced suite error is repaired, verified-mutation compile-time rejection is actually exercised, and a participation regression prevents silent exclusion.
+
+## Final review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+GLM 5.2 completeness and GPT-5.6 Sol adversarial contract review independently approved current HEAD with zero significant findings. Both confirmed the real test-typecheck pipeline, active verified-mutation compile-time rejection, all five prior state-boundary closures, 426 passing tests, clean production/test typechecking and dependency boundaries, successful build, and exact 257-export package import.
