@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization-secure-content-contract
 kind: story
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-foreign-plugin-model-source-materialization
 depends_on: []
@@ -42,11 +42,11 @@ The lifecycle caller supplies an empty private staging slot. Write only `<slot>/
 
 ## Acceptance criteria
 
-- [ ] Manifest golden vectors change on path/mode/byte/link changes and remain stable across order/platform/archive metadata.
-- [ ] Every path/link/type/collision/limit attack enumerated in the parent fails before an escaping write and uses the specified code/classification.
-- [ ] Pre-abort and cancellation during copy, extraction, finalization, and cleanup return no partial result and remove owned paths; cleanup failure is explicit.
-- [ ] Marketplace-relative source and context mismatch/escape fixtures fail closed; safe internal content succeeds.
-- [ ] Boundary regressions prove domain/application/format constraints, and the intended public contracts are source-importable.
+- [x] Manifest golden vectors change on path/mode/byte/link changes and remain stable across order/platform/archive metadata.
+- [x] Every path/link/type/collision/limit attack enumerated in the parent fails before an escaping write and uses the specified code/classification.
+- [x] Pre-abort and cancellation during copy, extraction, finalization, and cleanup return no partial result and remove owned paths; cleanup failure is explicit.
+- [x] Marketplace-relative source and context mismatch/escape fixtures fail closed; safe internal content succeeds.
+- [x] Boundary regressions prove domain/application/format constraints, and the intended public contracts are source-importable.
 - [x] Focused tests, `npm run typecheck`, and `npm run boundaries` pass.
 
 ## Implementation notes
@@ -63,3 +63,13 @@ The lifecycle caller supplies an empty private staging slot. Write only `<slot>/
 - `npm run boundaries`
 - `npm run test:unit` — 150 tests passing
 - `npm test` — passing, including build and compiled package import
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane story review. Independently confirmed `npm test`: 150 tests, typecheck, 100 dependency edges with no violations, build, and exact 90-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
