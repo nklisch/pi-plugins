@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: []
@@ -625,3 +625,9 @@ The root story fixes identity, scope, reference, and migration grammar. Three in
 This design fails if two projects alias one key and inherit executable trust, a corrupted plugin disables every installation, a stale writer overwrites a newer scope, a portable declaration smuggles a machine path or trust decision, or installed state becomes a second projection store. The design counters those failures with root+repository-bound project keys, record quarantine behind trusted envelopes, expected-generation mutations, whole-file strict portable validation with explicit prohibitions, and schemas that retain canonical normalized evidence but have no projection-content fields.
 
 The least recoverable mistake is exposing unvalidated unknown state through the store port: every downstream operation would then need its own migration and corruption policy. Implementation must therefore land the registry/codecs before any adapter and make both read and write validation mandatory. If atomic pointer publication cannot be proven by a chosen adapter, implementation stops at the port/fake contract and leaves that adapter for `generation-locking`; it must not simulate success with best-effort multi-file writes.
+
+## Implementation summary
+
+All five child stories are done. The implementation delivers strict versioned state families, secure project/scope identity, portable project intent, installed user/project evidence, trust/pointer codecs, corruption isolation, deterministic mutations and an adapter-neutral lifecycle state port. Physical storage, locks, trust policy, secrets, promotion, operations, projections and recovery remain outside this feature.
+
+Integrated verification: `npm test` passes 417 tests plus clean typecheck and dependency boundaries, build, and exact 238-export package import.
