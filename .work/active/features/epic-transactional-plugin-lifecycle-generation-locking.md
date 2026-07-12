@@ -48,20 +48,21 @@ No UI surface.
 
 ## Discovery and design decisions
 
-- **Discovery posture**: Direct-read only. The feature is bounded to the completed state contracts, one new application coordination boundary, and one filesystem adapter. Grounding covered the parent epic, state-schema feature, foundation concurrency/transaction assertions, state-store port and verified-mutation contract, dependency rules, cancellation/error conventions, and representative integration fakes. No exploratory agent was needed.
+- **Discovery posture**: Direct-read only. The feature is bounded to the completed state contracts, one new application coordination boundary, and one local SQLite locking adapter. Grounding covered the parent epic, state-schema feature, foundation concurrency/transaction assertions, state-store port and verified-mutation contract, dependency rules, cancellation/error conventions, Node 24's actual `node:sqlite` transaction/error surface, and representative integration fakes. No exploratory agent was needed.
 - **Worker capability**: Highest available capability is warranted because stale ownership and cross-process races are security- and data-integrity-sensitive. This design was completed in the current context because nested dispatch is unavailable here; design-time advisory unavailability is non-blocking under the project policy.
 - **Review weight**: `standard` from the project/default policy. The implementation and feature review should escalate contract, lifecycle, and adversarial child-process tests rather than relying on line count.
-- **Coordination layers**: Use two deliberately separate mechanisms. A portable in-process keyed scheduler serializes scope-qualified plugin mutations. A filesystem scope-lock adapter coordinates processes. The generation-window service composes both with `LifecycleStateStore`; neither lock implementation is folded into the authoritative store.
+- **Coordination layers**: Use two deliberately separate mechanisms. A portable in-process keyed scheduler serializes scope-qualified plugin mutations. A local SQLite scope-lock adapter coordinates processes. The generation-window service composes both with `LifecycleStateStore`; locking is not folded into authoritative state.
 - **Scope-qualified plugin keys**: User and project installations of the same `PluginKey` are independent and may proceed concurrently. The scheduler key is therefore `(ScopeReference, PluginKey)`, not a bare plugin key. Multi-plugin requests sort their canonical keys before acquisition, preventing lock-order cycles.
-- **Scope lock granularity**: One cross-process lease protects one complete user or project scope. State generation is scope-wide, so narrower cross-process plugin locks would not prevent two plugins from racing the same pointer generation. In-process plugin serialization still avoids needless duplicate work before the short scope window.
-- **Critical-window shape**: Long-running materialization, inspection, compatibility, trust collection, and projection preparation happen before `runPreparedMutation`. The callback inside the window may perform only the already-prepared atomic promotion step and construct a verified mutation. It cannot commit directly. The coordinator asserts lease ownership and commits the returned mutation as the final callback-adjacent action, so code cannot report success after ignoring a stale commit.
+- **Scope lock granularity**: One cross-process transaction protects one complete user or project scope. State generation is scope-wide, so narrower cross-process plugin locks would not prevent two plugins from racing the same pointer generation. In-process plugin serialization still avoids needless duplicate work before the short scope window.
+- **Critical-window shape**: Long-running materialization, inspection, compatibility, trust collection, and projection preparation happen before `runPreparedMutation`. The callback inside the window may perform only the already-prepared atomic promotion step and construct a verified mutation. It cannot commit directly. The coordinator checks transaction ownership and commits the returned mutation as the final callback-adjacent action, so code cannot report success after ignoring a stale commit.
 - **No transaction callback on the store**: `LifecycleStateStore` remains unchanged and adapter-neutral. The callback belongs to the application coordination service, which is the correct owner for promotion-before-commit ordering. The store still receives one opaque `VerifiedStateMutation` and retains compare-and-swap authority.
-- **Lease backend**: Choose a private lock-directory protocol using exclusive directory creation, strict owner metadata, heartbeat renewal, and rename-based stale takeover. The adapter is explicitly supported only on local filesystems whose capability probe demonstrates exclusive create and atomic same-directory rename. It fails closed with `BoundaryError(ADAPTER_FAILED)` when those primitives or secure permissions are unavailable; it does not overclaim NFS/network-filesystem safety.
-- **Abandoned owners**: Owner metadata contains a cryptographically random lease token, process id for diagnostics only, acquisition id, and expiry. Expiry permits takeover only after the owner record is unchanged across the stale observation and atomic rename. The old owner loses because every heartbeat, pre-promotion assertion, and pre-commit assertion re-reads the canonical owner token. PID liveness is never treated as authority, avoiding PID-reuse errors.
-- **Cancellation and waiting**: Caller cancellation is the only public lock-wait timeout. A cancelled queued in-process request is removed without running, and a cancelled cross-process waiter stops retrying. Once the critical window begins, the signal is still checked before promotion and commit. Abort reasons propagate unchanged when release succeeds.
-- **Fairness and reentrancy**: The in-process scheduler is FIFO per canonical key. Reentrant acquisition of an already-held canonical key is rejected rather than silently succeeding or deadlocking. Cross-process acquisition uses bounded jittered polling configured by the adapter; fairness across processes is best-effort because local filesystems provide no portable fair-lock primitive.
-- **Generation authority**: The current `Generation` type and `StateCommitResult` remain authoritative. The coordinator reads under the lease, compares `expectedGeneration`, skips the critical callback on mismatch, then still relies on `LifecycleStateStore.commit` as the final compare-and-swap defense. It never computes the next generation itself.
-- **Failure surface**: Stale generation is returned as data. Lock loss and unsupported/failed filesystem primitives are adapter failures. If work fails and release also fails, the adapter failure carries both causes rather than hiding unsafe cleanup. A successful release never converts cancellation or callback failure.
+- **Lock backend**: Use one private SQLite database per scope and hold `BEGIN IMMEDIATE` for the short mutation window. Node 24 already supplies `node:sqlite`; the operating system releases SQLite's file lock when a connection/process terminates, so abandoned owners need no expiry, PID test, heartbeat, or unsafe stale-lease takeover. The adapter uses rollback-journal mode, a zero SQLite busy timeout, and cancellable application-level retry. It supports only capability-probed local filesystems and fails closed with `BoundaryError(ADAPTER_FAILED)` on unknown/network filesystems or failed lock probes.
+- **Why not an expiring file lease**: A paused owner can resume after expiry, and ownership-check-then-commit is not atomic with takeover. Without a fencing token consumed atomically by `LifecycleStateStore.commit`, heartbeat/rename leases cannot prove mutual exclusion. Generation compare-and-swap prevents lost writes but cannot decide that the newer lease holder must win. The design therefore uses a crash-released kernel lock and has no stale-owner timeout.
+- **Cancellation and waiting**: Caller cancellation (including a caller-created deadline signal) is the only public wait timeout. SQLite receives `timeout: 0`; `SQLITE_BUSY` (`errcode: 5`) triggers bounded jittered retries that stop immediately on abort. A cancelled in-process waiter is removed without running. After acquisition, cancellation is checked before the critical callback and before commit; release still runs. Abort reasons propagate unchanged when release succeeds.
+- **Fairness and reentrancy**: The in-process scheduler is FIFO per canonical key. Cross-process fairness is best-effort because SQLite/OS file locks do not promise queue order. Scheduler callbacks receive an explicit execution context for supported nested acquisition; overlap with a key already held by that context fails fast, while disjoint nested keys acquire in canonical order. Calling the scheduler recursively without the supplied context is an API precondition violation and is excluded from application composition.
+- **Lock ordering and scope shape**: One coordinator request belongs to exactly one validated scope. It acquires sorted scope-qualified plugin keys first and that scope's SQLite lock second, then releases in reverse. Cross-scope requests are rejected and must be split by the lifecycle layer, so no operation can hold user and project scope locks together. An empty plugin list is the explicit scope-level mutation form.
+- **Generation authority**: The current safe-integer `Generation`, opaque `VerifiedStateMutation`, and `StateCommitResult` remain authoritative. The coordinator reads under the database lock, compares `expectedGeneration`, skips the callback on mismatch, and relies on `LifecycleStateStore.commit` as the final compare-and-swap defense. It never computes the next generation or invents a second snapshot token.
+- **Failure surface**: Stale generation is returned as data. Lock setup/acquisition/release and unsupported filesystem failures are redacted adapter errors. If work and release both fail, a cleanup error retains both native causes; exact abort/callback identity is promised only when release succeeds. If commit succeeds but release fails, `CommittedMutationCleanupError` carries the committed value/snapshot and cleanup cause so callers must not retry blindly.
 - **Foundation timing**: No design-time foundation edit is required. `SPEC` and `ARCHITECTURE` already require scope locks, short commits, per-plugin in-process serialization, cancellation, and generation checks. Implementation rolls exact contract names forward if those assertions need clarification.
 
 ## Architectural choice
@@ -72,17 +73,17 @@ A store implementation could acquire a lock around every commit. That protects p
 
 ### Option B — application mutation coordinator over explicit keyed and scope-lock ports (chosen)
 
-A portable keyed scheduler serializes same-scope plugin operations, a `ScopeLockManager` port exposes an ownership-checkable lease, and `GenerationMutationCoordinator` composes those with `LifecycleStateStore`. Prepared work enters one short callback, returns an opaque verified mutation, and the coordinator performs the final compare-and-swap. This keeps policy inward, filesystem behavior outward, and the state store unchanged. The cost is an explicit lease protocol and careful release/error handling.
+A portable keyed scheduler serializes same-scope plugin operations, a `ScopeLockManager` port exposes an ownership-checkable lease, and `GenerationMutationCoordinator` composes those with `LifecycleStateStore`. Prepared work enters one short callback, returns an opaque verified mutation, and the coordinator performs the final compare-and-swap. This keeps policy inward, SQLite/filesystem behavior outward, and the state store unchanged. The cost is an isolated Node adapter and careful transaction cleanup/error handling.
 
-### Option C — optimistic generation retries without a cross-process lease
+### Option C — expiring lock-directory lease or optimistic generation retries
 
-Every operation could read, prepare, and retry after a stale commit. This prevents lost state writes but cannot safely coordinate promotion and pending-transition publication: a losing writer may promote content or projections that no generation names. Rejected.
+A heartbeat/rename lease appears dependency-free, while generation-only retries prevent lost state writes. Neither gives the required critical-window ownership: a paused lease owner can pass an ownership check, lose an expired lease, resume, and commit before the replacement owner. Generation compare-and-swap chooses whichever commit arrives first, not the current lease owner. Fencing would require changing the completed state-store contract. Rejected.
 
-**Choice**: Option B. Generation compare-and-swap remains the final authority; locks narrow the side-effect window rather than replacing it.
+**Choice**: Option B, implemented by an OS-backed SQLite write transaction. Generation compare-and-swap remains the final state authority; the non-expiring process lock protects the adjacent promotion window and is automatically abandoned on process death.
 
 ## Trickiest unit first
 
-The filesystem lease is the highest-risk unit. A stale owner can resume after another process takes over, so expiry alone is never proof of ownership. The protocol makes the random token in the canonical owner record authoritative and requires ownership checks immediately before promotion and commit. Takeover atomically renames the expired lock directory before creating a new canonical directory; a resumed old owner can heartbeat only after re-reading the canonical token and therefore observes loss. The adapter must stop at a capability error rather than weakening this on a filesystem that cannot provide exclusive directory creation and same-directory rename.
+The SQLite scope lock is the highest-risk unit because a false portability claim would invalidate every higher-level guarantee. Acquisition opens one scope-specific database with extension loading disabled and zero busy timeout, verifies protocol metadata, and attempts `BEGIN IMMEDIATE`; only numeric SQLite busy code 5 is retryable. The held connection is the ownership capability. There is no owner file, heartbeat, PID, expiry, or stale takeover. Process termination lets the OS/SQLite release the lock; a merely paused live process remains owner, which is the only safe abandoned-owner distinction without store-level fencing. Setup must reject symlinks, insecure roots, unknown/network filesystem types, protocol mismatch, and a failed real two-connection exclusion probe rather than degrade to process-local locking.
 
 ## Implementation units
 
@@ -115,10 +116,18 @@ export const MutationSubjectSchema = z.object({
 }).strict().readonly();
 export type MutationSubject = z.infer<typeof MutationSubjectSchema>;
 
+export interface MutationExecutionContext {
+  runNested<T>(
+    subjects: readonly MutationSubject[],
+    work: (context: MutationExecutionContext) => Promise<T>,
+    signal: AbortSignal,
+  ): Promise<T>;
+}
+
 export interface KeyedMutationScheduler {
   run<T>(
     subjects: readonly MutationSubject[],
-    work: () => Promise<T>,
+    work: (context: MutationExecutionContext) => Promise<T>,
     signal: AbortSignal,
   ): Promise<T>;
 }
@@ -126,55 +135,54 @@ export interface KeyedMutationScheduler {
 export function createKeyedMutationScheduler(): KeyedMutationScheduler;
 ```
 
-Canonical scheduler keys are injective length-prefixed encodings of scope kind/project key and plugin key, never ambiguous string concatenation. Requests reject duplicate subjects, acquire sorted keys, run once, and release in reverse order in `finally`. FIFO queues remove cancelled waiters and delete idle key state so the scheduler cannot grow without bound. An `AsyncLocalStorage`-free explicit ownership token passed internally detects same-request reentrancy while keeping application code free of Node dependencies.
+Canonical scheduler keys are injective length-prefixed encodings of scope kind/project key and plugin key, never ambiguous string concatenation. A request contains one scope only, rejects duplicate subjects, acquires sorted keys, runs once, and releases in reverse order in `finally`. FIFO queues remove cancelled waiters and delete idle key state so the scheduler cannot grow without bound. The callback-scoped `MutationExecutionContext` carries the explicit held-key capability: `runNested` rejects overlap and allows only canonically ordered disjoint extension, avoiding an `AsyncLocalStorage` dependency. Application composition never recursively calls the top-level scheduler method.
 
 **Acceptance criteria**:
 - [ ] Same plugin and scope execute strictly one at a time in FIFO order; different plugins or different scopes may overlap.
 - [ ] Multi-plugin requests with opposite caller order cannot deadlock because acquisition uses one canonical order.
 - [ ] Cancellation before acquisition preserves the exact abort reason, never invokes work, and removes the waiter.
 - [ ] Throwing or cancellation during work releases every key and allows the next waiter to proceed.
-- [ ] Reentrant acquisition of a held key fails explicitly; duplicate subjects and malformed scopes/plugins fail fast.
+- [ ] `runNested` rejects acquisition of a held key or an order inversion; cross-scope, duplicate-subject, and malformed scope/plugin requests fail fast.
 - [ ] Idle queues are removed and no timer, callback, or waiter remains retained after completion.
 
-### Unit 2: Secure local-filesystem scope lease
+### Unit 2: Crash-released SQLite scope lock
 
-**Story**: `epic-transactional-plugin-lifecycle-generation-locking-filesystem-lease`
+**Story**: `epic-transactional-plugin-lifecycle-generation-locking-sqlite-scope-lock`
 **Depends on**: `epic-transactional-plugin-lifecycle-generation-locking-contracts-scheduler`
 
 **Files**:
-- `src/infrastructure/filesystem/file-scope-lock.ts`
-- `src/infrastructure/filesystem/file-scope-lock-owner.ts`
-- `test/infrastructure/filesystem/file-scope-lock.test.ts`
+- `src/infrastructure/state/sqlite-scope-lock.ts`
+- `src/infrastructure/state/local-lock-filesystem.ts`
+- `test/infrastructure/state/sqlite-scope-lock.test.ts`
 - `test/fixtures/locking/child-lock-holder.mjs`
 
 ```typescript
-export type FileScopeLockOptions = Readonly<{
+export type SqliteScopeLockOptions = Readonly<{
   lockRoot: string;
-  leaseDurationMs: number;
-  heartbeatIntervalMs: number;
-  orphanGraceMs: number;
   retryDelayMs: Readonly<{ minimum: number; maximum: number }>;
-  now?: () => number;
-  randomBytes?: (size: number) => Uint8Array;
+  random?: () => number;
+  verifyLocalFilesystem?: (root: string) => Promise<void>;
 }>;
 
-export function createFileScopeLockManager(
-  options: FileScopeLockOptions,
-): ScopeLockManager;
+export function createSqliteScopeLockManager(
+  options: SqliteScopeLockOptions,
+): Promise<ScopeLockManager>;
 ```
 
-The adapter creates a caller-private `0700` root and one `0700` directory per scope (`user.lock` or `project-<64 lowercase hex>.lock`). The strict owner document contains only protocol version, random token, process id, acquisition id, and expiry. Owner updates use same-directory temporary files opened exclusively with no-follow protection, file sync, rename, and directory sync where supported. Acquisition uses exclusive `mkdir`; contention reads only regular owner files beneath the verified root. Missing/malformed owner metadata receives `orphanGraceMs` before rename-based quarantine. Expired takeover succeeds only if the observed owner fingerprint is unchanged when the canonical directory is renamed. Release removes a directory only after matching its token; it is idempotent for the owner and cannot remove a successor's lease.
+Initialization verifies or creates a caller-private `0700` root without following symlinks, runs the injected/platform local-filesystem policy, and performs a disposable two-connection exclusion/crash-release probe. Unknown or network filesystems fail closed unless the composition root supplies a stricter supported probe. Each validated scope maps to a fixed filename (`user.sqlite` or `project-<64 lowercase hex>.sqlite`) beneath that root. The database stores only a strict protocol/version row; it never stores lifecycle state, owner identity, paths, generations, or mutation data.
 
-A startup capability probe exercises exclusive creation, owner replacement, and same-directory rename in a disposable child. Unsupported/network filesystem behavior fails closed. Heartbeats stop in `release`; heartbeat failure marks the lease lost and makes all future `assertOwned` calls fail. No lock path, owner token, native error, or physical root enters authoritative state or public diagnostics.
+Acquisition opens `DatabaseSync` with extensions disabled, defensive mode enabled, and `timeout: 0`; validates the protocol; and attempts `BEGIN IMMEDIATE`. Only SQLite `errcode === 5` is contention. Contention closes that connection and retries after an abort-aware bounded jitter delay. Any other open/pragma/schema/transaction error is `BoundaryError(ADAPTER_FAILED)`. A lease owns the live connection and transaction. `assertOwned` verifies the local lease state and abort signal; ownership cannot expire while the process is paused. `release` executes `ROLLBACK` and always attempts `close`; it is idempotent after demonstrated close. Process exit/crash releases the OS lock automatically, so there are no stale artifacts to steal and no PID-reuse problem.
+
+The adapter uses rollback-journal mode and one database per scope; it does not use WAL, shared cache, a blocking SQLite busy timeout, extension loading, or SQL supplied by callers. Lock filenames and native SQLite errors remain private. SQLite is a locking adapter here, not a second authoritative state store.
 
 **Acceptance criteria**:
-- [ ] Two independent Node processes cannot simultaneously hold the same scope lease; user and distinct project scopes can overlap.
-- [ ] A crashed child becomes reclaimable only after expiry/grace, and a resumed or delayed old owner fails `assertOwned` without deleting the successor.
-- [ ] Competing stale reclaimers produce one winner through atomic rename/create; malformed or symlinked lock artifacts fail closed.
-- [ ] Heartbeat keeps a live lease from expiring, stops after release, and marks ownership lost on renewal failure.
-- [ ] Aborted acquisition preserves the abort reason and leaves no candidate/tombstone directory owned by the waiter.
-- [ ] Adapter errors are redacted `BoundaryError(ADAPTER_FAILED)` values; release is idempotent and token-checked.
-- [ ] Capability failure on unsupported primitives prevents lifecycle mutation rather than degrading to process-local locking.
+- [ ] Two independent Node processes cannot simultaneously hold one scope transaction; user and distinct project databases can overlap.
+- [ ] A killed/crashed holder becomes immediately acquirable through OS lock release, while a paused live owner never expires.
+- [ ] Aborted acquisition preserves the exact abort reason, closes every contender connection, and leaves no retry timer.
+- [ ] Only numeric SQLite busy code 5 retries; corrupt protocol, symlink/insecure root, unknown/network filesystem, and all other SQLite failures fail closed.
+- [ ] Release rolls back and closes in `finally`, is idempotent after success, and reports uncertain cleanup without hiding an already committed mutation.
+- [ ] No lifecycle state, generation, owner/PID/token, physical path, or native error enters the database contract or public diagnostics.
+- [ ] Capability failure prevents lifecycle mutation rather than degrading to process-local locking.
 
 ### Unit 3: Generation-guarded prepared mutation window
 
@@ -214,6 +222,11 @@ export type GenerationMutationResult<T> =
       actual: Generation;
     }>;
 
+export class CommittedMutationCleanupError<T> extends Error {
+  readonly committed: Readonly<{ value: T; snapshot: GenerationSnapshot }>;
+  override readonly cause: unknown;
+}
+
 export interface GenerationMutationCoordinator {
   runPreparedMutation<T>(
     request: PreparedMutationRequest,
@@ -229,7 +242,9 @@ export function createGenerationMutationCoordinator(dependencies: Readonly<{
 }>): GenerationMutationCoordinator;
 ```
 
-Execution order is fixed: validate request; acquire scope-qualified plugin keys; acquire scope lease; read and validate the current snapshot; return stale without invoking `prepareCommit` when generations differ; assert ownership; invoke the already-prepared critical callback; verify the returned opaque mutation belongs to the exact scope and expected generation; assert ownership again; commit through the store; and release in `finally`. A stale result from the store becomes the outer stale result, never a successful callback value. The callback cannot commit and no callback runs after commit, preventing success-after-stale and post-commit side effects.
+Execution order is fixed: validate request and its one-scope plugin set; acquire scope-qualified plugin keys; acquire the scope transaction; read and validate the current snapshot; return stale without invoking `prepareCommit` when generations differ; check cancellation/ownership; invoke the already-prepared critical callback; require `isVerifiedStateMutation` and verify its exact scope/expected generation; check cancellation/ownership again; commit through the store; and release in `finally`. A stale result from the store becomes the outer stale result, never a successful callback value. The callback cannot commit and no callback runs after commit, preventing success-after-stale and post-commit side effects.
+
+Release after an uncommitted stale/error path follows normal cleanup rules; work plus release failure carries both causes. After a committed store result, release failure throws `CommittedMutationCleanupError` containing the committed value and snapshot. This makes the durable outcome explicit and forbids a blind retry even though lock cleanup is uncertain.
 
 An empty plugin list is allowed only for scope-level configuration mutations and still takes the scope lease. Duplicate plugin keys fail. Scope equality uses parsed `ScopeContext`/`ScopeReference`, not object identity. Cancellation is checked before each acquisition, callback invocation, and commit; release semantics follow the design decisions above.
 
@@ -237,7 +252,7 @@ An empty plugin list is allowed only for scope-level configuration mutations and
 - [ ] Long-running caller preparation can occur before the API; only the supplied critical callback runs under the scope lease.
 - [ ] A stale initial generation skips promotion/callback and returns the exact expected/actual generations.
 - [ ] The coordinator rejects unverified, wrong-scope, wrong-generation, duplicate-plugin, and callback-omitted mutations before store commit.
-- [ ] Lease loss before promotion or commit prevents the store call; the state store's own compare-and-swap remains the final race defense.
+- [ ] Aborted/released local ownership before promotion or commit prevents the store call; the held SQLite transaction cannot expire, and the state store's compare-and-swap remains the final race defense.
 - [ ] A store stale result cannot be ignored or converted to committed success.
 - [ ] Success invokes the callback and store exactly once, returns the committed snapshot, and releases plugin/scope ownership.
 - [ ] Abort and adapter/callback/release failure paths preserve the documented error and cleanup behavior.
@@ -245,7 +260,7 @@ An empty plugin list is allowed only for scope-level configuration mutations and
 ### Unit 4: Process-level integration, boundaries, and public contract
 
 **Story**: `epic-transactional-plugin-lifecycle-generation-locking-contract-hardening`
-**Depends on**: `epic-transactional-plugin-lifecycle-generation-locking-filesystem-lease`, `epic-transactional-plugin-lifecycle-generation-locking-guarded-window`
+**Depends on**: `epic-transactional-plugin-lifecycle-generation-locking-sqlite-scope-lock`, `epic-transactional-plugin-lifecycle-generation-locking-guarded-window`
 
 **Files**:
 - `src/index.ts`
@@ -256,49 +271,50 @@ An empty plugin list is allowed only for scope-level configuration mutations and
 - `test/tooling/boundaries.test.ts`
 - `docs/SPEC.md` and `docs/ARCHITECTURE.md` only where exact landed names clarify current assertions
 
-The package exports the portable coordination contracts, scheduler/coordinator factories, and lifecycle-facing `ScopeLockManager` port. The concrete filesystem lock factory remains a deliberate Node composition surface only if the package's existing factory policy requires direct wiring; owner protocol helpers, lock paths, tokens, heartbeat machinery, stale tombstones, and native filesystem errors are never public. Dependency rules keep scheduler/coordinator code free of Node and outer layers and ensure only infrastructure implements the lock port.
+The package exports the portable coordination contracts, scheduler/coordinator factories, and lifecycle-facing `ScopeLockManager` port. The concrete SQLite lock factory remains a deliberate Node composition surface only if the package's existing factory policy requires direct wiring; database paths/connections, protocol SQL, retry machinery, and native SQLite/filesystem errors are never public. Dependency rules keep scheduler/coordinator code free of Node and outer layers and ensure only infrastructure implements the lock port.
 
-Integration tests use real child processes plus a fake `LifecycleStateStore` to force overlapping same-generation writers. Exactly one prepared mutation commits; the loser observes stale before its callback or at the store compare-and-swap defense. Separate scopes and plugin keys demonstrate permitted concurrency. Public and compiled allowlists prove no physical lock or owner internals escape.
+Integration tests use real child processes plus a fake `LifecycleStateStore` to force overlapping same-generation writers. Exactly one process enters the scope window at a time; after the winner commits and releases, the loser observes stale before its callback. A separate adversarial fake forces a store-level stale response to prove compare-and-swap remains authoritative. Killed-holder tests prove automatic lock release without expiry. Separate scopes and plugin keys demonstrate permitted concurrency. Public and compiled allowlists prove no SQLite path, connection, retry, or protocol internals escape.
 
 **Acceptance criteria**:
-- [ ] Child-process contention proves mutual exclusion, stale-owner recovery, cancellation, and no lost update against a shared scope.
+- [ ] Child-process contention proves mutual exclusion, crash-owner release, pause-without-expiry, cancellation, and no lost update against a shared scope.
 - [ ] Same-generation competing operations produce one commit and one typed stale result; a losing operation cannot report promoted/committed success.
 - [ ] User/project and unrelated-plugin tests prove only required work is serialized.
-- [ ] Source and compiled API allowlists expose coordination contracts without lock paths, owner tokens, timers, or filesystem protocol internals.
+- [ ] Source and compiled API allowlists expose coordination contracts without database paths, connections, retry timers, or SQLite protocol internals.
 - [ ] Dependency rules reject application-to-Node/infrastructure imports and non-infrastructure lock-port implementations.
 - [ ] `npm test` includes strict production/test typecheck, unit/integration/child-process tests, boundaries, build, and compiled import.
-- [ ] Foundation docs describe the landed coordination boundary without claiming network-filesystem or lock fairness guarantees.
+- [ ] Foundation docs describe the landed SQLite/local-filesystem coordination boundary without claiming network-filesystem, timeout, or fairness guarantees.
 
 ## Implementation order
 
 1. `epic-transactional-plugin-lifecycle-generation-locking-contracts-scheduler`
 2. In parallel after Unit 1:
-   - `epic-transactional-plugin-lifecycle-generation-locking-filesystem-lease`
+   - `epic-transactional-plugin-lifecycle-generation-locking-sqlite-scope-lock`
    - `epic-transactional-plugin-lifecycle-generation-locking-guarded-window`
 3. `epic-transactional-plugin-lifecycle-generation-locking-contract-hardening`
 
-The scheduler/port story establishes canonical ownership semantics. The filesystem adapter and application generation window then proceed independently against those contracts. Contract hardening converges them with actual multi-process races and package boundaries.
+The scheduler/port story establishes canonical ownership semantics. The SQLite adapter and application generation window then proceed independently against those contracts. Contract hardening converges them with actual multi-process races and package boundaries.
 
 ## Testing
 
-- **Scheduler model tests**: deterministic deferred promises exercise FIFO order, sorted multi-key acquisition, overlap for unrelated subjects, cancellation at every queue position, exception release, reentrancy rejection, and queue-map cleanup.
-- **Lease protocol tests**: temporary private roots cover owner schema, exclusive acquisition, heartbeat, malformed/symlink artifacts, token mismatch, stale rename races, orphan grace, release idempotency, and injected clock/random failures.
-- **Child-process tests**: one holder and multiple contenders use IPC barriers rather than timing-only sleeps. Cases cover live exclusion, crash recovery, simultaneous stale takeover, abort while waiting, and independent scopes.
-- **Generation service tests**: fakes record exact call order and lock state during read/callback/commit. Tests force stale-before-callback, lock loss, forged mutation, wrong scope/generation, store-level stale, callback failure, release failure, and abort propagation.
-- **Integration tests**: competing prepared mutations against a shared fake durable state prove one generation increment and no lost update. Promotion is represented by an idempotent fake whose event log proves it runs only inside an owned lease and never for an already-stale request.
-- **Architecture/public tests**: dependency-cruiser canaries and exact source/compiled exports prove application portability and prevent owner/path internals from becoming contracts.
+- **Scheduler model tests**: deterministic deferred promises exercise FIFO order, sorted multi-key acquisition, overlap for unrelated subjects, cross-scope rejection, cancellation at every queue position, exception release, nested held-key/order rejection, and queue-map cleanup.
+- **SQLite lock tests**: temporary private roots cover protocol initialization, one-database-per-scope naming, two-connection exclusion, numeric busy classification, malformed/symlink roots, unsupported filesystem probes, rollback/close failure, release idempotency, and injected retry jitter.
+- **Child-process tests**: one holder and multiple contenders use IPC barriers rather than timing-only sleeps. Cases cover live exclusion, a deliberately paused holder that does not expire, SIGKILL/crash release, abort while waiting, and independent scopes.
+- **Generation service tests**: fakes record exact call order and lock state during read/callback/commit. Tests force stale-before-callback, locally released ownership, forged mutation, wrong scope/generation, store-level stale, callback failure, post-commit release failure, combined work/release failure, and abort propagation.
+- **Integration tests**: competing prepared mutations against a shared fake durable state prove one generation increment and no lost update. Promotion is represented by an idempotent fake whose event log proves it runs only inside an owned scope transaction and never for an already-stale request.
+- **Architecture/public tests**: dependency-cruiser canaries and exact source/compiled exports prove application portability and prevent SQLite/path internals from becoming contracts.
 
 ## Risks
 
-- **Riskiest assumption — lock-directory primitives are trustworthy on every target filesystem**: they are not. The adapter supports only local filesystems that pass its capability checks and documents the limit. A future advisory-lock or database adapter can implement the same `ScopeLockManager` port without changing application policy.
-- **Lease expiry can overlap a paused process**: expiry never grants the old owner authority. Random-token ownership checks immediately before promotion and commit make a resumed owner fail. Side effects performed before a final ownership check must be immutable/idempotent; mutable activation remains in the later operations/recovery design.
-- **Release failure after successful commit is ambiguous**: committed state remains authoritative. The coordinator returns/throws an explicit adapter failure carrying commit evidence rather than retrying the mutation. Recovery can inspect generation; it must not blindly replay.
-- **Generic callbacks can hide long work**: the API names the callback `prepareCommit`, passes only the locked snapshot/ownership assertion, and requires a verified mutation result. Tests enforce order, while operations design must keep acquisition/network/trust work outside. A hard runtime duration cap is avoided because pausing does not imply unsafe ownership while heartbeats and token checks remain valid.
+- **Riskiest assumption — SQLite locking is trustworthy on every target filesystem**: it is not. The adapter supports only capability-probed local filesystems and documents the limit; unknown/network filesystems fail closed. A future OS-advisory-lock or transactional-database adapter can implement the same `ScopeLockManager` port without changing application policy.
+- **`node:sqlite` remains experimental in Node 24 typings**: the project already pins Node 24+, but API stability is a packaging risk. The adapter is isolated behind `ScopeLockManager`, tests the exact constructor/error/transaction behavior, and can be replaced without changing coordination policy. If project release policy forbids experimental core APIs, implementation must stop and substitute a maintained SQLite/advisory-lock dependency rather than revive expiring leases.
+- **A live process can pause indefinitely while holding the lock**: this is intentional. Safety wins over availability because no fencing token exists in the state-store commit contract. Operators can terminate the owner; process death releases the OS lock. A future bounded lease requires a store-level monotonic fencing token and is not an adapter-only change.
+- **Release failure after successful commit is ambiguous unless typed**: committed state remains authoritative. `CommittedMutationCleanupError` carries commit evidence so callers inspect/recover and never blindly replay.
+- **Generic callbacks can hide long work**: the API names the callback `prepareCommit`, passes only the locked snapshot/ownership assertion, and requires a verified mutation result. Tests enforce order, while operations design must keep acquisition/network/trust work outside. A hard runtime duration cap is avoided because timing out cannot safely revoke a live owner without fencing; implementation should record callback duration for diagnostics rather than weaken ownership.
 - **Scope-wide locks reduce cross-process concurrency**: the state pointer generation is scope-wide, so this serialization is required for correctness. Downloads and inspection remain concurrent outside the window; changing to per-document generations would be a state-schema version change, not a lock optimization.
-- **Least certainty — platform durability details**: file and directory sync support differs. The adapter must state which owner-record guarantees are coordination-only versus durable. If safe atomic replacement cannot be demonstrated, it fails capability setup rather than pretending heartbeat ownership is reliable.
+- **Least certainty — local-filesystem detection across platforms**: no universal filesystem classifier exists. The default probe must be conservative and platform-tested; composition may inject a stricter allowlist probe. If locality and two-connection exclusion cannot be demonstrated, setup fails rather than treating SQLite success on an unknown mount as proof.
 
 ## Pre-mortem
 
-This feature fails if two processes both believe they own one scope, a cancelled waiter later runs, opposite multi-plugin requests deadlock, a stale generation performs promotion, or release cleanup deletes a successor's lock. The design counters those failures with token-verified leases, cancellable FIFO queues, sorted canonical keys, generation comparison before callback plus store-level compare-and-swap, and token-checked release.
+This feature fails if two processes enter one scope window, a cancelled waiter later runs, user/project or opposite multi-plugin requests deadlock, a stale generation performs promotion, or a successful commit is retried after cleanup failure. The design counters those failures with an OS-released SQLite write transaction, cancellable FIFO/retry queues, one-scope requests and sorted canonical keys, generation comparison before callback plus store-level compare-and-swap, and typed committed-cleanup failure.
 
-The least recoverable failure is committing after lease ownership moved to another process. The coordinator therefore checks ownership immediately before the store call and still requires the store to reject a stale generation. If the filesystem adapter cannot make ownership assertions reliable, implementation stops at a capability error; it does not fall back to in-process-only safety.
+The least recoverable failure is treating an expiring lease's last ownership check as atomic with state commit. This revision removes that unsafe premise: a live SQLite transaction does not expire, and process death releases it. If the adapter cannot prove local SQLite exclusion, implementation stops at a capability error; it does not use heartbeat takeover or fall back to in-process-only safety.

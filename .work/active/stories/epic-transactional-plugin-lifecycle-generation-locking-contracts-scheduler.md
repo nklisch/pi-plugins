@@ -22,9 +22,10 @@ Establish the portable application contracts for cross-process scope leases and 
 ## Implementation
 
 - Add `ScopeLockLease` and `ScopeLockManager` under `src/application/ports/scope-lock.ts`.
-- Add strict `MutationSubject` and scheduler contracts under `src/application/mutation-coordination.ts`.
+- Add strict `MutationSubject`, `MutationExecutionContext`, and scheduler contracts under `src/application/mutation-coordination.ts`.
 - Implement `createKeyedMutationScheduler` in `src/application/keyed-mutation-scheduler.ts`.
-- Encode `(ScopeReference, PluginKey)` injectively, acquire multi-key requests in canonical order, release in reverse order, and reject duplicate/reentrant ownership.
+- Encode `(ScopeReference, PluginKey)` injectively; reject cross-scope and duplicate subjects; acquire keys canonically and release in reverse.
+- Give callbacks an explicit context whose `runNested` rejects held-key overlap and order inversion without importing Node `AsyncLocalStorage`.
 - Remove cancelled waiters and idle key queues without converting abort reasons.
 
 ## Acceptance criteria
@@ -33,7 +34,7 @@ Establish the portable application contracts for cross-process scope leases and 
 - [ ] Opposite-order multi-plugin requests cannot deadlock.
 - [ ] Cancellation before acquisition never invokes work and preserves the exact reason.
 - [ ] Throwing/cancelled work releases every key and wakes successors.
-- [ ] Duplicate and reentrant subjects fail explicitly.
+- [ ] Cross-scope/duplicate subjects and nested held-key/order violations fail explicitly.
 - [ ] Application code remains Node-free and idle scheduler state is reclaimed.
 - [ ] Strict production/test typecheck and focused scheduler tests pass.
 

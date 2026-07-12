@@ -22,11 +22,11 @@ Compose the keyed scheduler, cross-process scope lease, and existing `LifecycleS
 ## Implementation
 
 - Add `src/application/generation-mutation-coordinator.ts` with `PreparedMutationRequest`, callback context/result, result union, and factory.
-- Fix execution order: keyed scheduler → scope lease → state read/generation check → ownership assertion → prepared critical callback → mutation scope/generation verification → ownership assertion → store commit → release.
+- Fix execution order: validate one-scope request → keyed scheduler → scope lock → state read/generation check → cancellation/ownership check → prepared critical callback → opaque mutation membership/scope/generation verification → cancellation/ownership check → store commit → release.
 - Never invoke the callback for an already-stale generation.
 - Require the callback to return an opaque `VerifiedStateMutation`; it cannot commit directly and no callback runs after commit.
 - Convert any store stale result into the outer stale result so callers cannot report success.
-- Preserve abort and cleanup/error behavior exactly.
+- Preserve abort and cleanup/error behavior exactly; a release failure after commit throws typed `CommittedMutationCleanupError` with commit evidence so callers do not retry.
 
 ## Acceptance criteria
 
@@ -35,8 +35,8 @@ Compose the keyed scheduler, cross-process scope lease, and existing `LifecycleS
 - [ ] Lease loss before callback or commit prevents commit.
 - [ ] Store-level stale defense cannot be ignored or converted to success.
 - [ ] Successful execution invokes callback/store once, returns committed snapshot/value, and releases all ownership.
-- [ ] Empty plugin lists work only as scope-level serialized mutations; user/project equality is structural and validated.
-- [ ] Abort, callback, adapter, and release failures follow the designed propagation rules.
+- [ ] Empty plugin lists work only as scope-level serialized mutations; one-scope user/project equality is structural and validated.
+- [ ] Abort, callback, adapter, and release failures follow the designed propagation rules; post-commit cleanup failure retains committed value/snapshot.
 
 ## Verification
 
