@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets-runtime-resolution
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-trust-config-secrets
 depends_on: [epic-transactional-plugin-lifecycle-trust-config-secrets-trust-policy, epic-transactional-plugin-lifecycle-trust-config-secrets-secret-custody]
@@ -39,4 +39,13 @@ Implement Unit 4 of the parent feature: a callback-scoped, redacted `ResolvedCon
 - [ ] Forged/stale/wrong-scope documents and descriptor drift fail before credential exposure.
 - [ ] Required/optional missing, adapter failure, path drift, placeholder, environment, callback error, and abort branches are tested.
 - [ ] Facade coercion/JSON/errors/diagnostics/log spies never reveal plaintext.
-- [ ] Resolver imports only domain/application ports and does not implement runtime activation or backend behavior.
+- [x] Resolver imports only domain/application ports and does not implement runtime activation or backend behavior.
+
+## Implementation notes
+- Execution capability: direct host implementation; trust authorization, document verification, path recheck, and callback lifetime are one security-critical boundary.
+- Review weight: standard, caller requested the implementing-to-review boundary.
+- Files changed: `src/application/resolved-configuration.ts`, `src/application/configuration-resolver.ts`, and resolver tests.
+- Tests added: exact trust/project gating, forged and stale document rejection, required secret absence and adapter failure, callback-only substitution/environment, path drift before secret fetch, callback-error redaction, and disposal on all callback outcomes.
+- Discrepancies from design: callback failures are converted to a stable safe resolution error rather than preserving arbitrary callback causes; abort reasons remain propagated unchanged.
+- Adjacent issues parked: none.
+- Verification: `npm run typecheck`; `npm run boundaries`; targeted resolver tests.
