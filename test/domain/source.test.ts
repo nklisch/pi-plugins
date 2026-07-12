@@ -132,6 +132,7 @@ describe("source schemas", () => {
       "source-v1|git|ref:4:main|url:30:https://example.com/plugin.git",
       "source-v1|git|url:30:https://example.com/plugin.git|sha:40:" + revision + "|ref:4:main",
       "source-v1|unknown|url:30:https://example.com/plugin.git",
+      "source-v1|git|url:21:scp://server/repo.git",
     ];
 
     for (const canonical of invalidCanonicalSources) {

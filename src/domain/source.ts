@@ -431,7 +431,15 @@ export type CanonicalSource = z.infer<typeof CanonicalSourceSchema>;
 export type SourceHash = z.infer<typeof SourceHashSchema>;
 
 function isCanonicalScpUrl(value: string): boolean {
-  return CanonicalScpGitUrl.test(value);
+  const match = CanonicalScpGitUrl.exec(value);
+  if (match === null) {
+    return false;
+  }
+  const host = match.groups?.host ?? "";
+  // Mirror declared SCP eligibility exactly: a user-qualified host, a
+  // DNS-like host, or localhost. Canonical validation must not admit values
+  // that no accepted declaration can produce.
+  return match.groups?.user !== undefined || host.includes(".") || host === "localhost";
 }
 
 function normalizeScpUrl(value: string): string {

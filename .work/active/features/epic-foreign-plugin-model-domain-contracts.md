@@ -214,7 +214,8 @@ import { z } from "zod";
 ```
 
 The source registries use strict schemas. Git URL fields accept HTTPS, `ssh://`,
-and common SCP-style `user@host:path` syntax (normalized to SSH); npm registry
+and common SCP-style `user@host:path` syntax. SCP declarations retain their
+remote-home-relative semantics in a distinct canonical form; npm registry
 fields accept HTTPS only and reject embedded credentials. Git pins use full
 40-character lowercase SHA values and npm integrity uses canonical SHA-512
 base64. Unknown source fields fail parsing.
