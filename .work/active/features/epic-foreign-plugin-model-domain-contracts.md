@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-domain-contracts
 kind: feature
-stage: review
+stage: done
 tags: [compatibility, infra]
 parent: epic-foreign-plugin-model
 depends_on: []
@@ -682,3 +682,13 @@ The second adversarial review identified four remaining source-contract blockers
 - `SPEC.md`, `ARCHITECTURE.md`, `COMPATIBILITY.md`, and this feature's source-v1 design prose now state the SCP/SSH identity distinction and literal SCP semantics.
 
 Mandatory regressions cover SCP-versus-SSH identity, literal malformed-percent SCP paths, high/low surrogate rejection across source fields, and invalid canonical signatures, ordering, and lengths. Review-fix verification passes: `npm test` (119 tests, typecheck, dependency boundaries, build, and compiled import), plus independent `npm run build && node test/compiled-package-import.mjs` (72-export allowlist).
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: minor historical test-count notes retained as an audit trail; current verification is 119 tests.
+
+**Notes**: Deep substrate review completed through the requested two-model path. Z.AI GLM 5.2 ran completeness convergence and GPT-5.6 Sol ran adversarial convergence. The first cycle found canonical-source, credential, protocol, diagnostic, regression-test, and foundation-drift issues; `epic-foreign-plugin-model-domain-contracts-review-hardening` corrected them. The second cycle found SCP/SSH semantic aliasing, lone-surrogate aliasing, and permissive canonical-string validation; review fixes corrected those. Final GLM completeness clearance and Sol adversarial clearance report no blocker or important finding. Independently confirmed `npm test`: 119 tests, typecheck, dependency boundaries, build, and exact 72-export compiled package import.
