@@ -1,36 +1,33 @@
 import { z } from "zod";
-import { JsonValueSchema, nonEmptyReadonly } from "./schema.js";
+import { DomainContractError } from "./domain-error.js";
+import { ErrorCodeRegistry } from "./error-contract.js";
+import { JsonValueSchema, type JsonValue, nonEmptyReadonly } from "./schema.js";
+import {
+  NativeHostSchema,
+  SourceDocumentKindSchema,
+  SourceLocationSchema,
+  type NativeHost,
+  type SourceDocumentKind,
+  type SourceLocation,
+} from "./provenance-location.js";
 
-export const NativeHostSchema = z.enum(["claude", "codex"]);
-export type NativeHost = z.infer<typeof NativeHostSchema>;
-
-export const SourceDocumentKindSchema = z.enum([
-  "marketplace",
-  "manifest",
-  "hooks",
-  "mcp",
-  "skill",
-  "convention",
-]);
-export type SourceDocumentKind = z.infer<typeof SourceDocumentKindSchema>;
-
-export const SourceLocationSchema = z
-  .object({
-    host: NativeHostSchema,
-    documentKind: SourceDocumentKindSchema,
-    path: z.string().min(1),
-    pointer: z.string().startsWith("/").optional(),
-    line: z.number().int().positive().optional(),
-    column: z.number().int().positive().optional(),
-  })
-  .readonly();
-export type SourceLocation = z.infer<typeof SourceLocationSchema>;
+export {
+  NativeHostSchema,
+  SourceDocumentKindSchema,
+  SourceLocationSchema,
+} from "./provenance-location.js";
+export type {
+  NativeHost,
+  SourceDocumentKind,
+  SourceLocation,
+} from "./provenance-location.js";
 
 export const ProvenanceSchema = z
   .object({
     location: SourceLocationSchema,
     declaration: JsonValueSchema.optional(),
   })
+  .strict()
   .readonly();
 export type Provenance = z.infer<typeof ProvenanceSchema>;
 
@@ -58,14 +55,65 @@ export type Claimed<T> = Readonly<{
   provenance: readonly [Provenance, ...Provenance[]];
 }>;
 
-/** A typed conflict is distinguishable from malformed input at merge sites. */
-export class ClaimConflictError<T = unknown> extends Error {
-  readonly code = "CLAIM_CONFLICT" as const;
+function safeJsonSnapshot(value: unknown, seen = new WeakSet<object>()): JsonValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : `[non-finite number: ${String(value)}]`;
+  }
+  if (typeof value === "bigint" || typeof value === "symbol" || typeof value === "function") {
+    return `[${typeof value}: ${String(value)}]`;
+  }
+  if (typeof value !== "object") {
+    return `[unrepresentable ${typeof value}]`;
+  }
+  if (seen.has(value)) {
+    return "[circular value]";
+  }
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => safeJsonSnapshot(entry, seen));
+  }
+
+  const result: Record<string, JsonValue> = {};
+  for (const key of Object.keys(value)) {
+    try {
+      result[key] = safeJsonSnapshot((value as Record<string, unknown>)[key], seen);
+    } catch {
+      result[key] = "[unreadable value]";
+    }
+  }
+  return result;
+}
+
+function claimDiagnosticSnapshot<T>(value: Claimed<T>): JsonValue {
+  return {
+    value: safeJsonSnapshot(value.value),
+    // Provenance has already crossed its strict schema boundary. The cast only
+    // adapts its readonly structural type to the recursive JSON contract.
+    provenance: value.provenance as unknown as JsonValue,
+  };
+}
+
+/** A typed conflict that participates in the common domain diagnostic path. */
+export class ClaimConflictError<T = unknown> extends DomainContractError {
   readonly left: Claimed<T>;
   readonly right: Claimed<T>;
 
   constructor(left: Claimed<T>, right: Claimed<T>) {
-    super("Cannot merge claims with different values");
+    const validLeft = ProvenanceListSchema.parse(left.provenance);
+    const validRight = ProvenanceListSchema.parse(right.provenance);
+    super({
+      code: ErrorCodeRegistry.claimConflict,
+      operation: "mergeEquivalentClaims",
+      message: "Cannot merge claims with different values",
+      details: {
+        left: claimDiagnosticSnapshot({ value: left.value, provenance: validLeft as [Provenance, ...Provenance[]] }),
+        right: claimDiagnosticSnapshot({ value: right.value, provenance: validRight as [Provenance, ...Provenance[]] }),
+      },
+    });
     this.name = "ClaimConflictError";
     this.left = left;
     this.right = right;

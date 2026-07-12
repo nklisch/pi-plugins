@@ -84,8 +84,19 @@ describe("error and diagnostic registries", () => {
     ).toThrow();
   });
 
-  it("integrates the existing claim conflict class without duplicating it", () => {
+  it("integrates the existing claim conflict class into common diagnostics without a cycle", () => {
     expect(ErrorModuleClaimConflictError).toBe(ProvenanceClaimConflictError);
+    const left = { value: "claude", provenance: [{ location }] };
+    const right = { value: "codex", provenance: [{ location: { ...location, path: "codex.json" } }] };
+    const conflict = new ProvenanceClaimConflictError(left, right);
+    expect(conflict).toBeInstanceOf(DomainContractError);
+    expect(conflict.toDiagnostic()).toMatchObject({
+      code: ErrorCodeRegistry.claimConflict,
+      severity: "error",
+      details: { left: { value: "claude" }, right: { value: "codex" } },
+    });
+    expect(conflict.left).toEqual(left);
+    expect(conflict.right).toEqual(right);
   });
 });
 
@@ -157,9 +168,29 @@ describe("partial read result schemas", () => {
     });
   });
 
-  it("requires diagnostics when an entry is not recovered", () => {
+  it("enforces warning-only success and at least one error on failure", () => {
     expect(
-      readResultSchema.safeParse({ ok: false, diagnostics: [] }).success,
+      readResultSchema.safeParse({
+        ok: true,
+        value: { id: "one" },
+        diagnostics: [{
+          code: ErrorCodeRegistry.entryInvalid,
+          severity: "error",
+          operation: "readEntry",
+          message: "contradictory success diagnostic",
+        }],
+      }).success,
+    ).toBe(false);
+    expect(
+      readResultSchema.safeParse({
+        ok: false,
+        diagnostics: [{
+          code: ErrorCodeRegistry.unsupportedDeclaration,
+          severity: "warning",
+          operation: "readEntry",
+          message: "warning is not a failure explanation",
+        }],
+      }).success,
     ).toBe(false);
     expect(
       readResultSchema.safeParse({

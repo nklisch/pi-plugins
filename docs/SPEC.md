@@ -38,6 +38,11 @@ A marketplace can be registered from:
 - a local Git checkout
 - an optional branch, tag, or commit selector
 
+Git declarations accept HTTPS URLs, `ssh://` URLs, and common SCP-style
+`user@host:path` syntax (normalized to an SSH URL). HTTP, FTP, file, data, and
+other protocols are rejected. HTTPS URLs cannot contain embedded credentials;
+SSH may carry its normal user component but not an embedded password.
+
 A Git-backed marketplace contains either:
 
 - `.agents/plugins/marketplace.json`
@@ -61,10 +66,20 @@ Supported plugin source declarations include:
 - an npm package with an optional version or distribution tag and HTTPS
   registry.
 
+Declared source objects are strict contracts: unknown fields fail validation.
+Git `sha` values are full 40-character lowercase hexadecimal revisions, and
+resolved npm integrity values are canonical `sha512-` strings containing the
+64-byte digest in standard base64. Custom npm registries must use HTTPS and
+must not contain embedded credentials. Malformed percent escapes are rejected;
+encoded delimiters are normalized without aliasing distinct path segments.
+
 Paths are canonicalized before use. A relative or subdirectory source cannot
 escape its containing marketplace or materialized repository.
 
 Unknown source types fail validation with their source location and type.
+Resolved source contracts retain the immutable URL/path/package fields and
+revision, derive a versioned canonical source from those fields, and verify its
+injected SHA-256 hash before a materializer can treat the value as trusted.
 
 ## Plugin identity
 
@@ -142,6 +157,17 @@ partial-install mode.
 
 The compatibility report lists every discovered component and its verdict
 before installation changes active state.
+
+## Domain diagnostics
+
+The domain uses a stable error-code registry and `DomainContractError` for
+serializable failures. `BoundaryError` is reserved for an untrusted enclosing
+root, source-resolution failure, path-containment failure, or adapter failure.
+`ClaimConflictError` is a `DomainContractError` and retains both conflicting
+claims and their provenance in its diagnostic details; no declaration wins by
+precedence. A successful `ReadResult` may contain warnings only. A failed
+`ReadResult` must contain at least one error diagnostic. Native causes remain
+available on thrown errors for logs but never appear in diagnostics.
 
 ## Skills
 

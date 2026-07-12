@@ -21,6 +21,12 @@ component whose required capability is unavailable prevents activation. Unknown
 runtime declarations are incompatible. Unknown presentation metadata is retained
 for diagnostics and treated as metadata-only.
 
+Read results use the common domain diagnostic contract: success values carry
+warning diagnostics only, and failures carry at least one error diagnostic.
+`ClaimConflictError` is a `DomainContractError`; it preserves both claims and
+provenance in its safe diagnostic projection. Error causes remain available to
+logs but are omitted from serialized diagnostics.
+
 ## Marketplace discovery
 
 | Surface | Claude Code | Codex | Pi Plugin Host |
@@ -29,7 +35,7 @@ for diagnostics and treated as metadata-only.
 | Claude-compatible catalog | Native | `.claude-plugin/marketplace.json` | Supported |
 | GitHub shorthand | Supported | Supported | Supported |
 | HTTPS Git | Supported | Supported | Supported |
-| SSH Git | Supported | Supported | Supported |
+| SSH Git (`ssh://` or common SCP `user@host:path`) | Supported | Supported | Supported; SCP normalizes to SSH |
 | Local Git checkout | Supported | Supported | Supported |
 | Raw remote catalog URL | Supported | Not the shared Git path | Incompatible |
 | Marketplace ref | Supported | Supported | Supported |
@@ -49,16 +55,27 @@ files and prevent registration.
 | Git `url` source | Supported |
 | `git-subdir` source | Supported |
 | `ref` selector | Supported |
-| Full Git `sha` pin | Supported; takes precedence over `ref` |
+| Full Git `sha` pin | Supported; exactly 40 lowercase hex characters and takes precedence over `ref` |
 | npm package | Supported without lifecycle scripts |
 | npm version, range, or distribution tag | Supported |
-| HTTPS custom npm registry | Supported |
+| HTTPS custom npm registry | Supported; HTTPS only and no embedded credentials |
+| Embedded HTTPS Git or npm credentials | Incompatible; use configured non-interactive credentials |
+| HTTP, FTP, file, or data Git URL | Incompatible |
+| Malformed percent escape | Incompatible |
+| Malformed or non-SHA-512 npm integrity | Incompatible |
+| Unknown source fields | Incompatible |
 | Source path escaping its root | Incompatible |
 | Symlink escaping its source root | Incompatible |
 | Unknown source type | Incompatible |
 
 Private Git and npm sources use the user's existing non-interactive credential
-configuration. Plugin Host does not store source credentials.
+configuration. Plugin Host does not store source credentials or accept
+credentials embedded in HTTPS source URLs.
+
+Resolved sources retain their immutable URL/path/package fields and revision.
+Their `source-v1` canonical form is derived from those fields and the injected
+SHA-256 hash is verified before the source is trusted; a kind/canonical/revision
+or hash mismatch is rejected.
 
 ## Marketplace behavior
 

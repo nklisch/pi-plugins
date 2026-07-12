@@ -81,12 +81,16 @@ parallel interfaces.
 src/
 ├── domain/
 │   ├── identity.ts
-│   ├── marketplace.ts
-│   ├── plugin.ts
+│   ├── source.ts
+│   ├── provenance-location.ts
+│   ├── provenance.ts
+│   ├── schema.ts
+│   ├── configuration.ts
 │   ├── components.ts
+│   ├── plugin.ts
 │   ├── compatibility.ts
-│   ├── revision.ts
-│   ├── scope.ts
+│   ├── error-contract.ts
+│   ├── domain-error.ts
 │   └── errors.ts
 ├── application/
 │   ├── ports.ts
@@ -172,7 +176,13 @@ type PluginSource =
 ```
 
 A canonical source representation provides stable equality, hashing, cache
-identity, and trust identity.
+identity, and trust identity. Domain source schemas are strict: Git accepts
+HTTPS, `ssh://`, and common SCP-style `user@host:path` forms (SCP is normalized
+to SSH), while npm registries are HTTPS-only. Embedded HTTPS credentials,
+unsupported URL protocols, malformed percent escapes, unknown fields, and
+non-full Git SHA pins fail at the boundary. Canonical bytes use the injective
+`source-v1|<kind>|<field>:<UTF-8-byte-length>:<value>` grammar; malformed
+percent escapes are rejected rather than treated as literal text.
 
 ### Normalized bundle
 
@@ -637,28 +647,21 @@ attempting terminal-only UI.
 
 ## Error model
 
-Errors are typed by boundary:
+The domain exposes one common typed contract:
 
-- `MarketplaceFormatError`
-- `ManifestFormatError`
-- `SourceResolutionError`
-- `PathContainmentError`
-- `CompatibilityError`
-- `TrustRequiredError`
-- `ConcurrentStateError`
-- `ActivationError`
-- `RecoveryError`
-- `McpRuntimeError`
-- `HookExecutionError`
+- `DomainContractError` carries the stable code, operation, optional identity and
+  location, JSON-safe details, and a native `cause` for logs;
+- `BoundaryError` narrows the code set for an unusable marketplace/manifest root,
+  source resolution failure, containment failure, or adapter failure;
+- `ClaimConflictError` extends `DomainContractError`, retains both typed claims,
+  and includes safe snapshots of both claims in its diagnostic details.
 
-Every external error contains:
-
-- operation;
-- plugin or marketplace identity where known;
-- source location;
-- stable error code;
-- actionable explanation;
-- underlying cause for logs.
+Application and runtime adapters may add boundary-specific errors such as
+`ActivationError`, `McpRuntimeError`, or `HookExecutionError`, but domain code
+never imports those adapters. Every serialized diagnostic contains an operation,
+stable code, severity, and actionable message; causes are intentionally omitted
+from the JSON projection. A successful `ReadResult` carries warning diagnostics
+only, while a failed result carries at least one error diagnostic.
 
 Readers return stable-code diagnostics for malformed entries and may preserve
 valid siblings in a partial-success collection result. They throw typed boundary
@@ -685,7 +688,8 @@ registration because its identity cannot be trusted.
 - dual-manifest reconciliation;
 - path containment and symlink behavior;
 - compatibility verdict derivation;
-- identity and source canonicalization;
+- identity and source canonicalization, including malformed-percent and encoded-delimiter vectors;
+- strict source protocols, credential rejection, immutable revision/integrity shapes, and resolved-source hash binding;
 - hook matcher and output mapping;
 - state migration and transaction logic.
 
@@ -707,6 +711,9 @@ Fixtures represent:
 
 Integration tests use temporary Git repositories, npm archives, agent homes, and
 project roots. They verify complete lifecycle operations and crash recovery.
+The committed tooling tests also prove dependency-cruiser rejects domain imports
+from Node built-ins and outer layers, and that the built ESM package exposes only
+its explicit runtime export allowlist.
 
 ### Pi adapter tests
 

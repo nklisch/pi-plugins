@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-domain-contracts-review-hardening
 kind: story
-stage: implementing
+stage: review
 tags: [compatibility, security, tests]
 parent: epic-foreign-plugin-model-domain-contracts
 depends_on: [epic-foreign-plugin-model-domain-contracts-package-schema-foundation, epic-foreign-plugin-model-domain-contracts-identity-source-contracts, epic-foreign-plugin-model-domain-contracts-plugin-inventory-contracts, epic-foreign-plugin-model-domain-contracts-compatibility-errors-api]
@@ -34,11 +34,22 @@ This is a cohesive contract-hardening pass, not a new acquisition feature. It mu
 
 ## Acceptance criteria
 
-- [ ] Canonical serialization has regression tests proving malformed escapes and encoded delimiters do not collide.
-- [ ] Source schemas reject unsupported protocols, insecure npm registries, inline HTTPS credentials, unknown fields, malformed SHA pins, and malformed integrity values; documented HTTPS and SSH Git forms remain supported.
-- [ ] Resolved-source construction cannot pair a kind with another kind's canonical form or an unrelated hash/revision claim.
-- [ ] Claim conflicts participate in the common typed diagnostic path without a circular domain dependency.
-- [ ] Read-result success/failure severity invariants are enforced at runtime.
-- [ ] Boundary-violation and compiled-package-import checks are committed and run through project verification.
-- [ ] Foundation docs and feature design describe the corrected current contract.
-- [ ] `npm test`, `npm run build`, and compiled package import pass.
+- [x] Canonical serialization has regression tests proving malformed escapes and encoded delimiters do not collide.
+- [x] Source schemas reject unsupported protocols, insecure npm registries, inline HTTPS credentials, unknown fields, malformed SHA pins, and malformed integrity values; documented HTTPS and SSH Git forms remain supported.
+- [x] Resolved-source construction cannot pair a kind with another kind's canonical form or an unrelated hash/revision claim.
+- [x] Claim conflicts participate in the common typed diagnostic path without a circular domain dependency.
+- [x] Read-result success/failure severity invariants are enforced at runtime.
+- [x] Boundary-violation and compiled-package-import checks are committed and run through project verification.
+- [x] Foundation docs and feature design describe the corrected current contract.
+- [x] `npm test`, `npm run build`, and compiled package import pass.
+
+## Implementation notes
+
+- Files changed: `src/domain/source.ts`, `src/domain/provenance.ts`, `src/domain/provenance-location.ts`, `src/domain/error-contract.ts`, `src/domain/domain-error.ts`, `src/domain/errors.ts`, `src/index.ts`, source/domain regression tests, `test/tooling/boundaries.test.ts`, `test/compiled-package-import.mjs`, `package.json`, `docs/ARCHITECTURE.md`, `docs/SPEC.md`, `docs/COMPATIBILITY.md`, and this item plus the parent feature design.
+- Tests added: malformed percent and encoded-delimiter collision vectors; strict source protocol/credential/unknown-field checks; full Git SHA and canonical SHA-512 integrity checks; resolved-source constructor/verifier mismatch checks; conflict diagnostics; read-result severity invariants; boundary-rule regression; exact compiled export allowlist.
+- Discrepancies from design: resolved plugin sources now retain explicit immutable `url` fields for Git variants so canonical and hash verification can bind every identity input; `ClaimConflictError` lives in `provenance.ts` but extends the shared `DomainContractError` from `domain-error.ts` to avoid a dependency cycle.
+- Adjacent issues parked: none.
+
+## Findings fixed/rejected
+
+All accepted findings were fixed. No required finding was rejected. The style-only review observations about redundant parsing, hex formatting, and readonly ergonomics remain intentionally out of scope.

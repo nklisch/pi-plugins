@@ -38,6 +38,10 @@ export {
   serializeMarketplaceSource,
   serializePluginSource,
   hashCanonicalSource,
+  createResolvedMarketplaceSource,
+  verifyResolvedMarketplaceSource,
+  createResolvedPluginSource,
+  verifyResolvedPluginSource,
 } from "./domain/source.js";
 export type {
   MarketplaceSource,

@@ -4,6 +4,7 @@ import {
   NormalizedPluginSchema,
   type NormalizedPlugin,
 } from "../../src/domain/plugin.js";
+import { createResolvedPluginSource } from "../../src/domain/source.js";
 import { PluginConfigurationSchema } from "../../src/domain/configuration.js";
 import { claim, type Provenance } from "../../src/domain/provenance.js";
 import { PluginComponentsSchema } from "../../src/domain/components.js";
@@ -17,6 +18,12 @@ const manifest: Provenance = {
   },
 };
 
+const representativeSource = createResolvedPluginSource({
+  kind: "git",
+  url: "https://example.com/demo.git",
+  revision: "b".repeat(40),
+}, () => Uint8Array.from({ length: 32 }, (_, index) => index));
+
 const representativeBundle = {
   identity: {
     key: "demo@community",
@@ -26,12 +33,7 @@ const representativeBundle = {
   },
   version: claim("1.2.3", manifest),
   description: claim("A representative plugin", manifest),
-  source: {
-    kind: "git",
-    canonical: "source-v1|git|url:35:https://example.com/demo.git",
-    hash: `sha256:${"a".repeat(64)}`,
-    revision: "b".repeat(40),
-  },
+  source: representativeSource,
   configuration: {
     options: [
       {

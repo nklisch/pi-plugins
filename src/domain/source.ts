@@ -20,30 +20,139 @@ function schemasFor<T extends SourceVariantRegistry>(
   return schemaValues(schemas);
 }
 
+const HexByte = /^[0-9A-Fa-f]{2}$/;
+const CanonicalSourceKinds = new Set([
+  "github",
+  "git",
+  "local-git",
+  "marketplace-path",
+  "git-subdir",
+  "npm",
+]);
+const ScpGitUrl = /^(?:(?<user>[A-Za-z0-9._-]+)@)?(?<host>[A-Za-z0-9.-]+):(?<path>[^/\\\s:][^\s]*)$/;
+const GitHubRepository = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+function hasValidPercentEscapes(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] !== "%") {
+      continue;
+    }
+    const escape = value.slice(index + 1, index + 3);
+    if (!HexByte.test(escape)) {
+      return false;
+    }
+    index += 2;
+  }
+  return true;
+}
+
+function issue(context: z.RefinementCtx, message: string): void {
+  context.addIssue({ code: "custom", message });
+}
+
+function isScpGitUrl(value: string): boolean {
+  const match = ScpGitUrl.exec(value);
+  if (match === null) {
+    return false;
+  }
+  const host = match.groups?.host ?? "";
+  // Require the conventional user@host form or a host-like name. This keeps
+  // data:text/... and other URI schemes from being mistaken for SCP syntax.
+  return match.groups?.user !== undefined || host.includes(".") || host === "localhost";
+}
+
+function validateGitUrl(value: string, context: z.RefinementCtx): void {
+  if (!hasValidPercentEscapes(value)) {
+    issue(context, "Git URL contains a malformed percent escape");
+    return;
+  }
+
+  if (isScpGitUrl(value)) {
+    return;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    issue(context, "Git URL must be an HTTPS or SSH URL");
+    return;
+  }
+
+  if (parsed.protocol !== "https:" && parsed.protocol !== "ssh:") {
+    issue(context, "Git URL protocol must be HTTPS or SSH");
+  }
+  if (parsed.hostname.length === 0) {
+    issue(context, "Git URL must contain a host");
+  }
+  if (parsed.protocol === "https:" && (parsed.username !== "" || parsed.password !== "")) {
+    issue(context, "HTTPS Git URLs cannot contain embedded credentials");
+  }
+  if (parsed.protocol === "ssh:" && parsed.password !== "") {
+    issue(context, "SSH Git URLs cannot contain embedded passwords");
+  }
+}
+
+const GitUrlSchema = z.string().min(1).superRefine(validateGitUrl);
+
+function validateNpmRegistry(value: string, context: z.RefinementCtx): void {
+  if (!hasValidPercentEscapes(value)) {
+    issue(context, "npm registry contains a malformed percent escape");
+    return;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    issue(context, "npm registry must be an HTTPS URL");
+    return;
+  }
+
+  if (parsed.protocol !== "https:") {
+    issue(context, "npm registry must use HTTPS");
+  }
+  if (parsed.username !== "" || parsed.password !== "") {
+    issue(context, "npm registry cannot contain embedded credentials");
+  }
+}
+
+const NpmRegistrySchema = z.string().url().superRefine(validateNpmRegistry);
+const GitRevisionInputSchema = z
+  .string()
+  .regex(/^[0-9a-f]{40}$/, "Git revision must be a full 40-character lowercase SHA-1")
+  .brand<"GitRevision">();
+
 export const MarketplaceSourceVariantRegistry = {
   github: {
     label: "GitHub repository",
-    schema: z.object({
-      kind: z.literal("github"),
-      repository: z.string().min(1),
-      ref: z.string().min(1).optional(),
-    }),
+    schema: z
+      .object({
+        kind: z.literal("github"),
+        repository: z.string().regex(GitHubRepository),
+        ref: z.string().min(1).optional(),
+      })
+      .strict(),
   },
   git: {
     label: "Git repository",
-    schema: z.object({
-      kind: z.literal("git"),
-      url: z.string().url(),
-      ref: z.string().min(1).optional(),
-    }),
+    schema: z
+      .object({
+        kind: z.literal("git"),
+        url: GitUrlSchema,
+        ref: z.string().min(1).optional(),
+      })
+      .strict(),
   },
   localGit: {
     label: "Local Git checkout",
-    schema: z.object({
-      kind: z.literal("local-git"),
-      path: z.string().min(1),
-      ref: z.string().min(1).optional(),
-    }),
+    schema: z
+      .object({
+        kind: z.literal("local-git"),
+        path: z.string().min(1),
+        ref: z.string().min(1).optional(),
+      })
+      .strict(),
   },
 } as const;
 
@@ -56,38 +165,46 @@ export type MarketplaceSource = z.infer<typeof MarketplaceSourceSchema>;
 export const PluginSourceVariantRegistry = {
   marketplacePath: {
     label: "Marketplace path",
-    schema: z.object({
-      kind: z.literal("marketplace-path"),
-      path: z.string().min(1),
-    }),
+    schema: z
+      .object({
+        kind: z.literal("marketplace-path"),
+        path: z.string().min(1),
+      })
+      .strict(),
   },
   git: {
     label: "Git repository",
-    schema: z.object({
-      kind: z.literal("git"),
-      url: z.string().url(),
-      ref: z.string().min(1).optional(),
-      sha: z.string().min(1).optional(),
-    }),
+    schema: z
+      .object({
+        kind: z.literal("git"),
+        url: GitUrlSchema,
+        ref: z.string().min(1).optional(),
+        sha: GitRevisionInputSchema.optional(),
+      })
+      .strict(),
   },
   gitSubdir: {
     label: "Git repository subdirectory",
-    schema: z.object({
-      kind: z.literal("git-subdir"),
-      url: z.string().url(),
-      path: z.string().min(1),
-      ref: z.string().min(1).optional(),
-      sha: z.string().min(1).optional(),
-    }),
+    schema: z
+      .object({
+        kind: z.literal("git-subdir"),
+        url: GitUrlSchema,
+        path: z.string().min(1),
+        ref: z.string().min(1).optional(),
+        sha: GitRevisionInputSchema.optional(),
+      })
+      .strict(),
   },
   npm: {
     label: "npm package",
-    schema: z.object({
-      kind: z.literal("npm"),
-      package: z.string().min(1),
-      selector: z.string().min(1).optional(),
-      registry: z.string().url().optional(),
-    }),
+    schema: z
+      .object({
+        kind: z.literal("npm"),
+        package: z.string().min(1),
+        selector: z.string().min(1).optional(),
+        registry: NpmRegistrySchema.optional(),
+      })
+      .strict(),
   },
 } as const;
 
@@ -97,92 +214,134 @@ export const PluginSourceSchema = z.discriminatedUnion(
 );
 export type PluginSource = z.infer<typeof PluginSourceSchema>;
 
-export const GitRevisionSchema = z
-  .string()
-  .regex(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/)
-  .brand<"GitRevision">();
+export const GitRevisionSchema = GitRevisionInputSchema;
 export const NpmIntegritySchema = z
   .string()
-  .regex(/^sha512-[A-Za-z0-9+/]+={0,2}$/)
+  // A SHA-512 digest is exactly 64 bytes, represented by 86 data characters
+  // and two padding characters. The final data character also has only two
+  // meaningful bits; rejecting non-canonical pad bits avoids alternate text
+  // encodings of the same digest.
+  .regex(/^sha512-[A-Za-z0-9+/]{85}[AQgw]==$/, "SHA-512 integrity must be a canonical 64-byte base64 digest")
   .brand<"NpmIntegrity">();
+export type GitRevision = z.infer<typeof GitRevisionSchema>;
+export type NpmIntegrity = z.infer<typeof NpmIntegritySchema>;
+
+function readUtf8Value(
+  input: string,
+  start: number,
+  byteLength: number,
+): { readonly value: string; readonly next: number } | undefined {
+  let next = start;
+  let consumed = 0;
+  while (next < input.length && consumed < byteLength) {
+    const codePoint = input.codePointAt(next);
+    if (codePoint === undefined) {
+      return undefined;
+    }
+    const character = String.fromCodePoint(codePoint);
+    consumed += new TextEncoder().encode(character).byteLength;
+    next += character.length;
+    if (consumed > byteLength) {
+      return undefined;
+    }
+  }
+  return consumed === byteLength
+    ? { value: input.slice(start, next), next }
+    : undefined;
+}
+
+function parseCanonicalSource(value: string): boolean {
+  if (!value.startsWith("source-v1|")) {
+    return false;
+  }
+
+  const kindStart = "source-v1|".length;
+  const kindEnd = value.indexOf("|", kindStart);
+  const kind = kindEnd === -1
+    ? value.slice(kindStart)
+    : value.slice(kindStart, kindEnd);
+  if (!/^[a-z][a-z0-9-]*$/.test(kind) || !CanonicalSourceKinds.has(kind)) {
+    return false;
+  }
+  if (kindEnd === -1) {
+    return true;
+  }
+
+  let cursor = kindEnd + 1;
+  const fieldNames = new Set<string>();
+  while (cursor < value.length) {
+    const nameEnd = value.indexOf(":", cursor);
+    if (nameEnd === -1 || !/^[a-zA-Z][a-zA-Z0-9-]*$/.test(value.slice(cursor, nameEnd))) {
+      return false;
+    }
+    const fieldName = value.slice(cursor, nameEnd);
+    if (fieldNames.has(fieldName)) {
+      return false;
+    }
+    fieldNames.add(fieldName);
+
+    const lengthStart = nameEnd + 1;
+    const lengthEnd = value.indexOf(":", lengthStart);
+    const lengthText = lengthEnd === -1
+      ? ""
+      : value.slice(lengthStart, lengthEnd);
+    if (lengthEnd === -1 || !/^\d+$/.test(lengthText)) {
+      return false;
+    }
+    const byteLength = Number(lengthText);
+    if (!Number.isSafeInteger(byteLength)) {
+      return false;
+    }
+
+    const parsed = readUtf8Value(value, lengthEnd + 1, byteLength);
+    if (parsed === undefined) {
+      return false;
+    }
+    cursor = parsed.next;
+    if (cursor === value.length) {
+      return true;
+    }
+    if (value[cursor] !== "|") {
+      return false;
+    }
+    cursor += 1;
+    if (cursor === value.length) {
+      return false;
+    }
+  }
+  return false;
+}
+
 export const CanonicalSourceSchema = z
   .string()
-  .startsWith("source-v1|")
+  .refine(parseCanonicalSource, "canonical source has an invalid source-v1 encoding")
   .brand<"CanonicalSource">();
 export const SourceHashSchema = z
   .string()
   .regex(/^sha256:[0-9a-f]{64}$/)
   .brand<"SourceHash">();
-export type GitRevision = z.infer<typeof GitRevisionSchema>;
-export type NpmIntegrity = z.infer<typeof NpmIntegritySchema>;
 export type CanonicalSource = z.infer<typeof CanonicalSourceSchema>;
 export type SourceHash = z.infer<typeof SourceHashSchema>;
 
-export const ResolvedMarketplaceSourceSchema = z
-  .object({
-    declared: MarketplaceSourceSchema,
-    canonical: CanonicalSourceSchema,
-    hash: SourceHashSchema,
-    revision: GitRevisionSchema,
-  })
-  .readonly();
-export type ResolvedMarketplaceSource = z.infer<
-  typeof ResolvedMarketplaceSourceSchema
->;
+function normalizedScpUrl(value: string): string {
+  const match = ScpGitUrl.exec(value);
+  if (match === null || !isScpGitUrl(value)) {
+    return value;
+  }
+  const user = match.groups?.user;
+  const prefix = user === undefined ? "" : `${user}@`;
+  return `ssh://${prefix}${match.groups?.host}/${match.groups?.path}`;
+}
 
-export const ResolvedPluginSourceVariantRegistry = {
-  marketplacePath: {
-    label: "Marketplace path",
-    schema: z.object({
-      kind: z.literal("marketplace-path"),
-      canonical: CanonicalSourceSchema,
-      hash: SourceHashSchema,
-      marketplaceRevision: GitRevisionSchema,
-      path: z.string().min(1),
-    }),
-  },
-  git: {
-    label: "Git repository",
-    schema: z.object({
-      kind: z.literal("git"),
-      canonical: CanonicalSourceSchema,
-      hash: SourceHashSchema,
-      revision: GitRevisionSchema,
-    }),
-  },
-  gitSubdir: {
-    label: "Git repository subdirectory",
-    schema: z.object({
-      kind: z.literal("git-subdir"),
-      canonical: CanonicalSourceSchema,
-      hash: SourceHashSchema,
-      revision: GitRevisionSchema,
-      path: z.string().min(1),
-    }),
-  },
-  npm: {
-    label: "npm package",
-    schema: z.object({
-      kind: z.literal("npm"),
-      canonical: CanonicalSourceSchema,
-      hash: SourceHashSchema,
-      package: z.string().min(1),
-      version: z.string().min(1),
-      integrity: NpmIntegritySchema,
-      registry: z.string().url(),
-    }),
-  },
-} as const;
-
-export const ResolvedPluginSourceSchema = z.discriminatedUnion(
-  "kind",
-  schemasFor(ResolvedPluginSourceVariantRegistry),
-);
-export type ResolvedPluginSource = z.infer<
-  typeof ResolvedPluginSourceSchema
->;
-
-export type Sha256 = (bytes: Uint8Array) => Uint8Array;
+function decodeUrlSegment(value: string): string {
+  // Validation happens before URL normalization. Do not fall back to treating
+  // malformed percent escapes as literals: `%zz` and `%25zz` would otherwise
+  // become the same canonical path bytes.
+  if (!hasValidPercentEscapes(value)) {
+    throw new TypeError("URL contains a malformed percent escape");
+  }
+  return decodeURIComponent(value);
+}
 
 const encoder = new TextEncoder();
 const hex = "0123456789ABCDEF";
@@ -218,16 +377,6 @@ function encodePath(value: string): string {
   return value.split("/").map(encodePathSegment).join("/");
 }
 
-function decodeUrlSegment(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    // URL accepts a few malformed percent sequences. Treat their percent
-    // signs as literal data rather than allowing them to create an alias.
-    return value;
-  }
-}
-
 function encodeUrlPath(pathname: string): string {
   return pathname
     .split("/")
@@ -238,24 +387,23 @@ function encodeUrlPath(pathname: string): string {
 /**
  * Normalize only URL syntax that is safe at this contract boundary. URL does
  * not resolve redirects, refs, filesystem paths, symlinks, or semver; those
- * are acquisition concerns. The authority is rebuilt because URL only
- * lowercases hosts for its special schemes (for example, not `ssh:`).
+ * are acquisition concerns. The authority is rebuilt because URL does not
+ * lowercase hosts consistently for every scheme (notably SSH).
  */
 function normalizeUrl(value: string): string {
-  const parsed = new URL(value);
-  const href = parsed.href;
+  const normalizedInput = normalizedScpUrl(value);
+  if (!hasValidPercentEscapes(normalizedInput)) {
+    throw new TypeError("URL contains a malformed percent escape");
+  }
+  const parsed = new URL(normalizedInput);
   const suffix = `${parsed.search}${parsed.hash}`;
+  const href = parsed.href;
   const withoutSuffix = suffix
     ? href.slice(0, href.length - suffix.length)
     : href;
   const hierarchicalPrefix = `${parsed.protocol.toLowerCase()}//`;
-
-  if (!withoutSuffix.startsWith(hierarchicalPrefix)) {
-    return href;
-  }
-
   const credentials = parsed.username
-    ? `${parsed.username}${parsed.password ? `:${parsed.password}` : ""}@`
+    ? `${parsed.username}@`
     : "";
   const port = parsed.port ? `:${parsed.port}` : "";
   const authority = `${hierarchicalPrefix}${credentials}${parsed.hostname.toLowerCase()}${port}`;
@@ -336,6 +484,8 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled source variant: ${String(value)}`);
 }
 
+export type Sha256 = (bytes: Uint8Array) => Uint8Array;
+
 export function hashCanonicalSource(
   source: CanonicalSource,
   sha256: Sha256,
@@ -355,4 +505,308 @@ export function hashCanonicalSource(
     digestHex += `${hex[byte >> 4]}${hex[byte & 0x0f]}`.toLowerCase();
   }
   return SourceHashSchema.parse(`sha256:${digestHex}`);
+}
+
+function serializeResolvedMarketplaceSource(
+  source: MarketplaceSource,
+  revision: GitRevision,
+): CanonicalSource {
+  switch (source.kind) {
+    case "github":
+      return canonicalSource("github", [
+        ["repository", source.repository],
+        ["revision", revision],
+      ]);
+    case "git":
+      return canonicalSource("git", [
+        ["url", normalizeUrl(source.url)],
+        ["revision", revision],
+      ]);
+    case "local-git":
+      return canonicalSource("local-git", [
+        ["path", encodePath(source.path)],
+        ["revision", revision],
+      ]);
+    default:
+      return assertNever(source);
+  }
+}
+
+const ResolvedMarketplaceSourceIdentitySchema = z
+  .object({
+    declared: MarketplaceSourceSchema,
+    revision: GitRevisionSchema,
+  })
+  .strict();
+
+export const ResolvedMarketplaceSourceSchema = ResolvedMarketplaceSourceIdentitySchema
+  .extend({
+    canonical: CanonicalSourceSchema,
+    hash: SourceHashSchema,
+  })
+  .strict()
+  .readonly()
+  .superRefine((value, context) => {
+    const expected = serializeResolvedMarketplaceSource(value.declared, value.revision);
+    if (value.canonical !== expected) {
+      context.addIssue({
+        code: "custom",
+        path: ["canonical"],
+        message: "canonical source does not match the declared kind and immutable revision",
+      });
+    }
+  });
+export type ResolvedMarketplaceSource = z.infer<
+  typeof ResolvedMarketplaceSourceSchema
+>;
+
+const ResolvedPluginSourceIdentityVariantRegistry = {
+  marketplacePath: {
+    label: "Marketplace path",
+    schema: z
+      .object({
+        kind: z.literal("marketplace-path"),
+        marketplaceRevision: GitRevisionSchema,
+        path: z.string().min(1),
+      })
+      .strict(),
+  },
+  git: {
+    label: "Git repository",
+    schema: z
+      .object({
+        kind: z.literal("git"),
+        url: GitUrlSchema,
+        revision: GitRevisionSchema,
+      })
+      .strict(),
+  },
+  gitSubdir: {
+    label: "Git repository subdirectory",
+    schema: z
+      .object({
+        kind: z.literal("git-subdir"),
+        url: GitUrlSchema,
+        revision: GitRevisionSchema,
+        path: z.string().min(1),
+      })
+      .strict(),
+  },
+  npm: {
+    label: "npm package",
+    schema: z
+      .object({
+        kind: z.literal("npm"),
+        package: z.string().min(1),
+        version: z.string().min(1),
+        integrity: NpmIntegritySchema,
+        registry: NpmRegistrySchema,
+      })
+      .strict(),
+  },
+} as const;
+
+const resolvedSourceMetadata = {
+  canonical: CanonicalSourceSchema,
+  hash: SourceHashSchema,
+} as const;
+
+export const ResolvedPluginSourceVariantRegistry = {
+  marketplacePath: {
+    label: ResolvedPluginSourceIdentityVariantRegistry.marketplacePath.label,
+    schema: ResolvedPluginSourceIdentityVariantRegistry.marketplacePath.schema
+      .extend(resolvedSourceMetadata)
+      .strict()
+      .readonly(),
+  },
+  git: {
+    label: ResolvedPluginSourceIdentityVariantRegistry.git.label,
+    schema: ResolvedPluginSourceIdentityVariantRegistry.git.schema
+      .extend(resolvedSourceMetadata)
+      .strict()
+      .readonly(),
+  },
+  gitSubdir: {
+    label: ResolvedPluginSourceIdentityVariantRegistry.gitSubdir.label,
+    schema: ResolvedPluginSourceIdentityVariantRegistry.gitSubdir.schema
+      .extend(resolvedSourceMetadata)
+      .strict()
+      .readonly(),
+  },
+  npm: {
+    label: ResolvedPluginSourceIdentityVariantRegistry.npm.label,
+    schema: ResolvedPluginSourceIdentityVariantRegistry.npm.schema
+      .extend(resolvedSourceMetadata)
+      .strict()
+      .readonly(),
+  },
+} as const;
+
+const ResolvedPluginSourceIdentitySchema = z.discriminatedUnion(
+  "kind",
+  schemasFor(ResolvedPluginSourceIdentityVariantRegistry),
+);
+
+type ResolvedPluginSourceIdentity = z.infer<
+  typeof ResolvedPluginSourceIdentitySchema
+>;
+
+function serializeResolvedPluginSource(
+  source: ResolvedPluginSourceIdentity,
+): CanonicalSource {
+  switch (source.kind) {
+    case "marketplace-path":
+      return canonicalSource("marketplace-path", [
+        ["path", encodePath(source.path)],
+        ["marketplaceRevision", source.marketplaceRevision],
+      ]);
+    case "git":
+      return canonicalSource("git", [
+        ["url", normalizeUrl(source.url)],
+        ["revision", source.revision],
+      ]);
+    case "git-subdir":
+      return canonicalSource("git-subdir", [
+        ["url", normalizeUrl(source.url)],
+        ["path", encodePath(source.path)],
+        ["revision", source.revision],
+      ]);
+    case "npm":
+      return canonicalSource("npm", [
+        ["package", source.package],
+        ["version", source.version],
+        ["integrity", source.integrity],
+        ["registry", normalizeUrl(source.registry)],
+      ]);
+    default:
+      return assertNever(source);
+  }
+}
+
+export const ResolvedPluginSourceSchema = z
+  .discriminatedUnion("kind", schemasFor(ResolvedPluginSourceVariantRegistry))
+  .superRefine((value, context) => {
+    const expected = serializeResolvedPluginSource(value);
+    if (value.canonical !== expected) {
+      context.addIssue({
+        code: "custom",
+        path: ["canonical"],
+        message: "canonical source does not match the kind and immutable source fields",
+      });
+    }
+  });
+export type ResolvedPluginSource = z.infer<
+  typeof ResolvedPluginSourceSchema
+>;
+
+const ResolvedMarketplaceSourceInputSchema = z
+  .object({
+    declared: MarketplaceSourceSchema,
+    revision: GitRevisionSchema,
+    canonical: CanonicalSourceSchema.optional(),
+    hash: SourceHashSchema.optional(),
+  })
+  .strict();
+
+/**
+ * Build the immutable marketplace contract from a declaration and resolved
+ * revision. The domain computes canonical bytes; an adapter supplies only the
+ * SHA-256 port. Optional supplied canonical/hash claims are checked rather
+ * than trusted.
+ */
+export function createResolvedMarketplaceSource(
+  input: unknown,
+  sha256: Sha256,
+): ResolvedMarketplaceSource {
+  const value = ResolvedMarketplaceSourceInputSchema.parse(input);
+  const canonical = serializeResolvedMarketplaceSource(value.declared, value.revision);
+  const hash = hashCanonicalSource(canonical, sha256);
+  if (value.canonical !== undefined && value.canonical !== canonical) {
+    throw new Error("resolved marketplace canonical source does not match its identity");
+  }
+  if (value.hash !== undefined && value.hash !== hash) {
+    throw new Error("resolved marketplace source hash does not match its canonical source");
+  }
+  return ResolvedMarketplaceSourceSchema.parse({
+    ...value,
+    canonical,
+    hash,
+  });
+}
+
+/** Verify both the canonical identity and the injected source hash. */
+export function verifyResolvedMarketplaceSource(
+  input: unknown,
+  sha256: Sha256,
+): ResolvedMarketplaceSource {
+  const value = ResolvedMarketplaceSourceSchema.parse(input);
+  const expectedHash = hashCanonicalSource(value.canonical, sha256);
+  if (value.hash !== expectedHash) {
+    throw new Error("resolved marketplace source hash does not match its canonical source");
+  }
+  return value;
+}
+
+const ResolvedPluginSourceInputSchema = z.discriminatedUnion("kind", [
+  ResolvedPluginSourceIdentityVariantRegistry.marketplacePath.schema
+    .extend({
+      canonical: CanonicalSourceSchema.optional(),
+      hash: SourceHashSchema.optional(),
+    })
+    .strict(),
+  ResolvedPluginSourceIdentityVariantRegistry.git.schema
+    .extend({
+      canonical: CanonicalSourceSchema.optional(),
+      hash: SourceHashSchema.optional(),
+    })
+    .strict(),
+  ResolvedPluginSourceIdentityVariantRegistry.gitSubdir.schema
+    .extend({
+      canonical: CanonicalSourceSchema.optional(),
+      hash: SourceHashSchema.optional(),
+    })
+    .strict(),
+  ResolvedPluginSourceIdentityVariantRegistry.npm.schema
+    .extend({
+      canonical: CanonicalSourceSchema.optional(),
+      hash: SourceHashSchema.optional(),
+    })
+    .strict(),
+]);
+
+/** Build a resolved plugin source while binding all immutable fields together. */
+export function createResolvedPluginSource(
+  input: unknown,
+  sha256: Sha256,
+): ResolvedPluginSource {
+  const value = ResolvedPluginSourceInputSchema.parse(input) as ResolvedPluginSourceIdentity & {
+    readonly canonical?: CanonicalSource;
+    readonly hash?: SourceHash;
+  };
+  const canonical = serializeResolvedPluginSource(value);
+  const hash = hashCanonicalSource(canonical, sha256);
+  if (value.canonical !== undefined && value.canonical !== canonical) {
+    throw new Error("resolved plugin canonical source does not match its identity");
+  }
+  if (value.hash !== undefined && value.hash !== hash) {
+    throw new Error("resolved plugin source hash does not match its canonical source");
+  }
+  return ResolvedPluginSourceSchema.parse({
+    ...value,
+    canonical,
+    hash,
+  });
+}
+
+/** Verify kind, immutable fields, canonical bytes, and the injected hash. */
+export function verifyResolvedPluginSource(
+  input: unknown,
+  sha256: Sha256,
+): ResolvedPluginSource {
+  const value = ResolvedPluginSourceSchema.parse(input);
+  const expectedHash = hashCanonicalSource(value.canonical, sha256);
+  if (value.hash !== expectedHash) {
+    throw new Error("resolved plugin source hash does not match its canonical source");
+  }
+  return value;
 }

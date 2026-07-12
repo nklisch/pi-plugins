@@ -45,9 +45,9 @@ This feature gives every reader, materializer, and compatibility evaluator one h
 - **Where does compatibility policy live?**: This feature owns the generic schemas, registries, report shape, and pure activatability derivation only. Rule instances such as which hook events or MCP capabilities Pi supports belong to `epic-foreign-plugin-model-compatibility-reporting`. Foreign-host-shaped schemas remain in `src/formats/{claude,codex}`.
 - **How are declared and resolved sources separated?**: `MarketplaceSource` and `PluginSource` preserve user/foreign declarations. Materializers emit distinct `ResolvedMarketplaceSource` and `ResolvedPluginSource` values containing immutable revisions and canonical source identities; declaration selectors never masquerade as resolved revisions.
 - **How are normalized values attributed?**: Use `Claimed<T>` on each normalized value, with one or more provenance records for equivalent merged declarations. A flat bundle-level claims list was rejected because consumers could not reliably associate a claim with the value it supports.
-- **How are identities serialized and hashed?**: Constructors validate canonical grammar, `formatPluginKey`/`parsePluginKey` round-trip using the final `@` delimiter, and canonical source serialization uses tagged, length-prefixed `source-v1` fields. Hashes are branded `sha256:<64 lowercase hex>` values computed through an injected synchronous SHA-256 function, keeping Node crypto out of the domain.
-- **How do readers report partial success?**: Entry-level failures return `ReadResult`/`CollectionReadResult` diagnostics with stable codes; readers throw a typed `BoundaryError` only when the enclosing boundary cannot be trusted or an adapter fails. Recoverable diagnostics and fatal exceptions are deliberately separate.
-- **How are domain boundaries enforced?**: `dependency-cruiser` fails `npm run boundaries` when `src/domain/**` imports application, format, infrastructure, runtime, Pi, or `node:*` modules. Package scripts make boundary checking part of `npm test` and CI, rather than relying on convention.
+- **How are identities serialized and hashed?**: Constructors validate canonical grammar, `formatPluginKey`/`parsePluginKey` round-trip using the final `@` delimiter, and canonical source serialization uses tagged, length-prefixed `source-v1` fields. Malformed percent escapes are rejected before URL decoding. Git accepts HTTPS, `ssh://`, and common SCP-style SSH forms (normalized to SSH); npm registries are HTTPS-only and HTTPS credentials are rejected. Hashes are branded `sha256:<64 lowercase hex>` values computed through an injected synchronous SHA-256 function, keeping Node crypto out of the domain. Resolved-source constructors recompute canonical bytes and hashes from explicit immutable fields.
+- **How do readers report partial success?**: Entry-level failures return `ReadResult`/`CollectionReadResult` diagnostics with stable codes; successful `ReadResult` values carry warnings only, and failed values carry at least one error diagnostic. Readers throw a typed `BoundaryError` only when the enclosing boundary cannot be trusted or an adapter fails. Recoverable diagnostics and fatal exceptions are deliberately separate.
+- **How are domain boundaries enforced?**: `dependency-cruiser` fails `npm run boundaries` when `src/domain/**` imports application, format, infrastructure, runtime, Pi, or `node:*` modules. A committed Vitest regression writes both illegal imports and asserts both rule names. Package scripts make boundary checking part of `npm test` and CI, rather than relying on convention.
 - **What metadata is retained?**: Normalized, behavior-neutral metadata uses `RetainedMetadata` with JSON values and per-value provenance. Unknown runtime declarations become `RetainedForeignComponent` inventory entries for later policy assessment; readers do not label them incompatible themselves.
 
 ## Other agent review
@@ -129,7 +129,7 @@ The source identity unit is riskiest because cache and trust identity will event
 }
 ```
 
-`tsconfig.json` uses `target: "ES2024"`, `module`/`moduleResolution: "NodeNext"`, `rootDir: "."`, declaration and source maps, `outDir: "dist"`, `strict: true`, `exactOptionalPropertyTypes: true`, `noUncheckedIndexedAccess: true`, `verbatimModuleSyntax: true`, `isolatedModules: true`, and includes `src/**/*.ts`; tests are typechecked by a separate no-emit project override in `vitest.config.ts`/the test runner rather than emitted into `dist`.
+`tsconfig.json` uses `target: "ES2024"`, `module`/`moduleResolution: "NodeNext"`, `rootDir: "src"`, declaration and source maps, `outDir: "dist"`, `strict: true`, `exactOptionalPropertyTypes: true`, `noUncheckedIndexedAccess: true`, `verbatimModuleSyntax: true`, `isolatedModules: true`, and includes `src/**/*.ts`; tests are typechecked by a separate no-emit project override in `vitest.config.ts`/the test runner rather than emitted into `dist`.
 
 ```typescript
 // src/domain/schema.ts
@@ -211,73 +211,39 @@ Names are case-sensitive and canonical as written. Whitespace, `@`, separators, 
 ```typescript
 // src/domain/source.ts
 import { z } from "zod";
-
-export const MarketplaceSourceVariantRegistry = {
-  github: { label: "GitHub repository", schema: z.object({ kind: z.literal("github"), repository: z.string().min(1), ref: z.string().min(1).optional() }) },
-  git: { label: "Git repository", schema: z.object({ kind: z.literal("git"), url: z.string().url(), ref: z.string().min(1).optional() }) },
-  localGit: { label: "Local Git checkout", schema: z.object({ kind: z.literal("local-git"), path: z.string().min(1), ref: z.string().min(1).optional() }) },
-} as const;
-export const MarketplaceSourceSchema = z.discriminatedUnion("kind", [
-  MarketplaceSourceVariantRegistry.github.schema,
-  MarketplaceSourceVariantRegistry.git.schema,
-  MarketplaceSourceVariantRegistry.localGit.schema,
-]);
-export type MarketplaceSource = z.infer<typeof MarketplaceSourceSchema>;
-
-export const PluginSourceVariantRegistry = {
-  marketplacePath: { label: "Marketplace path", schema: z.object({ kind: z.literal("marketplace-path"), path: z.string().min(1) }) },
-  git: { label: "Git repository", schema: z.object({ kind: z.literal("git"), url: z.string().url(), ref: z.string().min(1).optional(), sha: z.string().min(1).optional() }) },
-  gitSubdir: { label: "Git repository subdirectory", schema: z.object({ kind: z.literal("git-subdir"), url: z.string().url(), path: z.string().min(1), ref: z.string().min(1).optional(), sha: z.string().min(1).optional() }) },
-  npm: { label: "npm package", schema: z.object({ kind: z.literal("npm"), package: z.string().min(1), selector: z.string().min(1).optional(), registry: z.string().url().optional() }) },
-} as const;
-export const PluginSourceSchema = z.discriminatedUnion("kind", [
-  PluginSourceVariantRegistry.marketplacePath.schema,
-  PluginSourceVariantRegistry.git.schema,
-  PluginSourceVariantRegistry.gitSubdir.schema,
-  PluginSourceVariantRegistry.npm.schema,
-]);
-export type PluginSource = z.infer<typeof PluginSourceSchema>;
-
-export const GitRevisionSchema = z.string().regex(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/)
-  .brand<"GitRevision">();
-export const NpmIntegritySchema = z.string().regex(/^sha512-[A-Za-z0-9+/]+={0,2}$/)
-  .brand<"NpmIntegrity">();
-export const CanonicalSourceSchema = z.string().startsWith("source-v1|")
-  .brand<"CanonicalSource">();
-export const SourceHashSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/)
-  .brand<"SourceHash">();
-export type GitRevision = z.infer<typeof GitRevisionSchema>;
-export type CanonicalSource = z.infer<typeof CanonicalSourceSchema>;
-export type SourceHash = z.infer<typeof SourceHashSchema>;
-
-export const ResolvedMarketplaceSourceSchema = z.object({
-  declared: MarketplaceSourceSchema,
-  canonical: CanonicalSourceSchema,
-  hash: SourceHashSchema,
-  revision: GitRevisionSchema,
-}).readonly();
-export type ResolvedMarketplaceSource = z.infer<typeof ResolvedMarketplaceSourceSchema>;
-
-export const ResolvedPluginSourceSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("marketplace-path"), canonical: CanonicalSourceSchema,
-    hash: SourceHashSchema, marketplaceRevision: GitRevisionSchema, path: z.string().min(1) }),
-  z.object({ kind: z.literal("git"), canonical: CanonicalSourceSchema,
-    hash: SourceHashSchema, revision: GitRevisionSchema }),
-  z.object({ kind: z.literal("git-subdir"), canonical: CanonicalSourceSchema,
-    hash: SourceHashSchema, revision: GitRevisionSchema, path: z.string().min(1) }),
-  z.object({ kind: z.literal("npm"), canonical: CanonicalSourceSchema,
-    hash: SourceHashSchema, package: z.string().min(1), version: z.string().min(1),
-    integrity: NpmIntegritySchema, registry: z.string().url() }),
-]);
-export type ResolvedPluginSource = z.infer<typeof ResolvedPluginSourceSchema>;
-
-export type Sha256 = (bytes: Uint8Array) => Uint8Array;
-export function serializeMarketplaceSource(source: MarketplaceSource): CanonicalSource;
-export function serializePluginSource(source: PluginSource): CanonicalSource;
-export function hashCanonicalSource(source: CanonicalSource, sha256: Sha256): SourceHash;
 ```
 
-Canonical serialization is `source-v1|<kind>|<field-name>:<UTF-8-byte-length>:<field-value>...` with fields in the registry-defined order, absent optionals omitted, URL scheme/host lowercased, default HTTPS port removed, and path segments percent-encoded. It does not resolve refs, filesystem paths, symlinks, semver, or redirects. Resolved schemas require the materializer's immutable result; their `canonical` value serializes resolved identity fields, not the original selector. `hashCanonicalSource` rejects hash functions that do not return exactly 32 bytes.
+The source registries use strict schemas. Git URL fields accept HTTPS, `ssh://`,
+and common SCP-style `user@host:path` syntax (normalized to SSH); npm registry
+fields accept HTTPS only and reject embedded credentials. Git pins use full
+40-character lowercase SHA values and npm integrity uses canonical SHA-512
+base64. Unknown source fields fail parsing.
+
+Resolved source variants retain explicit immutable identity fields (including
+Git URL and subdirectory where applicable) alongside the canonical bytes and
+hash. The schema checks that the canonical kind and fields agree. Constructors
+and verifiers are the only domain entry points for materializer results:
+
+```typescript
+export function createResolvedMarketplaceSource(
+  input: unknown, sha256: Sha256,
+): ResolvedMarketplaceSource;
+export function verifyResolvedMarketplaceSource(
+  input: unknown, sha256: Sha256,
+): ResolvedMarketplaceSource;
+export function createResolvedPluginSource(
+  input: unknown, sha256: Sha256,
+): ResolvedPluginSource;
+export function verifyResolvedPluginSource(
+  input: unknown, sha256: Sha256,
+): ResolvedPluginSource;
+```
+
+`createResolved*` derives canonical bytes from immutable fields and computes the
+hash through the injected port; `verifyResolved*` recomputes the hash. Neither
+function performs filesystem, Git, npm, process, or network resolution.
+
+Canonical serialization is `source-v1|<kind>|<field-name>:<UTF-8-byte-length>:<field-value>...` with fields in the registry-defined order, absent optionals omitted, URL scheme/host lowercased, default HTTPS port removed, and path segments percent-encoded. Malformed percent escapes are rejected before URL decoding, so encoded delimiters cannot alias distinct values. Git schemas accept HTTPS, `ssh://`, and common SCP-style `user@host:path` forms (SCP is normalized to SSH), while npm registries are HTTPS-only and embedded HTTPS credentials are rejected. Declared source objects are strict. It does not resolve refs, filesystem paths, symlinks, semver, or redirects. Resolved schemas require the materializer's immutable result; their `canonical` value serializes explicit resolved identity fields and immutable revisions, not the original selector. `createResolved*` and `verifyResolved*` recompute canonical bytes and an injected SHA-256 hash, rejecting kind/canonical/hash mismatches. `hashCanonicalSource` rejects hash functions that do not return exactly 32 bytes.
 
 **Acceptance criteria**:
 - [ ] Identity constructors reject malformed/non-canonical names and inconsistent `PluginIdentity.key` values.
@@ -340,7 +306,7 @@ export function mergeEquivalentClaims<T>(
 ): Claimed<T>;
 ```
 
-`ClaimedSchema` enforces non-empty provenance. `mergeEquivalentClaims` throws `ClaimConflictError` when values differ; it deduplicates identical source locations in first-seen order.
+`ClaimedSchema` enforces non-empty provenance. `mergeEquivalentClaims` throws `ClaimConflictError` when values differ; it deduplicates identical source locations in first-seen order. `ClaimConflictError` extends the common `DomainContractError` through a dependency-neutral error module, keeps both typed claims, and projects safe snapshots of both into diagnostic details.
 
 ```typescript
 // src/domain/configuration.ts
@@ -603,8 +569,10 @@ export class BoundaryError extends DomainContractError {
     cause?: unknown;
   }>);
 }
-export class ClaimConflictError extends DomainContractError {
-  constructor(input: Omit<ConstructorParameters<typeof DomainContractError>[0], "code">);
+export class ClaimConflictError<T = unknown> extends DomainContractError {
+  readonly left: Claimed<T>;
+  readonly right: Claimed<T>;
+  constructor(left: Claimed<T>, right: Claimed<T>);
 }
 export function diagnosticFromZodError(
   error: z.ZodError,
@@ -612,7 +580,7 @@ export function diagnosticFromZodError(
 ): Diagnostic;
 ```
 
-The thrown error retains `cause` for logs through native `ErrorOptions` but serializable diagnostics omit it. `CollectionReadResult` permits valid siblings plus diagnostics; a reader throws only if its enclosing root identity/schema cannot be trusted or an infrastructure adapter failed. `src/index.ts` explicitly re-exports public schemas, inferred types, registries, constructors, serializers, and result/error contracts; it does not use wildcard exports, preventing accidental API growth.
+The thrown error retains `cause` for logs through native `ErrorOptions` but serializable diagnostics omit it. `CollectionReadResult` permits valid siblings plus diagnostics; a reader throws only if its enclosing root identity/schema cannot be trusted or an infrastructure adapter failed. `ReadResultSchema` enforces warning-only diagnostics for successful values and at least one error diagnostic for failures. `src/index.ts` explicitly re-exports public schemas, inferred types, registries, constructors, serializers, and result/error contracts; a compiled-package regression test enforces the exact runtime export allowlist.
 
 **Acceptance criteria**:
 - [ ] Exactly `supported`, `metadata-only`, and `incompatible` parse as component verdicts; `conditional` is rejected.
@@ -662,9 +630,9 @@ All four child stories are complete:
 - `epic-foreign-plugin-model-domain-contracts-plugin-inventory-contracts` — done
 - `epic-foreign-plugin-model-domain-contracts-compatibility-errors-api` — done
 
-The integrated implementation delivers the TypeScript 7/Zod package foundation, enforced domain boundaries, branded identity and canonical source contracts, provenance-rich configuration and component inventories, compatibility and diagnostic mechanics, and an explicit package API. The only structural deviation places `ClaimConflictError` beside the merge behavior in `provenance.ts` and re-exports it through `errors.ts`, avoiding duplicate classes.
+The integrated implementation delivers the TypeScript 7/Zod package foundation, enforced domain boundaries, branded identity and canonical source contracts, provenance-rich configuration and component inventories, compatibility and diagnostic mechanics, and an explicit package API. The hardening pass adds the dependency-neutral `domain-error.ts`, `error-contract.ts`, and `provenance-location.ts` modules so `ClaimConflictError` can share the common diagnostic contract without a circular import.
 
-Verification after the implementation wave: `npm test` passed with 117 tests plus typecheck and dependency-boundary checks; `npm run build` and compiled package import passed.
+Verification after the implementation and hardening waves: `npm test` passed with 116 tests plus test typechecking, dependency-boundary checks, the boundary-violation regression, build, and compiled package import; `npm run build` also passed independently.
 
 ## Other agent review
 
@@ -675,6 +643,27 @@ Verification after the implementation wave: `npm test` passed with 117 tests plu
   - Reproduced Phase 1 findings and additionally identified permissive protocols/unknown fields, weak immutable identifier validation, insufficient resolved-source consistency, and contradictory read-result severities.
 - Accepted: all blocker and important findings above; they affect the trust identity and public contract and are tracked by `epic-foreign-plugin-model-domain-contracts-review-hardening`.
 - Rejected or deferred: style-only observations about hex formatting, redundant parsing, and readonly ergonomics — no behavioral or contract impact at this stage.
+
+## Review hardening implementation notes
+
+The accepted review findings are implemented by
+`epic-foreign-plugin-model-domain-contracts-review-hardening`:
+
+- source schemas are strict and constrain Git to HTTPS/SSH (including
+  normalized SCP syntax), npm registries to credential-free HTTPS, Git pins to
+  full 40-character lowercase revisions, and npm integrity to canonical
+  SHA-512 base64;
+- canonical URL normalization rejects malformed percent escapes, preserving
+  injectivity for `%zz` versus `%25zz` and encoded path delimiters;
+- resolved-source constructors and verifiers derive canonical bytes and hashes
+  from explicit immutable fields, and schemas reject kind/canonical mismatches;
+- `ClaimConflictError` now extends `DomainContractError` through a
+  dependency-neutral module and safely reports both claims;
+- `ReadResultSchema` enforces warning-only success and error-bearing failure;
+- dependency-boundary and compiled-package import checks are committed and run
+  by `npm test`, with the package runtime export allowlist checked exactly.
+
+The foundation documents and this design now describe the hardened contract.
 
 ## Review findings
 
