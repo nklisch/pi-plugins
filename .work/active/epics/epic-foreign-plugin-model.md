@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model
 kind: epic
-stage: review
+stage: implementing
 tags: [compatibility, infra]
 parent: null
 depends_on: []
@@ -67,3 +67,13 @@ All five child features are done:
 The delivered package now reads dual foreign marketplaces, securely materializes every supported source, inspects complete plugin bundles without execution, preserves unsupported runtime inventory, and emits fail-closed compatibility reports with deterministic provenance and capability requirements. It remains independent of Claude Code and Codex runtimes and does not install or activate plugins.
 
 Integrated verification: `npm test` passes 352 tests plus clean typecheck and dependency boundaries, build, and exact 131-export package import. Each child feature reached two-model review convergence before this epic review.
+
+## Other agent review
+
+- Phase 1 completeness: Z.AI GLM 5.2 xhigh approved the complete five-feature architecture and foundation alignment.
+- Phase 2 contract quality: GPT-5.6 Sol high reproduced a cross-feature source-binding bypass in which inspection accepted a resolved Git revision different from the catalog's authoritative SHA or SHA-shaped ref.
+- Accepted: blocker; it violates immutable selector and source/content handoff guarantees. Tracked by `epic-foreign-plugin-model-review-hardening`.
+
+## Review findings
+
+The epic returns to `stage: implementing` until inspection applies materialization's exact Git selector precedence for both Git source forms and end-to-end regressions close the seam.
