@@ -240,6 +240,7 @@ function assertMarketplaceDeclarationBinding(
       details: { operation: "materializeMarketplace" },
     });
   }
+  assertGitRevisionBinding(declared, resolved.revision, "materializeMarketplace");
 }
 
 function canonicalPrefix(source: PluginSource): string {
@@ -248,17 +249,37 @@ function canonicalPrefix(source: PluginSource): string {
   return marker.length === 0 ? canonical : canonical.slice(0, canonical.indexOf(marker));
 }
 
-function sourceMismatch(message: string): SourceMaterializationError {
+function sourceMismatch(
+  message: string,
+  operation: "materializeMarketplace" | "materializePlugin" = "materializePlugin",
+): SourceMaterializationError {
   return new SourceMaterializationError({
     code: "SOURCE_RESOLUTION_FAILED",
     classification: "permanent",
-    operation: "materializePlugin",
+    operation,
     message,
-    details: { operation: "materializePlugin" },
+    details: { operation },
   });
 }
 
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/u;
+
+function assertGitRevisionBinding(
+  declared: Readonly<{ ref?: string | undefined; sha?: string | undefined }>,
+  revision: string,
+  operation: "materializeMarketplace" | "materializePlugin",
+): void {
+  if (declared.sha !== undefined && revision !== declared.sha) {
+    throw sourceMismatch("resolved Git revision does not match the authoritative SHA", operation);
+  }
+  // A SHA-shaped ref is authoritative when no separate sha pin overrides it.
+  // Keep this rule shared by marketplace and plugin declarations so adapters
+  // cannot accidentally weaken one source family at the application boundary.
+  if (declared.sha === undefined && declared.ref !== undefined && FULL_GIT_SHA.test(declared.ref) && revision !== declared.ref) {
+    throw sourceMismatch("resolved Git revision does not match the SHA-shaped ref", operation);
+  }
+}
+
 const EXACT_NPM_VERSION = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9A-Za-z-][0-9A-Za-z-]*))*)?(?:\+(?:0|[1-9A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9A-Za-z-][0-9A-Za-z-]*))*)?$/u;
 
 function assertPluginDeclarationBinding(
@@ -283,20 +304,12 @@ function assertPluginDeclarationBinding(
   if (declared.kind === "git") {
     if (resolved.kind !== "git") throw sourceMismatch("resolved plugin source kind does not match its declaration");
     if (canonicalPrefix(declared) !== canonicalPrefix({ kind: "git", url: resolved.url })) throw sourceMismatch("resolved Git source does not match its declaration");
-    if (declared.sha !== undefined && resolved.revision !== declared.sha) throw sourceMismatch("resolved Git revision does not match the authoritative SHA");
-    // A SHA-shaped ref is itself authoritative when no separate sha pin is
-    // present. Preserve explicit sha precedence for declarations carrying both.
-    if (declared.sha === undefined && declared.ref !== undefined && FULL_GIT_SHA.test(declared.ref) && resolved.revision !== declared.ref) {
-      throw sourceMismatch("resolved Git revision does not match the SHA-shaped ref");
-    }
+    assertGitRevisionBinding(declared, resolved.revision, "materializePlugin");
     return;
   }
   if (resolved.kind !== "git-subdir") throw sourceMismatch("resolved plugin source kind does not match its declaration");
   if (canonicalPrefix(declared) !== canonicalPrefix({ kind: "git-subdir", url: resolved.url, path: resolved.path })) throw sourceMismatch("resolved Git subdirectory does not match its declaration");
-  if (declared.sha !== undefined && resolved.revision !== declared.sha) throw sourceMismatch("resolved Git revision does not match the authoritative SHA");
-    if (declared.sha === undefined && declared.ref !== undefined && FULL_GIT_SHA.test(declared.ref) && resolved.revision !== declared.ref) {
-      throw sourceMismatch("resolved Git revision does not match the SHA-shaped ref");
-    }
+  assertGitRevisionBinding(declared, resolved.revision, "materializePlugin");
 }
 
 function expectedContentRoot(slotRoot: string): string {

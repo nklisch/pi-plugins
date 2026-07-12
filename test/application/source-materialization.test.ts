@@ -185,6 +185,26 @@ describe("source materialization application contract", () => {
     expect(deps.content.open).toHaveBeenCalledWith({ root: "/canonical-slot" });
   });
 
+  it("rejects a marketplace Git result that mismatches a SHA-shaped ref", async () => {
+    const declared = { kind: "git" as const, url: "https://example.test/marketplace.git", ref: "a".repeat(40) };
+    const forged = createResolvedMarketplaceSource({ declared, revision: "b".repeat(40) }, sha256);
+    const current = session();
+    const deps = dependencies({
+      content: { open: vi.fn(async () => current) },
+      git: { materializeMarketplace: vi.fn(async () => forged), materializePlugin: vi.fn(async () => plugin) },
+    });
+    await expect(createSourceMaterializers(deps).marketplaces.materialize(
+      declared,
+      { root: "/slot" },
+      signal(),
+    )).rejects.toMatchObject({
+      code: "SOURCE_RESOLUTION_FAILED",
+      operation: "materializeMarketplace",
+      message: "resolved Git revision does not match the SHA-shaped ref",
+    });
+    expect(current.aborts).toBe(1);
+  });
+
   it("binds an exact npm selector at the application handoff too", async () => {
     const npmPlugin = createResolvedPluginSource({
       kind: "npm",

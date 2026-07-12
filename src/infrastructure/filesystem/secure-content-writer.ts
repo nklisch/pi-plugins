@@ -147,6 +147,17 @@ function isInside(root: string, candidate: string): boolean {
   return value === "" || (value !== ".." && !value.startsWith(`..${sep}`) && !isAbsolute(value));
 }
 
+function compareUtf8(left: string, right: string): number {
+  const a = encoder.encode(left);
+  const b = encoder.encode(right);
+  const length = Math.min(a.byteLength, b.byteLength);
+  for (let index = 0; index < length; index += 1) {
+    const difference = (a[index] ?? 0) - (b[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return a.byteLength - b.byteLength;
+}
+
 async function readDiskManifest(
   root: string,
   sha256: Sha256,
@@ -177,9 +188,13 @@ async function readDiskManifest(
     if (entries.length >= effective.maxEntries) throw policyError("verifyMaterializedContent", "entry count limit exceeded", normalized);
     return normalized;
   };
+  const appendEntry = (entry: ContentManifestEntry): void => {
+    if (entries.length >= effective.maxEntries) throw policyError("verifyMaterializedContent", "entry count limit exceeded", entry.path);
+    entries.push(entry);
+  };
   const visit = async (directory: string, prefix: string, depth: number): Promise<void> => {
     if (depth > effective.maxEntries) throw policyError("verifyMaterializedContent", "content tree depth limit exceeded", prefix);
-    const children = await readdir(directory, { withFileTypes: true });
+    const children = (await readdir(directory, { withFileTypes: true })).sort((left, right) => compareUtf8(left.name, right.name));
     // A directory listing gives us a cheap upper bound. Reject the whole
     // batch before lstat, realpath, or file hashing if it cannot fit.
     if (entries.length + children.length > effective.maxEntries) {
@@ -192,9 +207,13 @@ async function readDiskManifest(
       if (child === undefined || normalized === undefined) throw adapterError("verifyMaterializedContent", "directory traversal became inconsistent");
       const path = normalized;
       const absolute = join(directory, child.name);
+      // `reservePath` accounts for this entry before any lstat, realpath, or
+      // file/link hashing. The append check remains a defensive invariant for
+      // every recursive path, including directories.
+      if (entries.length >= effective.maxEntries) throw policyError("verifyMaterializedContent", "entry count limit exceeded", path);
       const stat = await lstat(absolute);
       if (stat.isDirectory() && !stat.isSymbolicLink()) {
-        entries.push({ kind: "directory", path: normalized, mode: 0o755 });
+        appendEntry({ kind: "directory", path: normalized, mode: 0o755 });
         await visit(absolute, normalized, depth + 1);
         continue;
       }
@@ -205,7 +224,7 @@ async function readDiskManifest(
       if (stat.isSymbolicLink()) {
         const target = await readlink(absolute);
         const link = normalizeContentLinkTarget(normalized, target);
-        entries.push({
+        appendEntry({
           kind: "symlink",
           path: normalized,
           mode: 0o777,
@@ -227,7 +246,7 @@ async function readDiskManifest(
         digest.update(chunk);
       }
       const raw = digest.digest();
-      entries.push({
+      appendEntry({
         kind: "file",
         path: normalized,
         mode: stat.mode & 0o111 ? 0o755 : 0o644,

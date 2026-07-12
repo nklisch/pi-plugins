@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization-review-hardening-3
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra, tests]
 parent: epic-foreign-plugin-model-source-materialization
 depends_on: [epic-foreign-plugin-model-source-materialization-review-hardening-2]
@@ -27,7 +27,18 @@ Close two residual source-materialization certification findings.
 
 ## Acceptance criteria
 
-- [ ] A marketplace Git SHA-shaped ref cannot resolve to a different revision.
-- [ ] Recursive trees perform no hashing beyond `maxEntries`; rejection occurs before processing the first over-budget entry.
-- [ ] Flat and nested exact-boundary cases remain deterministic.
-- [ ] Full `npm test`, build, boundaries, and compiled package import pass.
+- [x] A marketplace Git SHA-shaped ref cannot resolve to a different revision.
+- [x] Recursive trees perform no hashing beyond `maxEntries`; rejection occurs before processing the first over-budget entry.
+- [x] Flat and nested exact-boundary cases remain deterministic.
+- [x] Full `npm test`, build, boundaries, and compiled package import pass.
+
+## Implementation notes
+
+- Execution capability: inline implementation; the application binding and disk rewalk limit are cohesive, localized changes with focused regressions.
+- Review weight: standard, caller-directed stop at `stage: review`.
+- Files changed: `src/application/source-materialization.ts`, `src/infrastructure/filesystem/secure-content-writer.ts`, `test/application/source-materialization.test.ts`, `test/infrastructure/filesystem/secure-content-writer.test.ts`.
+- Tests added: forged marketplace Git SHA-shaped ref rejection; nested recursive over-budget hashing regression; nested exact-boundary deterministic traversal regression.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+- Reproduced before implementation: the marketplace coordinator accepted a resolved revision different from a full SHA-shaped marketplace `ref`; a nested tree hashed an enumerated sibling after descendants exhausted the configured entry budget.
+- Verification: `npm test` passed 26 files and 237 tests, including typecheck, dependency boundaries, build, and compiled package import; independent `npm run build && node test/compiled-package-import.mjs` passed with 94 exports.

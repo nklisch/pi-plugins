@@ -99,6 +99,42 @@ describe("secure content writer", () => {
     expect(updates).toBe(0);
   });
 
+  it("enforces the entry budget before hashing an enumerated sibling after a recursive tree", async () => {
+    const root = await slot();
+    await mkdir(join(root, "content", "a"), { recursive: true });
+    await writeFile(join(root, "content", "a", "first"), "one", "utf8");
+    await writeFile(join(root, "content", "a", "second"), "two", "utf8");
+    await writeFile(join(root, "content", "z"), "three", "utf8");
+    let updates = 0;
+    const stream = () => ({
+      update() { updates += 1; },
+      digest() { return new Uint8Array(32); },
+    });
+    await expect(inspectMaterializedContent(root + "/content", sha256, {
+      limits: { maxEntries: 3 },
+      sha256Stream: stream,
+    })).rejects.toMatchObject({ code: "PATH_CONTAINMENT_FAILED" });
+    expect(updates).toBe(2);
+  });
+
+  it("accepts a nested tree exactly at its entry budget in deterministic order", async () => {
+    const root = await slot();
+    await mkdir(join(root, "content", "a"), { recursive: true });
+    await writeFile(join(root, "content", "a", "first"), "one", "utf8");
+    await writeFile(join(root, "content", "z"), "two", "utf8");
+    let updates = 0;
+    const stream = () => ({
+      update() { updates += 1; },
+      digest() { return new Uint8Array(32); },
+    });
+    const manifest = await inspectMaterializedContent(root + "/content", sha256, {
+      limits: { maxEntries: 3 },
+      sha256Stream: stream,
+    });
+    expect(manifest.entries.map((entry) => entry.path)).toEqual(["a", "a/first", "z"]);
+    expect(updates).toBe(2);
+  });
+
   it("copies a marketplace-relative directory through the same sink", async () => {
     const marketplace = await slot();
     await mkdir(join(marketplace, "content", "source", "nested"), { recursive: true });
