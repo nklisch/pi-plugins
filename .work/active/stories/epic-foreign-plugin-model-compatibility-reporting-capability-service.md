@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-compatibility-reporting-capability-service
 kind: story
-stage: review
+stage: done
 tags: [compatibility]
 parent: epic-foreign-plugin-model-compatibility-reporting
 depends_on: [epic-foreign-plugin-model-compatibility-reporting-policy-evaluator]
@@ -50,3 +50,13 @@ Use a fake probe to cover one-call success, all-available and mixed snapshots, p
 - Tests added: one-call delegation, complete snapshot validation, available/unavailable requirements, pre- and mid-probe cancellation, abort-shaped rejection, adapter failure causes, invalid requests, and public/compiled export assertions.
 - Discrepancies from design: none.
 - Adjacent issues parked: none.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane service review. Independently confirmed 336 tests, clean typecheck and dependency boundaries, build, and exact 131-export package import. Verdict: Approve - story verified by implement; fast-lane advance.
