@@ -135,7 +135,8 @@ export type CompatibilityPolicySurface =
   | "mcp-server"
   | "foreign"
   | "configuration"
-  | "marketplace";
+  | "marketplace"
+  | "report";
 export type CompatibilityPolicyDisposition =
   | "supported"
   | "metadata-only"
@@ -230,6 +231,7 @@ const skillRules = {
     "implicitInvocation",
     "default_mode",
     "defaultMode",
+    "policy",
   ] as const,
   invocationPolicyValues: ["always", "never", "manual", "implicit", "explicit"] as const,
 } as const;
@@ -556,6 +558,10 @@ const mcpKeyDefinitions = {
     "type",
     "mode",
     "env",
+    "clientId",
+    "client_id",
+    "redirectUri",
+    "redirect_uri",
     "grantType",
     "grant_type",
     "flow",
@@ -577,6 +583,50 @@ const foreignRules = {
     diagnosticCode: ErrorCodeRegistry.unsupportedDeclaration,
     message: "Foreign runtime components are incompatible by default",
     rank: 10,
+  }),
+} as const;
+
+const reportRules = {
+  verdictRegistry: supportedRule({
+    id: "verdict.registry",
+    surface: "report",
+    disposition: "supported",
+    requirementCapabilityIds: noRequirements,
+    message: "Compatibility reports use exactly the supported verdict vocabulary",
+    rank: 10,
+  }),
+  requirementSeparateStatus: supportedRule({
+    id: "requirement.separate-status",
+    surface: "report",
+    disposition: "supported",
+    requirementCapabilityIds: noRequirements,
+    message: "Runtime requirement availability is separate from component verdicts",
+    rank: 20,
+  }),
+  metadataOnly: supportedRule({
+    id: "verdict.metadata-only",
+    surface: "report",
+    disposition: "metadata-only",
+    requirementCapabilityIds: noRequirements,
+    message: "Presentation-only metadata does not block activation",
+    rank: 30,
+  }),
+  incompatible: supportedRule({
+    id: "verdict.incompatible",
+    surface: "report",
+    disposition: "incompatible",
+    requirementCapabilityIds: noRequirements,
+    diagnosticCode: ErrorCodeRegistry.unsupportedDeclaration,
+    message: "An incompatible component blocks complete-plugin activation",
+    rank: 40,
+  }),
+  knownPresentation: supportedRule({
+    id: "metadata.known-presentation",
+    surface: "report",
+    disposition: "metadata-only",
+    requirementCapabilityIds: noRequirements,
+    message: "Known plugin presentation metadata is retained without runtime meaning",
+    rank: 50,
   }),
 } as const;
 
@@ -658,6 +708,7 @@ export const CompatibilityPolicyRegistry = {
   foreign: foreignRules,
   configuration: configurationRules,
   marketplace: marketplaceRules,
+  report: reportRules,
   metadata: {
     knownPluginPresentationKeys: [
       "owner",
@@ -688,13 +739,14 @@ export const CompatibilityPolicyRuleRegistry = Object.freeze(
     ...onlyRules(Object.values(foreignRules)),
     ...onlyRules(Object.values(configurationRules)),
     ...onlyRules(Object.values(marketplaceRules)),
+    ...onlyRules(Object.values(reportRules)),
   ].map((rule) => [rule.id, rule])),
 ) as Readonly<Record<string, CompatibilityPolicyRule>>;
 
 export const CompatibilityPolicyRuleSchema = z
   .object({
     id: z.string().min(1),
-    surface: z.enum(["skill", "hook", "mcp-server", "foreign", "configuration", "marketplace"]),
+    surface: z.enum(["skill", "hook", "mcp-server", "foreign", "configuration", "marketplace", "report"]),
     disposition: z.enum(["supported", "metadata-only", "incompatible"]),
     requirementCapabilityIds: z.array(RuntimeCapabilityIdSchema).readonly(),
     diagnosticCode: ErrorCodeSchema.optional(),

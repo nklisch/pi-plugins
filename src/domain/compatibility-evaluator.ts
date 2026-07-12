@@ -156,9 +156,15 @@ function capabilityRank(capability: string): number {
   return entry.rank;
 }
 
-function safeScalar(value: JsonValue | undefined): JsonValue | undefined {
-  if (typeof value === "string" || typeof value === "boolean") return value;
-  if (typeof value === "number" && Number.isFinite(value)) return value;
+function safeMcpScalar(field: string, value: JsonValue | undefined): JsonValue | undefined {
+  if (typeof value !== "string") return undefined;
+  if ((field === "transport" || field === "type") && canonicalTransport(value) !== undefined) {
+    return value;
+  }
+  if (["auth", "oauth", "authentication"].includes(field) &&
+      ["none", "bearer", "bearer-env", "oauth"].includes(value)) {
+    return value;
+  }
   return undefined;
 }
 
@@ -301,7 +307,16 @@ function metadataProvenance(metadata: RetainedMetadata): readonly Provenance[] {
 
 function knownCodexInvocationValue(value: JsonValue): boolean {
   if (typeof value === "boolean") return true;
-  return typeof value === "string" && CompatibilityPolicyRegistry.skills.invocationPolicyValues.includes(value as never);
+  if (typeof value === "string") return CompatibilityPolicyRegistry.skills.invocationPolicyValues.includes(value as never);
+  if (!isRecord(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.length !== 1) return false;
+  const key = keys[0];
+  if (key !== "allow_implicit_invocation" && key !== "allowImplicitInvocation" &&
+      key !== "implicit_invocation" && key !== "implicitInvocation") return false;
+  const setting = value[key];
+  return typeof setting === "boolean" ||
+    (typeof setting === "string" && CompatibilityPolicyRegistry.skills.invocationPolicyValues.includes(setting as never));
 }
 
 function evaluateSkill(
@@ -423,7 +438,7 @@ function evaluateHook(
     diagnostics.push(diagnostic(pluginKey, eventRuleId, "error", component.event.provenance, {
       componentId: component.id,
       field: "event",
-      value: event,
+      ...(eventRuleId === CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id ? {} : { value: event }),
     }));
   } else {
     requirements.push(...requirementUse(eventRuleId, component.event.provenance));
@@ -460,7 +475,7 @@ function evaluateHook(
     if (CompatibilityPolicyRegistry.hookEvents.metadata.shell.includes(field as never)) {
       if (value !== "bash" && value !== "powershell") {
         incompatible = true;
-        const safeValue = safeScalar(value);
+        const safeValue = value === "bash" || value === "powershell" ? value : undefined;
         diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id, "error", provenance, {
           componentId: component.id,
           field,
@@ -518,6 +533,10 @@ function valueIsPositiveNumber(value: JsonValue): boolean {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
+function recordHasOnlyKeys(value: JsonValue, allowed: readonly string[]): boolean {
+  return isRecord(value) && Object.keys(value).every((key) => allowed.includes(key));
+}
+
 function canonicalTransport(value: string): "stdio" | "streamable-http" | "sse" | "websocket" | undefined {
   if ((CompatibilityPolicyRegistry.mcp.keys.transportValues as readonly string[]).includes(value)) {
     return value as ReturnType<typeof canonicalTransport>;
@@ -554,9 +573,7 @@ function mcpIssue(
   value?: JsonValue,
   ruleId: string = CompatibilityPolicyRegistry.mcp.defaultDeny.id,
 ): Diagnostic {
-  const safeValue = field === "transport" || field === "type" || field === "auth" || field === "oauth" || field === "authentication"
-    ? safeScalar(value)
-    : undefined;
+  const safeValue = safeMcpScalar(field, value);
   return diagnostic(pluginKey, ruleId, "error", mcpFieldProvenance(component, field), {
     componentId: component.id,
     field,
@@ -576,7 +593,7 @@ function oauthFlow(value: JsonValue): "authorization-code" | "client-credentials
   if (value.authorizationCode === true || value.authorization_code === true) return "authorization-code";
   if (value.clientCredentials === true || value.client_credentials === true) return "client-credentials";
   const candidate = value.grantType ?? value.grant_type ?? value.flow ?? value.type;
-  return candidate === undefined ? undefined : oauthFlow(candidate); 
+  return candidate === undefined ? undefined : oauthFlow(candidate);
 }
 
 function mcpFeatureUses(
@@ -593,19 +610,21 @@ function mcpFeatureUses(
   if (!enabled) return { requirements, diagnostics, incompatible };
 
   if (field === "toolApproval" || field === "tool_approval") {
-    if (typeof value !== "boolean" && !isRecord(value)) incompatible = true;
+    if (typeof value !== "boolean" && !recordHasOnlyKeys(value, ["enabled", "required"])) incompatible = true;
     if (!incompatible) requirements.push(...requirementUse(CompatibilityPolicyRegistry.mcp.featureToolApproval.id, provenance));
   } else if (field === "sampling") {
-    if (typeof value !== "boolean" && !isRecord(value)) incompatible = true;
+    if (typeof value !== "boolean" && !recordHasOnlyKeys(value, ["enabled", "required"])) incompatible = true;
     if (!incompatible) requirements.push(...requirementUse(CompatibilityPolicyRegistry.mcp.featureSampling.id, provenance));
   } else if (field === "elicitation") {
-    if (value === "form" || (isRecord(value) && value.form === true)) {
+    const objectValue = isRecord(value);
+    if (objectValue && !recordHasOnlyKeys(value, ["form", "url"])) incompatible = true;
+    if (value === "form" || (objectValue && value.form === true)) {
       requirements.push(...requirementUse(CompatibilityPolicyRegistry.mcp.featureElicitationForm.id, provenance));
     }
-    if (value === "url" || (isRecord(value) && value.url === true)) {
+    if (value === "url" || (objectValue && value.url === true)) {
       requirements.push(...requirementUse(CompatibilityPolicyRegistry.mcp.featureElicitationUrl.id, provenance));
     }
-    if (value !== "form" && value !== "url" && !(isRecord(value) && (value.form === true || value.url === true))) {
+    if (value !== "form" && value !== "url" && !(objectValue && (value.form === true || value.url === true))) {
       incompatible = true;
     }
   }
@@ -723,6 +742,7 @@ function evaluateMcp(
   if (declaration.tools !== undefined) {
     const tools = declaration.tools;
     if (!(valueIsStringArray(tools) || (isRecord(tools) &&
+      recordHasOnlyKeys(tools, ["allow", "deny"]) &&
       (tools.allow === undefined || valueIsStringArray(tools.allow)) &&
       (tools.deny === undefined || valueIsStringArray(tools.deny))))) {
       incompatible = true;
@@ -747,7 +767,7 @@ function evaluateMcp(
       diagnostics.push(mcpIssue(pluginKey, component, field));
     }
   }
-  if (declaration.resources !== undefined && !(typeof declaration.resources === "boolean" || Array.isArray(declaration.resources))) {
+  if (declaration.resources !== undefined && !(typeof declaration.resources === "boolean" || valueIsStringArray(declaration.resources))) {
     incompatible = true;
     diagnostics.push(mcpIssue(pluginKey, component, "resources"));
   }
@@ -857,11 +877,13 @@ function evaluateForeign(
     ...component.nativeKind.provenance,
     ...component.declaration.provenance,
   ]);
-  return decision("incompatible", [], [diagnostic(pluginKey, CompatibilityPolicyRegistry.foreign.defaultDeny.id, "error", provenances, {
+  const ruleId = component.nativeKind.value === "hook-handler"
+    ? CompatibilityPolicyRegistry.hookHandlers.unsupportedHandler.id
+    : CompatibilityPolicyRegistry.foreign.defaultDeny.id;
+  return decision("incompatible", [], [diagnostic(pluginKey, ruleId, "error", provenances, {
     componentId: component.id,
     nativeHost: component.nativeHost,
     nativeKind: component.nativeKind.value,
-    declarationSubkey: component.declarationSubkey,
   })]);
 }
 
@@ -891,20 +913,26 @@ function createRequirementAssessment(
 ): RuntimeRequirementAssessment {
   const capability = capabilities.capabilities[use.capability];
   if (capability === undefined) throw new Error(`missing validated capability ${use.capability}`);
+  const capabilityEntry = Object.values(RuntimeCapabilityRegistry).find((candidate) => candidate.id === use.capability);
+  if (capabilityEntry === undefined) throw new Error(`capability registry is missing ${use.capability}`);
   const id = requirementId(component.id, use.capability);
   return RuntimeRequirementAssessmentSchema.parse({
     requirement: RuntimeRequirementSchema.parse({
       id,
       capability: use.capability,
-      description: (() => {
-        const entry = Object.values(RuntimeCapabilityRegistry).find((candidate) => candidate.id === use.capability);
-        if (entry === undefined) throw new Error(`capability registry is missing ${use.capability}`);
-        return entry.description;
-      })(),
-      provenance: sortedProvenance(use.provenance),
+      description: capabilityEntry.description,
+      // Claims carry raw declarations for ingestion and reconciliation. A
+      // compatibility report is an inspection boundary, so it retains exact
+      // source locations but never serializes those declarations.
+      provenance: sortedProvenance(use.provenance).map((provenance) =>
+        ProvenanceSchema.parse({ location: provenance.location }),
+      ),
     }),
     status: capability.status,
-    explanation: capability.explanation,
+    // Adapter explanations are runtime-owned text and may contain paths,
+    // environment values, timestamps, or native errors. Reports use the
+    // registry description plus the status vocabulary instead.
+    explanation: `${capabilityEntry.description} (${capability.status})`,
   });
 }
 
@@ -1013,11 +1041,19 @@ function pluginMetadataDiagnostics(pluginKey: string, plugin: NormalizedPlugin):
   const known = new Set<string>(CompatibilityPolicyRegistry.metadata.knownPluginPresentationKeys);
   return [...plugin.metadata]
     .sort((left, right) => compareText(left.key, right.key))
-    .map((metadata) => diagnostic(pluginKey, CompatibilityPolicyRegistry.skills.presentation.id, "warning", metadata.claimed.provenance, {
-      field: metadata.key,
-      knownPresentation: known.has(metadata.key),
-      advisoryOnly: true,
-    }));
+    .map((metadata) => diagnostic(
+      pluginKey,
+      known.has(metadata.key)
+        ? CompatibilityPolicyRegistry.report.knownPresentation.id
+        : CompatibilityPolicyRegistry.skills.presentation.id,
+      "warning",
+      metadata.claimed.provenance,
+      {
+        field: metadata.key,
+        knownPresentation: known.has(metadata.key),
+        advisoryOnly: true,
+      },
+    ));
 }
 
 function assertCompleteAssessment(

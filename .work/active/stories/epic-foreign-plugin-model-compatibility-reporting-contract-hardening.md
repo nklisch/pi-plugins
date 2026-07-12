@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-compatibility-reporting-contract-hardening
 kind: story
-stage: implementing
+stage: review
 tags: [compatibility]
 parent: epic-foreign-plugin-model-compatibility-reporting
 depends_on: [epic-foreign-plugin-model-compatibility-reporting-policy-evaluator, epic-foreign-plugin-model-compatibility-reporting-capability-service]
@@ -45,3 +45,12 @@ This story may update `docs/COMPATIBILITY.md` only if implementation proves that
 ## Verification
 
 Run the registry table contract, integration fixtures, report JSON safety checks, deterministic permutation cases, then the complete package suite. Record any normalized-contract gap explicitly; fail closed rather than inventing support.
+
+## Implementation notes
+
+- Execution capability: direct-read only; the change was implemented in the host context without nested agents or peeragent.
+- Review weight: standard; caller explicitly requested the implementation boundary at `stage: review`.
+- Files changed: `src/domain/compatibility-policy.ts`, `src/domain/compatibility-evaluator.ts`, `test/fixtures/compatibility/common.ts`, `test/fixtures/compatibility/skills.ts`, `test/fixtures/compatibility/hooks.ts`, `test/fixtures/compatibility/mcp.ts`, `test/fixtures/compatibility/foreign.ts`, `test/fixtures/compatibility/configuration-marketplace.ts`, `test/fixtures/compatibility/reporting.ts`, `test/domain/compatibility-table-contract.test.ts`, `test/integration/compatibility-reporting.test.ts`, and this story.
+- Tests added: registry-exhaustive positive/negative rule fixtures, all listed hook events and handlers, all MCP transports/auth/features/default-deny cases, foreign/configuration/marketplace tables, real-reader normalized-bundle integration, mixed activation, availability separation, deterministic permutations, provenance assertions, safe serialization canaries, and adapter/caller outcome coverage.
+- Discrepancies from design: none. The compatibility policy/evaluator received narrow contract corrections for Codex invocation-policy objects, unsupported hook-handler routing, nested MCP fail-closed validation, and report-safe provenance/explanations. `docs/COMPATIBILITY.md` was unchanged because every documented row was representable by the normalized contract or exercised through its explicit foreign/default-deny path.
+- Adjacent issues parked: none.

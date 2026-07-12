@@ -1,0 +1,54 @@
+import { directPlugin, fixtureProvenance, claimFixture, componentId, type PolicyFixture } from "./common.js";
+
+const nativeKinds = [
+  "agents",
+  "apps",
+  "connectors",
+  "lspServers",
+  "monitors",
+  "themes",
+  "outputStyles",
+  "channels",
+  "dependencies",
+] as const;
+
+function foreign(nativeKind: string, token: string): unknown {
+  return {
+    kind: "foreign" as const,
+    id: componentId("foreign", token),
+    nativeHost: token === "b" ? "codex" as const : "claude" as const,
+    nativeKind: claimFixture(nativeKind, fixtureProvenance(".claude-plugin/plugin.json", `/${nativeKind}`, "claude", "manifest")),
+    declarationSubkey: `key:${nativeKind}`,
+    declaration: claimFixture({ secret: "CANARY_FOREIGN_VALUE", nativeKind }, fixtureProvenance(".claude-plugin/plugin.json", `/${nativeKind}`, "claude", "manifest")),
+  };
+}
+
+const baseline = () => directPlugin();
+
+export const foreignPolicyFixtures: readonly PolicyFixture[] = [
+  {
+    id: "foreign-default-deny-all-native-kinds",
+    ruleId: "foreign.default-deny",
+    positive: () => directPlugin({ components: {
+      foreign: [
+        ...nativeKinds.map((nativeKind, index) => foreign(nativeKind, `a${(index + 1).toString(16)}`)),
+        foreign("future-runtime-kind", "f"),
+      ],
+    } }),
+    negative: baseline,
+    positiveVerdict: "incompatible",
+    diagnosticRuleId: "foreign.default-deny",
+  },
+];
+
+export const foreignIngestionFixture = {
+  agents: [{ name: "agent", command: "CANARY_NATIVE_COMMAND" }],
+  apps: { "desktop": { command: "CANARY_APP_COMMAND" } },
+  connectors: { "remote": { url: "https://example.invalid/CANARY_CONNECTOR" } },
+  lspServers: { "typescript": { command: "CANARY_LSP_COMMAND" } },
+  monitors: { "watch": { path: "/CANARY_MONITOR_PATH" } },
+  themes: [{ name: "CANARY_THEME" }],
+  outputStyles: [{ name: "CANARY_OUTPUT_STYLE" }],
+  channels: { "notifications": { enabled: true } },
+  dependencies: { "other-plugin": { version: "^1.0.0" } },
+} as const;
