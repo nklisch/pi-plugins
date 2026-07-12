@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion
 kind: feature
-stage: review
+stage: done
 tags: [compatibility]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-domain-contracts]
@@ -417,4 +417,14 @@ Integrated verification: `npm test` passes 174 tests plus typecheck, dependency 
 
 ## Review findings
 
-The first four hardening stories close reader, declaration, RFC 6901, host, grammar, pointer-identity, and direct-merge findings. Certification then found incomplete derived-path provenance and silent conflicting-declaration loss; `epic-foreign-plugin-model-marketplace-ingestion-review-hardening-5` is now done and closes both with complete root-plus-entry provenance and typed same-location conflicts. Independent integrated verification passes 234 tests plus typecheck, 156 dependency edges with no violations, build, and the exact 94-export package allowlist. The feature returns to `stage: review` for final confirmation.
+The first four hardening stories close reader, declaration, RFC 6901, host, grammar, pointer-identity, and direct-merge findings. Certification then found incomplete derived-path provenance and silent conflicting-declaration loss; `epic-foreign-plugin-model-marketplace-ingestion-review-hardening-5` closes both with complete root-plus-entry provenance and typed same-location conflicts. Independent integrated verification passes 234 tests plus typecheck, 156 dependency edges with no violations, build, and the exact 94-export package allowlist.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Deep two-model convergence. GLM 5.2 completeness certification approved the full feature; GPT-5.6 Sol adversarial certification initially found two provenance-integrity issues, both fixed by hardening story 5, then approved current HEAD after reproducing complete plugin-root provenance, typed same-location conflicts, exact deduplication, deterministic permutations, and all prior reader/merger boundaries. Full suite: 234 tests, clean typecheck, 156 dependency edges, build, exact 94-export package import.
