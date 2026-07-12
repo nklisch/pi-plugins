@@ -41,3 +41,8 @@ This epic does not install or activate plugins. Transactional state, Pi runtime 
 - compatibility inventory and diagnostic reporting
 
 <!-- The design pass on each child feature will fill in real specifics. -->
+
+## Design decisions
+
+- **Alignment status**: No unresolved high-level choices surfaced. The foundation documents already fix the standalone foreign-format boundary, dual-format conflict behavior, canonical identity, supported source forms, provenance, complete-bundle compatibility, and fail-closed treatment of unknown runtime declarations. Reader schemas, registries, and materializer interfaces remain feature-design decisions.
+- **Discovery posture**: Direct-read only — the repository is greenfield and the foundation documents fully describe this epic's boundaries, so exploratory agent fanout would not add evidence.
