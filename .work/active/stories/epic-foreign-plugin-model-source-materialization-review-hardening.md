@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization-review-hardening
 kind: story
-stage: review
+stage: done
 tags: [security, infra, tests]
 parent: epic-foreign-plugin-model-source-materialization
 depends_on: [epic-foreign-plugin-model-source-materialization-secure-content-contract, epic-foreign-plugin-model-source-materialization-git-acquisition, epic-foreign-plugin-model-source-materialization-npm-acquisition, epic-foreign-plugin-model-source-materialization-integration-hardening]
@@ -57,3 +57,13 @@ Resolve every accepted blocker and important finding from the source-materializa
 - Added executable regressions for metadata/framing limits, malformed numeric fields, hardlink ordering/cycles, cleanup aggregation, source/root mismatches, exact context roots, npm credential ports/config errors, and the live-stream completion contract. Foundation docs now describe the implemented handoff and scratch boundaries.
 
 Verification: `npm test`; `npm pack --dry-run --json`; focused archive, source, process, HTTP, and package-import probes all pass.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane security-hardening story review. Independently confirmed `npm test`: 209 tests, typecheck, 152 dependency edges with no violations, build, and exact 94-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
