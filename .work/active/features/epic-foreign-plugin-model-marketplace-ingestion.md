@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion
 kind: feature
-stage: review
+stage: implementing
 tags: [compatibility]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-domain-contracts]
@@ -417,4 +417,4 @@ Integrated verification: `npm test` passes 174 tests plus typecheck, dependency 
 
 ## Review findings
 
-The feature was first bounced for `epic-foreign-plugin-model-marketplace-ingestion-review-hardening`, then received concrete host-aware declaration structures and provenance/host/grammar hardening in `epic-foreign-plugin-model-marketplace-ingestion-review-hardening-2`. A delayed adversarial pass found nested OAuth/installation policy values lacked type validation and valid `.github` repositories were rejected; `epic-foreign-plugin-model-marketplace-ingestion-review-hardening-3` is now done and closes both. Independent integrated verification passes 218 tests plus typecheck, 152 dependency edges with no violations, build, and the exact 94-export package allowlist. The feature returns to `stage: review` for final confirmation.
+The feature's first three hardening stories close reader, nested declaration, RFC 6901 grammar, host-label, metadata, fixture, and GitHub shorthand findings. A final direct-merger probe found that absent pointers collided with `/` during provenance deduplication and that `mergeMarketplaceEntries` did not independently enforce native-host provenance. They are tracked by `epic-foreign-plugin-model-marketplace-ingestion-review-hardening-4`; the feature remains at `stage: implementing` until both close.
