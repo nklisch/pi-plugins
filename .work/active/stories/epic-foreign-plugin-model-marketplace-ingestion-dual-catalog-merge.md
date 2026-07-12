@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion-dual-catalog-merge
 kind: story
-stage: review
+stage: done
 tags: [compatibility, tests]
 parent: epic-foreign-plugin-model-marketplace-ingestion
 depends_on: [epic-foreign-plugin-model-marketplace-ingestion-claude-reader, epic-foreign-plugin-model-marketplace-ingestion-codex-reader]
@@ -44,3 +44,13 @@ Implement Parent Feature Unit 4 and its testing matrix. This story is the integr
 ## Verification
 
 - `npm test` passes: typecheck, dependency boundaries, 24 Vitest files / 174 tests, build, and compiled package import allowlist.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane story review. Independently confirmed `npm test`: 174 tests, typecheck, 141 dependency edges with no violations, build, and exact 90-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
