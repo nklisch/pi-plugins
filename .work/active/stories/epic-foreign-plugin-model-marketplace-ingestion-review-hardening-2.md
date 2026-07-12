@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion-review-hardening-2
 kind: story
-stage: review
+stage: done
 tags: [compatibility, security, tests]
 parent: epic-foreign-plugin-model-marketplace-ingestion
 depends_on: [epic-foreign-plugin-model-marketplace-ingestion-review-hardening]
@@ -47,4 +47,14 @@ Resolve the three blockers and one important gap reproduced by the final adversa
 - `npm test` — passed: 202 tests, typecheck, 152 dependency edges with no violations, build, and exact 91-export compiled package import.
 - Independent `npm run build && node test/compiled-package-import.mjs` — passed.
 - Independent compiled import/pointer smoke check — passed for `/escaped~1key` and rejected `/bad~2escape`.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane convergence-story review. Independently confirmed `npm test`: 202 tests, typecheck, 152 dependency edges with no violations, build, and exact 91-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
 
