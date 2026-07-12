@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-generation-locking-guarded-window
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-generation-locking
 depends_on: [epic-transactional-plugin-lifecycle-generation-locking-contracts-scheduler]
@@ -41,3 +41,13 @@ Compose the keyed scheduler, cross-process scope lease, and existing `LifecycleS
 ## Verification
 
 Use deterministic fakes to assert exact call order and held ownership, then run direct test typecheck and application dependency boundaries.
+
+## Implementation notes
+- Execution capability: direct-read inline implementation; the coordinator is a single application policy boundary and the caller prohibited agents.
+- Review weight: standard from the feature design/default policy; this requested run stops at `stage: review`.
+- Files changed: `src/application/generation-mutation-coordinator.ts` and `test/application/generation-mutation-coordinator.test.ts`.
+- Tests added: stale-before-callback, exact critical call ordering, opaque mutation/scope/generation validation, store-level stale conversion, ownership loss, empty scope mutation, duplicate plugin rejection, and typed cleanup failures with committed evidence.
+- Discrepancies from design: failed state loads are surfaced as a redacted `BoundaryError(ADAPTER_FAILED)` because the existing store port exposes corruption only as a failed load result and the coordinator result union has no corruption branch; no lock/store contract was widened.
+- Adjacent issues parked: none.
+
+Verification completed: `npm run typecheck`, `npm run boundaries`, and scheduler/SQLite/coordinator focused tests (`19 passed`). The repository-wide test typecheck still reports pre-existing unrelated branded-type failures in configuration/trust tests; no coordinator test failure was introduced.
