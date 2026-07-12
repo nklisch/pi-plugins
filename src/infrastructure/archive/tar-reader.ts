@@ -96,6 +96,31 @@ function allZero(block: Uint8Array): boolean {
   return true;
 }
 
+function validateGlobalPax(payload: Uint8Array, path: string): void {
+  let offset = 0;
+  while (offset < payload.byteLength) {
+    const space = payload.indexOf(0x20, offset);
+    if (space <= offset) throw policyError("tar global metadata is malformed", path);
+    const lengthText = decoder.decode(payload.slice(offset, space));
+    if (!/^[1-9][0-9]*$/.test(lengthText)) throw policyError("tar global metadata length is invalid", path);
+    const length = Number(lengthText);
+    if (!Number.isSafeInteger(length) || length < space - offset + 3 || offset + length > payload.byteLength) {
+      throw policyError("tar global metadata length is invalid", path);
+    }
+    const record = decoder.decode(payload.slice(offset, offset + length));
+    if (!record.endsWith("\n")) throw policyError("tar global metadata record is unterminated", path);
+    const equals = record.indexOf("=");
+    if (equals <= space - offset || record.slice(space - offset + 1, equals).length === 0) {
+      throw policyError("tar global metadata record is malformed", path);
+    }
+    const key = record.slice(space - offset + 1, equals);
+    if (key === "path" || key === "linkpath" || key === "size" || key.startsWith("GNU.sparse")) {
+      throw policyError("tar path-indirection metadata is unsupported", path);
+    }
+    offset += length;
+  }
+}
+
 function safeArchiveName(name: string): string {
   const withoutTrailingSlash = name.replace(/\/+$/g, "");
   if (withoutTrailingSlash.length === 0) throw policyError("tar entry has an empty path");
@@ -242,20 +267,41 @@ export function createTarReader(defaultOptions: TarReaderOptions = {}): TarReade
           const prefix = fieldText(header, 345, 155, "prefix");
           const archivePath = safeArchiveName(prefix.length === 0 ? name : `${prefix}/${name}`);
           const type = String.fromCharCode(header[156] ?? 0);
-          if (["x", "g", "X", "L", "K"].includes(type)) throw policyError("tar extended path metadata is unsupported", archivePath);
+          if (["x", "X", "L", "K"].includes(type)) throw policyError("tar extended path metadata is unsupported", archivePath);
           if (["3", "4", "6", "7", "A"].includes(type)) throw policyError("tar special file type is unsupported", archivePath);
           const mode = octal(header, 100, 8, "mode");
           if ((mode & 0o7000) !== 0) throw policyError("tar special permission bits are unsupported", archivePath);
           const size = octal(header, 124, 12, "size");
           if (size > limits.maxFileBytes && (type === "0" || type === "\0")) throw policyError("tar file size limit exceeded", archivePath);
           const linkName = fieldText(header, 157, 100, "linkname");
+          // Git's default tar writer emits a harmless pax_global_header with
+          // an archive comment. It carries no path indirection and must be
+          // consumed without becoming materialized content. Local/extended
+          // path records remain rejected below because this reader does not
+          // permit metadata to rewrite a validated entry name.
+          if (type === "g") {
+            if (size > limits.maxFileBytes) throw policyError("tar global metadata is too large", archivePath);
+            const metadata = await queue.take(size);
+            try { validateGlobalPax(metadata, archivePath); }
+            catch (error) {
+              if (error instanceof SourceMaterializationError) throw error;
+              throw policyError("tar global metadata is malformed", archivePath);
+            }
+            const padding = (BLOCK - (size % BLOCK)) % BLOCK;
+            if (padding > 0) await queue.take(padding);
+            continue;
+          }
           const retained = normalizedPrefix === undefined
             ? archivePath
             : archivePath === normalizedPrefix
               ? undefined
               : archivePath.startsWith(`${normalizedPrefix}/`)
                 ? archivePath.slice(normalizedPrefix.length + 1)
-                : (() => { throw policyError("tar entry is outside the required archive prefix", archivePath); })();
+                : normalizedPrefix.startsWith(`${archivePath}/`)
+                  // git archive emits the selected directory's ancestors;
+                  // they are framing, not retained content.
+                  ? undefined
+                  : (() => { throw policyError("tar entry is outside the required archive prefix", archivePath); })();
 
           if (type === "5") {
             if (size !== 0) throw policyError("tar directory has nonzero payload", archivePath);

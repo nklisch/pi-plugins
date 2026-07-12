@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization-git-acquisition
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-foreign-plugin-model-source-materialization
 depends_on: [epic-foreign-plugin-model-source-materialization-secure-content-contract]
@@ -36,9 +36,25 @@ Implement Unit 2 from the parent feature: abort-aware argument-array command exe
 
 ## Acceptance criteria
 
-- [ ] Hermetic remotes cover HEAD, branches, lightweight/annotated tags, ambiguity, missing/non-commit refs, moving refs, SHA, and SHA/ref precedence.
-- [ ] GitHub, HTTPS, SCP, `ssh://`, local Git, Git plugin, and Git-subdirectory fixtures return exact verified resolved contracts and expected manifests.
-- [ ] Output has no `.git`, rejects submodules, strips exactly one requested subdirectory, and rejects missing/empty subdirectories.
-- [ ] Cancellation kills Git and the parent coordinator removes scratch/content.
-- [ ] Injected credentials are absent from commands-as-logged, errors, and result values.
-- [ ] Focused tests, `npm run typecheck`, and `npm run boundaries` pass.
+- [x] Hermetic remotes cover HEAD, branches, lightweight/annotated tags, ambiguity, missing/non-commit refs, moving refs, SHA, and SHA/ref precedence.
+- [x] GitHub, HTTPS, SCP, `ssh://`, local Git, Git plugin, and Git-subdirectory fixtures return exact verified resolved contracts and expected manifests.
+- [x] Output has no `.git`, rejects submodules, strips exactly one requested subdirectory, and rejects missing/empty subdirectories.
+- [x] Cancellation kills Git and the parent coordinator removes scratch/content.
+- [x] Injected credentials are absent from commands-as-logged, errors, and result values.
+- [x] Focused tests, `npm run typecheck`, and `npm run boundaries` pass.
+
+## Implementation notes
+
+- Files changed: `src/infrastructure/process/command-runner.ts`, `src/infrastructure/git/git-source-acquirer.ts`, `src/infrastructure/logging/redaction.ts`, and the narrowly required Git archive compatibility changes in `src/infrastructure/archive/tar-reader.ts`.
+- Tests added: `test/infrastructure/process/command-runner.test.ts` and `test/infrastructure/git/git-source-acquirer.test.ts`; tests use temporary local Git repositories and a command adapter that maps SSH-shaped plugin declarations to those hermetic repositories.
+- Git semantics: every invocation uses argument arrays and `shell: false`; resolution uses private bare scratch objects, exact ref/SHA verification, branch/tag ambiguity rejection, tag peeling, `.gitmodules`/submodule rejection, and archive output through the secure sink. Git's benign `pax_global_header` and selected-directory ancestor framing are consumed without permitting path indirection or retaining framing entries.
+- Security: cancellation terminates and drains processes, scratch is removed on every outcome, Git is noninteractive while inheriting configured credential helpers/SSH agent/config, and raw stderr/environment values never enter materializer errors or resolved source values. Central redaction covers command, URL, bearer/basic, query, and sensitive environment forms.
+- Discrepancies from design: the existing tar reader rejected the harmless global PAX comment emitted by `git archive` and ancestor directory entries emitted for a subdirectory pathspec. The minimal parser adjustment accepts only safe global metadata and ignores only exact prefix ancestors; path/link indirection and all other extended records remain rejected.
+- Adjacent issues parked: none.
+
+## Verification
+
+- Focused process, Git, and archive tests pass.
+- `npm run typecheck` passes.
+- `npm run boundaries` passes.
+- `npm test` passes: 161 tests, build, and compiled-package import allowlist.
