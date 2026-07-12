@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion
 kind: feature
-stage: review
+stage: implementing
 tags: [compatibility]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-domain-contracts]
@@ -417,4 +417,4 @@ Integrated verification: `npm test` passes 174 tests plus typecheck, dependency 
 
 ## Review findings
 
-The feature was first bounced for `epic-foreign-plugin-model-marketplace-ingestion-review-hardening`, which closed the original eight findings. Final convergence found residual declaration-shape, RFC 6901, metadata-key binding, and GitHub grammar gaps; `epic-foreign-plugin-model-marketplace-ingestion-review-hardening-2` is now done and closes them with concrete host-aware structures and adversarial regressions. Independent integrated verification passes 202 tests plus typecheck, 152 dependency edges with no violations, build, and the exact 91-export package allowlist. The feature returns to `stage: review` for final confirmation.
+The feature was first bounced for `epic-foreign-plugin-model-marketplace-ingestion-review-hardening`, then received concrete host-aware declaration structures and provenance/host/grammar hardening in `epic-foreign-plugin-model-marketplace-ingestion-review-hardening-2`. A delayed final adversarial pass reproduced two narrower gaps: nested OAuth/installation policy values were recognized without type validation, and the GitHub grammar rejected valid `.github` repositories. They are tracked by `epic-foreign-plugin-model-marketplace-ingestion-review-hardening-3`; the feature remains at `stage: implementing` until both regressions close.
