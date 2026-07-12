@@ -265,6 +265,26 @@ export const PluginSourceSchema = z.discriminatedUnion(
 export type PluginSource = z.infer<typeof PluginSourceSchema>;
 
 export const GitRevisionSchema = GitRevisionInputSchema;
+
+/**
+ * Git declarations have one selector authority: an explicit SHA, then a
+ * SHA-shaped ref, then the immutable revision resolved from a named ref.
+ * Keeping this predicate in the source domain prevents acquisition and
+ * inspection from developing different handoff rules.
+ */
+export function isFullGitRevision(value: unknown): value is GitRevision {
+  return GitRevisionSchema.safeParse(value).success;
+}
+
+export function matchesGitRevisionSelector(
+  declared: Readonly<{ readonly ref?: string | undefined; readonly sha?: string | undefined }>,
+  revision: string,
+): boolean {
+  if (declared.sha !== undefined) return revision === declared.sha;
+  if (declared.ref !== undefined && isFullGitRevision(declared.ref)) return revision === declared.ref;
+  return true;
+}
+
 export const NpmIntegritySchema = SourceStringSchema
   // A SHA-512 digest is exactly 64 bytes, represented by 86 data characters
   // and two padding characters. The final data character also has only two

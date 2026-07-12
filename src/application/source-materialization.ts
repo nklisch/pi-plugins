@@ -15,6 +15,8 @@ import {
   serializePluginSource,
   verifyResolvedMarketplaceSource,
   verifyResolvedPluginSource,
+  matchesGitRevisionSelector,
+  isFullGitRevision,
   type MarketplaceSource,
   type PluginSource,
   type ResolvedMarketplaceSource,
@@ -262,22 +264,19 @@ function sourceMismatch(
   });
 }
 
-const FULL_GIT_SHA = /^[0-9a-f]{40}$/u;
-
 function assertGitRevisionBinding(
   declared: Readonly<{ ref?: string | undefined; sha?: string | undefined }>,
   revision: string,
   operation: "materializeMarketplace" | "materializePlugin",
 ): void {
-  if (declared.sha !== undefined && revision !== declared.sha) {
+  if (matchesGitRevisionSelector(declared, revision)) return;
+  if (declared.sha !== undefined) {
     throw sourceMismatch("resolved Git revision does not match the authoritative SHA", operation);
   }
-  // A SHA-shaped ref is authoritative when no separate sha pin overrides it.
-  // Keep this rule shared by marketplace and plugin declarations so adapters
-  // cannot accidentally weaken one source family at the application boundary.
-  if (declared.sha === undefined && declared.ref !== undefined && FULL_GIT_SHA.test(declared.ref) && revision !== declared.ref) {
+  if (declared.ref !== undefined && isFullGitRevision(declared.ref)) {
     throw sourceMismatch("resolved Git revision does not match the SHA-shaped ref", operation);
   }
+  throw sourceMismatch("resolved Git revision does not match its declaration", operation);
 }
 
 const EXACT_NPM_VERSION = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9A-Za-z-][0-9A-Za-z-]*))*)?(?:\+(?:0|[1-9A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9A-Za-z-][0-9A-Za-z-]*))*)?$/u;

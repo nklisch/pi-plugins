@@ -53,6 +53,7 @@ import {
   ResolvedPluginSourceSchema,
   serializePluginSource,
   verifyResolvedPluginSource,
+  matchesGitRevisionSelector,
   type ResolvedPluginSource,
   type Sha256,
 } from "../domain/source.js";
@@ -300,11 +301,11 @@ function sourceMatches(entry: NormalizedMarketplaceEntry, source: ResolvedPlugin
       return source.kind === "marketplace-path" && source.path === declared.path;
     case "git": {
       if (source.kind !== "git" || serializePluginSource({ kind: "git", url: declared.url }) !== serializePluginSource({ kind: "git", url: source.url })) return false;
-      return declared.sha === undefined || source.revision === declared.sha || (declared.ref !== undefined && /^[0-9a-f]{40}$/u.test(declared.ref) && source.revision === declared.ref);
+      return matchesGitRevisionSelector(declared, source.revision);
     }
     case "git-subdir": {
       if (source.kind !== "git-subdir" || declared.path !== source.path || serializePluginSource({ kind: "git", url: declared.url }) !== serializePluginSource({ kind: "git", url: source.url })) return false;
-      return declared.sha === undefined || source.revision === declared.sha || (declared.ref !== undefined && /^[0-9a-f]{40}$/u.test(declared.ref) && source.revision === declared.ref);
+      return matchesGitRevisionSelector(declared, source.revision);
     }
     case "npm": {
       if (source.kind !== "npm" || source.package !== declared.package) return false;

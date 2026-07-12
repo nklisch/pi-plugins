@@ -57,6 +57,7 @@ function makeInput(
   files: ReadonlyMap<string, Uint8Array>,
   entry: BundleInspectionInput["entry"],
   extraDirectories: readonly string[] = [],
+  resolvedSource?: BundleInspectionInput["materialized"]["source"],
 ): BundleInspectionInput {
   const entries: ContentManifestEntry[] = [
     { kind: "directory", path: ".claude-plugin", mode: 0o755 },
@@ -69,7 +70,7 @@ function makeInput(
     ...[...files.entries()].map(([path, bytes]) => file(path, bytes)),
   ];
   const content = createContentManifest(entries, sha256);
-  const source = createResolvedPluginSource({
+  const source = resolvedSource ?? createResolvedPluginSource({
     kind: "marketplace-path",
     marketplaceRevision: "a".repeat(40),
     path: entry.source.value.path,
@@ -194,6 +195,49 @@ describe("plugin bundle inspection integration", () => {
     if (!result.ok) return;
     expect(result.value.components.skills).toHaveLength(1);
     expect(result.value.components.hooks).toHaveLength(1);
+  });
+
+  it("accepts valid immutable Git handoffs end to end for both source kinds", async () => {
+    const files = new Map<string, Uint8Array>([
+      [".claude-plugin/plugin.json", fixtureBytes(".claude-plugin/plugin.json")],
+    ]);
+    const service = createPluginInspectionService({
+      content: { readFile: async (file) => files.get(file.entry.path) ?? text("{}") },
+      readers: makeReaders(),
+      sha256,
+    });
+    const revision = "a".repeat(40);
+    const url = "https://example.test/plugin.git";
+
+    for (const kind of ["git", "git-subdir"] as const) {
+      for (const selectors of [
+        { ref: "main", sha: revision },
+        { ref: revision },
+        { ref: "main" },
+      ]) {
+        const rawSource = kind === "git"
+          ? { source: "url", url, ...selectors }
+          : { source: "git-subdir", url, path: "plugins/demo", ...selectors };
+        const parsed = readClaudeMarketplace({
+          name: "fixture",
+          plugins: [{ name: "demo", source: rawSource, strict: false }],
+        });
+        const entry = parsed.marketplace.entries[0];
+        if (entry === undefined) throw new Error("Git fixture entry was not parsed");
+        const declared = entry.source.value;
+        const source = declared.kind === "git"
+          ? createResolvedPluginSource({ kind: "git", url: declared.url, revision }, sha256)
+          : createResolvedPluginSource({ kind: "git-subdir", url: declared.url, path: declared.path, revision }, sha256);
+        const result = await service.inspect(
+          makeInput(files, entry, [], source),
+          new AbortController().signal,
+        );
+        expect(result.ok, `${kind} ${JSON.stringify(selectors)}`).toBe(true);
+        if (!result.ok) continue;
+        expect(result.value.source).toMatchObject({ kind, url, revision });
+        if (kind === "git-subdir") expect(result.value.source.path).toBe("plugins/demo");
+      }
+    }
   });
 
   it("reconciles equivalent catalog and manifest foreign claims end to end", async () => {

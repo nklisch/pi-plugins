@@ -57,6 +57,7 @@ function makeInput(
   files: ReadonlyMap<string, Uint8Array>,
   entry: BundleInspectionInput["entry"],
   extraEntries: readonly ContentManifestEntry[] = [],
+  resolvedSource?: BundleInspectionInput["materialized"]["source"],
 ): BundleInspectionInput {
   const paths = new Set<string>();
   for (const path of files.keys()) {
@@ -69,7 +70,7 @@ function makeInput(
     ...extraEntries,
   ];
   const content = createContentManifest(entries, sha256);
-  const source = createResolvedPluginSource({
+  const source = resolvedSource ?? createResolvedPluginSource({
     kind: "marketplace-path",
     marketplaceRevision: "a".repeat(40),
     path: entry.source.value.path,
@@ -118,7 +119,70 @@ function service(
   });
 }
 
+const GIT_URL = "https://example.test/plugin.git";
+const PIN = "a".repeat(40);
+const OTHER_PIN = "b".repeat(40);
+const NAMED_REF_REVISION = "c".repeat(40);
+
+type GitSourceKind = "git" | "git-subdir";
+
+function entryForGit(kind: GitSourceKind, selectors: Readonly<{ ref?: string; sha?: string }> = {}) {
+  const source = kind === "git"
+    ? { source: "url", url: GIT_URL, ...selectors }
+    : { source: "git-subdir", url: GIT_URL, path: "plugins/demo", ...selectors };
+  const result = readClaudeMarketplace({
+    name: "catalog",
+    plugins: [{ name: "demo", strict: false, source }],
+  });
+  const entry = result.marketplace.entries[0];
+  if (entry === undefined) throw new Error("missing Git test entry");
+  return entry;
+}
+
+function inputForGit(
+  files: ReadonlyMap<string, Uint8Array>,
+  entry: BundleInspectionInput["entry"],
+  revision: string,
+): BundleInspectionInput {
+  const declared = entry.source.value;
+  const source = declared.kind === "git"
+    ? createResolvedPluginSource({ kind: "git", url: declared.url, revision }, sha256)
+    : declared.kind === "git-subdir"
+      ? createResolvedPluginSource({ kind: "git-subdir", url: declared.url, path: declared.path, revision }, sha256)
+      : (() => { throw new Error("expected a Git source"); })();
+  return makeInput(files, entry, [], source);
+}
+
 describe("plugin inspection service review-hardening matrix", () => {
+  it("uses authoritative Git selector precedence for git and git-subdir handoffs", async () => {
+    for (const kind of ["git", "git-subdir"] as const) {
+      const explicitSha = entryForGit(kind, { ref: OTHER_PIN, sha: PIN });
+      await expect(service(new Map()).inspect(inputForGit(new Map(), explicitSha, OTHER_PIN), new AbortController().signal))
+        .rejects.toMatchObject({ code: "SOURCE_RESOLUTION_FAILED" });
+      const explicitShaResult = await service(new Map()).inspect(
+        inputForGit(new Map(), explicitSha, PIN),
+        new AbortController().signal,
+      );
+      expect(explicitShaResult.ok, `${kind} explicit sha`).toBe(true);
+
+      const shaRef = entryForGit(kind, { ref: PIN });
+      await expect(service(new Map()).inspect(inputForGit(new Map(), shaRef, OTHER_PIN), new AbortController().signal))
+        .rejects.toMatchObject({ code: "SOURCE_RESOLUTION_FAILED" });
+      const shaRefResult = await service(new Map()).inspect(
+        inputForGit(new Map(), shaRef, PIN),
+        new AbortController().signal,
+      );
+      expect(shaRefResult.ok, `${kind} sha-shaped ref`).toBe(true);
+
+      const namedRef = entryForGit(kind, { ref: "main" });
+      const namedRefResult = await service(new Map()).inspect(
+        inputForGit(new Map(), namedRef, NAMED_REF_REVISION),
+        new AbortController().signal,
+      );
+      expect(namedRefResult.ok, `${kind} named ref`).toBe(true);
+    }
+  });
+
   it("consumes catalog-only foreign declarations into the complete bundle inventory", async () => {
     const files = new Map<string, Uint8Array>();
     const result = await service(files).inspect(
