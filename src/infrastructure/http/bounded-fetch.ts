@@ -239,10 +239,11 @@ function parseNpmrc(text: string): NpmConfigCredential[] {
     const key = line.slice(0, equals).trim();
     const value = line.slice(equals + 1).trim();
     if (value.length === 0) continue;
-    const tokenMatch = /^(?:(\/\/[^:]+\/):)?_authToken$/u.exec(key);
+    const tokenMatch = /^(?:(\/\/[^/]+\/):)?_authToken$/u.exec(key);
     if (tokenMatch !== null) {
-      // An unscoped npmrc token is the default-registry credential, not a
-      // bearer token for every HTTPS origin a server might redirect to.
+      // Keep the authority (including a non-default port) as part of the
+      // credential scope. A token for :4873 must never match the same host on
+      // :443 or an unrelated redirect origin.
       result.push({ scope: tokenMatch[1] ?? "//registry.npmjs.org/", token: value });
       continue;
     }
@@ -280,8 +281,11 @@ export function createNpmCredentialProvider(options: Readonly<{
       return parseNpmrc(await readFile(path, "utf8"));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-      // Do not expose config contents or paths through a materialization error.
-      return [];
+      // An unreadable credential file is not equivalent to an empty one: the
+      // caller must be able to distinguish configuration failure from a
+      // genuinely anonymous request. Keep the path and contents out of the
+      // error; the cause remains adapter-local.
+      throw new BoundedFetchError({ kind: "credential", message: "npm credential configuration could not be read", cause: error });
     }
   };
   return {

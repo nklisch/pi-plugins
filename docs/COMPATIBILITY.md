@@ -76,12 +76,18 @@ browsable.
 
 Private Git and npm sources use the user's existing non-interactive credential
 configuration. Plugin Host does not store source credentials or accept
-credentials embedded in HTTPS source URLs. npm tarballs require canonical
+credentials embedded in HTTPS source URLs. npm supports standard `_authToken`
+scopes (including registry ports) and the default `_auth` form; unreadable
+configuration is an explicit adapter failure rather than anonymous fallback.
+npm tarballs require canonical
 SHA-512 integrity and are verified before extraction; missing or mismatched
 integrity is incompatible.
 
 Materialization writes only into a caller-provided private staging slot and
-returns a resolved source, content root, and deterministic content manifest.
+keeps all Git/npm scratch below `<slot>/.work`. It returns an exact
+`<slot>/content` root, a resolved source, a deterministic content manifest, and
+a source/content binding; the manifest is rewalked and rehashed from disk before
+handoff.
 The public Node factory exposes this lifecycle-facing handoff while keeping
 filesystem, process, archive, HTTP, Git, npm, crypto, and credential adapters
 private. It does not choose cache or marketplace paths or perform promotion,

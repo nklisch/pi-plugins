@@ -2,12 +2,12 @@ import {
   constants,
   createReadStream,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import {
   chmod,
   lstat,
   mkdir,
   open,
-  readFile,
   readlink,
   readdir,
   realpath,
@@ -19,9 +19,11 @@ import type { FileHandle } from "node:fs/promises";
 import {
   ContentDigestSchema,
   createContentManifest,
+  createMaterializationBinding,
   hashContent,
   normalizeContentLinkTarget,
   normalizeContentPath,
+  verifyContentManifest,
   type ContentManifest,
   type ContentManifestEntry,
 } from "../../domain/content-manifest.js";
@@ -44,6 +46,51 @@ const NO_FOLLOW = (constants as typeof constants & { O_NOFOLLOW?: number }).O_NO
 type EffectiveLimits = MaterializationLimits;
 type StoredEntry = ContentManifestEntry | Readonly<{ kind: "hardlink"; path: string; mode: 0o644 | 0o755; target: string; resolvedTarget: string }>;
 type PendingLink = Readonly<{ entry: Extract<ContentEntry, { kind: "hardlink" | "symlink" }>; path: string; resolvedTarget: string; target: string; mode: 0o644 | 0o755 | 0o777 }>;
+type IncrementalSha256 = Readonly<{
+  update(bytes: Uint8Array): void;
+  digest(): Uint8Array;
+}>;
+type IncrementalSha256Factory = () => IncrementalSha256;
+
+function defaultSha256Stream(): IncrementalSha256 {
+  const hash = createHash("sha256");
+  return {
+    update(bytes) { hash.update(bytes); },
+    digest() { return new Uint8Array(hash.digest()); },
+  };
+}
+
+async function writeAll(
+  handle: FileHandle,
+  bytes: Uint8Array,
+  operation: string,
+  onPersisted: (bytes: Uint8Array) => void,
+): Promise<void> {
+  let offset = 0;
+  while (offset < bytes.byteLength) {
+    const result = await handle.write(bytes, offset, bytes.byteLength - offset);
+    const written = result.bytesWritten;
+    if (!Number.isSafeInteger(written) || written <= 0 || written > bytes.byteLength - offset) {
+      throw adapterError(operation, "file write made no progress");
+    }
+    onPersisted(bytes.subarray(offset, offset + written));
+    offset += written;
+  }
+}
+
+function formatRawDigest(bytes: Uint8Array): Extract<ContentManifestEntry, { kind: "file" }>["digest"] {
+  if (bytes.byteLength !== 32) throw new Error("SHA-256 function must return exactly 32 bytes");
+  let value = "sha256:";
+  for (const byte of bytes) value += byte.toString(16).padStart(2, "0");
+  return ContentDigestSchema.parse(value);
+}
+
+function digestEqual(left: ContentManifestEntry, right: ContentManifestEntry): boolean {
+  if (left.kind !== right.kind || left.path !== right.path || left.mode !== right.mode) return false;
+  if (left.kind === "directory" || right.kind === "directory") return left.kind === right.kind;
+  if (left.kind === "file" && right.kind === "file") return left.size === right.size && left.digest === right.digest;
+  return left.kind === "symlink" && right.kind === "symlink" && left.target === right.target && left.digest === right.digest;
+}
 
 function policyError(operation: string, message: string, path?: string): SourceMaterializationError {
   return new SourceMaterializationError({
@@ -100,6 +147,78 @@ function isInside(root: string, candidate: string): boolean {
   return value === "" || (value !== ".." && !value.startsWith(`..${sep}`) && !isAbsolute(value));
 }
 
+async function readDiskManifest(
+  root: string,
+  sha256: Sha256,
+  sha256Stream: IncrementalSha256Factory,
+  limits?: Partial<MaterializationLimits>,
+): Promise<ContentManifest> {
+  const effective = limitsWithDefaults(limits);
+  const canonicalRoot = await realpath(root);
+  await assertDirectory(canonicalRoot, "verifyMaterializedContent");
+  const entries: ContentManifestEntry[] = [];
+  let totalBytes = 0;
+  const visit = async (directory: string, prefix: string, depth: number): Promise<void> => {
+    if (depth > effective.maxEntries) throw policyError("verifyMaterializedContent", "content tree depth limit exceeded", prefix);
+    const children = await readdir(directory, { withFileTypes: true });
+    for (const child of children) {
+      const path = prefix.length === 0 ? child.name : `${prefix}/${child.name}`;
+      const normalized = normalizeContentPath(path);
+      const absolute = join(directory, child.name);
+      const stat = await lstat(absolute);
+      if (stat.isDirectory() && !stat.isSymbolicLink()) {
+        entries.push({ kind: "directory", path: normalized, mode: 0o755 });
+        await visit(absolute, normalized, depth + 1);
+        continue;
+      }
+      const resolved = await realpath(absolute).catch((error) => {
+        throw policyError("verifyMaterializedContent", "content link resolution failed", normalized);
+      });
+      if (!isInside(canonicalRoot, resolved)) throw policyError("verifyMaterializedContent", "content link escapes root", normalized);
+      if (stat.isSymbolicLink()) {
+        const target = await readlink(absolute);
+        const link = normalizeContentLinkTarget(normalized, target);
+        entries.push({
+          kind: "symlink",
+          path: normalized,
+          mode: 0o777,
+          target: link.target,
+          digest: hashContent(encoder.encode(link.target.normalize("NFC")), sha256),
+        });
+        continue;
+      }
+      if (!stat.isFile()) throw policyError("verifyMaterializedContent", "content tree contains a special file", normalized);
+      const digest = sha256Stream();
+      let size = 0;
+      const stream = createReadStream(absolute) as unknown as AsyncIterable<Uint8Array>;
+      for await (const chunk of stream) {
+        if (!(chunk instanceof Uint8Array)) throw adapterError("verifyMaterializedContent", "file stream yielded a non-byte value", normalized);
+        size += chunk.byteLength;
+        totalBytes += chunk.byteLength;
+        if (size > effective.maxFileBytes) throw policyError("verifyMaterializedContent", "file size limit exceeded", normalized);
+        if (totalBytes > effective.maxExpandedBytes) throw policyError("verifyMaterializedContent", "expanded content limit exceeded", normalized);
+        digest.update(chunk);
+      }
+      const raw = digest.digest();
+      entries.push({
+        kind: "file",
+        path: normalized,
+        mode: stat.mode & 0o111 ? 0o755 : 0o644,
+        size,
+        digest: formatRawDigest(raw),
+      });
+    }
+  };
+  await visit(canonicalRoot, "", 0);
+  if (entries.length > effective.maxEntries) throw policyError("verifyMaterializedContent", "entry count limit exceeded");
+  return createContentManifest(entries, sha256, {
+    maxEntries: effective.maxEntries,
+    maxPathBytes: effective.maxPathBytes,
+    maxSegmentBytes: effective.maxSegmentBytes,
+    maxTotalPathBytes: effective.maxTotalPathBytes,
+  });
+}
+
 async function assertDirectory(path: string, operation: string): Promise<void> {
   let stat;
   try { stat = await lstat(path); } catch (error) { throw adapterError(operation, `directory is unavailable: ${path}`, error); }
@@ -129,6 +248,7 @@ class SecureContentSessionImpl implements SecureContentSession {
   private readonly work: string;
   private readonly limits: EffectiveLimits;
   private readonly sha256: Sha256;
+  private readonly sha256Stream: IncrementalSha256Factory;
   private readonly records = new Map<string, StoredEntry>();
   private readonly collisions = new Map<string, string>();
   private readonly implicitDirectories = new Set<string>();
@@ -137,15 +257,22 @@ class SecureContentSessionImpl implements SecureContentSession {
   private expandedBytes = 0;
   private state: "open" | "finalizing" | "finalized" | "aborted" = "open";
 
-  constructor(slotRoot: string, sha256: Sha256, limits: EffectiveLimits) {
+  constructor(
+    slotRoot: string,
+    sha256: Sha256,
+    limits: EffectiveLimits,
+    sha256Stream: IncrementalSha256Factory,
+  ) {
     this.slotRoot = slotRoot;
     this.root = join(slotRoot, "content");
     this.work = join(slotRoot, ".work");
     this.sha256 = sha256;
+    this.sha256Stream = sha256Stream;
     this.limits = limits;
   }
 
   get contentRoot(): string { return this.root; }
+  get workRoot(): string { return this.work; }
 
   private assertOpen(operation: string): void {
     if (this.state !== "open") throw adapterError(operation, `content session is ${this.state}`);
@@ -250,33 +377,37 @@ class SecureContentSessionImpl implements SecureContentSession {
     await this.ensureParents(path);
     const destination = join(this.root, ...path.split("/"));
     let handle: FileHandle | undefined;
-    const chunks: Uint8Array[] = [];
+    const digest = this.sha256Stream();
     let size = 0;
     try {
       handle = await open(destination, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NO_FOLLOW, 0o600);
       for await (const chunk of body) {
         throwIfAborted(signal);
         if (!(chunk instanceof Uint8Array)) throw policyError("writeContentEntry", "file stream yielded a non-byte value", path);
-        size += chunk.byteLength;
-        if (size > this.limits.maxFileBytes) throw policyError("writeContentEntry", "file size limit exceeded", path);
+        if (size + chunk.byteLength > this.limits.maxFileBytes) throw policyError("writeContentEntry", "file size limit exceeded", path);
         if (this.expandedBytes + chunk.byteLength > this.limits.maxExpandedBytes) throw policyError("writeContentEntry", "expanded content limit exceeded", path);
-        chunks.push(new Uint8Array(chunk));
-        await handle.write(chunk);
+        // Hash only the bytes the OS confirms persisted. A short write must
+        // never let the manifest describe bytes that were not on disk.
+        await writeAll(handle, chunk, "writeContentEntry", (persisted) => {
+          digest.update(persisted);
+          size += persisted.byteLength;
+          this.expandedBytes += persisted.byteLength;
+        });
       }
       throwIfAborted(signal);
-      this.expandedBytes += size;
-      const bytes = new Uint8Array(size);
-      let offset = 0;
-      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
       await handle.close();
       handle = undefined;
       await chmod(destination, mode);
-      const digest = hashContent(bytes, this.sha256);
-      this.records.set(path, { kind: "file", path, mode, size, digest });
+      const fileDigest = digest.digest();
+      if (!(fileDigest instanceof Uint8Array) || fileDigest.byteLength !== 32) {
+        throw adapterError("writeContentEntry", "incremental SHA-256 returned an invalid digest", path);
+      }
+      this.records.set(path, { kind: "file", path, mode, size, digest: formatRawDigest(fileDigest) });
     } catch (error) {
       if (handle !== undefined) await handle.close().catch(() => undefined);
       let cleanupError: unknown;
       try { await rm(destination, { force: true }); } catch (failure) { cleanupError = failure; }
+      this.expandedBytes = Math.max(0, this.expandedBytes - size);
       this.release(path);
       if (cleanupError !== undefined) {
         throw adapterError(
@@ -332,25 +463,45 @@ class SecureContentSessionImpl implements SecureContentSession {
         if (!targetStat.isFile() || targetStat.isSymbolicLink()) {
           throw policyError("writeContentEntry", "hardlink target is not a regular file", link.path);
         }
-        const bytes = await readFile(targetPath);
-        if (bytes.byteLength > this.limits.maxFileBytes) throw policyError("writeContentEntry", "hardlink file size limit exceeded", link.path);
-        if (this.expandedBytes + bytes.byteLength > this.limits.maxExpandedBytes) {
-          throw policyError("writeContentEntry", "expanded content limit exceeded", link.path);
+        const sourceStream = createReadStream(targetPath) as unknown as AsyncIterable<Uint8Array>;
+        const digest = this.sha256Stream();
+        let size = 0;
+        let handle: FileHandle | undefined;
+        try {
+          handle = await open(destination, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NO_FOLLOW, 0o600);
+          for await (const chunk of sourceStream) {
+            if (!(chunk instanceof Uint8Array)) throw adapterError("writeContentEntry", "hardlink source yielded a non-byte value", link.path);
+            if (size + chunk.byteLength > this.limits.maxFileBytes) throw policyError("writeContentEntry", "hardlink file size limit exceeded", link.path);
+            if (this.expandedBytes + chunk.byteLength > this.limits.maxExpandedBytes) throw policyError("writeContentEntry", "expanded content limit exceeded", link.path);
+            await writeAll(handle, chunk, "writeContentEntry", (persisted) => {
+              digest.update(persisted);
+              size += persisted.byteLength;
+              this.expandedBytes += persisted.byteLength;
+            });
+          }
+          await handle.close();
+          handle = undefined;
+          await chmod(destination, link.mode === 0o777 ? 0o755 : link.mode);
+          const rawDigest = digest.digest();
+          this.records.set(link.path, {
+            kind: "file",
+            path: link.path,
+            mode: link.mode === 0o777 ? 0o755 : link.mode,
+            size,
+            digest: formatRawDigest(rawDigest),
+          });
+          remaining.splice(index, 1);
+          progress = true;
+        } catch (error) {
+          if (handle !== undefined) await handle.close().catch(() => undefined);
+          let cleanupError: unknown;
+          try { await rm(destination, { force: true }); } catch (failure) { cleanupError = failure; }
+          this.expandedBytes = Math.max(0, this.expandedBytes - size);
+          if (cleanupError !== undefined) {
+            throw adapterError("abortMaterialization", "failed to remove a partially materialized hardlink", new AggregateError([error, cleanupError]));
+          }
+          throw error;
         }
-        this.expandedBytes += bytes.byteLength;
-        await open(destination, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NO_FOLLOW, 0o600).then(async (handle: FileHandle) => {
-          try { await handle.write(bytes); } finally { await handle.close(); }
-        });
-        await chmod(destination, link.mode);
-        this.records.set(link.path, {
-          kind: "file",
-          path: link.path,
-          mode: link.mode === 0o777 ? 0o755 : link.mode,
-          size: bytes.byteLength,
-          digest: hashContent(bytes, this.sha256),
-        });
-        remaining.splice(index, 1);
-        progress = true;
       }
     }
     if (remaining.length > 0) throw policyError("writeContentEntry", "hardlink target is not a retained regular file");
@@ -406,14 +557,18 @@ class SecureContentSessionImpl implements SecureContentSession {
       await this.materializeSymlinks();
       throwIfAborted(signal);
       await this.verifyContainment();
-      const content = createContentManifest(
+      const expected = createContentManifest(
         [...this.records.values()].filter((entry): entry is ContentManifestEntry => entry.kind !== "hardlink"),
         this.sha256,
       );
+      const onDisk = await readDiskManifest(this.root, this.sha256, this.sha256Stream, this.limits);
+      if (onDisk.rootDigest !== expected.rootDigest || onDisk.entries.length !== expected.entries.length || onDisk.entries.some((entry, index) => !digestEqual(entry, expected.entries[index]!))) {
+        throw policyError("finalizeContentManifest", "persisted content does not match the materialization record");
+      }
       throwIfAborted(signal);
       await rm(this.work, { recursive: true, force: true });
       this.state = "finalized";
-      return { root: this.root, content };
+      return { root: this.root, content: onDisk };
     } catch (error) {
       this.state = "open";
       throw error;
@@ -430,7 +585,35 @@ class SecureContentSessionImpl implements SecureContentSession {
 export type SecureContentWriterOptions = Readonly<{
   sha256: Sha256;
   limits?: Partial<MaterializationLimits>;
+  sha256Stream?: IncrementalSha256Factory;
 }>;
+
+/** Internal disk rewalk used by tests and filesystem policy checks. */
+export async function inspectMaterializedContent(
+  root: string,
+  sha256: Sha256,
+  options: Readonly<{ limits?: Partial<MaterializationLimits>; sha256Stream?: IncrementalSha256Factory }> = {},
+): Promise<ContentManifest> {
+  if (typeof root !== "string" || root.length === 0) throw new TypeError("materialized content root is required");
+  if (basename(root) !== "content") throw policyError("verifyMaterializedContent", "materialized root must be exactly a content directory");
+  return readDiskManifest(root, sha256, options.sha256Stream ?? defaultSha256Stream, options.limits);
+}
+
+/** Rewalk and rehash a completed content root from disk before lifecycle handoff. */
+export async function verifyMaterializedContent(
+  root: string,
+  manifest: ContentManifest,
+  sha256: Sha256,
+  options: Readonly<{ limits?: Partial<MaterializationLimits>; sha256Stream?: IncrementalSha256Factory }> = {},
+): Promise<ContentManifest> {
+  if (typeof root !== "string" || root.length === 0) throw new TypeError("materialized content root is required");
+  const expected = verifyContentManifest(manifest, sha256);
+  const actual = await readDiskManifest(root, sha256, options.sha256Stream ?? defaultSha256Stream, options.limits);
+  if (actual.rootDigest !== expected.rootDigest || actual.entries.length !== expected.entries.length || actual.entries.some((entry, index) => !digestEqual(entry, expected.entries[index]!))) {
+    throw policyError("verifyMaterializedContent", "on-disk content does not match its manifest");
+  }
+  return actual;
+}
 
 export function createSecureContentWriterFactory(options: SecureContentWriterOptions): SecureContentWriterFactory {
   if (typeof options.sha256 !== "function") throw new TypeError("secure content writer requires SHA-256");
@@ -451,7 +634,7 @@ export function createSecureContentWriterFactory(options: SecureContentWriterOpt
         await chmod(work, 0o700);
         await assertDirectory(content, "openContentWriter");
         await assertDirectory(work, "openContentWriter");
-        return new SecureContentSessionImpl(slotRoot, options.sha256, effective);
+        return new SecureContentSessionImpl(slotRoot, options.sha256, effective, options.sha256Stream ?? defaultSha256Stream);
       } catch (error) {
         try {
           await removeOwned([content, work]);
@@ -468,7 +651,10 @@ export function createSecureContentWriterFactory(options: SecureContentWriterOpt
   };
 }
 
-export type FilesystemMarketplacePathAcquirerOptions = Readonly<{ maxDepth?: number }>;
+export type FilesystemMarketplacePathAcquirerOptions = Readonly<{
+  maxDepth?: number;
+  sha256?: Sha256;
+}>;
 
 /** Filesystem adapter for marketplace-relative copies; all writes still use the sink. */
 export function createFilesystemMarketplacePathAcquirer(
@@ -485,6 +671,20 @@ export function createFilesystemMarketplacePathAcquirer(
       }
       const sourceRoot = await realpath(context.root);
       await assertDirectory(sourceRoot, "copyMarketplacePath");
+      if (basename(sourceRoot) !== "content") throw policyError("copyMarketplacePath", "marketplace context root is not an exact content root");
+      const contextSha256 = options.sha256 ?? ((bytes: Uint8Array) => new Uint8Array(createHash("sha256").update(bytes).digest()));
+      try {
+        const verifiedContext = await verifyMaterializedContent(sourceRoot, context.content, contextSha256);
+        if (verifiedContext.rootDigest !== context.contentRootDigest) {
+          throw policyError("copyMarketplacePath", "marketplace context digest does not match on-disk content");
+        }
+        if (context.binding !== undefined && context.binding !== createMaterializationBinding(context.source.hash, verifiedContext.rootDigest, contextSha256)) {
+          throw policyError("copyMarketplacePath", "marketplace context source/content binding is invalid");
+        }
+      } catch (error) {
+        if (error instanceof SourceMaterializationError) throw error;
+        throw policyError("copyMarketplacePath", "marketplace context content verification failed");
+      }
       const selected = safeSourcePath(source.path);
       const selectedPath = resolve(sourceRoot, ...selected.split("/"));
       const selectedReal = await realpath(selectedPath);

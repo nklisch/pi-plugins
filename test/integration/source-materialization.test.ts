@@ -150,6 +150,8 @@ describe("Node source materializer composition", () => {
       root: marketplaces[0]!.root,
       source: marketplaces[0]!.source,
       contentRootDigest: marketplaces[0]!.content.rootDigest,
+      content: marketplaces[0]!.content,
+      binding: marketplaces[0]!.binding,
     };
     const pluginSources: Array<Promise<MaterializedPlugin>> = [
       materializers.plugins.materialize({ kind: "git", url: "https://fixture.test/plugin.git", ref: "main" }, { kind: "external" }, await slot(), new AbortController().signal),

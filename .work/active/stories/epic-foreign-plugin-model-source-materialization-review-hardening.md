@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization-review-hardening
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra, tests]
 parent: epic-foreign-plugin-model-source-materialization
 depends_on: [epic-foreign-plugin-model-source-materialization-secure-content-contract, epic-foreign-plugin-model-source-materialization-git-acquisition, epic-foreign-plugin-model-source-materialization-npm-acquisition, epic-foreign-plugin-model-source-materialization-integration-hardening]
@@ -37,13 +37,23 @@ Resolve every accepted blocker and important finding from the source-materializa
 
 ## Acceptance criteria
 
-- [ ] Compressed metadata/framing cannot bypass decompressed-byte or expansion-ratio limits.
-- [ ] Declaration, context, resolved source, root, manifest, and on-disk bytes are cryptographically and structurally bound end to end.
-- [ ] Every materializer-owned byte stays under the supplied private slot and all failure/cancellation paths clean or explicitly report it.
-- [ ] Short writes, hardlinks, and hashing cannot produce a manifest for bytes not persisted.
-- [ ] Git archive handling is genuinely streamed and bounded; file hashing is incremental.
-- [ ] Primary and cleanup failures remain visible and Git descendants are terminated on cancellation.
-- [ ] npm credential behavior exactly matches documented support and fails explicitly on unreadable configuration.
-- [ ] Manifest verification is bounded and linear-time over accepted input.
-- [ ] The adversarial matrix is executable and foundation docs describe actual behavior.
-- [ ] Full `npm test`, build, boundaries, and compiled package import pass.
+- [x] Compressed metadata/framing cannot bypass decompressed-byte or expansion-ratio limits.
+- [x] Declaration, context, resolved source, root, manifest, and on-disk bytes are cryptographically and structurally bound end to end.
+- [x] Every materializer-owned byte stays under the supplied private slot and all failure/cancellation paths clean or explicitly report it.
+- [x] Short writes, hardlinks, and hashing cannot produce a manifest for bytes not persisted.
+- [x] Git archive handling is genuinely streamed and bounded; file hashing is incremental.
+- [x] Primary and cleanup failures remain visible and Git descendants are terminated on cancellation.
+- [x] npm credential behavior exactly matches documented support and fails explicitly on unreadable configuration.
+- [x] Manifest verification is bounded and linear-time over accepted input.
+- [x] The adversarial matrix is executable and foundation docs describe actual behavior.
+- [x] Full `npm test`, build, boundaries, and compiled package import pass.
+
+## Implementation notes
+
+- Tar accounting now measures every decompressed byte, including headers, padding, global metadata, and framing, independently of retained payload bytes. Aggregate path limits are applied before manifest construction.
+- Marketplace contexts are complete handoffs: verified source, complete manifest, root digest, and source/content binding are checked before copying. Application dispatch also checks resolved source kind, origin, path/package/registry, authoritative SHA, and exact `<slot>/content` identity.
+- Git bare repositories and npm tarballs are created only below the secure session's `.work`. Git archives use a live bounded process stream; cancellation kills process groups where supported. File and hardlink writes use progress-checked loops, hash confirmed persisted bytes, and rewalk/re-hash from disk before success.
+- The public `verifyMaterializedContent` operation gives lifecycle a disk-backed manifest recheck without exposing acquisition adapters. npm's documented credential surface is scoped `_authToken` (including ports) plus default `_auth`; unreadable config is explicit.
+- Added executable regressions for metadata/framing limits, malformed numeric fields, hardlink ordering/cycles, cleanup aggregation, source/root mismatches, exact context roots, npm credential ports/config errors, and the live-stream completion contract. Foundation docs now describe the implemented handoff and scratch boundaries.
+
+Verification: `npm test`; `npm pack --dry-run --json`; focused archive, source, process, HTTP, and package-import probes all pass.

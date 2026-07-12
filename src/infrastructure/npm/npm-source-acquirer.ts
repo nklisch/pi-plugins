@@ -1,6 +1,5 @@
 import { createReadStream } from "node:fs";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
   PluginSourceSchema,
@@ -56,21 +55,8 @@ function effectiveLimits(input?: Partial<MaterializationLimits>): Materializatio
   return Object.freeze(limits);
 }
 
-async function scratchDirectory(signal: AbortSignal): Promise<string> {
-  throwIfAborted(signal);
-  let root: string | undefined;
-  try {
-    root = await mkdtemp(join(tmpdir(), "pi-npm-materialization-"));
-    await mkdir(join(root, ".work"), { mode: 0o700 });
-    return root;
-  } catch (error) {
-    if (root !== undefined) await rm(root, { recursive: true, force: true }).catch(() => undefined);
-    throw failure("ADAPTER_FAILED", "permanent", "resolveNpmSource", "failed to create npm scratch data", error);
-  }
-}
-
-async function cleanupScratch(root: string): Promise<void> {
-  await rm(root, { recursive: true, force: true });
+async function cleanupScratch(path: string): Promise<void> {
+  await rm(path, { force: true });
 }
 
 async function archiveTarball(
@@ -102,13 +88,16 @@ async function acquire(
   signal: AbortSignal,
 ): Promise<ResolvedPluginSource> {
   const limits = effectiveLimits(options.limits);
-  const scratch = await scratchDirectory(signal);
+  const workRoot = sink.workRoot;
+  if (workRoot === undefined || workRoot.length === 0) {
+    throw failure("ADAPTER_FAILED", "permanent", "resolveNpmSource", "content session does not expose private scratch work");
+  }
+  const tarball = join(workRoot, "npm-package.tgz");
   let failureValue: unknown;
   let result: ResolvedPluginSource | undefined;
   try {
     const resolved = await options.registry.resolve(source, signal);
     throwIfAborted(signal);
-    const tarball = join(scratch, ".work", "package.tgz");
     await options.registry.downloadVerified(resolved.selected, tarball, limits, signal);
     throwIfAborted(signal);
     await archiveTarball(options.archive, tarball, sink, limits, signal);
@@ -128,10 +117,17 @@ async function acquire(
     failureValue = error;
   }
 
+  let cleanupFailure: unknown;
   try {
-    await cleanupScratch(scratch);
+    await cleanupScratch(tarball);
   } catch (error) {
-    throw failure("ADAPTER_FAILED", "permanent", "abortMaterialization", "failed to remove npm scratch data", error);
+    cleanupFailure = error;
+  }
+  if (failureValue !== undefined && cleanupFailure !== undefined) {
+    throw failure("ADAPTER_FAILED", "permanent", "abortMaterialization", "npm acquisition and scratch cleanup both failed", new AggregateError([failureValue, cleanupFailure]));
+  }
+  if (cleanupFailure !== undefined) {
+    throw failure("ADAPTER_FAILED", "permanent", "abortMaterialization", "failed to remove npm scratch data", cleanupFailure);
   }
   if (failureValue !== undefined) {
     if (signal.aborted) throw signal.reason ?? failureValue;

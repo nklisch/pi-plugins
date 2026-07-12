@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createBoundedFetch, type BoundedFetchResponse } from "../../../src/infrastructure/http/bounded-fetch.js";
+import { createBoundedFetch, createNpmCredentialProvider, type BoundedFetchResponse } from "../../../src/infrastructure/http/bounded-fetch.js";
 
 const signal = (): AbortSignal => new AbortController().signal;
 
@@ -58,6 +58,21 @@ describe("bounded HTTPS fetch", () => {
       credentials: { apply() {} },
     });
     await expect(httpRedirect.request({ url: "https://registry.example.test/package", maxBytes: 100, signal: signal() })).rejects.toMatchObject({ kind: "redirect" });
+  });
+
+  it("matches npm token scopes including ports and reports unreadable config", async () => {
+    const provider = createNpmCredentialProvider({
+      configText: "//registry.example.test:4873/:_authToken=port-secret\n",
+    });
+    const portHeaders = new Headers();
+    await provider.apply(new URL("https://registry.example.test:4873/package"), portHeaders, signal());
+    expect(portHeaders.get("authorization")).toBe("Bearer port-secret");
+    const defaultHeaders = new Headers();
+    await provider.apply(new URL("https://registry.example.test/package"), defaultHeaders, signal());
+    expect(defaultHeaders.get("authorization")).toBeNull();
+
+    const unreadable = createNpmCredentialProvider({ configPath: process.cwd() });
+    await expect(unreadable.apply(new URL("https://registry.example.test/package"), new Headers(), signal())).rejects.toMatchObject({ kind: "credential" });
   });
 
   it("bounds redirect hops", async () => {

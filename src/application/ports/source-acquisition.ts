@@ -14,6 +14,7 @@ export const DEFAULT_MATERIALIZATION_LIMITS = Object.freeze({
   maxEntries: 20_000,
   maxPathBytes: 1_024,
   maxSegmentBytes: 255,
+  maxTotalPathBytes: 16 * 1024 * 1024,
   maxFileBytes: 64 * 1024 * 1024,
   maxExpandedBytes: 512 * 1024 * 1024,
   maxArchiveBytes: 128 * 1024 * 1024,
@@ -36,6 +37,10 @@ export interface SecureContentSession {
   add(entry: ContentEntry, signal: AbortSignal): Promise<void>;
   finalize(signal: AbortSignal): Promise<Readonly<{ root: string; content: ContentManifest }>>;
   abort(cause?: unknown): Promise<void>;
+  /** The only scratch root adapters may use. Legacy test ports may omit it. */
+  readonly workRoot?: string;
+  /** The writer's canonical content root, used to reject forged handoffs. */
+  readonly contentRoot?: string;
 }
 
 export interface SecureContentWriterFactory {
@@ -50,6 +55,8 @@ export interface MarketplacePathAcquirer {
       root: string;
       source: ResolvedMarketplaceSource;
       contentRootDigest: ContentDigest;
+      content: ContentManifest;
+      binding: ContentDigest;
     }>,
     sink: SecureContentSession,
     signal: AbortSignal,

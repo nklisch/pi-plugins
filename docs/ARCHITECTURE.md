@@ -389,14 +389,14 @@ Every acquisition adapter writes through one hardened content sink into an initi
 
 - rejects traversal, absolute/drive/UNC/backslash paths, dangerous platform names, case or Unicode-normalization collisions, and escaping links before creating the affected entry;
 - uses exclusive regular-file creation, validates every ancestor, creates safe internal symlinks only after ordinary entries, and materializes hardlinks as regular-file copies;
-- enforces entry, path, file, expanded-byte, compressed-byte, and expansion-ratio limits;
+- enforces entry, path, file, total decompressed-stream, compressed-byte, and expansion-ratio limits; tar framing, padding, and PAX/GNU metadata count toward the decompressed budget;
 - rejects special files, sparse/unknown archive forms, setuid/setgid metadata, escaping symlinks/hardlinks, and `.git` content;
-- performs a final realpath/manifest verification as defense in depth rather than relying on a post-extraction sweep alone;
-- emits a versioned SHA-256 manifest over normalized relative paths, content/link digests, normalized executable modes, and empty directories.
+- performs a disk-backed final rewalk and rehash before returning, and exposes the same verification operation for lifecycle handoff; a returned root must be exactly `<slot>/content`;
+- emits a versioned SHA-256 manifest over normalized relative paths, content/link digests, normalized executable modes, and empty directories; public verification applies bounded per-path, aggregate-path, and entry limits with one normalized path map.
 
 Git resolution uses argument-array subprocesses and clean `git archive` output. A full declared SHA is authoritative over a ref. Otherwise qualified branch/tag names resolve exactly; an unqualified name that exists as both branch and tag is rejected as ambiguous. Tags peel to commits, and the resolved full commit SHA is trust identity. Selected trees containing `.gitmodules` are rejected because submodule materialization is not supported.
 
-npm acquisition reads packuments and downloads tarballs directly through bounded HTTPS adapters. It requires canonical SHA-512 integrity and verifies downloaded bytes before extraction. It never runs npm installation, dependency installation, or lifecycle scripts.
+npm acquisition reads packuments and downloads tarballs directly through bounded HTTPS adapters. It requires canonical SHA-512 integrity, hashes bytes confirmed written and rehashes the closed scratch file before extraction, and never runs npm installation, dependency installation, or lifecycle scripts. Git archives are consumed through a live bounded stream with incremental file hashing. Git and npm scratch is created only below the caller's `<slot>/.work`; no OS temporary directory is selected by a materializer. A source handoff binds the verified source hash to the manifest root digest.
 
 ### Source ports
 
@@ -425,16 +425,19 @@ type SourceContext =
       root: string;
       source: ResolvedMarketplaceSource;
       contentRootDigest: ContentDigest;
+      content: ContentManifest;
+      binding: ContentDigest;
     };
 
 interface MaterializedPlugin {
   root: string;
   source: ResolvedPluginSource;
   content: ContentManifest;
+  binding: ContentDigest;
 }
 ```
 
-Marketplace-relative sources require marketplace context; external Git/npm sources reject it. Git subprocess and npm/HTTP/filesystem details remain inside infrastructure adapters. The Node composition root wires those adapters behind the application ports and exports only the lifecycle-facing materializers; command, tar, HTTP, filesystem, and credential adapters are not package API. Credentials come from existing noninteractive Git/SSH/npm configuration, never source declarations or materializer results. Cancellation propagates through every port and is rethrown after cleanup rather than converted to a domain diagnostic. Cleanup failure is reported as an adapter failure with no materialization handoff.
+Marketplace-relative sources require a verified marketplace handoff carrying the complete manifest and source/content binding; the copier rewalks the exact `<slot>/content` root before copying. External Git/npm sources reject marketplace context. The lifecycle can call `verifyMaterializedContent` to rewalk and rehash a completed handoff before promotion. Git subprocess and npm/HTTP/filesystem details remain inside infrastructure adapters. The Node composition root wires those adapters behind the application ports and exports only the lifecycle-facing materializers; command, tar, HTTP, filesystem, and credential adapters are not package API. Credentials come from existing noninteractive Git/SSH/npm configuration, never source declarations or materializer results. Cancellation propagates through every port and is rethrown after cleanup rather than converted to a domain diagnostic. Cleanup failure is reported as an adapter failure with no materialization handoff.
 
 ## Authoritative state
 

@@ -2,6 +2,7 @@ import { BoundaryError } from "../domain/errors.js";
 import {
   ContentDigestSchema,
   normalizeContentPath,
+  createMaterializationBinding,
   verifyContentManifest,
   type ContentDigest,
   type ContentManifest,
@@ -10,6 +11,8 @@ import {
   MarketplaceSourceSchema,
   PluginSourceSchema,
   createResolvedPluginSource,
+  serializeMarketplaceSource,
+  serializePluginSource,
   verifyResolvedMarketplaceSource,
   verifyResolvedPluginSource,
   type MarketplaceSource,
@@ -41,11 +44,13 @@ export type MaterializedMarketplace = Readonly<{
   root: string;
   source: ResolvedMarketplaceSource;
   content: ContentManifest;
+  binding: ContentDigest;
 }>;
 export type MaterializedPlugin = Readonly<{
   root: string;
   source: ResolvedPluginSource;
   content: ContentManifest;
+  binding: ContentDigest;
 }>;
 
 export type SourceContext =
@@ -55,6 +60,10 @@ export type SourceContext =
       root: string;
       source: ResolvedMarketplaceSource;
       contentRootDigest: ContentDigest;
+      /** The complete verified manifest, retained for context revalidation. */
+      content: ContentManifest;
+      /** Digest binding the resolved source identity to contentRootDigest. */
+      binding: ContentDigest;
     }>;
 
 export type MaterializationFailureClassification = "security" | "permanent" | "transient";
@@ -172,6 +181,8 @@ function checkedMarketplaceContext(
   }
   try {
     ContentDigestSchema.parse(context.contentRootDigest);
+    const manifest = verifyContentManifest(context.content, sha256);
+    if (manifest.rootDigest !== context.contentRootDigest) throw new Error("marketplace context manifest digest does not match");
   } catch (error) {
     throw new SourceMaterializationError({
       code: "PATH_CONTAINMENT_FAILED",
@@ -183,7 +194,10 @@ function checkedMarketplaceContext(
     });
   }
   try {
-    verifyResolvedMarketplaceSource(context.source, sha256);
+    const verified = verifyResolvedMarketplaceSource(context.source, sha256);
+    if (context.binding !== createMaterializationBinding(verified.hash, context.contentRootDigest, sha256)) {
+      throw new Error("marketplace context source/content binding does not match");
+    }
   } catch (error) {
     throw new SourceMaterializationError({
       code: "SOURCE_RESOLUTION_FAILED",
@@ -213,8 +227,72 @@ function verifyPluginResult(result: unknown, sha256: SourceMaterializationDepend
   }
 }
 
+function assertMarketplaceDeclarationBinding(
+  declared: MarketplaceSource,
+  resolved: ResolvedMarketplaceSource,
+): void {
+  if (serializeMarketplaceSource(declared) !== serializeMarketplaceSource(resolved.declared)) {
+    throw new SourceMaterializationError({
+      code: "SOURCE_RESOLUTION_FAILED",
+      classification: "permanent",
+      operation: "materializeMarketplace",
+      message: "resolved marketplace source does not match its declaration",
+      details: { operation: "materializeMarketplace" },
+    });
+  }
+}
+
+function canonicalPrefix(source: PluginSource): string {
+  const canonical = serializePluginSource(source);
+  const marker = canonical.indexOf("|ref:") >= 0 ? "|ref:" : canonical.indexOf("|sha:") >= 0 ? "|sha:" : "";
+  return marker.length === 0 ? canonical : canonical.slice(0, canonical.indexOf(marker));
+}
+
+function sourceMismatch(message: string): SourceMaterializationError {
+  return new SourceMaterializationError({
+    code: "SOURCE_RESOLUTION_FAILED",
+    classification: "permanent",
+    operation: "materializePlugin",
+    message,
+    details: { operation: "materializePlugin" },
+  });
+}
+
+function assertPluginDeclarationBinding(
+  declared: PluginSource,
+  resolved: ResolvedPluginSource,
+): void {
+  if (declared.kind === "marketplace-path") {
+    if (resolved.kind !== "marketplace-path" || resolved.path !== declared.path) throw sourceMismatch("resolved marketplace path does not match its declaration");
+    return;
+  }
+  if (declared.kind === "npm") {
+    if (resolved.kind !== "npm") throw sourceMismatch("resolved plugin source kind does not match its declaration");
+    const expectedRegistry = declared.registry ?? "https://registry.npmjs.org/";
+    if (resolved.package !== declared.package || serializePluginSource({ kind: "npm", package: resolved.package, registry: resolved.registry }) !== serializePluginSource({ kind: "npm", package: declared.package, registry: expectedRegistry })) {
+      throw sourceMismatch("resolved npm source does not match its declaration");
+    }
+    return;
+  }
+  if (declared.kind === "git") {
+    if (resolved.kind !== "git") throw sourceMismatch("resolved plugin source kind does not match its declaration");
+    if (canonicalPrefix(declared) !== canonicalPrefix({ kind: "git", url: resolved.url })) throw sourceMismatch("resolved Git source does not match its declaration");
+    if (declared.sha !== undefined && resolved.revision !== declared.sha) throw sourceMismatch("resolved Git revision does not match the authoritative SHA");
+    return;
+  }
+  if (resolved.kind !== "git-subdir") throw sourceMismatch("resolved plugin source kind does not match its declaration");
+  if (canonicalPrefix(declared) !== canonicalPrefix({ kind: "git-subdir", url: resolved.url, path: resolved.path })) throw sourceMismatch("resolved Git subdirectory does not match its declaration");
+  if (declared.sha !== undefined && resolved.revision !== declared.sha) throw sourceMismatch("resolved Git revision does not match the authoritative SHA");
+}
+
+function expectedContentRoot(slotRoot: string): string {
+  const trimmed = slotRoot.replace(/[\\/]+$/u, "");
+  return slotRoot.includes("\\") ? `${trimmed}\\content` : `${trimmed}/content`;
+}
+
 async function finalize(
   session: SecureContentSession,
+  destination: StagingSlot,
   signal: AbortSignal,
   sha256: SourceMaterializationDependencies["sha256"],
   operation: string,
@@ -223,6 +301,11 @@ async function finalize(
   const result = await session.finalize(signal);
   abortIfRequested(signal);
   try {
+    const expected = expectedContentRoot(destination.root);
+    const callerRootIsAbsolute = /^[/\\]|^[A-Za-z]:[/\\]/u.test(destination.root);
+    const exact = result.root === expected
+      || (!callerRootIsAbsolute && session.contentRoot !== undefined && result.root === session.contentRoot);
+    if (!exact) throw new Error("materializer returned a content root outside the staging slot");
     return { root: result.root, content: verifyContentManifest(result.content, sha256) };
   } catch (error) {
     throw asAdapterFailure(operation, error);
@@ -252,9 +335,15 @@ export function createSourceMaterializers(
           await dependencies.git.materializeMarketplace(declaration, session, signal),
           dependencies.sha256,
         );
-        const content = await finalize(session, signal, dependencies.sha256, "finalizeContentManifest");
+        assertMarketplaceDeclarationBinding(declaration, resolved);
+        const content = await finalize(session, destination, signal, dependencies.sha256, "finalizeContentManifest");
         abortIfRequested(signal);
-        return { root: content.root, source: resolved, content: content.content };
+        return {
+          root: content.root,
+          source: resolved,
+          content: content.content,
+          binding: createMaterializationBinding(resolved.hash, content.content.rootDigest, dependencies.sha256),
+        };
       } catch (error) {
         if (session !== undefined) return cleanupOrThrow(session, error, signal);
         if (signal.aborted) throw signal.reason ?? error;
@@ -302,9 +391,24 @@ export function createSourceMaterializers(
           abortIfRequested(signal);
           await copier.materialize(declaration, marketplace, session, signal);
           const resolved = createMarketplacePluginSource(declaration, marketplace, dependencies.sha256);
-          const content = await finalize(session, signal, dependencies.sha256, "finalizeContentManifest");
+          assertPluginDeclarationBinding(declaration, resolved);
+          if (resolved.kind !== "marketplace-path" || resolved.marketplaceRevision !== marketplace.source.revision) {
+            throw new SourceMaterializationError({
+              code: "SOURCE_RESOLUTION_FAILED",
+              classification: "permanent",
+              operation: "materializePlugin",
+              message: "resolved marketplace plugin revision does not match its context",
+              details: { operation: "materializePlugin" },
+            });
+          }
+          const content = await finalize(session, destination, signal, dependencies.sha256, "finalizeContentManifest");
           abortIfRequested(signal);
-          return { root: content.root, source: resolved, content: content.content };
+          return {
+            root: content.root,
+            source: resolved,
+            content: content.content,
+            binding: createMaterializationBinding(resolved.hash, content.content.rootDigest, dependencies.sha256),
+          };
         }
 
         if (context === null || typeof context !== "object" || context.kind !== "external") {
@@ -323,9 +427,15 @@ export function createSourceMaterializers(
           ? await dependencies.npm.materialize(declaration, session, signal)
           : await dependencies.git.materializePlugin(declaration, session, signal);
         const verified = verifyPluginResult(resolved, dependencies.sha256);
-        const content = await finalize(session, signal, dependencies.sha256, "finalizeContentManifest");
+        assertPluginDeclarationBinding(declaration, verified);
+        const content = await finalize(session, destination, signal, dependencies.sha256, "finalizeContentManifest");
         abortIfRequested(signal);
-        return { root: content.root, source: verified, content: content.content };
+        return {
+          root: content.root,
+          source: verified,
+          content: content.content,
+          binding: createMaterializationBinding(verified.hash, content.content.rootDigest, dependencies.sha256),
+        };
       } catch (error) {
         if (session !== undefined) return cleanupOrThrow(session, error, signal);
         if (signal.aborted) throw signal.reason ?? error;

@@ -7,6 +7,16 @@ const CONTENT_PREFIX = new Uint8Array([0x63, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74,
 const MAX_SAFE_UINT64 = BigInt(Number.MAX_SAFE_INTEGER);
 const WINDOWS_DEVICE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 
+/** Limits for the public manifest verifier. They protect callers even when a
+ * manifest did not come from the filesystem writer. */
+export const DEFAULT_CONTENT_MANIFEST_LIMITS = Object.freeze({
+  maxEntries: 20_000,
+  maxPathBytes: 1_024,
+  maxSegmentBytes: 255,
+  maxTotalPathBytes: 16 * 1024 * 1024,
+});
+export type ContentManifestLimits = Readonly<typeof DEFAULT_CONTENT_MANIFEST_LIMITS>;
+
 function hasLoneSurrogate(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index);
@@ -154,6 +164,18 @@ export function hashContent(bytes: Uint8Array, sha256: Sha256): ContentDigest {
   return formatDigest(sha256(bytes));
 }
 
+/** Bind a verified source identity to the exact retained tree digest. */
+export function createMaterializationBinding(
+  sourceHash: string,
+  contentRootDigest: ContentDigest,
+  sha256: Sha256,
+): ContentDigest {
+  if (typeof sourceHash !== "string" || !/^sha256:[0-9a-f]{64}$/.test(sourceHash)) throw new TypeError("materialization source hash is invalid");
+  ContentDigestSchema.parse(contentRootDigest);
+  const preimage = encoder.encode(`materialization-v1\0${sourceHash.length}:${sourceHash}${contentRootDigest.length}:${contentRootDigest}`);
+  return formatDigest(sha256(preimage));
+}
+
 function u32(value: number): Uint8Array {
   if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) throw new Error("manifest field exceeds uint32");
   return Uint8Array.from([(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff]);
@@ -202,17 +224,45 @@ function entryPreimage(entry: ContentManifestEntry): Uint8Array {
   ]);
 }
 
-function validateEntries(entries: readonly ContentManifestEntry[], sha256?: Sha256): ContentManifestEntry[] {
+function manifestLimits(input?: Partial<ContentManifestLimits>): ContentManifestLimits {
+  const limits = { ...DEFAULT_CONTENT_MANIFEST_LIMITS, ...(input ?? {}) };
+  for (const [name, value] of Object.entries(limits)) {
+    if (!Number.isSafeInteger(value) || value <= 0) throw new TypeError(`content manifest limit ${name} must be positive`);
+  }
+  return Object.freeze(limits);
+}
+
+function validateEntries(
+  entries: readonly ContentManifestEntry[],
+  sha256?: Sha256,
+  inputLimits?: Partial<ContentManifestLimits>,
+): ContentManifestEntry[] {
+  const limits = manifestLimits(inputLimits);
+  if (entries.length > limits.maxEntries) throw new Error("content manifest entry limit exceeded");
   const parsed = entries.map((entry) => ContentManifestEntrySchema.parse(entry));
-  const seen = new Set<string>();
+  const byPath = new Map<string, ContentManifestEntry>();
+  let totalPathBytes = 0;
   for (const entry of parsed) {
-    const key = collisionKey(entry.path);
-    if (seen.has(key)) throw new Error(`content manifest path collision: ${entry.path}`);
-    seen.add(key);
+    const normalized = normalizeContentPath(entry.path);
+    const pathLength = encoder.encode(normalized).byteLength;
+    totalPathBytes += pathLength;
+    if (totalPathBytes > limits.maxTotalPathBytes) throw new Error("content manifest aggregate path limit exceeded");
+    if (pathLength > limits.maxPathBytes) throw new Error(`content manifest path length limit exceeded: ${entry.path}`);
+    for (const segment of normalized.split("/")) {
+      if (encoder.encode(segment).byteLength > limits.maxSegmentBytes) {
+        throw new Error(`content manifest path segment length limit exceeded: ${entry.path}`);
+      }
+    }
+    const key = collisionKey(normalized);
+    if (byPath.has(key)) throw new Error(`content manifest path collision: ${entry.path}`);
+    byPath.set(key, entry);
+  }
+  for (const entry of parsed) {
     const segments = entry.path.split("/");
-    for (let index = 1; index < segments.length; index += 1) {
-      const ancestor = segments.slice(0, index).join("/");
-      const ancestorEntry = parsed.find((candidate) => collisionKey(candidate.path) === collisionKey(ancestor));
+    let ancestor = "";
+    for (let index = 0; index < segments.length - 1; index += 1) {
+      ancestor = ancestor.length === 0 ? segments[index]! : `${ancestor}/${segments[index]!}`;
+      const ancestorEntry = byPath.get(collisionKey(ancestor));
       if (ancestorEntry?.kind !== "directory") {
         throw new Error(`content manifest is missing directory ancestor: ${ancestor}`);
       }
@@ -225,7 +275,7 @@ function validateEntries(entries: readonly ContentManifestEntry[], sha256?: Sha2
       } catch (error) {
         throw new Error(`symlink target is unsafe: ${entry.path}`, { cause: error });
       }
-      if (!parsed.some((candidate) => collisionKey(candidate.path) === collisionKey(link.resolvedPath))) {
+      if (!byPath.has(collisionKey(link.resolvedPath))) {
         throw new Error(`symlink target is not a retained entry: ${entry.path}`);
       }
       if (sha256 !== undefined && hashContent(encoder.encode(entry.target.normalize("NFC")), sha256) !== entry.digest) {
@@ -266,9 +316,10 @@ export type ContentManifest = z.infer<typeof ContentManifestSchema>;
 export function createContentManifest(
   entries: readonly ContentManifestEntry[],
   sha256: Sha256,
+  limits?: Partial<ContentManifestLimits>,
 ): ContentManifest {
   if (typeof sha256 !== "function") throw new TypeError("createContentManifest requires a SHA-256 function");
-  const validated = validateEntries(entries, sha256).sort(compareEntries);
+  const validated = validateEntries(entries, sha256, limits).sort(compareEntries);
   return ContentManifestSchema.parse({
     version: 1,
     algorithm: "sha256",
@@ -277,10 +328,14 @@ export function createContentManifest(
   });
 }
 
-export function verifyContentManifest(input: unknown, sha256: Sha256): ContentManifest {
+export function verifyContentManifest(
+  input: unknown,
+  sha256: Sha256,
+  limits?: Partial<ContentManifestLimits>,
+): ContentManifest {
   if (typeof sha256 !== "function") throw new TypeError("verifyContentManifest requires a SHA-256 function");
   const manifest = ContentManifestSchema.parse(input);
-  validateEntries(manifest.entries, sha256);
+  validateEntries(manifest.entries, sha256, limits);
   const expected = computeRootDigest(manifest.entries, sha256);
   if (manifest.rootDigest !== expected) throw new Error("content manifest root digest does not match entries");
   return manifest;

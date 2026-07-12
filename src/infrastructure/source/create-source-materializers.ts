@@ -54,6 +54,7 @@ export function createNodeSourceMaterializers(
   }
 
   const credentials = options.credentialProvider ?? createDefaultNpmCredentialProvider();
+  const sha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(bytes).digest());
   const command = createNodeCommandRunner();
   const limitOptions = options.limits === undefined ? {} : { limits: options.limits };
   const archive = createTarReader(limitOptions);
@@ -88,6 +89,6 @@ export function createNodeSourceMaterializers(
     npm,
     content,
     sha256,
-    marketplace: createFilesystemMarketplacePathAcquirer(),
+    marketplace: createFilesystemMarketplacePathAcquirer({ sha256 }),
   });
 }

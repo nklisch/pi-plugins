@@ -39,6 +39,17 @@ function archive(...entries: Uint8Array[]): Uint8Array {
   return new Uint8Array([...entries.flatMap((entry) => [...entry]), ...new Uint8Array(1024)]);
 }
 
+function malformedSize(entry: Uint8Array): Uint8Array {
+  const copy = entry.slice();
+  copy.fill(0, 124, 136);
+  copy.set(new TextEncoder().encode("not-octal"), 124);
+  copy.fill(0x20, 148, 156);
+  let checksum = 0;
+  for (let index = 0; index < BLOCK; index += 1) checksum += copy[index] ?? 0;
+  copy.set(new TextEncoder().encode(checksum.toString(8).padStart(6, "0") + "\0 "), 148);
+  return copy;
+}
+
 async function openSink() {
   const root = await mkdtemp(join(tmpdir(), "pi-tar-test-"));
   slots.push(root);
@@ -93,6 +104,45 @@ describe("streaming tar policy", () => {
     })();
     await expect(createTarReader().read(input, sink, controller.signal)).rejects.toBe(reason);
     await sink.abort();
+  });
+
+  it("rejects malformed numeric encodings", async () => {
+    const { sink } = await openSink();
+    await expect(createTarReader().read((async function* () {
+      yield archive(malformedSize(tarEntry("bad", "x")));
+    })(), sink, signal())).rejects.toMatchObject({ code: "PATH_CONTAINMENT_FAILED" });
+    await sink.abort();
+  });
+
+  it("counts gzip framing and metadata toward decompressed limits", async () => {
+    const plain = archive(tarEntry("empty", ""));
+    const { sink } = await openSink();
+    await expect(createTarReader({ limits: { maxExpandedBytes: plain.byteLength - 1 } }).read(
+      (async function* () { yield gzipSync(plain); })(), sink, signal(),
+    )).rejects.toMatchObject({ code: "PATH_CONTAINMENT_FAILED" });
+    await sink.abort();
+
+    const { sink: metadata } = await openSink();
+    await expect(createTarReader().read(
+      (async function* () { yield archive(tarEntry("pax", "", "x")); })(), metadata, signal(),
+    )).rejects.toMatchObject({ code: "PATH_CONTAINMENT_FAILED" });
+    await metadata.abort();
+  });
+
+  it("materializes hardlinks after their targets and rejects cycles", async () => {
+    const { sink } = await openSink();
+    await createTarReader().read((async function* () {
+      yield archive(tarEntry("copy", "", "1", "target"), tarEntry("target", "ok"));
+    })(), sink, signal());
+    const result = await sink.finalize(signal());
+    expect(await readFile(join(result.root, "copy"), "utf8")).toBe("ok");
+
+    const { sink: cycle } = await openSink();
+    await createTarReader().read((async function* () {
+      yield archive(tarEntry("a", "", "1", "b"), tarEntry("b", "", "1", "a"));
+    })(), cycle, signal());
+    await expect(cycle.finalize(signal())).rejects.toMatchObject({ code: "PATH_CONTAINMENT_FAILED" });
+    await cycle.abort();
   });
 
   it("strips one exact package prefix and supports bounded gzip input", async () => {

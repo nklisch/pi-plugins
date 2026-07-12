@@ -156,17 +156,19 @@ class ByteQueue {
 
   private async fill(): Promise<boolean> {
     if (this.current !== undefined && this.offset < this.current.byteLength) return true;
-    if (this.done) return false;
-    const next = await this.iterator.next();
-    if (next.done) {
-      this.done = true;
-      this.current = undefined;
-      return false;
+    while (!this.done) {
+      const next = await this.iterator.next();
+      if (next.done) {
+        this.done = true;
+        this.current = undefined;
+        return false;
+      }
+      if (!(next.value instanceof Uint8Array)) throw policyError("archive stream yielded a non-byte value");
+      this.current = next.value;
+      this.offset = 0;
+      if (next.value.byteLength > 0) return true;
     }
-    if (!(next.value instanceof Uint8Array)) throw policyError("archive stream yielded a non-byte value");
-    this.current = next.value;
-    this.offset = 0;
-    return this.current.byteLength > 0 || await this.fill();
+    return false;
   }
 
   async take(count: number): Promise<Uint8Array> {
@@ -208,10 +210,25 @@ class ByteQueue {
   }
 }
 
+function accountExpanded(
+  chunk: Uint8Array,
+  limits: MaterializationLimits,
+  state: { archiveBytes: number; expandedBytes: number },
+): void {
+  state.expandedBytes += chunk.byteLength;
+  if (state.expandedBytes > limits.maxExpandedBytes) throw policyError("expanded archive stream limit exceeded");
+  // This check is deliberately independent of retained file payload. Tar
+  // headers, padding, PAX records, and GNU framing all count toward the
+  // decompressed stream budget and bomb ratio.
+  if (state.archiveBytes >= 1024 * 1024 && state.expandedBytes > state.archiveBytes * limits.maxExpansionRatio) {
+    throw policyError("archive expansion ratio limit exceeded");
+  }
+}
+
 async function* countedInput(
   input: AsyncIterable<Uint8Array>,
   limits: MaterializationLimits,
-  state: { archiveBytes: number },
+  state: { archiveBytes: number; expandedBytes: number },
 ): AsyncGenerator<Uint8Array> {
   for await (const chunk of input) {
     if (!(chunk instanceof Uint8Array)) throw policyError("archive stream yielded a non-byte value");
@@ -221,10 +238,26 @@ async function* countedInput(
   }
 }
 
-async function* gunzipped(input: AsyncIterable<Uint8Array>): AsyncGenerator<Uint8Array> {
+async function* expandedInput(
+  input: AsyncIterable<Uint8Array>,
+  limits: MaterializationLimits,
+  state: { archiveBytes: number; expandedBytes: number },
+): AsyncGenerator<Uint8Array> {
+  for await (const chunk of input) {
+    accountExpanded(chunk, limits, state);
+    yield chunk;
+  }
+}
+
+async function* gunzipped(
+  input: AsyncIterable<Uint8Array>,
+  limits: MaterializationLimits,
+  state: { archiveBytes: number; expandedBytes: number },
+): AsyncGenerator<Uint8Array> {
   const stream = Readable.from(input).pipe(createGunzip());
   for await (const chunk of stream) {
     if (!(chunk instanceof Uint8Array)) throw policyError("gzip stream yielded a non-byte value");
+    accountExpanded(chunk, limits, state);
     yield chunk;
   }
 }
@@ -243,13 +276,15 @@ export function createTarReader(defaultOptions: TarReaderOptions = {}): TarReade
       const compression = callOptions.compression ?? defaultOptions.compression ?? "none";
       const requireRetainedEntries = callOptions.requireRetainedEntries ?? defaultOptions.requireRetainedEntries ?? false;
       const normalizedPrefix = stripPrefix === undefined ? undefined : safeArchiveName(stripPrefix);
-      const state = { archiveBytes: 0 };
+      const state = { archiveBytes: 0, expandedBytes: 0, pathBytes: 0 };
       const counted = countedInput(input, limits, state);
-      const bytes = compression === "gzip" ? gunzipped(counted) : counted;
+      const bytes = compression === "gzip"
+        ? gunzipped(counted, limits, state)
+        : expandedInput(counted, limits, state);
       const queue = new ByteQueue(bytes);
       const seen = new Set<string>();
       let entries = 0;
-      let expandedBytes = 0;
+      let retainedBytes = 0;
       let retainedEntries = 0;
       let zeroBlock = false;
 
@@ -270,6 +305,8 @@ export function createTarReader(defaultOptions: TarReaderOptions = {}): TarReade
           const name = fieldText(header, 0, 100, "name");
           const prefix = fieldText(header, 345, 155, "prefix");
           const archivePath = safeArchiveName(prefix.length === 0 ? name : `${prefix}/${name}`);
+          state.pathBytes += encoder.encode(archivePath).byteLength;
+          if (state.pathBytes > limits.maxTotalPathBytes) throw policyError("archive aggregate path limit exceeded", archivePath);
           const type = String.fromCharCode(header[156] ?? 0);
           if (["x", "X", "L", "K"].includes(type)) throw policyError("tar extended path metadata is unsupported", archivePath);
           if (["3", "4", "6", "7", "A"].includes(type)) throw policyError("tar special file type is unsupported", archivePath);
@@ -342,8 +379,8 @@ export function createTarReader(defaultOptions: TarReaderOptions = {}): TarReade
               }
             }
           } else if (type === "0" || type === "\0") {
-            expandedBytes += size;
-            if (expandedBytes > limits.maxExpandedBytes) throw policyError("expanded content limit exceeded", archivePath);
+            retainedBytes += size;
+            if (retainedBytes > limits.maxExpandedBytes) throw policyError("expanded content limit exceeded", archivePath);
             if (retained !== undefined) {
               retainedEntries += 1;
               const key = retained.normalize("NFC").toLowerCase();
@@ -369,7 +406,7 @@ export function createTarReader(defaultOptions: TarReaderOptions = {}): TarReade
             throw policyError("tar entry type is unsupported", archivePath);
           }
 
-          if (state.archiveBytes >= 1024 * 1024 && expandedBytes > state.archiveBytes * limits.maxExpansionRatio) {
+          if (state.archiveBytes >= 1024 * 1024 && state.expandedBytes > state.archiveBytes * limits.maxExpansionRatio) {
             throw policyError("archive expansion ratio limit exceeded", archivePath);
           }
         }
@@ -377,7 +414,7 @@ export function createTarReader(defaultOptions: TarReaderOptions = {}): TarReade
         if (requireRetainedEntries && retainedEntries === 0) {
           throw policyError("archive contains no retained package entries", normalizedPrefix);
         }
-        if (expandedBytes > state.archiveBytes * limits.maxExpansionRatio) throw policyError("archive expansion ratio limit exceeded");
+        if (state.expandedBytes > state.archiveBytes * limits.maxExpansionRatio) throw policyError("archive expansion ratio limit exceeded");
         throwIfAborted(signal);
       } catch (error) {
         if (signal.aborted) throw signal.reason ?? error;

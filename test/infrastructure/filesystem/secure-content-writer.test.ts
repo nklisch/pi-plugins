@@ -4,9 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createResolvedMarketplaceSource } from "../../../src/domain/source.js";
+import { createMaterializationBinding } from "../../../src/domain/content-manifest.js";
 import {
   createFilesystemMarketplacePathAcquirer,
   createSecureContentWriterFactory,
+  inspectMaterializedContent,
+  verifyMaterializedContent,
 } from "../../../src/infrastructure/filesystem/secure-content-writer.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(bytes).digest());
@@ -81,21 +84,32 @@ describe("secure content writer", () => {
 
   it("copies a marketplace-relative directory through the same sink", async () => {
     const marketplace = await slot();
-    await mkdir(join(marketplace, "source", "nested"), { recursive: true });
-    await writeFile(join(marketplace, "source", "nested", "plugin.json"), "{}", "utf8");
+    await mkdir(join(marketplace, "content", "source", "nested"), { recursive: true });
+    await writeFile(join(marketplace, "content", "source", "nested", "plugin.json"), "{}", "utf8");
+    const marketplaceContent = join(marketplace, "content");
+    const marketplaceManifest = await inspectMaterializedContent(marketplaceContent, sha256);
     const root = await slot();
     const sink = await createSecureContentWriterFactory({ sha256 }).open({ root });
     const source = createResolvedMarketplaceSource({
       declared: { kind: "local-git", path: marketplace },
       revision: "a".repeat(40),
     }, sha256);
-    await createFilesystemMarketplacePathAcquirer().materialize(
+    await createFilesystemMarketplacePathAcquirer({ sha256 }).materialize(
       { kind: "marketplace-path", path: "source" },
-      { root: marketplace, source, contentRootDigest: `sha256:${"0".repeat(64)}` },
+      {
+        root: marketplaceContent,
+        source,
+        contentRootDigest: marketplaceManifest.rootDigest,
+        content: marketplaceManifest,
+        binding: createMaterializationBinding(source.hash, marketplaceManifest.rootDigest, sha256),
+      },
       sink,
       signal(),
     );
     const result = await sink.finalize(signal());
     expect((await stat(join(result.root, "nested/plugin.json"))).isFile()).toBe(true);
+    await expect(verifyMaterializedContent(result.root, result.content, sha256)).resolves.toEqual(result.content);
+    await writeFile(join(result.root, "nested/plugin.json"), "tampered", "utf8");
+    await expect(verifyMaterializedContent(result.root, result.content, sha256)).rejects.toMatchObject({ code: "PATH_CONTAINMENT_FAILED" });
   });
 });

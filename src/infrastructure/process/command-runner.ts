@@ -13,9 +13,11 @@ export type CommandRequest = Readonly<{
 }>;
 
 export type CommandResult = Readonly<{
+  /** For live streams this is a provisional value; await completion. */
   exitCode: number;
   stdout: Uint8Array | AsyncIterable<Uint8Array>;
   stderr: Uint8Array;
+  completion?: Promise<number>;
 }>;
 
 export interface CommandRunner {
@@ -128,6 +130,7 @@ export function createNodeCommandRunner(options: RunnerOptions = {}): CommandRun
           env: mergedEnvironment(request.env),
           shell: false,
           stdio: ["pipe", "pipe", "pipe"],
+          detached: process.platform !== "win32",
           windowsHide: true,
         });
       } catch (error) {
@@ -151,16 +154,36 @@ export function createNodeCommandRunner(options: RunnerOptions = {}): CommandRun
       let terminationStarted = false;
       let escalationTimer: ReturnType<typeof setTimeout> | undefined;
 
+      const killTree = (kind: "graceful" | "force"): void => {
+        const signalName = kind === "graceful" ? "SIGTERM" : "SIGKILL";
+        try {
+          if (process.platform !== "win32" && child.pid !== undefined) {
+            // Detached POSIX children form their own process group. Killing the
+            // group prevents Git helpers and archive descendants surviving a
+            // cancelled materialization.
+            process.kill(-child.pid, signalName);
+          } else if (process.platform === "win32" && child.pid !== undefined) {
+            spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+              shell: false,
+              stdio: "ignore",
+              windowsHide: true,
+            });
+          } else {
+            child.kill(signalName);
+          }
+        } catch {
+          try { child.kill(signalName); } catch { /* the close event still drains the pipes */ }
+        }
+      };
+
       const terminate = (): void => {
         if (terminationStarted || settled) return;
         terminationStarted = true;
-        try { child.kill("SIGTERM"); } catch { /* the close event still drains the pipes */ }
+        killTree("graceful");
         if (killGraceMs === 0) {
-          try { child.kill("SIGKILL"); } catch { /* process may already be gone */ }
+          killTree("force");
         } else {
-          escalationTimer = setTimeout(() => {
-            try { child.kill("SIGKILL"); } catch { /* process may already be gone */ }
-          }, killGraceMs);
+          escalationTimer = setTimeout(() => killTree("force"), killGraceMs);
           escalationTimer.unref?.();
         }
       };
@@ -175,6 +198,61 @@ export function createNodeCommandRunner(options: RunnerOptions = {}): CommandRun
         terminate();
       };
       signal.addEventListener("abort", onAbort, { once: true });
+
+      if (request.stdout === "stream") {
+        stderr.on("data", (value: Buffer) => {
+          const remaining = Math.max(0, request.maxCapturedBytes - stderrLength);
+          if (remaining === 0) return;
+          const chunk = new Uint8Array(value.subarray(0, remaining));
+          stderrChunks.push(chunk);
+          stderrLength += chunk.byteLength;
+        });
+        child.on("error", (error) => fail(error));
+        const inputPromise = request.stdin === undefined
+          ? (child.stdin?.end(), Promise.resolve())
+          : writeStdin(child, request.stdin, signal, fail);
+        const completion = new Promise<number>((resolve, reject) => {
+          child.once("close", (code) => {
+            closeCode = code;
+            void (async () => {
+              try { await inputPromise; }
+              catch (error) { if (processFailure === undefined) processFailure = error; }
+              settled = true;
+              if (escalationTimer !== undefined) clearTimeout(escalationTimer);
+              signal.removeEventListener("abort", onAbort);
+              if (abortReason !== undefined) reject(abortReason);
+              else if (outputFailure !== undefined) reject(new CommandRunnerError(outputFailure.message, request.executable, request.args));
+              else if (processFailure !== undefined) reject(new CommandRunnerError("command process failed", request.executable, request.args, processFailure));
+              else if (closeCode === null || closeCode !== 0) reject(new CommandRunnerError("command exited with a failure status", request.executable, request.args));
+              else resolve(closeCode);
+            })();
+          });
+        });
+        const live = (async function* (): AsyncGenerator<Uint8Array> {
+          let length = 0;
+          let streamEnded = false;
+          try {
+            for await (const value of stdout) {
+              const chunk = value instanceof Uint8Array ? new Uint8Array(value) : undefined;
+              if (chunk === undefined) throw new CommandRunnerError("command stdout yielded a non-byte value", request.executable, request.args);
+              length += chunk.byteLength;
+              if (length > request.maxCapturedBytes) {
+                outputFailure = new Error("command stdout exceeded the configured stream limit");
+                terminate();
+                throw new CommandRunnerError(outputFailure.message, request.executable, request.args);
+              }
+              yield chunk;
+            }
+            streamEnded = true;
+          } finally {
+            // A consumer that abandons the archive must not leave a live Git
+            // process writing into an unread pipe. Natural EOF is allowed to
+            // reach the close handler and report the real exit status.
+            if (!streamEnded && !settled) terminate();
+          }
+        })();
+        return { exitCode: -1, stdout: live, stderr: new Uint8Array(), completion };
+      }
 
       stdout.on("data", (value: Buffer) => {
         // Continue draining after a limit breach, but do not retain further

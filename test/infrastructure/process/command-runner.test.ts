@@ -34,7 +34,7 @@ describe("argument-array command runner", () => {
   it("terminates a running process and preserves the caller's abort reason", async () => {
     const controller = new AbortController();
     const reason = new Error("cancelled");
-    const running = createNodeCommandRunner({ killGraceMs: 0 }).run({
+    const running = await createNodeCommandRunner({ killGraceMs: 0 }).run({
       executable: execPath,
       args: ["-e", "setInterval(() => process.stdout.write('x'), 10)"],
       cwd: process.cwd(),
@@ -42,7 +42,7 @@ describe("argument-array command runner", () => {
       maxCapturedBytes: 1024,
     }, controller.signal);
     setTimeout(() => controller.abort(reason), 30).unref();
-    await expect(running).rejects.toBe(reason);
+    await expect(running.completion).rejects.toBe(reason);
   });
 });
 

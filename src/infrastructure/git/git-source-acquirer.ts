@@ -1,5 +1,4 @@
 import { lstat, mkdtemp, realpath, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   MarketplaceSourceSchema,
@@ -197,6 +196,7 @@ async function runCommand(
     if (error instanceof SourceMaterializationError) throw error;
     throw safeFailure("ADAPTER_FAILED", "permanent", operation, "Git process adapter failed", error);
   }
+  if (result.completion !== undefined) return result;
   if (result.exitCode !== 0) {
     if (failureKind === "adapter") {
       throw safeFailure("ADAPTER_FAILED", "permanent", operation, "Git adapter command failed");
@@ -626,6 +626,7 @@ async function archiveTree(
     "archiveGitSource",
     "resolution",
   );
+  let archiveFailure: unknown;
   try {
     await options.archive.read(
       outputChunks(result, "archiveGitSource"),
@@ -637,9 +638,25 @@ async function archiveTree(
       },
     );
   } catch (error) {
-    if (signal.aborted) throw signal.reason ?? error;
-    if (error instanceof SourceMaterializationError) throw error;
-    throw safeFailure("ADAPTER_FAILED", "permanent", "archiveGitSource", "Git archive adapter failed", error);
+    archiveFailure = error;
+  }
+  let processFailure: unknown;
+  try {
+    if (result.completion !== undefined) await result.completion;
+    else if (result.exitCode !== 0) throw new Error("Git archive command failed");
+  } catch (error) {
+    processFailure = error;
+  }
+  if (signal.aborted) throw signal.reason ?? archiveFailure ?? processFailure;
+  if (archiveFailure !== undefined && processFailure !== undefined) {
+    throw safeFailure("ADAPTER_FAILED", "permanent", "archiveGitSource", "Git archive and stream processing both failed", new AggregateError([archiveFailure, processFailure]));
+  }
+  if (archiveFailure !== undefined) {
+    if (archiveFailure instanceof SourceMaterializationError) throw archiveFailure;
+    throw safeFailure("ADAPTER_FAILED", "permanent", "archiveGitSource", "Git archive adapter failed", archiveFailure);
+  }
+  if (processFailure !== undefined) {
+    throw safeFailure("SOURCE_RESOLUTION_FAILED", "permanent", "archiveGitSource", "Git archive command failed", processFailure);
   }
 }
 
@@ -647,11 +664,18 @@ async function cleanupScratch(scratch: string): Promise<void> {
   await rm(scratch, { recursive: true, force: true });
 }
 
-async function withScratch<T>(signal: AbortSignal, work: (scratch: string) => Promise<T>): Promise<T> {
+async function withScratch<T>(
+  signal: AbortSignal,
+  workRoot: string,
+  work: (scratch: string) => Promise<T>,
+): Promise<T> {
   throwIfAborted(signal);
+  if (typeof workRoot !== "string" || workRoot.length === 0) {
+    throw safeFailure("ADAPTER_FAILED", "permanent", "resolveGitSource", "content session does not expose private scratch work");
+  }
   let scratch: string;
   try {
-    scratch = await mkdtemp(join(tmpdir(), "pi-git-materialization-"));
+    scratch = await mkdtemp(join(workRoot, "git-"));
   } catch (error) {
     throw safeFailure("ADAPTER_FAILED", "permanent", "resolveGitSource", "failed to create Git scratch data", error);
   }
@@ -662,12 +686,28 @@ async function withScratch<T>(signal: AbortSignal, work: (scratch: string) => Pr
   } catch (error) {
     failure = error;
   }
+  let cleanupFailure: unknown;
   try {
     await cleanupScratch(scratch);
-  } catch (cleanupError) {
-    throw safeFailure("ADAPTER_FAILED", "permanent", "abortMaterialization", "failed to remove Git scratch data", cleanupError);
+  } catch (error) {
+    cleanupFailure = error;
   }
-  if (failure !== undefined) throw failure;
+  if (failure !== undefined && cleanupFailure !== undefined) {
+    throw safeFailure(
+      "ADAPTER_FAILED",
+      "permanent",
+      "abortMaterialization",
+      "Git acquisition and scratch cleanup both failed",
+      new AggregateError([failure, cleanupFailure], "Git acquisition cleanup failed"),
+    );
+  }
+  if (cleanupFailure !== undefined) {
+    throw safeFailure("ADAPTER_FAILED", "permanent", "abortMaterialization", "failed to remove Git scratch data", cleanupFailure);
+  }
+  if (failure !== undefined) {
+    if (signal.aborted) throw signal.reason ?? failure;
+    throw failure;
+  }
   return value as T;
 }
 
@@ -715,7 +755,7 @@ async function acquire(
       : remoteForPlugin(source as Extract<PluginSource, { kind: "git" | "git-subdir" }>),
   );
   const normalizedSubdirectory = subdirectory === undefined ? undefined : validateSubdirectory(subdirectory);
-  return withScratch(signal, async (scratch) => {
+  return withScratch(signal, sink.workRoot ?? "", async (scratch) => {
     await initializeScratch(options, scratch, signal, env);
     await addRemote(options, scratch, remote, signal, env);
     const revision = await resolveRevision(options, scratch, ref, sha, signal, env);

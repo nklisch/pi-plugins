@@ -398,7 +398,7 @@ commits successfully.
 
 ## Install transaction
 
-Source materializers do not allocate installed, cache, or marketplace storage. The lifecycle operation supplies an empty private staging slot. The Node factory composes Git, npm, bounded HTTPS, archive, filesystem, process, crypto, and credential adapters behind the application ports; those adapter details are not public API. Materialization writes only inside that slot and returns a verified resolved source, content root, and deterministic content manifest; cancellation or failure returns no partial result and cleans materializer-owned writes. A cleanup failure is explicit and cannot become a successful handoff. Lifecycle code owns atomic promotion, state and locks, journaling/fsync, rollback, recovery, retention, and garbage collection.
+Source materializers do not allocate installed, cache, or marketplace storage. The lifecycle operation supplies an empty private staging slot. The Node factory composes Git, npm, bounded HTTPS, archive, filesystem, process, crypto, and credential adapters behind the application ports; those adapter details are not public API. Materialization writes only inside that slot, keeps Git/npm scratch under `<slot>/.work`, and returns an exact `<slot>/content` root, a disk-verified resolved source, a deterministic content manifest, and a source/content binding; cancellation or failure returns no partial result and cleans materializer-owned writes. A cleanup failure is explicit and cannot become a successful handoff. Lifecycle code owns atomic promotion, state and locks, journaling/fsync, rollback, recovery, retention, and garbage collection.
 
 Installation and update follow one transaction:
 
@@ -482,7 +482,10 @@ Trust is bound to source identity, immutable revision, and normalized executable
 component definitions. Credentials are never stored in plugin-host state.
 
 Project declarations require Pi project trust. Path traversal, symlink escape,
-malformed schemas, ambiguous identity, and conflicting manifests fail closed.
+malformed schemas, ambiguous identity, and conflicting manifests fail closed. The
+lifecycle-facing content verifier rewalks and incrementally rehashes the on-disk
+tree against its manifest before promotion; manifest verification is bounded by
+one normalized path map and aggregate entry/path limits.
 
 Install and update operations never run npm lifecycle scripts. npm sources are resolved from bounded HTTPS packuments, require canonical SHA-512 integrity, and have their tarball bytes verified before hardened extraction; materialization never runs `npm install` or installs package dependencies. Runtime dependencies required by a plugin are installed only through an explicitly declared and trusted plugin operation.
 

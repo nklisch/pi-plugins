@@ -181,7 +181,9 @@ export {
   ContentDigestSchema,
   ContentManifestEntrySchema,
   ContentManifestSchema,
+  DEFAULT_CONTENT_MANIFEST_LIMITS,
   createContentManifest,
+  createMaterializationBinding,
   hashContent,
   verifyContentManifest,
 } from "./domain/content-manifest.js";
@@ -189,6 +191,7 @@ export type {
   ContentDigest,
   ContentManifestEntry,
   ContentManifest,
+  ContentManifestLimits,
 } from "./domain/content-manifest.js";
 
 export {
@@ -215,4 +218,5 @@ export type {
 } from "./application/source-materialization.js";
 
 export { createNodeSourceMaterializers } from "./infrastructure/source/create-source-materializers.js";
+export { verifyMaterializedContent } from "./infrastructure/filesystem/secure-content-writer.js";
 export type { NodeSourceMaterializerOptions } from "./infrastructure/source/create-source-materializers.js";

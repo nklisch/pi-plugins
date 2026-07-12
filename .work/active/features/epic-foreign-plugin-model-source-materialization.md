@@ -537,9 +537,9 @@ All four child stories are done:
 - `epic-foreign-plugin-model-source-materialization-npm-acquisition`
 - `epic-foreign-plugin-model-source-materialization-integration-hardening`
 
-The implementation delivers the deterministic content-manifest and lifecycle handoff, one hardened write/extraction policy, deterministic archive-only Git acquisition, direct integrity-verified npm acquisition with no scripts, and a Node composition root covering every source form. Lifecycle cache, state, promotion, locking, journaling, rollback, recovery, and collection remain outside this feature.
+The implementation delivers the deterministic content-manifest and lifecycle handoff, one hardened write/extraction policy, deterministic archive-only Git acquisition, direct integrity-verified npm acquisition with no scripts, and a Node composition root covering every source form. The review-hardening pass additionally makes decompressed accounting include framing/metadata, binds complete marketplace handoffs, rewalks and rehashes disk content, keeps all acquisition scratch under the caller slot, streams Git output live, handles short writes and incremental hashing, aggregates cleanup failures, narrows npm credential behavior explicitly, and verifies manifests with bounded path maps. Lifecycle cache, state, promotion, locking, journaling, rollback, recovery, and collection remain outside this feature.
 
-Integrated verification: `npm test` passes 176 tests plus typecheck, 152 dependency edges with no violations, build, and exact 91-export compiled package import.
+Integrated verification: `npm test` passes 209 tests plus typecheck, 152 dependency edges with no violations, build, and exact 94-export compiled package import.
 
 ## Other agent review
 
@@ -551,4 +551,4 @@ Integrated verification: `npm test` passes 176 tests plus typecheck, 152 depende
 
 ## Review findings
 
-The feature is bounced once to `stage: implementing` for `epic-foreign-plugin-model-source-materialization-review-hardening`. Approval requires cryptographic end-to-end binding, total decompression accounting, slot-owned scratch, write-all persistence, live streaming/incremental hashing, explicit combined failure semantics, bounded manifest verification, exact credential claims, and executable adversarial regressions.
+The feature's review-hardening story is now at `stage: review` after implementing cryptographic end-to-end binding, total decompression accounting, slot-owned scratch, write-all persistence, live streaming/incremental hashing, explicit combined failure semantics, bounded manifest verification, exact credential claims, and executable adversarial regressions.

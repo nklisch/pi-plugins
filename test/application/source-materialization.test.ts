@@ -27,16 +27,19 @@ const plugin = createResolvedPluginSource({
   revision: "b".repeat(40),
 }, sha256);
 
-function session(options: { failFinalize?: boolean } = {}): SecureContentSession & { aborts: number } {
+function session(options: { failFinalize?: boolean; root?: string; failAbort?: boolean } = {}): SecureContentSession & { aborts: number } {
   const content = createContentManifest([], sha256);
   const value = {
     aborts: 0,
     async add() {},
     async finalize() {
       if (options.failFinalize) throw new Error("finalize failed");
-      return { root: "/slot/content", content };
+      return { root: options.root ?? "/slot/content", content };
     },
-    async abort() { value.aborts += 1; },
+    async abort() {
+      value.aborts += 1;
+      if (options.failAbort) throw new Error("cleanup failed");
+    },
   };
   return value;
 }
@@ -109,6 +112,46 @@ describe("source materialization application contract", () => {
       controller.signal,
     )).rejects.toBe(reason);
     expect(deps.content.open).not.toHaveBeenCalled();
+  });
+
+  it("preserves primary and cleanup failures together", async () => {
+    const current = session({ failAbort: true });
+    const deps = dependencies({
+      content: { open: vi.fn(async () => current) },
+      git: {
+        materializeMarketplace: vi.fn(async () => { throw new Error("primary failed"); }),
+        materializePlugin: vi.fn(async () => plugin),
+      },
+    });
+    const error = await createSourceMaterializers(deps).marketplaces.materialize(
+      { kind: "local-git", path: "/marketplace" }, { root: "/slot" }, signal(),
+    ).catch((value: unknown) => value);
+    expect(error).toMatchObject({ code: "ADAPTER_FAILED" });
+    expect((error as SourceMaterializationError).cause).toBeInstanceOf(AggregateError);
+  });
+
+  it("rejects a resolved source whose origin differs from the declaration", async () => {
+    const current = session();
+    const deps = dependencies({ content: { open: vi.fn(async () => current) } });
+    await expect(createSourceMaterializers(deps).plugins.materialize(
+      { kind: "git", url: "https://declared.example/plugin.git" },
+      { kind: "external" },
+      { root: "/slot" },
+      signal(),
+    )).rejects.toMatchObject({ code: "SOURCE_RESOLUTION_FAILED" });
+    expect(current.aborts).toBe(1);
+  });
+
+  it("rejects a forged result root instead of returning content outside the slot", async () => {
+    const current = session({ root: "/other/content" });
+    const deps = dependencies({ content: { open: vi.fn(async () => current) } });
+    await expect(createSourceMaterializers(deps).plugins.materialize(
+      { kind: "git", url: "https://example.test/plugin.git" },
+      { kind: "external" },
+      { root: "/slot" },
+      signal(),
+    )).rejects.toMatchObject({ code: "ADAPTER_FAILED" });
+    expect(current.aborts).toBe(1);
   });
 
   it("exposes a classified boundary error without leaking adapter text", () => {

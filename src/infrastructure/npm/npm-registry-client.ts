@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { constants } from "node:fs";
-import { mkdir, open, rm } from "node:fs/promises";
+import { constants, createReadStream } from "node:fs";
+import { lstat, mkdir, open, realpath, rm } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { z } from "zod";
 import {
@@ -69,18 +69,20 @@ type ParsedVersion = Readonly<{
   integrity: string | undefined;
 }>;
 
+// Parse through a strict projection: metadata is validated at the boundary,
+// then unknown packument fields are discarded before selector logic sees it.
 const VersionMetadataSchema = z.object({
   version: z.string().min(1),
   dist: z.object({
     tarball: z.string().min(1),
     integrity: z.string().optional(),
-  }).passthrough(),
-}).passthrough();
+  }).strip(),
+}).strip();
 
 const PackumentSchema = z.object({
   "dist-tags": z.record(z.string(), z.string().min(1)),
   versions: z.record(z.string(), VersionMetadataSchema),
-}).passthrough();
+}).strip();
 
 function safeFailure(
   code: "SOURCE_RESOLUTION_FAILED" | "PATH_CONTAINMENT_FAILED" | "ADAPTER_FAILED",
@@ -292,6 +294,32 @@ async function responseBytes(
   }
 }
 
+async function writePersisted(
+  handle: Awaited<ReturnType<typeof open>>,
+  chunk: Uint8Array,
+  digest: ReturnType<typeof createHash>,
+): Promise<number> {
+  let offset = 0;
+  while (offset < chunk.byteLength) {
+    const result = await handle.write(chunk, offset, chunk.byteLength - offset);
+    const written = result.bytesWritten;
+    if (!Number.isSafeInteger(written) || written <= 0 || written > chunk.byteLength - offset) throw new Error("file write made no progress");
+    digest.update(chunk.subarray(offset, offset + written));
+    offset += written;
+  }
+  return offset;
+}
+
+async function rehashPersisted(path: string): Promise<Uint8Array> {
+  const digest = createHash("sha512");
+  const stream = createReadStream(path) as unknown as AsyncIterable<Uint8Array>;
+  for await (const chunk of stream) {
+    if (!(chunk instanceof Uint8Array)) throw new Error("persisted tarball yielded a non-byte value");
+    digest.update(chunk);
+  }
+  return new Uint8Array(digest.digest());
+}
+
 async function writeAndVerify(
   client: BoundedFetch,
   credentials: NpmCredentialProvider,
@@ -325,26 +353,32 @@ async function writeAndVerify(
   let written = 0;
   const digest = createHash("sha512");
   try {
-    await mkdir(dirname(destinationFile), { recursive: true, mode: 0o700 });
+    const parent = dirname(destinationFile);
+    await mkdir(parent, { recursive: true, mode: 0o700 });
+    const parentStat = await lstat(parent);
+    if (parentStat.isSymbolicLink() || !parentStat.isDirectory()) throw new Error("npm tarball scratch parent is not a real directory");
+    if (basename(await realpath(parent)) !== ".work") throw new Error("npm tarball destination is outside private scratch work");
     handle = await open(destinationFile, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NO_FOLLOW, 0o600);
     for await (const chunk of response.body) {
       throwIfAborted(signal);
       if (!(chunk instanceof Uint8Array)) throw safeFailure("ADAPTER_FAILED", "permanent", "downloadNpmTarball", "HTTP response body was not bytes");
-      written += chunk.byteLength;
-      if (written > limits.maxArchiveBytes) {
+      if (written + chunk.byteLength > limits.maxArchiveBytes) {
         throw safeFailure("PATH_CONTAINMENT_FAILED", "security", "downloadNpmTarball", "npm tarball byte limit exceeded");
       }
-      digest.update(chunk);
-      await handle.write(chunk);
+      written += await writePersisted(handle, chunk, digest);
     }
     throwIfAborted(signal);
     const actual = new Uint8Array(digest.digest());
-    const equal = actual.byteLength === expected.byteLength && timingSafeEqual(actual, expected);
+    await handle.close();
+    handle = undefined;
+    const diskDigest = await rehashPersisted(destinationFile);
+    const equal = actual.byteLength === expected.byteLength
+      && diskDigest.byteLength === expected.byteLength
+      && timingSafeEqual(actual, expected)
+      && timingSafeEqual(diskDigest, expected);
     if (!equal) {
       throw safeFailure("SOURCE_RESOLUTION_FAILED", "permanent", "downloadNpmTarball", "npm tarball integrity mismatch");
     }
-    await handle.close();
-    handle = undefined;
   } catch (error) {
     if (handle !== undefined) await handle.close().catch(() => undefined);
     let cleanupError: unknown;
