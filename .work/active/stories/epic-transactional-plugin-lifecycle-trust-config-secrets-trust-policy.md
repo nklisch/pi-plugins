@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets-trust-policy
 kind: story
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-trust-config-secrets
 depends_on: []
@@ -53,3 +53,13 @@ Implement Unit 1 of the parent feature: one registry-derived canonical executabl
 - Discrepancies from design: surface entries use explicit `valueKind` and a redacted constraints projection; configuration defaults and provenance are excluded from trust bytes as intended.
 - Adjacent issues parked: none.
 - Verification: `npm run typecheck`; `npx vitest run test/domain/executable-surface.test.ts test/domain/trust-policy.test.ts test/application/trust-service.test.ts`; existing installed-state and state-contract integration tests.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane independent verification confirmed 457 tests, real production/test typechecking, clean dependency boundaries, build, and exact 293-export package import. Verdict: Approve - story verified by implement; fast-lane advance.

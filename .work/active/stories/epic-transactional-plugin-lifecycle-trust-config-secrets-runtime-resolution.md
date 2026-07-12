@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets-runtime-resolution
 kind: story
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-trust-config-secrets
 depends_on: [epic-transactional-plugin-lifecycle-trust-config-secrets-trust-policy, epic-transactional-plugin-lifecycle-trust-config-secrets-secret-custody]
@@ -49,3 +49,13 @@ Implement Unit 4 of the parent feature: a callback-scoped, redacted `ResolvedCon
 - Discrepancies from design: callback failures are converted to a stable safe resolution error rather than preserving arbitrary callback causes; abort reasons remain propagated unchanged.
 - Adjacent issues parked: none.
 - Verification: `npm run typecheck`; `npm run boundaries`; targeted resolver tests.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane independent verification confirmed 457 tests, real production/test typechecking, clean dependency boundaries, build, and exact 293-export package import. Verdict: Approve - story verified by implement; fast-lane advance.
