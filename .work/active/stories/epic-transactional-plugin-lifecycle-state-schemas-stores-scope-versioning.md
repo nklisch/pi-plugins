@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores-scope-versioning
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-state-schemas-stores
 depends_on: []
@@ -49,3 +49,12 @@ This story defines no filesystem identity discovery, physical path layout, lock,
 - [ ] State/content/data/config/trust/pending references are non-interchangeable and cannot contain paths.
 - [ ] Migration families reject invalid graphs, unknown future versions, impure mutation of frozen input, and invalid intermediate output.
 - [ ] Tests prove deterministic repeat output and no Node/filesystem/time/randomness import.
+
+## Implementation notes
+
+- Execution capability: inline single-owner implementation; the three domain modules and their focused tests have one cohesive, adapter-free ownership surface, and the caller explicitly prohibited agents.
+- Review weight: standard (default); implementation stops at the requested `stage: review` boundary.
+- Files changed: `src/domain/state/versioning.ts`, `src/domain/state/scope.ts`, `src/domain/state/references.ts`, and the three corresponding state test files.
+- Tests added: schema-derived migration graph/golden and immutability tests; project-key golden/adversarial identity and scope-reference tests; tagged logical-reference golden, cross-family, path-free, canonicalization, and injected-hash tests.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
