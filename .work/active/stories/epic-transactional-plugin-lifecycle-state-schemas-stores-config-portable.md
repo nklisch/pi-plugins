@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores-config-portable
 kind: story
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-state-schemas-stores
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores-scope-versioning]
@@ -54,3 +54,13 @@ The host config records declaration plus manual/automatic application preference
 - Tests added: strict host configuration/version-family tests; portable round-trip, source-registry, path-safety, identity-integrity, recursive prohibition, fail-closed, and future-version tests.
 - Discrepancies from design: none; the shared `GenerationSchema` and independently versioned family exports live beside these schemas so later state registry work can consume them without duplicating contracts.
 - Adjacent issues parked: none.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane config/portable review. Independently confirmed 384 tests, clean typecheck and dependency boundaries, build, and exact 131-export package import. Verdict: Approve - story verified by implement; fast-lane advance.
