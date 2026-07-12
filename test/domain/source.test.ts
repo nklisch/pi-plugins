@@ -132,6 +132,7 @@ describe("canonical source serialization", () => {
       "source-v1|npm|package:9:a|ref:3:x|selector:5:b:c|d",
     );
     expect(CanonicalSourceSchema.safeParse(serializePluginSource(source)).success).toBe(true);
+    expect(CanonicalSourceSchema.safeParse("source-v1|github").success).toBe(false);
   });
 
   it("uses registry order rather than caller object key order", () => {
@@ -173,6 +174,9 @@ describe("canonical source serialization", () => {
     );
     expect(serializePluginSource({ kind: "git", url: "git@example.com:owner/repo.git" })).toBe(
       "source-v1|git|url:36:ssh://git@example.com/owner/repo.git",
+    );
+    expect(serializePluginSource({ kind: "git", url: "ssh://git@example.com:22/owner/repo.git" })).toBe(
+      serializePluginSource({ kind: "git", url: "ssh://git@example.com/owner/repo.git" }),
     );
     expect(serializePluginSource({ kind: "git-subdir", url: "https://example.com/plugin.git", path: "a/b" })).not.toBe(
       serializePluginSource({ kind: "git-subdir", url: "https://example.com/plugin.git", path: "a%2Fb" }),

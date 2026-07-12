@@ -264,7 +264,7 @@ function parseCanonicalSource(value: string): boolean {
     return false;
   }
   if (kindEnd === -1) {
-    return true;
+    return false;
   }
 
   let cursor = kindEnd + 1;
@@ -405,7 +405,14 @@ function normalizeUrl(value: string): string {
   const credentials = parsed.username
     ? `${parsed.username}@`
     : "";
-  const port = parsed.port ? `:${parsed.port}` : "";
+  // WHATWG URL strips known defaults such as HTTPS 443 but does not know
+  // SSH's conventional port. Normalize it explicitly so equivalent Git
+  // remotes do not fragment cache and trust identities.
+  const port = parsed.protocol === "ssh:" && parsed.port === "22"
+    ? ""
+    : parsed.port
+      ? `:${parsed.port}`
+      : "";
   const authority = `${hierarchicalPrefix}${credentials}${parsed.hostname.toLowerCase()}${port}`;
   return `${authority}${encodeUrlPath(parsed.pathname)}${suffix}`;
 }

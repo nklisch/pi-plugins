@@ -21,6 +21,7 @@ export const RetainedMetadataSchema = z
     key: z.string().min(1),
     claimed: ClaimedSchema(JsonValueSchema),
   })
+  .strict()
   .readonly();
 export type RetainedMetadata = z.infer<typeof RetainedMetadataSchema>;
 

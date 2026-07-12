@@ -124,6 +124,13 @@ describe("component registries and schemas", () => {
         claimed: { value: { bad: undefined }, provenance: [claudeManifest] },
       }).success,
     ).toBe(false);
+    expect(
+      RetainedMetadataSchema.safeParse({
+        key: "license",
+        claimed: { value: "MIT", provenance: [claudeManifest] },
+        unknown: true,
+      }).success,
+    ).toBe(false);
   });
 
   it("retains unknown native runtime declarations as inspectable foreign components", () => {

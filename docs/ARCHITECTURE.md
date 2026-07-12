@@ -178,7 +178,7 @@ type PluginSource =
 A canonical source representation provides stable equality, hashing, cache
 identity, and trust identity. Domain source schemas are strict: Git accepts
 HTTPS, `ssh://`, and common SCP-style `user@host:path` forms (SCP is normalized
-to SSH), while npm registries are HTTPS-only. Embedded HTTPS credentials,
+to SSH, and explicit SSH port 22 is normalized away), while npm registries are HTTPS-only. Embedded HTTPS credentials,
 unsupported URL protocols, malformed percent escapes, unknown fields, and
 non-full Git SHA pins fail at the boundary. Canonical bytes use the injective
 `source-v1|<kind>|<field>:<UTF-8-byte-length>:<value>` grammar; malformed
@@ -206,10 +206,12 @@ interface PluginComponents {
   skills: SkillComponent[];
   hooks: HookComponent[];
   mcpServers: McpServerComponent[];
-  foreign: RetainedForeignComponent[];
+  foreign: ForeignComponent[];
 }
 
-interface RetainedForeignComponent {
+interface ForeignComponent {
+  kind: "foreign";
+  id: ComponentId;
   nativeHost: "claude" | "codex";
   nativeKind: Claimed<string>;
   declaration: Claimed<JsonValue>;
