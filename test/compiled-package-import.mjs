@@ -100,6 +100,7 @@ const expectedExports = [
   "SourceLocationSchema",
   "claim",
   "createCompatibilityReport",
+  "createCompatibilityService",
   "createContentIndex",
   "createNodePluginInspector",
   "createPluginInspectionService",

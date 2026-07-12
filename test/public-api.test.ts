@@ -18,6 +18,7 @@ import {
   ContentDigestSchema,
   ContentManifestEntrySchema,
   ContentManifestSchema,
+  createCompatibilityService,
   createContentIndex,
   createNodePluginInspector,
   createPluginInspectionService,
@@ -133,6 +134,8 @@ import {
   type BundleInspectionInput,
   type BundleInspectionResult,
   type BundleReaderSet,
+  type CompatibilityAssessmentRequest,
+  type CompatibilityService,
   type PluginInspectionDependencies,
   type PluginInspectionService,
   type BundleReconciliationInput,
@@ -192,6 +195,7 @@ import {
   type RetainedMetadata,
   type RuntimeCapabilityAvailability,
   type RuntimeCapabilityId,
+  type RuntimeCapabilityProbe,
   type RuntimeCapabilitySnapshot,
   type RuntimeRequirement,
   type RuntimeRequirementAssessment,
@@ -232,6 +236,7 @@ describe("explicit package API", () => {
       ContentDigestSchema,
       ContentManifestEntrySchema,
       ContentManifestSchema,
+      createCompatibilityService,
       createContentIndex,
       createNodePluginInspector,
       createPluginInspectionService,
@@ -367,6 +372,9 @@ describe("explicit package API", () => {
     expectTypeOf<ComponentAssessment>().toEqualTypeOf<z.infer<typeof ComponentAssessmentSchema>>();
     expectTypeOf<CompatibilityReport>().toEqualTypeOf<z.infer<typeof CompatibilityReportSchema>>();
     expectTypeOf<CompatibilityEvaluationInput>().toEqualTypeOf<z.infer<typeof CompatibilityEvaluationInputSchema>>();
+    expectTypeOf<CompatibilityAssessmentRequest>().toMatchTypeOf<{ plugin: NormalizedPlugin }>();
+    expectTypeOf<CompatibilityService>().toMatchTypeOf<{ assess: Function }>();
+    expectTypeOf<RuntimeCapabilityProbe>().toMatchTypeOf<{ snapshot: Function }>();
     expectTypeOf<RuntimeCapabilityAvailability>().toEqualTypeOf<z.infer<typeof RuntimeCapabilityAvailabilitySchema>>();
     expectTypeOf<RuntimeCapabilityId>().toEqualTypeOf<z.infer<typeof RuntimeCapabilityIdSchema>>();
     expectTypeOf<RuntimeCapabilitySnapshot>().toEqualTypeOf<z.infer<typeof RuntimeCapabilitySnapshotSchema>>();

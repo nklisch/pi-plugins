@@ -48,6 +48,13 @@ module.exports = {
       to: { dependencyTypes: ["core"] },
     },
     {
+      name: "compatibility-service-only-domain-and-probe-port",
+      comment: "Compatibility reporting is an application boundary over domain policy and one capability probe port only.",
+      severity: "error",
+      from: { path: "^src/application/compatibility-service\\.ts$" },
+      to: { path: "^src/application/(?!ports/runtime-capability-probe\\.ts$)" },
+    },
+    {
       name: "infrastructure-no-outer-layer-imports",
       comment: "Infrastructure adapters may depend inward but not on format readers or host-specific outer integrations.",
       severity: "error",

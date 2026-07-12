@@ -220,6 +220,13 @@ export {
 } from "./domain/compatibility-evaluator.js";
 export type { CompatibilityEvaluationInput } from "./domain/compatibility-evaluator.js";
 
+export { createCompatibilityService } from "./application/compatibility-service.js";
+export type {
+  CompatibilityAssessmentRequest,
+  CompatibilityService,
+} from "./application/compatibility-service.js";
+export type { RuntimeCapabilityProbe } from "./application/ports/runtime-capability-probe.js";
+
 export {
   ErrorCodeRegistry,
   ErrorCodeSchema,
