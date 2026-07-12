@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-compatibility-reporting-policy-evaluator
 kind: story
-stage: implementing
+stage: review
 tags: [compatibility]
 parent: epic-foreign-plugin-model-compatibility-reporting
 depends_on: []
@@ -46,3 +46,11 @@ The evaluator consumes only a validated normalized plugin, a complete immutable 
 ## Verification
 
 Run focused domain tests first, then typecheck and public export tests. Exercise available/unavailable capability permutations, complete mixed inventories, unknown hook/MCP/foreign declarations, configuration/marketplace diagnostics, deterministic ordering, provenance, and secret canaries.
+
+## Implementation notes
+- Execution capability: direct-read only; this cohesive domain change was implemented in the host context without nested agents or peeragent.
+- Review weight: standard, with the caller-requested boundary left at `stage: review`.
+- Files changed: `src/domain/compatibility-policy.ts`, `src/domain/compatibility-evaluator.ts`, `src/index.ts`, `test/domain/compatibility-policy.test.ts`, `test/domain/compatibility-evaluator.test.ts`, `test/public-api.test.ts`, `test/compiled-package-import.mjs`.
+- Tests added: registry completeness/snapshot tests, mixed-bundle evaluator tables, unavailable-capability behavior, safe diagnostic canaries, deterministic ordering, and public/compiled export assertions.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.

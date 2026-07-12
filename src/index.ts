@@ -186,6 +186,41 @@ export type {
 } from "./domain/compatibility.js";
 
 export {
+  RuntimeCapabilityRegistry,
+  RuntimeCapabilityIdSchema,
+  RuntimeCapabilityAvailabilitySchema,
+  RuntimeCapabilitySnapshotSchema,
+  RuntimeCapabilityStatusRegistry,
+  RuntimeCapabilityStatusSchema,
+  CompatibilityPolicyRegistry,
+  CompatibilityPolicyRuleRegistry,
+  CompatibilityPolicyRuleSchema,
+  CompatibilityPolicyRulesSchema,
+  RuntimeCapabilityRegistrySchema,
+  HookEventSchema,
+  MCPTransportSchema,
+  MCPFeatureSchema,
+} from "./domain/compatibility-policy.js";
+export type {
+  RuntimeCapabilityId,
+  RuntimeCapabilityAvailability,
+  RuntimeCapabilitySnapshot,
+  CompatibilityPolicySurface,
+  CompatibilityPolicyDisposition,
+  CompatibilityPolicyRule,
+  CompatibilityPolicyRegistryType,
+  HookEvent,
+  MCPTransport,
+  MCPFeature,
+} from "./domain/compatibility-policy.js";
+
+export {
+  CompatibilityEvaluationInputSchema,
+  evaluateCompatibility,
+} from "./domain/compatibility-evaluator.js";
+export type { CompatibilityEvaluationInput } from "./domain/compatibility-evaluator.js";
+
+export {
   ErrorCodeRegistry,
   ErrorCodeSchema,
   FatalBoundaryCodeSchema,
