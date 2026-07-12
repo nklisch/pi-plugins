@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-domain-contracts
 kind: feature
-stage: review
+stage: implementing
 tags: [compatibility, infra]
 parent: epic-foreign-plugin-model
 depends_on: []
@@ -665,3 +665,17 @@ All four child stories are complete:
 The integrated implementation delivers the TypeScript 7/Zod package foundation, enforced domain boundaries, branded identity and canonical source contracts, provenance-rich configuration and component inventories, compatibility and diagnostic mechanics, and an explicit package API. The only structural deviation places `ClaimConflictError` beside the merge behavior in `provenance.ts` and re-exports it through `errors.ts`, avoiding duplicate classes.
 
 Verification after the implementation wave: `npm test` passed with 117 tests plus typecheck and dependency-boundary checks; `npm run build` and compiled package import passed.
+
+## Other agent review
+
+- Invoked because: completed foundational feature requires deep two-phase review.
+- Reviewer Phase 1 — completeness: Z.AI GLM 5.2 xhigh, four-pass convergence.
+  - Confirmed a canonical malformed-percent collision, inconsistent `ClaimConflictError` hierarchy, credential retention, missing committed boundary/package probes, and stale architecture error taxonomy.
+- Reviewer Phase 2 — adversarial: fresh-context GPT-5.6 Sol high, three-pass convergence.
+  - Reproduced Phase 1 findings and additionally identified permissive protocols/unknown fields, weak immutable identifier validation, insufficient resolved-source consistency, and contradictory read-result severities.
+- Accepted: all blocker and important findings above; they affect the trust identity and public contract and are tracked by `epic-foreign-plugin-model-domain-contracts-review-hardening`.
+- Rejected or deferred: style-only observations about hex formatting, redundant parsing, and readonly ergonomics — no behavioral or contract impact at this stage.
+
+## Review findings
+
+The feature is bounced to `stage: implementing` for `epic-foreign-plugin-model-domain-contracts-review-hardening`. The review circuit-breaker count is one. The hardening story must restore canonical-source injectivity, source-security constraints, diagnostic consistency, committed regression checks, and rolling-foundation alignment before the feature returns to review.
