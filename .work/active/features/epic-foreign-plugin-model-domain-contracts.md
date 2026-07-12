@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-domain-contracts
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: epic-foreign-plugin-model
 depends_on: []
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-11
-updated: 2026-07-11
+updated: 2026-07-12
 ---
 
 # Canonical Foreign Plugin Contracts
@@ -652,3 +652,16 @@ The sequence is intentionally narrow. Package/schema tooling must exist before d
 ## Pre-mortem
 
 This design fails in production if two source declarations hash together despite different acquisition semantics, a reader discards a runtime-bearing unknown field, or compatibility code treats an unavailable runtime requirement as merely informational. The implementation guards those failure modes with injective serialization vectors, retained foreign declarations, referential report validation, and a derived—not caller-trusted—activatability value. If the source unit cannot satisfy golden-vector stability, implementation must stop before downstream source materialization and revise the serialization version; cache/trust identity must not be built on an unsettled encoding.
+
+## Implementation summary
+
+All four child stories are complete:
+
+- `epic-foreign-plugin-model-domain-contracts-package-schema-foundation` — done
+- `epic-foreign-plugin-model-domain-contracts-identity-source-contracts` — done
+- `epic-foreign-plugin-model-domain-contracts-plugin-inventory-contracts` — done
+- `epic-foreign-plugin-model-domain-contracts-compatibility-errors-api` — done
+
+The integrated implementation delivers the TypeScript 7/Zod package foundation, enforced domain boundaries, branded identity and canonical source contracts, provenance-rich configuration and component inventories, compatibility and diagnostic mechanics, and an explicit package API. The only structural deviation places `ClaimConflictError` beside the merge behavior in `provenance.ts` and re-exports it through `errors.ts`, avoiding duplicate classes.
+
+Verification after the implementation wave: `npm test` passed with 117 tests plus typecheck and dependency-boundary checks; `npm run build` and compiled package import passed.
