@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-plugin-bundle-ingestion
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-source-materialization, epic-foreign-plugin-model-marketplace-ingestion]
@@ -600,3 +600,17 @@ The first two stories stabilize identity, ports, manifest outputs, and authority
 This design fails if a reader discovers a file that is not in the verified manifest, a dual conflict is converted into host precedence, YAML constructs allocate before limits apply, or an unknown runtime declaration disappears as metadata. The countermeasures are a manifest-only finite index, no-list content port, equality-based reconciliation, pre-parse byte/line limits plus post-parse structural budgets, and fail-closed foreign-declaration classification.
 
 The least recoverable mistake would be an unstable component-id grammar reaching trust/state. Implementation must land golden vectors before readers use ids. If semantic hook/MCP equivalence cannot be defined without compatibility policy, the safe fallback is conservative conflict—not a guessed merge and not a verdict. No implementation unit may activate content, derive compatibility, inspect runtime capabilities, substitute user configuration, or manage lifecycle state.
+
+## Implementation summary
+
+All five child stories are done:
+
+- `epic-foreign-plugin-model-plugin-bundle-ingestion-inspection-contracts`
+- `epic-foreign-plugin-model-plugin-bundle-ingestion-manifest-reconciliation`
+- `epic-foreign-plugin-model-plugin-bundle-ingestion-skills-configuration`
+- `epic-foreign-plugin-model-plugin-bundle-ingestion-hooks-mcp-foreign`
+- `epic-foreign-plugin-model-plugin-bundle-ingestion-service-hardening`
+
+The implementation delivers versioned component identities, a manifest-backed finite content index, pure host manifest/skill/config/hook/MCP readers, authority-aware reconciliation, opaque unsupported inventory, bounded YAML handling, an all-or-nothing inspection service, an exact Node content reader, and an explicit composition root. It does not evaluate compatibility or activate content.
+
+Integrated verification: `npm test` passes 300 tests plus typecheck, dependency boundaries with no violations, build, and exact 114-export compiled package import.
