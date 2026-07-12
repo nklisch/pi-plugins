@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion
 kind: feature
-stage: review
+stage: implementing
 tags: [compatibility]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-domain-contracts]
@@ -406,3 +406,15 @@ All four child stories are done:
 The implementation adds unresolved marketplace domain contracts, isolated Claude and Codex catalog readers, shared provenance/path support, deterministic dual-catalog reconciliation, and executable format-boundary rules. The only noted adjustment accepts both documented `plugin` and `./plugin` Git-subdirectory paths because the verified `nklisch-skills` catalog uses the former.
 
 Integrated verification: `npm test` passes 174 tests plus typecheck, dependency boundaries, build, and exact 90-export compiled package import.
+
+## Other agent review
+
+- Invoked because: completed format-boundary feature requires deep two-model review.
+- Phase 1 — completeness: Z.AI GLM 5.2 xhigh, five-pass convergence. Verified all stated criteria and identified committed fixtures that were not exercised.
+- Phase 2 — adversarial: fresh-context GPT-5.6 Sol high, five-pass convergence. Reproduced shallow nested-declaration validation, subdirectory alias conflict, invalid root pointer semantics, dropped metadata, loose GitHub shorthand, shifted duplicate locations, mislabeled merger inputs, and the dead-fixture gap.
+- Accepted: every blocker and important finding; they affect documented compatibility, provenance, and deterministic reconciliation and are tracked by `epic-foreign-plugin-model-marketplace-ingestion-review-hardening`.
+- Rejected/deferred: comment wording, redundant set entries, function ordering, and cosmetic diagnostic asymmetry have no contract impact.
+
+## Review findings
+
+The feature is bounced once to `stage: implementing` for `epic-foreign-plugin-model-marketplace-ingestion-review-hardening`. Approval requires fixture-backed regressions for nested declaration atomicity, path equivalence, RFC 6901 root provenance, metadata retention, GitHub grammar, original indexes, and merger host binding.
