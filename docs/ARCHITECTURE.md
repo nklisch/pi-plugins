@@ -222,7 +222,10 @@ catalog-authoritative entry. Codex requires its plugin manifest and treats
 catalog runtime declarations as supplemental. Bundle ingestion resolves those
 authority records after materialization. Runtime-bearing and dependency
 declarations remain raw, source-located data until compatibility policy assigns
-meaning.
+meaning. Known nested declarations are structurally validated per field before
+retention; malformed nested values omit only their complete entry. Presentation
+fields such as category, tags, and host-specific interface values remain
+host-qualified `RetainedMetadata` with their raw JSON Pointer claims.
 
 ### Normalized bundle
 
@@ -314,16 +317,21 @@ Each format reader:
 Format modules import only domain and sibling format modules, never Node,
 filesystem, application, runtime, or Pi APIs. Marketplace readers validate path
 syntax only; materialized containment is a later boundary. Every claim uses an
-RFC 6901 JSON Pointer and preserves its raw declaration. A malformed nested
-runtime-bearing field invalidates the complete entry rather than producing a
-partial entry.
+RFC 6901 JSON Pointer (the empty pointer denotes the document root) and preserves
+its raw declaration. Repository subdirectories normalize `plugin` and
+`./plugin` to one domain path while retaining the foreign spelling in
+provenance. A malformed nested runtime-bearing field invalidates the complete
+entry rather than producing a partial entry.
 
 Raw JSON errors and untrustworthy catalog roots throw `BoundaryError`; malformed
 entries return diagnostics beside valid siblings. The dedicated marketplace
 merger orders provenance Claude then Codex, compares sources through canonical
 source serialization (selectors included), treats root identity disagreement as
 fatal, and isolates entry conflicts. It is separate from manifest merging
-because the two boundaries have different authority and fatality rules.
+because the two boundaries have different authority and fatality rules. The
+merger also verifies that each caller-supplied native-host label agrees with
+all source documents, diagnostics, authorities, entries, and claim provenance
+before reconciliation.
 
 The reader reports unknown runtime fields rather than discarding them.
 

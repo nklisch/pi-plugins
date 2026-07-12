@@ -646,7 +646,9 @@ export function serializePluginSource(source: PluginSource): CanonicalSource {
     case "git-subdir":
       return canonicalSource("git-subdir", [
         ["url", normalizeUrl(value.url)],
-        ["path", encodePath(value.path)],
+        // Foreign marketplace readers accept both `plugin` and `./plugin`.
+        // Canonical source bytes must not let that spelling split identity.
+        ["path", encodePath(value.path.startsWith("./") ? value.path.slice(2) : value.path)],
         ["ref", value.ref],
         ["sha", value.sha],
       ]);

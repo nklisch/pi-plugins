@@ -17,7 +17,7 @@ const marketplace: Provenance = {
     host: "claude",
     documentKind: "marketplace",
     path: ".claude-plugin/marketplace.json",
-    pointer: "/",
+    pointer: "",
   },
 };
 const entry: Provenance = {

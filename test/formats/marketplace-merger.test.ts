@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BoundaryError } from "../../src/domain/errors.js";
 import { readClaudeMarketplace } from "../../src/formats/claude/marketplace-reader.js";
 import { readCodexMarketplace } from "../../src/formats/codex/marketplace-reader.js";
-import { mergeMarketplaces } from "../../src/formats/marketplace-merger.js";
+import { mergeMarketplaceEntries, mergeMarketplaces } from "../../src/formats/marketplace-merger.js";
 
 function claudeCatalog(plugins: readonly object[]) {
   return readClaudeMarketplace({ name: "shared-catalog", owner: { name: "claude" }, plugins });
@@ -62,6 +62,41 @@ describe("dual marketplace merger", () => {
     expect(shared.authorities.map((authority) => authority.nativeHost)).toEqual(["claude", "codex"]);
     expect(shared.declarations.map((declaration) => declaration.field)).toEqual(["skills", "dependencies"]);
     expect(shared.rawDeclaration.provenance.map((claim) => claim.location.host)).toEqual(["claude", "codex"]);
+  });
+
+  it("binds each catalog label to every normalized host claim", () => {
+    const claude = claudeCatalog([{ name: "only", source: "./only" }]);
+    expect(() => mergeMarketplaces([{ nativeHost: "codex", result: claude }])).toThrowError(BoundaryError);
+
+    const mixed = {
+      ...claude,
+      marketplace: {
+        ...claude.marketplace,
+        sourceDocuments: claude.marketplace.sourceDocuments.map((document) => ({
+          ...document,
+          location: { ...document.location, host: "codex" as const },
+        })),
+      },
+    };
+    expect(() => mergeMarketplaces([{ nativeHost: "claude", result: mixed }])).toThrowError(BoundaryError);
+  });
+
+  it("merges direct entry API inputs when only subdirectory spelling differs", () => {
+    const left = readClaudeMarketplace({
+      name: "shared-catalog",
+      plugins: [{ name: "shared", source: { source: "git-subdir", url: "https://example.com/repo.git", path: "./plugin" } }],
+    }).marketplace.entries[0]!;
+    const right = readCodexMarketplace({
+      name: "shared-catalog",
+      plugins: [{ name: "shared", source: { source: "git-subdir", url: "https://example.com/repo.git", path: "plugin" }, policy: { installation: "AVAILABLE" } }],
+    }).marketplace.entries[0]!;
+    const merged = mergeMarketplaceEntries("shared-catalog", left, right);
+    expect(merged.source.value).toEqual({
+      kind: "git-subdir",
+      url: "https://example.com/repo.git",
+      path: "plugin",
+    });
+    expect(merged.source.provenance.map((claim) => claim.location.host)).toEqual(["claude", "codex"]);
   });
 
   it("drops only conflicting overlaps and keeps valid siblings", () => {

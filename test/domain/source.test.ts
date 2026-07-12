@@ -207,6 +207,9 @@ describe("canonical source serialization", () => {
     expect(serializePluginSource({ kind: "git-subdir", url: "https://example.com/repository.git", path: "packages/naïve plugin" })).toBe(
       "source-v1|git-subdir|url:34:https://example.com/repository.git|path:28:packages/na%C3%AFve%20plugin",
     );
+    expect(serializePluginSource({ kind: "git-subdir", url: "https://example.com/repository.git", path: "./packages/demo" })).toBe(
+      serializePluginSource({ kind: "git-subdir", url: "https://example.com/repository.git", path: "packages/demo" }),
+    );
   });
 
   it("normalizes URL syntax without aliasing encoded delimiters", () => {

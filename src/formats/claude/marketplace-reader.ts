@@ -53,8 +53,6 @@ const RUNTIME_AND_POLICY_FIELDS = new Set<string>([
   "description",
   "policy",
   "strict",
-  "category",
-  "tags",
   ...Object.keys(MarketplaceEntryDeclarationRegistry),
 ]);
 
@@ -101,9 +99,10 @@ function parsePluginSource(
     switch (sourceType) {
       case "github": {
         ensureSourceKeys(raw, ["source", "repo", "ref"], pointer);
+        const repository = requireGithubRepository(raw.repo, `${pointer}/repo`);
         candidate = {
           kind: "git",
-          url: `https://github.com/${requireSourceString(raw.repo, "repo", `${pointer}/repo`)}.git`,
+          url: `https://github.com/${repository}.git`,
           ...(raw.ref === undefined ? {} : { ref: requireSourceString(raw.ref, "ref", `${pointer}/ref`) }),
         };
         break;
@@ -121,15 +120,16 @@ function parsePluginSource(
       case "git-subdir": {
         ensureSourceKeys(raw, ["source", "url", "path", "ref", "sha"], pointer);
         const sourcePath = requireSourceString(raw.path, "path", `${pointer}/path`);
+        let normalizedPath: string;
         try {
-          validateRelativeSubdirectoryPath(sourcePath, `${pointer}/path`);
+          normalizedPath = validateRelativeSubdirectoryPath(sourcePath, `${pointer}/path`);
         } catch (error) {
           throw sourceFailure(`${pointer}/path`, error instanceof Error ? error.message : "repository path is invalid");
         }
         candidate = {
           kind: "git-subdir",
           url: requireSourceString(raw.url, "url", `${pointer}/url`),
-          path: sourcePath,
+          path: normalizedPath,
           ...(raw.ref === undefined ? {} : { ref: requireSourceString(raw.ref, "ref", `${pointer}/ref`) }),
           ...(raw.sha === undefined ? {} : { sha: requireSourceString(raw.sha, "sha", `${pointer}/sha`) }),
         };
@@ -166,6 +166,17 @@ function requireSourceString(value: JsonValue | undefined, field: string, pointe
     throw sourceFailure(pointer, `${field} must be a non-empty string`);
   }
   return value;
+}
+
+const GitHubRepositoryShorthand = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+function requireGithubRepository(value: JsonValue | undefined, pointer: string): string {
+  const repository = requireSourceString(value, "repo", pointer);
+  const repositoryName = repository.slice(repository.indexOf("/") + 1);
+  if (!GitHubRepositoryShorthand.test(repository) || repositoryName.endsWith(".git")) {
+    throw sourceFailure(pointer, "repo must be exactly owner/repository without .git, extra segments, or URL syntax");
+  }
+  return repository;
 }
 
 function validateClaudePresentation(entry: { readonly [key: string]: JsonValue }, entryPointer: string): void {
@@ -249,7 +260,7 @@ function readClaudeEntry(
     nativeHost,
     path,
     entryPointer,
-    new Set([...RUNTIME_AND_POLICY_FIELDS, "category", "tags"]),
+    RUNTIME_AND_POLICY_FIELDS,
   );
 
   return {
@@ -287,11 +298,13 @@ function readMarketplaceInput(
   }
   const { root: pluginRoot, metadata: nestedMetadata } = readPluginRoot(root, "claude", path, operation);
   const entries: NormalizedMarketplaceEntry[] = [];
+  const entryIndexes: number[] = [];
   const diagnostics = [] as ReturnType<typeof entryDiagnostic>[];
 
   for (const [index, rawEntry] of rawPlugins.entries()) {
     try {
       entries.push(readClaudeEntry(rawEntry, marketplaceName, rawName, "claude", path, index, pluginRoot));
+      entryIndexes.push(index);
     } catch (error) {
       const entryFailure = error instanceof MarketplaceEntryError
         ? error
@@ -305,17 +318,18 @@ function readMarketplaceInput(
   }
 
   const seen = new Map<string, number>();
-  for (const [index, entry] of entries.entries()) {
+  for (const [parsedIndex, entry] of entries.entries()) {
+    const originalIndex = entryIndexes[parsedIndex] as number;
     const key = entry.identity.value.key;
     const first = seen.get(key);
     if (first !== undefined) {
       throw rootInvalid(operation, "claude", path, `Duplicate surviving marketplace entry ${key}`, {
         key,
         first: jsonPointer("plugins", first),
-        duplicate: jsonPointer("plugins", index),
-      }, undefined, jsonPointer("plugins", index));
+        duplicate: jsonPointer("plugins", originalIndex),
+      }, undefined, jsonPointer("plugins", originalIndex));
     }
-    seen.set(key, index);
+    seen.set(key, originalIndex);
   }
 
   const marketplace = NormalizedMarketplaceSchema.parse({

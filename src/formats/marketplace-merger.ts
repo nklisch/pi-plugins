@@ -217,6 +217,18 @@ function mergeOptionalClaim<T>(
   return mergeClaim(field, left, right, plugin, equals);
 }
 
+function normalizePluginSource(
+  claim: NormalizedMarketplaceEntry["source"],
+): NormalizedMarketplaceEntry["source"] {
+  if (claim.value.kind !== "git-subdir" || !claim.value.path.startsWith("./")) {
+    return claim;
+  }
+  return {
+    value: { ...claim.value, path: claim.value.path.slice(2) },
+    provenance: claim.provenance,
+  };
+}
+
 function mergePolicy(
   left: NonNullable<NormalizedMarketplaceEntry["policy"]>,
   right: NonNullable<NormalizedMarketplaceEntry["policy"]>,
@@ -398,8 +410,8 @@ export function mergeMarketplaceEntries(
 
   assertIdentity(name, first, second);
 
-  const sourceLeft = first.source;
-  const sourceRight = second.source;
+  const sourceLeft = normalizePluginSource(first.source);
+  const sourceRight = normalizePluginSource(second.source);
   const canonicalLeft = serializePluginSource(sourceLeft.value);
   const canonicalRight = serializePluginSource(sourceRight.value);
   if (canonicalLeft !== canonicalRight) {
@@ -477,6 +489,97 @@ function invalidInput(cause: unknown): never {
   });
 }
 
+function hostMismatch(
+  nativeHost: NativeHost,
+  subject: string,
+  actualHost: unknown,
+): never {
+  throw new BoundaryError({
+    code: ErrorCodeRegistry.marketplaceRootInvalid,
+    operation: OPERATION,
+    message: `Marketplace catalog input host does not match ${subject}`,
+    details: {
+      expectedHost: nativeHost,
+      actualHost: actualHost === undefined ? null : String(actualHost),
+      subject,
+    },
+  });
+}
+
+function assertProvenanceHost(
+  nativeHost: NativeHost,
+  provenance: readonly Provenance[],
+  subject: string,
+): void {
+  for (const [index, claim] of provenance.entries()) {
+    if (claim.location.host !== nativeHost) {
+      hostMismatch(nativeHost, `${subject}.provenance[${index}]`, claim.location.host);
+    }
+  }
+}
+
+function assertCatalogHost(
+  nativeHost: NativeHost,
+  result: MarketplaceReadResult,
+): void {
+  for (const [index, document] of result.marketplace.sourceDocuments.entries()) {
+    if (document.location.host !== nativeHost) {
+      hostMismatch(nativeHost, `sourceDocuments[${index}]`, document.location.host);
+    }
+  }
+  for (const [index, diagnostic] of result.diagnostics.entries()) {
+    if (diagnostic.location === undefined) {
+      hostMismatch(nativeHost, `diagnostics[${index}]`, "missing");
+    }
+    if (diagnostic.location.host !== nativeHost) {
+      hostMismatch(nativeHost, `diagnostics[${index}]`, diagnostic.location.host);
+    }
+  }
+
+  assertProvenanceHost(nativeHost, result.marketplace.name.provenance, "name");
+  for (const [index, metadata] of result.marketplace.metadata.entries()) {
+    assertProvenanceHost(nativeHost, metadata.claimed.provenance, `metadata[${index}]`);
+  }
+  for (const [index, entry] of result.marketplace.entries.entries()) {
+    const subject = `entries[${index}]`;
+    for (const authority of entry.authorities) {
+      if (authority.nativeHost !== nativeHost) {
+        hostMismatch(nativeHost, `${subject}.authorities`, authority.nativeHost);
+      }
+      if (authority.strict !== undefined) {
+        assertProvenanceHost(nativeHost, authority.strict.provenance, `${subject}.authority.strict`);
+      }
+      assertProvenanceHost(nativeHost, authority.manifest.provenance, `${subject}.authority.manifest`);
+      assertProvenanceHost(nativeHost, authority.catalogRuntime.provenance, `${subject}.authority.catalogRuntime`);
+    }
+    assertProvenanceHost(nativeHost, entry.identity.provenance, `${subject}.identity`);
+    assertProvenanceHost(nativeHost, entry.source.provenance, `${subject}.source`);
+    if (entry.version !== undefined) {
+      assertProvenanceHost(nativeHost, entry.version.provenance, `${subject}.version`);
+    }
+    if (entry.description !== undefined) {
+      assertProvenanceHost(nativeHost, entry.description.provenance, `${subject}.description`);
+    }
+    if (entry.policy !== undefined) {
+      assertProvenanceHost(nativeHost, entry.policy.availability.provenance, `${subject}.policy.availability`);
+      if (entry.policy.authentication !== undefined) {
+        assertProvenanceHost(nativeHost, entry.policy.authentication.provenance, `${subject}.policy.authentication`);
+      }
+      assertProvenanceHost(nativeHost, entry.policy.declaration.provenance, `${subject}.policy.declaration`);
+    }
+    for (const [declarationIndex, declaration] of entry.declarations.entries()) {
+      if (declaration.nativeHost !== nativeHost) {
+        hostMismatch(nativeHost, `${subject}.declarations[${declarationIndex}]`, declaration.nativeHost);
+      }
+      assertProvenanceHost(nativeHost, declaration.declaration.provenance, `${subject}.declarations[${declarationIndex}]`);
+    }
+    for (const [metadataIndex, metadata] of entry.metadata.entries()) {
+      assertProvenanceHost(nativeHost, metadata.claimed.provenance, `${subject}.metadata[${metadataIndex}]`);
+    }
+    assertProvenanceHost(nativeHost, entry.rawDeclaration.provenance, `${subject}.rawDeclaration`);
+  }
+}
+
 function orderedInputs(inputs: readonly MarketplaceCatalogInput[]): readonly MarketplaceCatalogInput[] {
   if (!Array.isArray(inputs) || inputs.length === 0) {
     invalidInput(new TypeError("mergeMarketplaces requires at least one catalog"));
@@ -495,10 +598,9 @@ function orderedInputs(inputs: readonly MarketplaceCatalogInput[]): readonly Mar
         });
       }
       hosts.add(nativeHost);
-      validated.push({
-        nativeHost,
-        result: MarketplaceReadResultSchema.parse(input.result) as MarketplaceReadResult,
-      });
+      const result = MarketplaceReadResultSchema.parse(input.result) as MarketplaceReadResult;
+      assertCatalogHost(nativeHost, result);
+      validated.push({ nativeHost, result });
     } catch (cause) {
       if (cause instanceof BoundaryError) {
         throw cause;

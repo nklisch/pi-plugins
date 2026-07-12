@@ -48,9 +48,13 @@ const installationValues = {
   NOT_AVAILABLE: MarketplaceAvailabilityRegistry.notAvailable,
 } as const;
 
+/**
+ * Encode an RFC 6901 JSON Pointer. The empty pointer is the document root;
+ * `/` is a pointer to a property whose name is the empty string.
+ */
 export function jsonPointer(...segments: readonly (string | number)[]): string {
   if (segments.length === 0) {
-    return "/";
+    return "";
   }
   return `/${segments
     .map((segment) => String(segment).replaceAll("~", "~0").replaceAll("/", "~1"))
@@ -98,19 +102,22 @@ export function validateRelativeSubdirectoryPath(path: unknown, pointer: string)
     path.startsWith("/") ||
     path.includes("\\") ||
     path.includes("\u0000") ||
-    /^[A-Za-z]:[\\/]/.test(path)
+    /^[A-Za-z]:/.test(path)
   ) {
     throw new TypeError(`Invalid relative repository path at ${pointer}: ${path}`);
   }
 
   const candidate = path.startsWith("./")
-    ? validateCatalogRelativePath(path, pointer)
+    ? validateCatalogRelativePath(path, pointer).slice(2)
     : path;
-  const segments = candidate.startsWith("./") ? candidate.slice(2).split("/") : candidate.split("/");
+  const segments = candidate.split("/");
   if (segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")) {
     throw new TypeError(`Invalid relative repository path at ${pointer}: ${path}`);
   }
-  return path;
+  // `plugin` and `./plugin` identify the same repository subdirectory. Keep
+  // the exact foreign spelling in the source claim's provenance, but expose
+  // one canonical domain path so dual catalogs can reconcile it.
+  return candidate;
 }
 
 export function joinCatalogRelativePath(root: string | undefined, path: string, pointer: string): string {
@@ -482,28 +489,164 @@ export function readInstallationPolicy(
   return MarketplaceInstallationPolicySchema.parse(result);
 }
 
+function declarationPointer(pointer: string, segment: string | number): string {
+  return `${pointer}/${jsonPointer(segment).slice(1)}`;
+}
+
+function invalidDeclaration(pointer: string, message: string): never {
+  throw entryError("ENTRY_INVALID", pointer, message);
+}
+
+function validateNonEmptyString(value: JsonValue, pointer: string, field: string): void {
+  if (typeof value !== "string" || value.length === 0) {
+    invalidDeclaration(pointer, `${field} must be a non-empty string`);
+  }
+}
+
+function validateStringList(value: JsonValue, pointer: string, field: string): void {
+  if (typeof value === "string") {
+    validateNonEmptyString(value, pointer, field);
+    return;
+  }
+  if (!Array.isArray(value)) {
+    invalidDeclaration(pointer, `${field} must be a string or an array of strings`);
+  }
+  for (const [index, item] of value.entries()) {
+    validateNonEmptyString(item, declarationPointer(pointer, index), `${field} item`);
+  }
+}
+
+function validateNestedJson(
+  value: JsonValue,
+  pointer: string,
+  field: string,
+  allowNull: boolean,
+): void {
+  if (value === null) {
+    if (allowNull) {
+      return;
+    }
+    invalidDeclaration(pointer, `${field} cannot contain null`);
+  }
+  if (typeof value === "string") {
+    validateNonEmptyString(value, pointer, field);
+    return;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      validateNestedJson(item, declarationPointer(pointer, index), field, allowNull);
+    }
+    return;
+  }
+  if (!isJsonRecord(value)) {
+    invalidDeclaration(pointer, `${field} must be valid JSON`);
+  }
+  for (const [key, item] of Object.entries(value)) {
+    validateNestedJson(item, declarationPointer(pointer, key), field, allowNull);
+  }
+}
+
+function validateRuntimeMap(value: JsonValue, pointer: string, field: string): void {
+  if (typeof value === "string") {
+    validateNonEmptyString(value, pointer, field);
+    return;
+  }
+  if (!isJsonRecord(value)) {
+    invalidDeclaration(pointer, `${field} must be a path string or an object map`);
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (key.length === 0) {
+      invalidDeclaration(declarationPointer(pointer, key), `${field} contains an empty key`);
+    }
+    // Runtime maps may contain host-specific nested objects, but a null or
+    // scalar event/server declaration is never a structurally valid entry.
+    if (item === null || typeof item === "boolean" || typeof item === "number") {
+      invalidDeclaration(declarationPointer(pointer, key), `${field} declaration must be an object, array, or path string`);
+    }
+    validateNestedJson(item, declarationPointer(pointer, key), field, false);
+  }
+}
+
+function validateServerMap(value: JsonValue, pointer: string, field: string): void {
+  if (typeof value === "string") {
+    validateNonEmptyString(value, pointer, field);
+    return;
+  }
+  if (!isJsonRecord(value)) {
+    invalidDeclaration(pointer, `${field} must be a path string or an object map`);
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (key.length === 0) {
+      invalidDeclaration(declarationPointer(pointer, key), `${field} contains an empty key`);
+    }
+    if (!(typeof item === "string" || isJsonRecord(item))) {
+      invalidDeclaration(declarationPointer(pointer, key), `${field} server must be an object or path string`);
+    }
+    validateNestedJson(item, declarationPointer(pointer, key), field, false);
+  }
+}
+
+function validateDependencyList(value: JsonValue, pointer: string, field: string): void {
+  if (typeof value === "string") {
+    validateNonEmptyString(value, pointer, field);
+    return;
+  }
+  if (!Array.isArray(value)) {
+    invalidDeclaration(pointer, `${field} must be a dependency string or an array`);
+  }
+  for (const [index, item] of value.entries()) {
+    const itemPointer = declarationPointer(pointer, index);
+    if (typeof item === "string") {
+      validateNonEmptyString(item, itemPointer, `${field} item`);
+    } else if (isJsonRecord(item)) {
+      validateNestedJson(item, itemPointer, field, false);
+    } else {
+      invalidDeclaration(itemPointer, `${field} item must be a string or object`);
+    }
+  }
+}
+
+/**
+ * Validate the structural shape of known declarations without interpreting
+ * their host-specific meaning. A declaration is retained verbatim only after
+ * its complete nested value has passed the field-specific boundary check.
+ */
 export function validateKnownDeclaration(
   field: MarketplaceEntryDeclarationField,
   value: JsonValue,
   pointer: string,
 ): void {
-  // Catalog runtime/dependency values are retained rather than interpreted,
-  // but scalar booleans/numbers/null cannot be a declaration of a component or
-  // dependency. Strings, arrays, and maps cover the documented pointer and
-  // inline forms while still failing obviously malformed nested fields.
-  if (
-    value === null ||
-    typeof value === "boolean" ||
-    typeof value === "number" ||
-    (typeof value === "string" && value.length === 0)
-  ) {
-    throw entryError(
-      "ENTRY_INVALID",
-      pointer,
-      `marketplace declaration ${field} must be a non-empty string, array, or object`,
-    );
-  }
   JsonValueSchema.parse(value);
+  switch (field) {
+    case "skills":
+    case "commands":
+    case "agents":
+    case "outputStyles":
+      validateStringList(value, pointer, field);
+      return;
+    case "hooks":
+      validateRuntimeMap(value, pointer, field);
+      return;
+    case "mcpServers":
+    case "lspServers":
+      validateServerMap(value, pointer, field);
+      return;
+    case "settings":
+      if (!isJsonRecord(value)) {
+        invalidDeclaration(pointer, `${field} must be an object`);
+      }
+      validateNestedJson(value, pointer, field, true);
+      return;
+    case "dependencies":
+    case "plugins":
+      validateDependencyList(value, pointer, field);
+      return;
+    default:
+      throw new Error(`Unhandled marketplace declaration field: ${field}`);
+  }
 }
 
 export function collectEntryDeclarations(

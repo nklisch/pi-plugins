@@ -14,7 +14,7 @@ const manifest: Provenance = {
     host: "claude",
     documentKind: "manifest",
     path: ".claude-plugin/plugin.json",
-    pointer: "/",
+    pointer: "",
   },
 };
 

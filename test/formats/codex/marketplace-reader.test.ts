@@ -50,7 +50,9 @@ describe("Codex marketplace reader", () => {
       catalogRuntime: { value: "supplemental" },
     });
     expect(result.marketplace.entries[0]?.authorities[0]).not.toHaveProperty("strict");
-    expect(result.marketplace.entries[0]?.metadata.map((metadata) => metadata.key)).toEqual(["codex.interface"]);
+    expect(result.marketplace.entries[0]?.metadata.map((metadata) => metadata.key)).toEqual(["codex.category", "codex.interface"]);
+    expect(result.marketplace.entries[0]?.metadata[0]?.claimed.value).toBe("Productivity");
+    expect(result.marketplace.entries[0]?.metadata[0]?.claimed.provenance[0]?.location.pointer).toBe("/plugins/0/category");
     expect(result.marketplace.entries[1]?.declarations[0]?.field).toBe("skills");
   });
 
@@ -81,6 +83,25 @@ describe("Codex marketplace reader", () => {
     ]);
   });
 
+  it("normalizes repository subdirectory aliases while retaining raw spelling", () => {
+    const result = readCodexMarketplace({
+      name: "codex-catalog",
+      plugins: [
+        { name: "bare", source: { source: "git-subdir", url: "https://example.com/repo.git", path: "plugin" }, policy: { installation: "AVAILABLE" } },
+        { name: "dotted", source: { source: "git-subdir", url: "https://example.com/repo.git", path: "./plugin" }, policy: { installation: "AVAILABLE" } },
+      ],
+    });
+    expect(result.diagnostics).toEqual([]);
+    expect(result.marketplace.entries.map((entry) => entry.source.value)).toEqual([
+      { kind: "git-subdir", url: "https://example.com/repo.git", path: "plugin" },
+      { kind: "git-subdir", url: "https://example.com/repo.git", path: "plugin" },
+    ]);
+    expect(result.marketplace.entries.map((entry) => entry.source.provenance[0]?.declaration)).toEqual([
+      { source: "git-subdir", url: "https://example.com/repo.git", path: "plugin" },
+      { source: "git-subdir", url: "https://example.com/repo.git", path: "./plugin" },
+    ]);
+  });
+
   it("rejects unsupported source forms and preserves exact source declarations", () => {
     const result = readCodexMarketplace({
       name: "codex-catalog",
@@ -105,7 +126,7 @@ describe("Codex marketplace reader", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(BoundaryError);
       expect((error as BoundaryError).code).toBe("MARKETPLACE_ROOT_INVALID");
-      expect((error as BoundaryError).location?.pointer).toBe("/");
+      expect((error as BoundaryError).location?.pointer).toBe("");
     }
     try {
       readCodexMarketplaceJson("{broken");

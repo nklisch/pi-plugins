@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion-review-hardening
 kind: story
-stage: implementing
+stage: review
 tags: [compatibility, security, tests]
 parent: epic-foreign-plugin-model-marketplace-ingestion
 depends_on: [epic-foreign-plugin-model-marketplace-ingestion-domain-contracts, epic-foreign-plugin-model-marketplace-ingestion-claude-reader, epic-foreign-plugin-model-marketplace-ingestion-codex-reader, epic-foreign-plugin-model-marketplace-ingestion-dual-catalog-merge]
@@ -40,3 +40,15 @@ Resolve the accepted findings from the marketplace-ingestion feature's two-phase
 - [ ] Mislabeled or mixed-host merger inputs fail deterministically.
 - [ ] All committed marketplace fixtures execute as contract tests.
 - [ ] `npm test`, build, boundaries, and compiled package import pass.
+
+## Implementation notes
+
+- Files changed: `src/formats/marketplace-reader-support.ts`, both marketplace readers, `src/formats/marketplace-merger.ts`, source/provenance domain contracts, marketplace docs, and marketplace/domain tests.
+- Tests added: committed-fixture contract coverage for all Claude/Codex and dual catalog fixtures; nested declaration atomicity, original indexes, GitHub shorthand grammar, path aliasing, metadata, host binding, and direct merger API regressions.
+- Discrepancies from design: none; repository subdirectory paths are canonicalized to the bare form while raw source declarations remain in provenance.
+- Adjacent issues parked: none.
+
+## Verification
+
+- `npm test` — passed (184 tests, typecheck, dependency boundaries, build, and 91-export compiled package allowlist).
+- Independent `npm run build` plus compiled marketplace-schema import — passed.

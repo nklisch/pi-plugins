@@ -18,7 +18,12 @@ export const SourceLocationSchema = z
     host: NativeHostSchema,
     documentKind: SourceDocumentKindSchema,
     path: z.string().min(1),
-    pointer: z.string().startsWith("/").optional(),
+    // RFC 6901 uses the empty string for the document root. A non-root
+    // pointer must begin with `/`; `/` addresses an empty property name.
+    pointer: z.string().refine(
+      (value) => value === "" || value.startsWith("/"),
+      "JSON Pointer must be empty for the document root or begin with `/`",
+    ).optional(),
     line: z.number().int().positive().optional(),
     column: z.number().int().positive().optional(),
   })

@@ -82,10 +82,11 @@ encoded delimiters are normalized without aliasing distinct path segments.
 
 Catalog readers validate relative path syntax before use: paths begin with
 `./`, contain no empty, `.`, `..`, backslash, NUL, or absolute segments, and
-retain their declaration provenance. Filesystem realpath, symlink, and
-materialized-root containment are enforced only after source materialization. A
-relative or subdirectory source cannot escape its containing marketplace or
-materialized repository.
+retain their declaration provenance. Repository subdirectory spellings `plugin`
+and `./plugin` normalize to one declared path while the raw spelling remains in
+provenance. Filesystem realpath, symlink, and materialized-root containment are
+enforced only after source materialization. A relative or subdirectory source
+cannot escape its containing marketplace or materialized repository.
 
 Unknown source types fail validation with their source location and type.
 Resolved source contracts retain the immutable URL/path/package fields and
@@ -112,7 +113,8 @@ configuration, duplicate surviving entry names, and conflicting dual root
 identities are root-fatal. Malformed entries and dual-entry conflicts are
 entry-recoverable: the complete bad entry is omitted, an error diagnostic is
 returned, and valid siblings survive. A malformed nested runtime or dependency
-field never produces a partial entry.
+field never produces a partial entry. All claim locations use RFC 6901 JSON
+Pointers; the empty pointer identifies the document root.
 
 An installed revision records:
 
