@@ -111,6 +111,33 @@ export type {
   PluginComponents,
 } from "./domain/components.js";
 
+export {
+  ComponentIdVersionRegistry,
+  ComponentLogicalIdentitySchema,
+  deriveComponentId,
+  verifyComponentId,
+} from "./domain/component-identity.js";
+export type { ComponentLogicalIdentity } from "./domain/component-identity.js";
+
+export {
+  ComponentLocatorAuthorityRegistry,
+  ComponentLocatorAuthoritySchema,
+  ComponentLocatorSourceRegistry,
+  ComponentLocatorSourceSchema,
+  ComponentLocatorTargetSchema,
+  ComponentLocatorClaimSchema,
+  ForeignComponentDeclarationSchema,
+  PluginManifestClaimsSchema,
+} from "./domain/bundle-ingestion.js";
+export type {
+  ComponentLocatorAuthority,
+  ComponentLocatorSource,
+  ComponentLocatorTarget,
+  ComponentLocatorClaim,
+  ForeignComponentDeclaration,
+  PluginManifestClaims,
+} from "./domain/bundle-ingestion.js";
+
 export { NormalizedPluginSchema } from "./domain/plugin.js";
 export type { NormalizedPlugin } from "./domain/plugin.js";
 
@@ -220,3 +247,32 @@ export type {
 export { createNodeSourceMaterializers } from "./infrastructure/source/create-source-materializers.js";
 export { verifyMaterializedContent } from "./infrastructure/filesystem/secure-content-writer.js";
 export type { NodeSourceMaterializerOptions } from "./infrastructure/source/create-source-materializers.js";
+
+export {
+  BundleDocumentLimits,
+  BundleDocumentLimitsSchema,
+  BundleInspectionInputSchema,
+  BundleInspectionResultSchema,
+} from "./application/inspection-contract.js";
+export type {
+  BundleDocumentLimitsContract,
+  BundleInspectionInput,
+  BundleInspectionResult,
+} from "./application/inspection-contract.js";
+export { createContentIndex } from "./application/content-index.js";
+export type { ContentIndex } from "./application/content-index.js";
+export type {
+  ContentReadPort,
+  ManifestFileRef,
+} from "./application/ports/content-read.js";
+export type {
+  AgentSkillReader,
+  AgentSkillReaderContext,
+  BundleReaderSet,
+  HookDocumentReader,
+  HookDocumentReaderContext,
+  McpDocumentReader,
+  McpDocumentReaderContext,
+  PluginManifestReader,
+  PluginManifestReaderContext,
+} from "./application/ports/bundle-readers.js";

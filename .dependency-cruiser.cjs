@@ -32,6 +32,15 @@ module.exports = {
       to: { path: "^src/(?:formats|infrastructure|runtime|pi)(?:/|$)" },
     },
     {
+      name: "inspection-contracts-no-compatibility-policy",
+      comment: "Inspection contracts and content indexing stop before compatibility policy.",
+      severity: "error",
+      from: {
+        path: "^src/(?:domain/(?:bundle-ingestion|component-identity)|application/(?:inspection-contract|content-index|ports/(?:content-read|bundle-readers)))(?:\\.ts)?$", 
+      },
+      to: { path: "^src/domain/compatibility(?:/|$)" },
+    },
+    {
       name: "application-no-node-builtins",
       comment: "Application code stays portable and receives filesystem/process behavior through ports.",
       severity: "error",

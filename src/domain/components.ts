@@ -10,9 +10,17 @@ export const ComponentKindRegistry = {
   foreign: { tag: "foreign", label: "Foreign component" },
 } as const;
 
+/**
+ * Component ids are versioned because they are part of persisted trust and
+ * installation state. The kind alternatives are derived from the component
+ * registry rather than accepting arbitrary caller-defined namespaces.
+ */
+const componentIdKinds = Object.values(ComponentKindRegistry).map((entry) => entry.tag);
+const componentIdKindPattern = componentIdKinds.join("|");
+
 export const ComponentIdSchema = z
   .string()
-  .min(1)
+  .regex(new RegExp(`^component-v1:(?:${componentIdKindPattern}):[0-9a-f]{64}$`))
   .brand<"ComponentId">();
 export type ComponentId = z.infer<typeof ComponentIdSchema>;
 

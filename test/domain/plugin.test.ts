@@ -59,7 +59,7 @@ const representativeBundle = {
     skills: [
       {
         kind: "skill",
-        id: "skill:demo",
+        id: "component-v1:skill:0000000000000000000000000000000000000000000000000000000000000000",
         name: claim("demo", manifest),
         root: claim("./skills/demo", manifest),
         metadata: [],
@@ -68,7 +68,7 @@ const representativeBundle = {
     hooks: [
       {
         kind: "hook",
-        id: "hook:start",
+        id: "component-v1:hook:1111111111111111111111111111111111111111111111111111111111111111",
         event: claim("SessionStart", manifest),
         handler: claim({ kind: "shell", command: "./hooks/start.sh" }, manifest),
         metadata: [],
@@ -77,7 +77,7 @@ const representativeBundle = {
     mcpServers: [
       {
         kind: "mcp-server",
-        id: "mcp:search",
+        id: "component-v1:mcp-server:2222222222222222222222222222222222222222222222222222222222222222",
         nativeKey: claim("search", manifest),
         declaration: claim(
           { command: "search-server", args: ["--stdio"] },
@@ -89,7 +89,7 @@ const representativeBundle = {
     foreign: [
       {
         kind: "foreign",
-        id: "foreign:apps",
+        id: "component-v1:foreign:3333333333333333333333333333333333333333333333333333333333333333",
         nativeHost: "codex",
         nativeKind: claim("apps", manifest),
         declaration: claim({ remote: true, capabilities: ["search"] }, manifest),
@@ -133,7 +133,7 @@ describe("normalized plugin contract", () => {
           ...representativeBundle.components,
           skills: [
             representativeBundle.components.skills[0],
-            { ...representativeBundle.components.skills[0], id: "foreign:apps" },
+            { ...representativeBundle.components.skills[0], id: "component-v1:foreign:3333333333333333333333333333333333333333333333333333333333333333" },
           ],
         },
       }).success,

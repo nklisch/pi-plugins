@@ -25,6 +25,15 @@ const manifestLocation = {
   pointer: "/hooks/0",
 };
 
+const componentIdFor = (value: string): string => {
+  const bytes = new TextEncoder().encode(value);
+  let hex = "";
+  for (let index = 0; index < 32; index += 1) {
+    hex += (bytes[index % Math.max(bytes.length, 1)] ?? 0).toString(16).padStart(2, "0");
+  }
+  return `component-v1:skill:${hex}`;
+};
+
 const requirement = (
   id: string,
   status: "available" | "unavailable",
@@ -45,7 +54,7 @@ const supported = (
   requirementIds: readonly string[] = [],
 ): ComponentAssessment =>
   ComponentAssessmentSchema.parse({
-    componentId,
+    componentId: componentIdFor(componentId),
     verdict: { kind: "supported" },
     requirementIds,
     diagnostics: [],
@@ -100,13 +109,13 @@ describe("compatibility verdict and requirement contracts", () => {
       deriveActivatable({
         components: [
           {
-            componentId: "metadata:label",
+            componentId: componentIdFor("metadata:label"),
             verdict: { kind: "metadata-only", reason: "display only" },
             requirementIds: [],
             diagnostics: [],
           },
           {
-            componentId: "unsupported:thing",
+            componentId: componentIdFor("unsupported:thing"),
             verdict: { kind: "incompatible", reason: "not supported" },
             requirementIds: [],
             diagnostics: [],
@@ -149,7 +158,7 @@ describe("compatibility verdict and requirement contracts", () => {
       deriveActivatable({
         components: [
           {
-            componentId: "metadata:label",
+            componentId: componentIdFor("metadata:label"),
             verdict: { kind: "metadata-only", reason: "display only" },
             requirementIds: ["runtime"],
             diagnostics: [],
@@ -220,7 +229,7 @@ describe("compatibility report", () => {
       "metadata-only requirement citation",
       reportInput({
         components: [{
-          componentId: "metadata:label",
+          componentId: componentIdFor("metadata:label"),
           verdict: { kind: "metadata-only", reason: "display only" },
           requirementIds: ["subagent-hooks"],
           diagnostics: [],
