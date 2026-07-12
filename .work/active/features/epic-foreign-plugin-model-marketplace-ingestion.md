@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion
 kind: feature
-stage: review
+stage: implementing
 tags: [compatibility]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-domain-contracts]
@@ -417,4 +417,4 @@ Integrated verification: `npm test` passes 174 tests plus typecheck, dependency 
 
 ## Review findings
 
-The feature was bounced once to `stage: implementing` for `epic-foreign-plugin-model-marketplace-ingestion-review-hardening`. That story is now done: field-specific declaration schemas, canonical subdirectories, RFC 6901 roots, retained presentation metadata, strict GitHub shorthand, original array indexes, host-bound merge inputs, and committed fixture contract tests are implemented. Independent integrated verification now passes 184 tests plus typecheck, dependency boundaries, build, and the exact 91-export package allowlist. The feature returns to `stage: review` for final convergence.
+The feature was first bounced for `epic-foreign-plugin-model-marketplace-ingestion-review-hardening`, which closed the original eight findings and passed 184 tests. Final two-model convergence then found three remaining blockers: known object declarations were still recursively permissive, the public pointer schema did not validate RFC 6901 escapes, and host binding did not validate host-qualified metadata keys; GitHub shorthand also remained lexically permissive. These are tracked by `epic-foreign-plugin-model-marketplace-ingestion-review-hardening-2`, and the feature returns to `stage: implementing` until they close.
