@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-compatibility-reporting-review-hardening-3
 kind: story
-stage: review
+stage: done
 tags: [compatibility, tests]
 parent: epic-foreign-plugin-model-compatibility-reporting
 depends_on: [epic-foreign-plugin-model-compatibility-reporting-review-hardening-2]
@@ -43,3 +43,13 @@ Close the remaining MCP transport-coherence fail-open case.
 - Files changed: `src/domain/compatibility-evaluator.ts`, `src/domain/compatibility-policy.ts`, `test/domain/compatibility-policy.test.ts`, `test/fixtures/compatibility/mcp.ts`, and `test/integration/compatibility-reporting.test.ts`.
 - Discrepancies from design: none.
 - Adjacent issues parked: none.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane transport-coherence review. Independently confirmed 352 tests, clean typecheck and dependency boundaries, build, and exact 131-export package import. Verdict: Approve - story verified by implement; fast-lane advance.
