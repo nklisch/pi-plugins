@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion-review-hardening-3
 kind: story
-stage: review
+stage: done
 tags: [compatibility, tests]
 parent: epic-foreign-plugin-model-marketplace-ingestion
 depends_on: [epic-foreign-plugin-model-marketplace-ingestion-review-hardening-2]
@@ -39,3 +39,13 @@ Close two residual blockers reproduced by the final adversarial marketplace revi
 - Discrepancies from design: none.
 - Adjacent issues parked: none.
 - Verification: `npm test` passed 218 tests, typecheck, dependency boundaries, build, and compiled package import; independent `npm run build && node test/compiled-package-import.mjs` passed with 94 exports.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane residual-hardening story review. Independently confirmed `npm test`: 218 tests, typecheck, 152 dependency edges with no violations, build, and exact 94-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
