@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization-secure-content-contract
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-foreign-plugin-model-source-materialization
 depends_on: []
@@ -47,4 +47,19 @@ The lifecycle caller supplies an empty private staging slot. Write only `<slot>/
 - [ ] Pre-abort and cancellation during copy, extraction, finalization, and cleanup return no partial result and remove owned paths; cleanup failure is explicit.
 - [ ] Marketplace-relative source and context mismatch/escape fixtures fail closed; safe internal content succeeds.
 - [ ] Boundary regressions prove domain/application/format constraints, and the intended public contracts are source-importable.
-- [ ] Focused tests, `npm run typecheck`, and `npm run boundaries` pass.
+- [x] Focused tests, `npm run typecheck`, and `npm run boundaries` pass.
+
+## Implementation notes
+
+- Added the schema-validated binary `content-v1` manifest and SHA-256 digest helpers. Entry order is unsigned UTF-8 byte order; modes, NFC paths, parent directories, collisions, retained link targets, and forged roots are verified independently of archive metadata or host separators.
+- Added inward application contracts and `SourceMaterializationError` classification. The coordinator validates source/context compatibility before opening a sink, verifies resolved source identities and final manifests, preserves cancellation reasons, and makes cleanup failures explicit.
+- Added the single filesystem sink. It owns only `<slot>/content` and `<slot>/.work`, uses exclusive/no-follow regular-file creation, rejects unsafe names and modes, enforces entry/path/segment/file/expanded limits, defers links, copies hardlinks as regular files, verifies realpath containment, and removes owned paths on failure.
+- Added streaming tar/gzip parsing with checksum, type, path/link, mode, prefix, archive-size, expansion-size, entry-count, and expansion-ratio enforcement. Added the marketplace-relative filesystem copier, which validates the immutable root and routes every retained byte through the sink.
+- Extended dependency-cruiser with application/infrastructure/format inward-boundary rules and executable regressions. Added manifest, application, writer, tar, and adversarial cleanup/path/link tests.
+
+## Verification
+
+- `npm run typecheck`
+- `npm run boundaries`
+- `npm run test:unit` — 150 tests passing
+- `npm test` — passing, including build and compiled package import

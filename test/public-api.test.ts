@@ -2,6 +2,10 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
   BoundaryError,
+  ContentDigestSchema,
+  ContentManifestEntrySchema,
+  ContentManifestSchema,
+  DEFAULT_MATERIALIZATION_LIMITS,
   CanonicalSourceSchema,
   ClaimConflictError,
   ClaimedSchema,
@@ -65,7 +69,9 @@ import {
   SourceHashSchema,
   SourceLocationSchema,
   createCompatibilityReport,
+  createContentManifest,
   createPluginIdentity,
+  createSourceMaterializers,
   createResolvedMarketplaceSource,
   createResolvedPluginSource,
   deriveActivatable,
@@ -73,7 +79,10 @@ import {
   flattenComponents,
   formatPluginKey,
   hashCanonicalSource,
+  hashContent,
   mergeEquivalentClaims,
+  SourceMaterializationError,
+  verifyContentManifest,
   verifyResolvedMarketplaceSource,
   verifyResolvedPluginSource,
   nonEmptyReadonly,
@@ -83,6 +92,9 @@ import {
   serializePluginSource,
   claim,
   type CompatibilityReport,
+  type ContentDigest,
+  type ContentManifest,
+  type ContentManifestEntry,
   type Component,
   type ComponentAssessment,
   type ComponentId,
@@ -128,6 +140,9 @@ import {
   type RuntimeRequirementStatus,
   type Sha256,
   type SkillComponent,
+  type SourceContext,
+  type SourceMaterializationDependencies,
+  type StagingSlot,
   type SourceDocumentKind,
   type SourceHash,
   type SourceLocation,
@@ -139,6 +154,10 @@ describe("explicit package API", () => {
   it("exposes the complete intended domain contract without adapters", () => {
     const symbols = [
       BoundaryError,
+      ContentDigestSchema,
+      ContentManifestEntrySchema,
+      ContentManifestSchema,
+      DEFAULT_MATERIALIZATION_LIMITS,
       CanonicalSourceSchema,
       ClaimConflictError,
       ClaimedSchema,
@@ -201,7 +220,9 @@ describe("explicit package API", () => {
       SourceHashSchema,
       SourceLocationSchema,
       createCompatibilityReport,
+      createContentManifest,
       createPluginIdentity,
+      createSourceMaterializers,
       createResolvedMarketplaceSource,
       createResolvedPluginSource,
       deriveActivatable,
@@ -209,7 +230,10 @@ describe("explicit package API", () => {
       flattenComponents,
       formatPluginKey,
       hashCanonicalSource,
+      hashContent,
       mergeEquivalentClaims,
+      SourceMaterializationError,
+      verifyContentManifest,
       verifyResolvedMarketplaceSource,
       verifyResolvedPluginSource,
       nonEmptyReadonly,
@@ -226,6 +250,12 @@ describe("explicit package API", () => {
   });
 
   it("keeps public types inferred from the exported schemas", () => {
+    expectTypeOf<ContentDigest>().toEqualTypeOf<z.infer<typeof ContentDigestSchema>>();
+    expectTypeOf<ContentManifestEntry>().toEqualTypeOf<z.infer<typeof ContentManifestEntrySchema>>();
+    expectTypeOf<ContentManifest>().toEqualTypeOf<z.infer<typeof ContentManifestSchema>>();
+    expectTypeOf<SourceContext>().toMatchTypeOf<{ kind: "external" } | { kind: "marketplace" }>();
+    expectTypeOf<SourceMaterializationDependencies>().toMatchTypeOf<{ sha256: Sha256 }>();
+    expectTypeOf<StagingSlot>().toMatchTypeOf<{ root: string }>();
     expectTypeOf<Component>().toMatchTypeOf<z.infer<typeof ComponentSchema>>();
     expectTypeOf<ComponentAssessment>().toEqualTypeOf<z.infer<typeof ComponentAssessmentSchema>>();
     expectTypeOf<CompatibilityReport>().toEqualTypeOf<z.infer<typeof CompatibilityReportSchema>>();

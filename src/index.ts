@@ -176,3 +176,39 @@ export type {
   ReadResult,
   CollectionReadResult,
 } from "./domain/errors.js";
+
+export {
+  ContentDigestSchema,
+  ContentManifestEntrySchema,
+  ContentManifestSchema,
+  createContentManifest,
+  hashContent,
+  verifyContentManifest,
+} from "./domain/content-manifest.js";
+export type {
+  ContentDigest,
+  ContentManifestEntry,
+  ContentManifest,
+} from "./domain/content-manifest.js";
+
+export {
+  DEFAULT_MATERIALIZATION_LIMITS,
+  SourceMaterializationError,
+  createSourceMaterializers,
+} from "./application/source-materialization.js";
+export type {
+  ContentEntry,
+  GitSourceAcquirer,
+  MarketplaceMaterializer,
+  MarketplacePathAcquirer,
+  MaterializationLimits,
+  MaterializedMarketplace,
+  MaterializedPlugin,
+  NpmSourceAcquirer,
+  PluginMaterializer,
+  SecureContentSession,
+  SecureContentWriterFactory,
+  SourceContext,
+  SourceMaterializationDependencies,
+  StagingSlot,
+} from "./application/source-materialization.js";
