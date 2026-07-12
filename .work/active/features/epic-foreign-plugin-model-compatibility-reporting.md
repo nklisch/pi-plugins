@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-compatibility-reporting
 kind: feature
-stage: review
+stage: done
 tags: [compatibility]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-plugin-bundle-ingestion]
@@ -432,4 +432,14 @@ Integrated verification: `npm test` passes 347 tests plus clean typecheck and de
 
 ## Review findings
 
-The first two review-hardening stories close hook-condition, nested MCP, OAuth/bearer ambiguity, URL credential, and fixture-outcome gaps. Final certification then found HTTP semantics on stdio; `epic-foreign-plugin-model-compatibility-reporting-review-hardening-3` is done and enforces transport-specific field coherence with redacted positive/negative fixtures. Independent integrated verification passes 352 tests plus clean typecheck and dependency boundaries, build, and exact 131-export package import. The feature returns to `stage: review` for final confirmation.
+The first two review-hardening stories close hook-condition, nested MCP, OAuth/bearer ambiguity, URL credential, and fixture-outcome gaps. Final certification then found HTTP semantics on stdio; `epic-foreign-plugin-model-compatibility-reporting-review-hardening-3` enforces transport-specific field coherence with redacted positive/negative fixtures. Independent integrated verification passes 352 tests plus clean typecheck and dependency boundaries, build, and exact 131-export package import.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Deep two-model convergence. GLM 5.2 completeness and GPT-5.6 Sol contract-quality reviews independently reproduced all prior fail-open cases and approved current HEAD. They confirmed stdio default-denies HTTP URL/header/auth/OAuth semantics, valid stdio and Streamable HTTP behavior remains supported with correct requirements, provenance is exact, credentials are redacted, and all earlier hook/MCP hardening remains intact. Full suite: 352 tests, clean typecheck and dependency boundaries, build, exact 131-export package import.
