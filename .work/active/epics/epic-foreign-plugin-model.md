@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model
 kind: epic
-stage: drafting
+stage: implementing
 tags: [compatibility, infra]
 parent: null
 depends_on: []
@@ -30,17 +30,24 @@ This epic does not install or activate plugins. Transactional state, Pi runtime 
 - `docs/ARCHITECTURE.md` — Domain model, Format ingestion, Source acquisition
 - `docs/COMPATIBILITY.md` — Marketplace discovery, Plugin source forms, Plugin manifests
 
-## Anticipated child features
+## Decomposition
 
-- TypeScript 7 package and validation foundation
-- normalized marketplace, source, identity, component, and provenance contracts
-- secure Git, marketplace-relative, and npm source materialization
-- Claude marketplace and manifest ingestion
-- Codex marketplace and manifest ingestion
-- dual-format reconciliation and Agent Skills validation
-- compatibility inventory and diagnostic reporting
+Split by end-to-end capability rather than implementation layer or foreign host. A shared canonical model anchors two parallel producers—secure source materialization and dual-format marketplace ingestion—which converge in complete plugin-bundle ingestion; compatibility reporting then evaluates the resulting normalized inventory. Claude and Codex readers stay together in each ingestion capability because their conflict detection and provenance rules are one user-visible contract, while package/build setup is folded into the canonical-model foundation rather than becoming an infrastructure-only feature.
 
-<!-- The design pass on each child feature will fill in real specifics. -->
+### Child features
+
+- `epic-foreign-plugin-model-domain-contracts` — establish the validated canonical identities, source declarations, normalized component/provenance model, and TypeScript package foundation — depends on: `[]`
+- `epic-foreign-plugin-model-source-materialization` — securely resolve and materialize marketplace-relative, Git, Git-subdirectory, and npm content at immutable revisions — depends on: `[epic-foreign-plugin-model-domain-contracts]`
+- `epic-foreign-plugin-model-marketplace-ingestion` — read Claude and Codex marketplace catalogs into consistent normalized entries with source-located diagnostics — depends on: `[epic-foreign-plugin-model-domain-contracts]`
+- `epic-foreign-plugin-model-plugin-bundle-ingestion` — inspect materialized Claude, Codex, and dual-format bundles, reconcile manifests and conventional discovery, and validate Agent Skills — depends on: `[epic-foreign-plugin-model-source-materialization, epic-foreign-plugin-model-marketplace-ingestion]`
+- `epic-foreign-plugin-model-compatibility-reporting` — derive complete component verdicts, runtime requirements, activatability, and provenance-rich diagnostics — depends on: `[epic-foreign-plugin-model-plugin-bundle-ingestion]`
+
+### Decomposition risks
+
+- Source materialization is the highest-risk capability because path containment, symlink handling, immutable revision resolution, and no-script npm extraction must remain correct across platforms; its feature design should preserve narrow filesystem, Git, and npm ports and adversarial fixtures.
+- Plugin-bundle ingestion is the convergence point for both parallel branches. Keep it focused on reading, discovery, reconciliation, and normalized claims so source acquisition and compatibility policy do not leak into the readers.
+- Foreign schemas can drift independently. Claude and Codex parsing remain isolated behind one normalized contract, with unknown runtime declarations retained as explicit incompatibilities rather than silently discarded.
+- The dependency graph deliberately keeps source materialization and marketplace ingestion parallel after the domain foundation; combining them would create an unnecessary serial critical path, while splitting by host would duplicate reconciliation concerns.
 
 ## Design decisions
 
