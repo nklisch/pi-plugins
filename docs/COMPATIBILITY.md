@@ -11,13 +11,15 @@ changes in place to describe the supported truth.
 
 | Verdict | Meaning |
 |---|---|
-| Supported | Pi preserves the relevant runtime behavior. |
-| Conditional | Support requires a named runtime integration or platform capability. |
+| Supported | Pi preserves the relevant runtime behavior. A supported component may name runtime requirements that must be available before activation. |
 | Metadata-only | The field affects discovery or presentation but not runtime behavior. |
 | Incompatible | Pi cannot preserve the declared behavior; the plugin does not activate. |
 
-Unknown runtime declarations are incompatible. Unknown presentation metadata is
-retained for diagnostics and treated as metadata-only.
+Runtime integrations and platform capabilities are represented as explicit
+`RuntimeRequirement` assessments, not as a fourth component verdict. A supported
+component whose required capability is unavailable prevents activation. Unknown
+runtime declarations are incompatible. Unknown presentation metadata is retained
+for diagnostics and treated as metadata-only.
 
 ## Marketplace discovery
 
@@ -154,7 +156,7 @@ incompatible.
 | `disable-model-invocation` | Supported by Pi |
 | Codex `agents/openai.yaml` presentation | Metadata-only |
 | Codex implicit-invocation policy | Mapped to Pi skill visibility where representable |
-| `allowed-tools` | Conditional on Pi preserving the same restriction |
+| `allowed-tools` | Supported; requires Pi to preserve the same restriction |
 | Skill-scoped hooks | Incompatible without a skill-activation hook lifecycle |
 
 Unknown skill frontmatter does not silently gain runtime meaning.
@@ -176,7 +178,7 @@ Only command hooks are compatible.
 | `timeout` | Supported |
 | `statusMessage` | Supported in interactive Pi modes |
 | `shell: "bash"` | Supported where Bash is available |
-| `shell: "powershell"` | Conditional on Windows and PowerShell |
+| `shell: "powershell"` | Supported; requires Windows and PowerShell |
 | Tool-event `if` rules | Supported |
 | `async` | Incompatible |
 | `asyncRewake` | Incompatible |
@@ -201,8 +203,8 @@ handlers are deduplicated by their normalized executable form.
 | `PreCompact` | Supported | `session_before_compact` |
 | `PostCompact` | Supported | `session_compact` |
 | `Stop` | Supported | settled agent lifecycle plus guarded continuation |
-| `SubagentStart` | Conditional | subagent pre-start interception |
-| `SubagentStop` | Conditional | subagent pre-stop interception |
+| `SubagentStart` | Supported; requires subagent interception | subagent pre-start interception |
+| `SubagentStop` | Supported; requires subagent interception | subagent pre-stop interception |
 | `PermissionRequest` | Incompatible | Pi exposes no equivalent permission-dialog boundary |
 | `PermissionDenied` | Incompatible | no equivalent denial-classifier event |
 | `Setup` | Incompatible | no equivalent setup invocation |
@@ -359,22 +361,23 @@ Pi accepts:
 | Streamable HTTP `url` | Supported |
 | Static headers | Supported |
 | Environment-backed headers and bearer tokens | Supported |
-| OAuth authorization-code flow | Conditional on MCP runtime |
-| OAuth client-credentials flow | Conditional on MCP runtime |
+| OAuth authorization-code flow | Supported; requires the MCP runtime capability |
+| OAuth client-credentials flow | Supported; requires the MCP runtime capability |
 | Startup and tool timeout | Supported |
 | Tool allow/deny lists | Supported |
-| Tool approval policy | Conditional on MCP runtime |
+| Tool approval policy | Supported; requires the MCP runtime capability |
 | Server instructions | Supported |
-| MCP sampling | Conditional on MCP runtime |
-| Form and URL elicitation | Conditional on MCP runtime and Pi UI mode |
+| MCP sampling | Supported; requires the MCP runtime capability |
+| Form and URL elicitation | Supported; requires MCP runtime support and an interactive Pi UI mode |
 | Resources | Supported through MCP runtime |
 | Explicit legacy SSE transport | Incompatible unless the runtime preserves it exactly |
 | WebSocket transport | Incompatible |
 | Dynamic `headersHelper` command | Incompatible |
 | Claude channels | Incompatible |
 
-A conditional MCP capability is checked before activation. Missing required
-capability makes the plugin incompatible.
+Each named MCP runtime capability is checked before activation. An unavailable
+requirement prevents activation while preserving the component's `supported`
+verdict and reports the missing capability explicitly.
 
 ## MCP identity and tool names
 

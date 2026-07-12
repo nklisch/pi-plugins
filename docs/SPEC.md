@@ -133,9 +133,12 @@ Every discovered component receives one verdict:
   ignore;
 - `incompatible`: Pi cannot preserve the component's behavior.
 
-The plugin is activatable only when all runtime components are supported.
-Metadata-only fields do not prevent activation. There is no partial-install
-mode.
+A supported component may name explicit runtime requirements, such as a Pi
+integration or platform capability. Requirement availability is assessed
+separately; it is not a fourth component verdict. The plugin is activatable only
+when all runtime components are supported and every requirement they cite is
+available. Metadata-only fields do not prevent activation. There is no
+partial-install mode.
 
 The compatibility report lists every discovered component and its verdict
 before installation changes active state.

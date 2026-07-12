@@ -73,7 +73,9 @@ ambiguous identity prevent activation.
 
 Source is TypeScript 7.0. The package builds ESM JavaScript for Node.js 24 and
 publishes compiled entry points rather than relying on Pi's runtime TypeScript
-loader.
+loader. Zod 4 schemas are the runtime contract source of truth; public
+TypeScript types are inferred from those schemas rather than maintained as
+parallel interfaces.
 
 ```text
 src/
@@ -175,34 +177,40 @@ identity, and trust identity.
 ### Normalized bundle
 
 ```typescript
+interface Claimed<T> {
+  value: T;
+  provenance: readonly [Provenance, ...Provenance[]];
+}
+
 interface NormalizedPlugin {
   identity: PluginIdentity;
-  version?: string;
-  description?: string;
+  version?: Claimed<string>;
+  description?: Claimed<string>;
   source: ResolvedPluginSource;
-  configuration: PluginConfigurationSchema;
+  configuration: PluginConfiguration;
   components: PluginComponents;
-  metadata: PluginMetadata;
-  claims: SourceClaim[];
+  metadata: RetainedMetadata[];
 }
 
 interface PluginComponents {
   skills: SkillComponent[];
   hooks: HookComponent[];
   mcpServers: McpServerComponent[];
-  unsupported: UnsupportedComponent[];
+  foreign: RetainedForeignComponent[];
 }
 
-interface UnsupportedComponent {
+interface RetainedForeignComponent {
   nativeHost: "claude" | "codex";
-  nativeKind: string;
-  location: string;
-  reason: string;
+  nativeKind: Claimed<string>;
+  declaration: Claimed<JsonValue>;
 }
 ```
 
-`claims` retain the source file and field behind each normalized value. Error
-messages can therefore identify the exact conflicting declarations.
+Every normalized value carries its own source provenance. Equivalent declarations
+may contribute multiple provenance records; conflicting values therefore identify
+the exact declarations without relying on a separate flat claims list. Readers
+retain unknown runtime declarations as foreign components. Compatibility policy,
+not the format reader, assigns their verdict.
 
 ### Compatibility
 
@@ -212,17 +220,33 @@ type ComponentVerdict =
   | { kind: "metadata-only"; reason: string }
   | { kind: "incompatible"; reason: string };
 
+interface ComponentAssessment {
+  componentId: ComponentId;
+  verdict: ComponentVerdict;
+  requirementIds: RuntimeRequirementId[];
+  diagnostics: Diagnostic[];
+}
+
+interface RuntimeRequirementAssessment {
+  requirement: RuntimeRequirement;
+  status: "available" | "unavailable";
+  explanation: string;
+}
+
 interface CompatibilityReport {
   plugin: PluginIdentity;
   activatable: boolean;
   components: ComponentAssessment[];
-  requirements: RuntimeRequirement[];
-  warnings: CompatibilityWarning[];
+  requirements: RuntimeRequirementAssessment[];
+  diagnostics: Diagnostic[];
 }
 ```
 
 `activatable` is derived: it is true only when no runtime component is
-incompatible and all runtime requirements are available.
+incompatible and every requirement cited by a supported component is available.
+Conditional support is represented by a supported verdict plus an explicit
+runtime requirement, not by a fourth verdict. This domain defines report
+mechanics; compatibility rule instances live in the compatibility evaluator.
 
 ## Format ingestion
 
@@ -636,9 +660,12 @@ Every external error contains:
 - actionable explanation;
 - underlying cause for logs.
 
-One malformed plugin entry does not invalidate an otherwise valid marketplace.
-A malformed marketplace root prevents registration because its identity cannot
-be trusted.
+Readers return stable-code diagnostics for malformed entries and may preserve
+valid siblings in a partial-success collection result. They throw typed boundary
+errors only when the enclosing marketplace or manifest root cannot be trusted,
+or when an external adapter fails. One malformed plugin entry therefore does not
+invalidate an otherwise valid marketplace. A malformed marketplace root prevents
+registration because its identity cannot be trusted.
 
 ## Concurrency
 
