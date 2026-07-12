@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-compatibility-reporting
 kind: feature
-stage: review
+stage: implementing
 tags: [compatibility]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-plugin-bundle-ingestion]
@@ -432,4 +432,4 @@ Integrated verification: `npm test` passes 347 tests plus clean typecheck and de
 
 ## Review findings
 
-The first review-hardening story enforces hook-condition grammar, coherent OAuth flow selection, exact nested MCP features, and complete fixture outcomes. Final certification then found bearer/OAuth selector conflicts and embedded URL credentials; `epic-foreign-plugin-model-compatibility-reporting-review-hardening-2` is done and closes both with coherent auth selection and redacted credential checks. Independent integrated verification passes 350 tests plus clean typecheck and dependency boundaries, build, and exact 131-export package import. The feature returns to `stage: review` for final confirmation.
+The first two review-hardening stories close hook-condition, nested MCP, OAuth/bearer ambiguity, URL credential, and fixture-outcome gaps. Final certification then found HTTP headers/bearer semantics still accepted on stdio. `epic-foreign-plugin-model-compatibility-reporting-review-hardening-3` tracks transport-specific field coherence; the feature remains at `stage: implementing` until it closes.
