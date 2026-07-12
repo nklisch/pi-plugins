@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores-trust-pointers-ports
 kind: story
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-state-schemas-stores
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores-scope-versioning]
@@ -58,3 +58,13 @@ Trust collection/revocation policy, executable-surface canonicalization, configu
 - Tests added: trust subject derivation and policy/secrets exclusion; exact user/project pointer sets; corruption isolation, duplicate quarantine, redacted fatal failures, digest verification, and deterministic encoding; mutation boundary and empty/wrong-generation/forbidden-field validation.
 - Discrepancies from design: none.
 - Adjacent issues parked: none.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane trust/pointer/port review. Independently confirmed 408 tests, clean typecheck and dependency boundaries, build, and exact 131-export package import. Verdict: Approve - story verified by implement; fast-lane advance.
