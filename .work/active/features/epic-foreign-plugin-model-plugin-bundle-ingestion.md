@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-plugin-bundle-ingestion
 kind: feature
-stage: review
+stage: implementing
 tags: [compatibility]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-source-materialization, epic-foreign-plugin-model-marketplace-ingestion]
@@ -614,3 +614,14 @@ All five child stories are done:
 The implementation delivers versioned component identities, a manifest-backed finite content index, pure host manifest/skill/config/hook/MCP readers, authority-aware reconciliation, opaque unsupported inventory, bounded YAML handling, an all-or-nothing inspection service, an exact Node content reader, and an explicit composition root. It does not evaluate compatibility or activate content.
 
 Integrated verification: `npm test` passes 300 tests plus typecheck, dependency boundaries with no violations, build, and exact 114-export compiled package import.
+
+## Other agent review
+
+- Phase 1 completeness: Z.AI GLM 5.2 xhigh, deep convergence. Verified the behavioral acceptance surface and identified missing focused service/reconciler coverage plus orphaned adversarial fixtures.
+- Phase 2 contract quality: GPT-5.6 Sol high, five-pass convergence. Reproduced dropped catalog foreign declarations, unsafe unknown-field metadata classification, UTF-8 exceptions escaping result semantics, unverifiable hook foreign IDs, and ignored JSON byte limits.
+- Accepted: every blocker and important finding; they affect complete inventory, fail-closed classification, all-or-nothing results, identity integrity, or configured bounds. Tracked by `epic-foreign-plugin-model-plugin-bundle-ingestion-review-hardening`.
+- Deferred as nits: stale historical export counts, unused context limit plumbing, diagnostic-shape consistency, and prose ordering descriptions.
+
+## Review findings
+
+The feature returns to `stage: implementing` until the review-hardening story restores complete foreign inventory, strict unknown-field classification, value-boundary decoding, verifiable hook IDs, end-to-end limits, and focused service/reconciler coverage.
