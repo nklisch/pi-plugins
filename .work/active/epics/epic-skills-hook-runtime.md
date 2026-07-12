@@ -42,3 +42,8 @@ This epic does not manage marketplace acquisition or plugin state and does not h
 - research-backed subagent interception contract and adapter integration
 
 <!-- The design pass on each child feature will fill in real specifics. -->
+
+## Design decisions
+
+- **Alignment status**: No unresolved high-level choices surfaced. The compatibility contract already fixes the supported command-hook events, handler forms, matcher aliases, input and output behavior, concurrency, cancellation, continuation guards, and conditional subagent interception requirement. The upstream-or-fork subagent contract and exact event adapter interfaces require grounded feature-level research rather than an epic-level preference.
+- **Discovery posture**: Direct-read only — the repository has no runtime implementation yet, while the foundation documents and sibling epic boundaries fully assign the relevant surfaces.
