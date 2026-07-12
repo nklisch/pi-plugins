@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores-config-portable
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-state-schemas-stores
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores-scope-versioning]
@@ -45,3 +45,12 @@ The host config records declaration plus manual/automatic application preference
 - [ ] Local/file/absolute/home/drive/UNC paths, embedded credentials, canonical/resolved hashes, project keys, blob/cache/data refs, installed/active state, timestamps, trust, secret/config refs, operations, diagnostics, and projections are rejected at any depth.
 - [ ] Every requested plugin refers to a declared marketplace and duplicate identities fail.
 - [ ] Unknown future schema versions and unknown nested fields fail closed.
+
+## Implementation notes
+
+- Execution capability: inline single-owner implementation; the two domain modules and focused tests form one cohesive, adapter-free boundary, and the caller explicitly prohibited agents.
+- Review weight: standard (default); implementation stops at the requested `stage: review` boundary.
+- Files changed: `src/domain/state/config-state.ts`, `src/domain/state/portable-project-declaration.ts`, `test/domain/state/config-state.test.ts`, `test/domain/state/portable-project-declaration.test.ts`.
+- Tests added: strict host configuration/version-family tests; portable round-trip, source-registry, path-safety, identity-integrity, recursive prohibition, fail-closed, and future-version tests.
+- Discrepancies from design: none; the shared `GenerationSchema` and independently versioned family exports live beside these schemas so later state registry work can consume them without duplicating contracts.
+- Adjacent issues parked: none.
