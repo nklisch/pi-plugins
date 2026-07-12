@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-domain-contracts-compatibility-errors-api
 kind: story
-stage: review
+stage: done
 tags: [compatibility, infra]
 parent: epic-foreign-plugin-model-domain-contracts
 depends_on: [epic-foreign-plugin-model-domain-contracts-plugin-inventory-contracts]
@@ -53,3 +53,13 @@ Use the exact schemas, registries, constructors, error/result signatures, and ex
 - `npm test` — 117 tests passed, typecheck and dependency boundaries passed.
 - `npm run build` — passed.
 - Compiled import probes for `./dist/index.js` and `@nklisch/pi-plugin-host` — passed.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane story review. Independently confirmed `npm test` (117 tests, typecheck, and boundaries) and `npm run build` plus compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
