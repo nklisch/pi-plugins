@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-generation-locking-contracts-scheduler
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-generation-locking
 depends_on: []
@@ -41,3 +41,13 @@ Establish the portable application contracts for cross-process scope leases and 
 ## Verification
 
 Run focused scheduler tests, direct `tsc -p tsconfig.test.json --noEmit`, dependency boundaries, and the relevant public type assertions.
+
+## Implementation notes
+- Execution capability: direct-read inline implementation; the caller explicitly prohibited agents and the scheduler has one cohesive application ownership surface.
+- Review weight: standard from the feature design/default policy; this requested run stops at `stage: review`.
+- Files changed: `src/application/ports/scope-lock.ts`, `src/application/mutation-coordination.ts`, `src/application/keyed-mutation-scheduler.ts`, and `test/application/keyed-mutation-scheduler.test.ts`.
+- Tests added: FIFO same-key serialization, unrelated scope/plugin overlap, canonical multi-key ordering, cancellation identity and queue removal, callback cleanup, nested context checks, and injective key behavior.
+- Discrepancies from design: empty scheduler requests are accepted as an explicit no-key context so the generation coordinator can serialize scope-only mutations with its scope lease; ordinary plugin requests still validate one scope and duplicate-free keys.
+- Adjacent issues parked: none.
+
+Verification completed: `npm run typecheck`, `npm run boundaries`, and focused scheduler tests (`8 passed`). The repository-wide test typecheck currently has pre-existing unrelated branded-type failures in configuration/trust tests; no scheduler test failure was introduced.
