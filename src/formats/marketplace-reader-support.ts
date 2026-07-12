@@ -524,7 +524,7 @@ const declarationShapes: Readonly<Record<NativeHost, DeclarationShape>> = {
     dependencyKeys: new Set([
       "name", "id", "package", "plugin", "source", "url", "path", "repo",
       "repository", "registry", "version", "selector", "constraint", "range",
-      "ref", "sha", "optional", "platform",
+      "ref", "sha", "optional", "platform", "policy",
     ]),
     pluginKeys: new Set([
       "name", "id", "source", "url", "path", "repo", "repository", "version",
@@ -549,7 +549,7 @@ const declarationShapes: Readonly<Record<NativeHost, DeclarationShape>> = {
     dependencyKeys: new Set([
       "name", "id", "package", "plugin", "source", "url", "path", "repo",
       "repository", "registry", "version", "selector", "constraint", "range",
-      "ref", "sha", "optional", "platform",
+      "ref", "sha", "optional", "platform", "policy",
     ]),
     pluginKeys: new Set([
       "name", "id", "source", "url", "path", "repo", "repository", "version",
@@ -753,12 +753,45 @@ function validateHooks(value: JsonValue, pointer: string, field: string, nativeH
 }
 
 const serverEndpointKeys = new Set(["command", "url", "httpUrl", "http_url", "path"]);
+const oauthStringFields = [
+  "clientId",
+  "clientSecret",
+  "authorizationUrl",
+  "tokenUrl",
+  "accessTokenEnvVar",
+] as const;
+const oauthFields = new Set<string>([...oauthStringFields, "scopes"]);
+const nestedPolicyFields = new Set(["installation", "authentication"]);
 const dependencyIdentityKeys = new Set([
   "name", "id", "package", "plugin", "source", "url", "path", "repo", "repository",
 ]);
 const pluginIdentityKeys = new Set([
   "name", "id", "source", "url", "path", "repo", "repository",
 ]);
+
+function validateOAuthRecord(value: JsonValue, pointer: string, field: string): void {
+  const oauth = nonEmptyRecord(value, pointer, field);
+  requireKnownKey(oauth, oauthFields, pointer, field);
+  for (const key of oauthStringFields) {
+    if (oauth[key] !== undefined) {
+      validateNonEmptyString(oauth[key], declarationPointer(pointer, key), `${field}.${key}`);
+    }
+  }
+  if (oauth.scopes !== undefined) {
+    validateStringArray(oauth.scopes, declarationPointer(pointer, "scopes"), `${field}.scopes`);
+  }
+}
+
+function validateNestedPolicy(value: JsonValue, pointer: string, field: string): void {
+  const policy = nonEmptyRecord(value, pointer, field);
+  requireKnownKey(policy, nestedPolicyFields, pointer, field);
+  if (policy.installation !== undefined) {
+    validateNonEmptyString(policy.installation, declarationPointer(pointer, "installation"), `${field}.installation`);
+  }
+  if (policy.authentication !== undefined) {
+    validateNonEmptyString(policy.authentication, declarationPointer(pointer, "authentication"), `${field}.authentication`);
+  }
+}
 
 function validateServerRecord(
   value: JsonValue,
@@ -798,11 +831,7 @@ function validateServerRecord(
     validateBoolean(record.required, declarationPointer(pointer, "required"), `${field}.required`);
   }
   if (record.oauth !== undefined) {
-    const oauth = nonEmptyRecord(record.oauth, declarationPointer(pointer, "oauth"), `${field}.oauth`);
-    requireKnownKey(oauth, new Set(["clientId", "clientSecret", "authorizationUrl", "tokenUrl", "scopes", "accessTokenEnvVar"]), declarationPointer(pointer, "oauth"), `${field}.oauth`);
-    if (oauth.scopes !== undefined) {
-      validateStringArray(oauth.scopes, declarationPointer(declarationPointer(pointer, "oauth"), "scopes"), `${field}.oauth.scopes`);
-    }
+    validateOAuthRecord(record.oauth, declarationPointer(pointer, "oauth"), `${field}.oauth`);
   }
   if (!Object.keys(record).some((key) => serverEndpointKeys.has(key))) {
     invalidDeclaration(pointer, `${field} server must declare a command, URL, path, or HTTP endpoint`);
@@ -899,8 +928,7 @@ function validateDependencyRecord(
     validateDependencyDeclaration(record.dependencies, declarationPointer(pointer, "dependencies"), "dependencies", nativeHost);
   }
   if (record.policy !== undefined) {
-    const policy = nonEmptyRecord(record.policy, declarationPointer(pointer, "policy"), `${field}.policy`);
-    requireKnownKey(policy, new Set(["installation", "authentication"]), declarationPointer(pointer, "policy"), `${field}.policy`);
+    validateNestedPolicy(record.policy, declarationPointer(pointer, "policy"), `${field}.policy`);
   }
 }
 

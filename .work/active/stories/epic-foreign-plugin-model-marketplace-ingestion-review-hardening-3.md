@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion-review-hardening-3
 kind: story
-stage: implementing
+stage: review
 tags: [compatibility, tests]
 parent: epic-foreign-plugin-model-marketplace-ingestion
 depends_on: [epic-foreign-plugin-model-marketplace-ingestion-review-hardening-2]
@@ -27,7 +27,15 @@ Close two residual blockers reproduced by the final adversarial marketplace revi
 
 ## Acceptance criteria
 
-- [ ] Malformed nested OAuth and installation-policy value types drop only their entry with exact diagnostics.
-- [ ] Valid `.github`-style repository names map correctly; invalid GitHub shorthand remains rejected.
-- [ ] Both Claude and Codex declaration registries receive equivalent malformed-nested regression coverage where fields overlap.
-- [ ] Full `npm test`, build, boundaries, and compiled package import pass.
+- [x] Malformed nested OAuth and installation-policy value types drop only their entry with exact diagnostics.
+- [x] Valid `.github`-style repository names map correctly; invalid GitHub shorthand remains rejected.
+- [x] Both Claude and Codex declaration registries receive equivalent malformed-nested regression coverage where fields overlap.
+- [x] Full `npm test`, build, boundaries, and compiled package import pass.
+
+## Implementation notes
+
+- Files changed: `src/domain/source.ts`, `src/formats/claude/marketplace-reader.ts`, `src/formats/marketplace-reader-support.ts`, `test/domain/source.test.ts`, `test/formats/claude/marketplace-reader.test.ts`, `test/formats/codex/marketplace-reader.test.ts`.
+- Tests added: deepest-pointer OAuth and nested policy type regressions for both host readers; valid raw declaration retention; shared GitHub shorthand grammar coverage including leading-dot repositories and invalid dot segments/suffixes/control/URL forms.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+- Verification: `npm test` passed 218 tests, typecheck, dependency boundaries, build, and compiled package import; independent `npm run build && node test/compiled-package-import.mjs` passed with 94 exports.

@@ -31,7 +31,8 @@ const CanonicalSourceKinds = new Set([
 ]);
 const ScpGitUrl = /^(?:(?<user>[A-Za-z0-9._-]+)@)?(?<host>[A-Za-z0-9.-]+):(?<path>[^/\\\s:][^\s]*)$/;
 const CanonicalScpGitUrl = /^scp:\/\/(?:(?<user>[A-Za-z0-9._-]+)@)?(?<host>[A-Za-z0-9.-]+)\/(?<path>[^/\\\s:][^\s]*)$/;
-const GitHubRepository = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const GitHubOwner = /^(?=.{1,39}$)(?!-)(?!.*--)[A-Za-z0-9-]+(?<!-)$/;
+const GitHubRepositoryName = /^(?=.{1,100}$)(?!\.{1,2}$)(?!.*\.$)[A-Za-z0-9._-]+$/;
 
 function hasLoneSurrogate(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
@@ -61,6 +62,28 @@ function rejectLoneSurrogates(value: string, context: z.RefinementCtx): void {
 
 const SourceStringSchema = z.string().superRefine(rejectLoneSurrogates);
 const NonEmptySourceStringSchema = SourceStringSchema.min(1);
+
+/**
+ * Validate GitHub's shorthand grammar without turning source validation into a
+ * network lookup. Repository names may begin with a dot (for example,
+ * `.github`), but `.` and `..` are path segments rather than repository names.
+ */
+export function isValidGitHubRepository(value: string): boolean {
+  const slash = value.indexOf("/");
+  if (slash <= 0 || value.indexOf("/", slash + 1) !== -1) {
+    return false;
+  }
+  const owner = value.slice(0, slash);
+  const repository = value.slice(slash + 1);
+  return GitHubOwner.test(owner) &&
+    GitHubRepositoryName.test(repository) &&
+    !repository.toLowerCase().endsWith(".git");
+}
+
+const GitHubRepositorySchema = SourceStringSchema.refine(
+  isValidGitHubRepository,
+  "GitHub repository must be exactly owner/repository with valid GitHub names",
+);
 
 function hasValidPercentEscapes(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
@@ -156,7 +179,7 @@ export const MarketplaceSourceVariantRegistry = {
     schema: z
       .object({
         kind: z.literal("github"),
-        repository: SourceStringSchema.regex(GitHubRepository),
+        repository: GitHubRepositorySchema,
         ref: NonEmptySourceStringSchema.optional(),
       })
       .strict(),
@@ -337,7 +360,7 @@ function isCanonicalFieldValue(
     case "path":
       return isCanonicalEncodedPath(value);
     case "repository":
-      return SourceStringSchema.regex(GitHubRepository).safeParse(value).success;
+      return GitHubRepositorySchema.safeParse(value).success;
     case "sha":
     case "revision":
     case "marketplaceRevision":

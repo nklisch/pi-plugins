@@ -12,7 +12,11 @@ import {
   type MarketplaceName,
   type PluginName,
 } from "../../domain/identity.js";
-import { PluginSourceSchema, type PluginSource } from "../../domain/source.js";
+import {
+  isValidGitHubRepository,
+  PluginSourceSchema,
+  type PluginSource,
+} from "../../domain/source.js";
 import { type JsonValue } from "../../domain/schema.js";
 import {
   MarketplaceEntryDeclarationRegistry,
@@ -168,25 +172,12 @@ function requireSourceString(value: JsonValue | undefined, field: string, pointe
   return value;
 }
 
-// GitHub's documented shorthand grammar is intentionally lexical: owner
-// names are usernames/org slugs (ASCII alphanumerics and single hyphens),
-// while repository names additionally permit `_` and `.`. This validates the
-// host's name grammar without turning catalog ingestion into a network lookup.
-const GitHubOwner = /^(?=.{1,39}$)(?!-)(?!.*--)[A-Za-z0-9-]+(?<!-)$/;
-const GitHubRepositoryName = /^(?=.{1,100}$)(?!\.)(?!.*\.$)[A-Za-z0-9._-]+$/;
+// GitHub's shorthand grammar is shared with the marketplace source contract
+// so catalog URL synthesis and direct source validation cannot drift.
 
 function requireGithubRepository(value: JsonValue | undefined, pointer: string): string {
   const repository = requireSourceString(value, "repo", pointer);
-  const slash = repository.indexOf("/");
-  const owner = slash < 0 ? "" : repository.slice(0, slash);
-  const repositoryName = slash < 0 ? "" : repository.slice(slash + 1);
-  if (
-    slash <= 0 ||
-    repository.indexOf("/", slash + 1) !== -1 ||
-    !GitHubOwner.test(owner) ||
-    !GitHubRepositoryName.test(repositoryName) ||
-    repositoryName.toLowerCase().endsWith(".git")
-  ) {
+  if (!isValidGitHubRepository(repository)) {
     throw sourceFailure(pointer, "repo must be exactly owner/repository with GitHub owner and repository names, without .git or URL syntax");
   }
   return repository;

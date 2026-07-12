@@ -72,6 +72,8 @@ describe("Claude marketplace reader", () => {
       name: "catalog",
       plugins: [
         { name: "github", source: { source: "github", repo: "owner/repo", ref: "v1" } },
+        { name: "github-leading-dot", source: { source: "github", repo: "owner/.github" } },
+        { name: "github-dot-name", source: { source: "github", repo: "owner/.repository" } },
         { name: "url", source: { source: "url", url: "ssh://git@example.com/repo.git", sha: "0123456789abcdef0123456789abcdef01234567" } },
         { name: "subdir", source: { source: "git-subdir", url: "https://example.com/repo.git", path: "./plugin" } },
         { name: "npm", source: { source: "npm", package: "@example/plugin", version: "latest", registry: "https://registry.example.com/" } },
@@ -80,6 +82,8 @@ describe("Claude marketplace reader", () => {
     expect(result.diagnostics).toEqual([]);
     expect(result.marketplace.entries.map((entry) => entry.source.value)).toEqual([
       { kind: "git", url: "https://github.com/owner/repo.git", ref: "v1" },
+      { kind: "git", url: "https://github.com/owner/.github.git" },
+      { kind: "git", url: "https://github.com/owner/.repository.git" },
       { kind: "git", url: "ssh://git@example.com/repo.git", sha: "0123456789abcdef0123456789abcdef01234567" },
       { kind: "git-subdir", url: "https://example.com/repo.git", path: "plugin" },
       { kind: "npm", package: "@example/plugin", selector: "latest", registry: "https://registry.example.com/" },
@@ -241,7 +245,78 @@ describe("Claude marketplace reader", () => {
     expect(valid.rawDeclaration.provenance[0]?.declaration).toMatchObject({ name: "valid", source: "./valid" });
   });
 
+  it("validates nested OAuth and policy value types without discarding valid raw declarations", () => {
+    const result = readClaudeMarketplace({
+      name: "nested-value-types",
+      plugins: [
+        {
+          name: "bad-oauth",
+          source: "./bad-oauth",
+          mcpServers: { main: { command: "node", oauth: { clientId: {} } } },
+        },
+        {
+          name: "bad-plugin-policy",
+          source: "./bad-plugin-policy",
+          plugins: [{ name: "nested", source: "./nested", policy: { installation: {} } }],
+        },
+        {
+          name: "bad-dependency-authentication",
+          source: "./bad-dependency-authentication",
+          dependencies: [{ name: "helper", policy: { authentication: [] } }],
+        },
+        {
+          name: "valid",
+          source: "./valid",
+          mcpServers: {
+            main: {
+              command: "node",
+              oauth: {
+                clientId: "client-id",
+                clientSecret: "client-secret",
+                authorizationUrl: "https://example.com/authorize",
+                tokenUrl: "https://example.com/token",
+                accessTokenEnvVar: "MCP_TOKEN",
+                scopes: ["read"],
+              },
+            },
+          },
+          plugins: [{ name: "nested", source: "./nested", policy: { installation: "AVAILABLE" } }],
+          dependencies: [{ name: "helper", policy: { authentication: "ON_INSTALL" } }],
+        },
+        { name: "sibling", source: "./sibling" },
+      ],
+    });
+
+    expect(result.marketplace.entries.map((entry) => entry.identity.value.marketplaceEntryName)).toEqual([
+      "valid",
+      "sibling",
+    ]);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.location?.pointer)).toEqual([
+      "/plugins/0/mcpServers/main/oauth/clientId",
+      "/plugins/1/plugins/0/policy/installation",
+      "/plugins/2/dependencies/0/policy/authentication",
+    ]);
+    const valid = result.marketplace.entries[0]!;
+    expect(valid.declarations.map((declaration) => declaration.field)).toEqual([
+      "mcpServers",
+      "dependencies",
+      "plugins",
+    ]);
+    expect(valid.declarations[0]?.declaration.value).toMatchObject({
+      main: { oauth: { clientId: "client-id", scopes: ["read"] } },
+    });
+    expect(valid.declarations[1]?.declaration.value).toEqual([
+      { name: "helper", policy: { authentication: "ON_INSTALL" } },
+    ]);
+    expect(valid.declarations[2]?.declaration.provenance[0]?.location.pointer).toBe("/plugins/3/plugins");
+  });
+
   it.each([
+    "",
+    "owner/",
+    "/repository",
+    "owner/.",
+    "owner/..",
     "owner/repository.git",
     "owner/repository.GIT",
     "owner/repository.GiT",
@@ -252,8 +327,9 @@ describe("Claude marketplace reader", () => {
     "owner/repo/name",
     "owner/repository#fragment",
     "owner/repository?query",
-    "owner/.repository",
     "owner/repository.",
+    "owner/repository\u0000",
+    "https://github.com/owner/repository",
   ])("rejects host-invalid GitHub shorthand %s", (repo) => {
     const result = readClaudeMarketplace({
       name: "github-shorthand",

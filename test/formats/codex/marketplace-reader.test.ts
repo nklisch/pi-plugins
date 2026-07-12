@@ -135,6 +135,76 @@ describe("Codex marketplace reader", () => {
     });
   });
 
+  it("validates nested OAuth and policy value types without discarding valid raw declarations", () => {
+    const result = readCodexMarketplace({
+      name: "nested-value-types",
+      plugins: [
+        {
+          name: "bad-oauth",
+          source: "./bad-oauth",
+          policy: { installation: "AVAILABLE" },
+          mcpServers: { main: { command: "node", oauth: { clientId: {} } } },
+        },
+        {
+          name: "bad-plugin-policy",
+          source: "./bad-plugin-policy",
+          policy: { installation: "AVAILABLE" },
+          plugins: [{ name: "nested", source: "./nested", policy: { installation: {} } }],
+        },
+        {
+          name: "bad-dependency-authentication",
+          source: "./bad-dependency-authentication",
+          policy: { installation: "AVAILABLE" },
+          dependencies: [{ name: "helper", policy: { authentication: [] } }],
+        },
+        {
+          name: "valid",
+          source: "./valid",
+          policy: { installation: "AVAILABLE" },
+          mcpServers: {
+            main: {
+              command: "node",
+              oauth: {
+                clientId: "client-id",
+                clientSecret: "client-secret",
+                authorizationUrl: "https://example.com/authorize",
+                tokenUrl: "https://example.com/token",
+                accessTokenEnvVar: "MCP_TOKEN",
+                scopes: ["read"],
+              },
+            },
+          },
+          plugins: [{ name: "nested", source: "./nested", policy: { installation: "AVAILABLE" } }],
+          dependencies: [{ name: "helper", policy: { authentication: "ON_INSTALL" } }],
+        },
+        { name: "sibling", source: "./sibling", policy: { installation: "NOT_AVAILABLE" } },
+      ],
+    });
+
+    expect(result.marketplace.entries.map((entry) => entry.identity.value.marketplaceEntryName)).toEqual([
+      "valid",
+      "sibling",
+    ]);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.location?.pointer)).toEqual([
+      "/plugins/0/mcpServers/main/oauth/clientId",
+      "/plugins/1/plugins/0/policy/installation",
+      "/plugins/2/dependencies/0/policy/authentication",
+    ]);
+    const valid = result.marketplace.entries[0]!;
+    expect(valid.declarations.map((declaration) => declaration.field)).toEqual([
+      "mcpServers",
+      "dependencies",
+      "plugins",
+    ]);
+    expect(valid.declarations[0]?.declaration.value).toMatchObject({
+      main: { oauth: { clientId: "client-id", scopes: ["read"] } },
+    });
+    expect(valid.declarations[1]?.declaration.value).toEqual([
+      { name: "helper", policy: { authentication: "ON_INSTALL" } },
+    ]);
+    expect(valid.declarations[2]?.declaration.provenance[0]?.location.pointer).toBe("/plugins/3/plugins");
+  });
+
   it("normalizes repository subdirectory aliases while retaining raw spelling", () => {
     const result = readCodexMarketplace({
       name: "codex-catalog",

@@ -57,6 +57,29 @@ describe("source schemas", () => {
     }
   });
 
+  it("uses GitHub's verified owner/repository lexical grammar", () => {
+    for (const repository of ["owner/repository", "owner/.github", "owner/.repository", "owner/repo_name"]) {
+      expect(MarketplaceSourceSchema.safeParse({ kind: "github", repository }).success).toBe(true);
+    }
+    for (const repository of [
+      "",
+      "owner/",
+      "/repository",
+      "owner/.",
+      "owner/..",
+      "owner/repository.git",
+      "owner/repository.GIT",
+      "owner/repository.",
+      "owner/repo/name",
+      "owner/repository#fragment",
+      "owner/repository?query",
+      "owner/repository\\u0000",
+      "https://github.com/owner/repository",
+    ]) {
+      expect(MarketplaceSourceSchema.safeParse({ kind: "github", repository }).success).toBe(false);
+    }
+  });
+
   it("parses every declared plugin variant from its registry", () => {
     const samples = {
       marketplacePath: { kind: "marketplace-path", path: "./plugins/demo" },
