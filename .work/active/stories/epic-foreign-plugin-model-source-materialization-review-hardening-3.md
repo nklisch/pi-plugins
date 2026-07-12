@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization-review-hardening-3
 kind: story
-stage: review
+stage: done
 tags: [security, infra, tests]
 parent: epic-foreign-plugin-model-source-materialization
 depends_on: [epic-foreign-plugin-model-source-materialization-review-hardening-2]
@@ -42,3 +42,13 @@ Close two residual source-materialization certification findings.
 - Adjacent issues parked: none.
 - Reproduced before implementation: the marketplace coordinator accepted a resolved revision different from a full SHA-shaped marketplace `ref`; a nested tree hashed an enumerated sibling after descendants exhausted the configured entry budget.
 - Verification: `npm test` passed 26 files and 237 tests, including typecheck, dependency boundaries, build, and compiled package import; independent `npm run build && node test/compiled-package-import.mjs` passed with 94 exports.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane certification-hardening review. Independently confirmed `npm test`: 237 tests, typecheck, 156 dependency edges with no violations, build, and exact 94-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
