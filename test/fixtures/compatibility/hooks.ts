@@ -1,5 +1,13 @@
 import { CompatibilityPolicyRegistry } from "../../../src/domain/compatibility-policy.js";
-import { directPlugin, fixtureProvenance, claimFixture, componentId, type PolicyFixture } from "./common.js";
+import {
+  directPlugin,
+  fixtureProvenance,
+  claimFixture,
+  componentId,
+  expectedOutcome,
+  expectedRequirement,
+  type PolicyFixture,
+} from "./common.js";
 
 function hook(
   event: string,
@@ -35,6 +43,13 @@ export const hookPolicyFixtures: readonly PolicyFixture[] = [
     positive: baseline,
     negative: () => directPlugin(),
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      requirements: [
+        expectedRequirement("hook", "1", "pi.hooks.command"),
+        expectedRequirement("hook", "1", "platform.shell.bash"),
+      ],
+    }),
+    negativeExpected: expectedOutcome([], true),
   },
   {
     id: "hook-status-message",
@@ -45,6 +60,21 @@ export const hookPolicyFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "supported",
     diagnosticRuleId: "hook.status-message",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["hook.status-message"],
+      diagnosticSourcePointers: ["/hooks/SessionStart/0/statusMessage"],
+      requirements: [
+        expectedRequirement("hook", "2", "pi.hooks.command"),
+        expectedRequirement("hook", "2", "platform.shell.bash"),
+      ],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [
+        expectedRequirement("hook", "1", "pi.hooks.command"),
+        expectedRequirement("hook", "1", "platform.shell.bash"),
+      ],
+    }),
   },
   {
     id: "hook-shell-bash",
@@ -52,6 +82,15 @@ export const hookPolicyFixtures: readonly PolicyFixture[] = [
     positive: () => directPlugin({ components: { hooks: [shellHook("3")] } }),
     negative: () => directPlugin({ components: { hooks: [hook("SessionStart", { kind: "exec", command: "bash", args: [] }, [], "4")] } }),
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      requirements: [
+        expectedRequirement("hook", "3", "pi.hooks.command"),
+        expectedRequirement("hook", "3", "platform.shell.bash"),
+      ],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("hook", "4", "pi.hooks.command")],
+    }),
   },
   {
     id: "hook-shell-powershell",
@@ -61,6 +100,18 @@ export const hookPolicyFixtures: readonly PolicyFixture[] = [
     ], "5")] } }),
     negative: baseline,
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      requirements: [
+        expectedRequirement("hook", "5", "pi.hooks.command"),
+        expectedRequirement("hook", "5", "platform.shell.powershell"),
+      ],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [
+        expectedRequirement("hook", "1", "pi.hooks.command"),
+        expectedRequirement("hook", "1", "platform.shell.bash"),
+      ],
+    }),
   },
   {
     id: "hook-if-rule",
@@ -69,9 +120,17 @@ export const hookPolicyFixtures: readonly PolicyFixture[] = [
       metadata("claude.hook.if", { field: "tool_name", operator: "equals", value: "bash" }, "/hooks/PreToolUse/0/if"),
     ], "6")] } }),
     negative: () => directPlugin({ components: { hooks: [hook("PreToolUse", { kind: "exec", command: "check", args: [] }, [
-      metadata("claude.hook.if", { field: "tool_name", operator: "unknown", value: "bash" }, "/hooks/PreToolUse/0/if"),
+      metadata("claude.hook.if", "arbitrary condition syntax", "/hooks/PreToolUse/0/if"),
     ], "7")] } }),
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("hook", "6", "pi.hooks.command")],
+    }),
+    negativeExpected: expectedOutcome(["incompatible"], false, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["hook.event.default-deny"],
+      diagnosticSourcePointers: ["/hooks/PreToolUse/0/if"],
+    }),
   },
   {
     id: "hook-async",
@@ -87,6 +146,17 @@ export const hookPolicyFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "incompatible",
     diagnosticRuleId: "hook.async",
+    positiveExpected: expectedOutcome(["incompatible", "incompatible"], false, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["hook.async", "hook.async"],
+      diagnosticSourcePointers: ["/hooks/SessionStart/0/async", "/hooks/SessionEnd/0/asyncRewake"],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [
+        expectedRequirement("hook", "1", "pi.hooks.command"),
+        expectedRequirement("hook", "1", "platform.shell.bash"),
+      ],
+    }),
   },
   {
     id: "hook-handler-unsupported",
@@ -102,6 +172,17 @@ export const hookPolicyFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "incompatible",
     diagnosticRuleId: "hook.handler.unsupported",
+    positiveExpected: expectedOutcome(["incompatible"], false, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["hook.handler.unsupported"],
+      diagnosticSourcePointers: ["/hooks/SessionStart/0/hooks/0/type", "/hooks/SessionStart/0/hooks/0"],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [
+        expectedRequirement("hook", "1", "pi.hooks.command"),
+        expectedRequirement("hook", "1", "platform.shell.bash"),
+      ],
+    }),
   },
   {
     id: "hook-event-supported",
@@ -111,6 +192,15 @@ export const hookPolicyFixtures: readonly PolicyFixture[] = [
     ) } }),
     negative: () => directPlugin({ components: { hooks: [hook("PermissionRequest", { kind: "exec", command: "check", args: [] }, [], "11")] } }),
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(CompatibilityPolicyRegistry.hookEvents.supported.map(() => "supported"), true, {
+      requirements: CompatibilityPolicyRegistry.hookEvents.supported.map((_, index) =>
+        expectedRequirement("hook", `d${(index + 1).toString(16)}`, "pi.hooks.command")),
+    }),
+    negativeExpected: expectedOutcome(["incompatible"], false, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["hook.event.incompatible"],
+      diagnosticSourcePointers: ["/hooks/PermissionRequest"],
+    }),
   },
   {
     id: "hook-event-subagent",
@@ -118,6 +208,18 @@ export const hookPolicyFixtures: readonly PolicyFixture[] = [
     positive: () => directPlugin({ components: { hooks: [hook("SubagentStart", { kind: "exec", command: "check", args: [] }, [], "12")] } }),
     negative: baseline,
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      requirements: [
+        expectedRequirement("hook", "12", "pi.hooks.command"),
+        expectedRequirement("hook", "12", "pi.subagents.lifecycle-interception"),
+      ],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [
+        expectedRequirement("hook", "1", "pi.hooks.command"),
+        expectedRequirement("hook", "1", "platform.shell.bash"),
+      ],
+    }),
   },
   {
     id: "hook-event-incompatible",
@@ -128,6 +230,17 @@ export const hookPolicyFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "incompatible",
     diagnosticRuleId: "hook.event.incompatible",
+    positiveExpected: expectedOutcome(CompatibilityPolicyRegistry.hookEvents.incompatible.map(() => "incompatible"), false, {
+      diagnosticCodes: CompatibilityPolicyRegistry.hookEvents.incompatible.map(() => "UNSUPPORTED_DECLARATION"),
+      diagnosticRuleIds: CompatibilityPolicyRegistry.hookEvents.incompatible.map(() => "hook.event.incompatible"),
+      diagnosticSourcePointers: CompatibilityPolicyRegistry.hookEvents.incompatible.map((event) => `/hooks/${event}`),
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [
+        expectedRequirement("hook", "1", "pi.hooks.command"),
+        expectedRequirement("hook", "1", "platform.shell.bash"),
+      ],
+    }),
   },
   {
     id: "hook-event-default-deny",
@@ -136,6 +249,17 @@ export const hookPolicyFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "incompatible",
     diagnosticRuleId: "hook.event.default-deny",
+    positiveExpected: expectedOutcome(["incompatible"], false, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["hook.event.default-deny"],
+      diagnosticSourcePointers: ["/hooks/FutureLifecycleEvent"],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [
+        expectedRequirement("hook", "1", "pi.hooks.command"),
+        expectedRequirement("hook", "1", "platform.shell.bash"),
+      ],
+    }),
   },
 ];
 

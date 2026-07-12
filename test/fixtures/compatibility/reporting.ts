@@ -1,4 +1,11 @@
-import { directPlugin, fixtureProvenance, claimFixture, type PolicyFixture } from "./common.js";
+import {
+  directPlugin,
+  fixtureProvenance,
+  claimFixture,
+  expectedOutcome,
+  expectedRequirement,
+  type PolicyFixture,
+} from "./common.js";
 import { foreignPolicyFixtures } from "./foreign.js";
 import { mcpPolicyFixtures } from "./mcp.js";
 
@@ -18,6 +25,8 @@ export const reportingPolicyFixtures: readonly PolicyFixture[] = [
     positive: () => directPlugin(),
     negative: () => directPlugin(),
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome([], true),
+    negativeExpected: expectedOutcome([], true),
   },
   {
     id: "requirement-separate-status",
@@ -25,6 +34,15 @@ export const reportingPolicyFixtures: readonly PolicyFixture[] = [
     positive: sampling.positive,
     negative: sampling.negative,
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      requirements: [
+        expectedRequirement("mcp-server", "d", "pi.mcp.runtime"),
+        expectedRequirement("mcp-server", "d", "pi.mcp.sampling"),
+      ],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+    }),
   },
   {
     id: "verdict-metadata-only",
@@ -33,6 +51,12 @@ export const reportingPolicyFixtures: readonly PolicyFixture[] = [
     negative: () => directPlugin(),
     positiveVerdict: "supported",
     diagnosticRuleId: "metadata.known-presentation",
+    positiveExpected: expectedOutcome([], true, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["metadata.known-presentation"],
+      diagnosticSourcePointers: ["/plugins/0/owner"],
+    }),
+    negativeExpected: expectedOutcome([], true),
   },
   {
     id: "verdict-incompatible",
@@ -41,6 +65,8 @@ export const reportingPolicyFixtures: readonly PolicyFixture[] = [
     negative: foreign.negative,
     positiveVerdict: "incompatible",
     diagnosticRuleId: "foreign.default-deny",
+    positiveExpected: foreign.positiveExpected,
+    negativeExpected: foreign.negativeExpected,
   },
   {
     id: "metadata-known-presentation",
@@ -49,5 +75,11 @@ export const reportingPolicyFixtures: readonly PolicyFixture[] = [
     negative: () => directPlugin(),
     positiveVerdict: "supported",
     diagnosticRuleId: "metadata.known-presentation",
+    positiveExpected: expectedOutcome([], true, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["metadata.known-presentation"],
+      diagnosticSourcePointers: ["/plugins/0/owner"],
+    }),
+    negativeExpected: expectedOutcome([], true),
   },
 ];

@@ -181,6 +181,94 @@ describe("pure compatibility evaluator", () => {
     expect(JSON.stringify(report)).not.toContain("secret-helper");
   });
 
+  it("reproduces fail-open hook conditions, ambiguous OAuth, and malformed feature flags", () => {
+    const arbitraryCondition = evaluateCompatibility({
+      plugin: plugin({
+        components: {
+          skills: [],
+          hooks: [{
+            kind: "hook",
+            id: componentId("hook", "5"),
+            event: claim("PreToolUse", manifest),
+            handler: claim({ kind: "exec", command: "check", args: [] }, manifest),
+            metadata: [{
+              key: "claude.hook.if",
+              claimed: claim("arbitrary condition syntax", manifest),
+            }],
+          }],
+          mcpServers: [],
+          foreign: [],
+        },
+      }),
+      capabilities: capabilities(),
+    });
+    expect(arbitraryCondition.components[0]?.verdict.kind).toBe("incompatible");
+    expect(arbitraryCondition.components[0]?.diagnostics[0]?.code).toBe("UNSUPPORTED_DECLARATION");
+    expect(arbitraryCondition.components[0]?.diagnostics[0]?.location?.pointer).toBe("/components");
+    expect(arbitraryCondition.components[0]?.diagnostics[0]?.details).toMatchObject({
+      field: "if",
+      ruleId: "hook.event.default-deny",
+    });
+
+    const ambiguousOAuth = evaluateCompatibility({
+      plugin: plugin({
+        components: {
+          skills: [],
+          hooks: [],
+          mcpServers: [{
+            kind: "mcp-server",
+            id: componentId("mcp-server", "6"),
+            nativeKey: claim("oauth", manifest),
+            declaration: claim({
+              transport: "streamable-http",
+              url: "https://example.invalid/mcp",
+              oauth: { grantType: "authorization-code", flow: "client-credentials" },
+            }, manifest),
+            metadata: [],
+          }],
+          foreign: [],
+        },
+      }),
+      capabilities: capabilities(),
+    });
+    expect(ambiguousOAuth.components[0]?.verdict.kind).toBe("incompatible");
+    expect(ambiguousOAuth.components[0]?.diagnostics[0]?.code).toBe("UNSUPPORTED_DECLARATION");
+    expect(ambiguousOAuth.components[0]?.diagnostics[0]?.location?.pointer).toBe("/components/oauth");
+    expect(ambiguousOAuth.components[0]?.diagnostics[0]?.details).toMatchObject({
+      field: "oauth",
+      ruleId: "mcp.default-deny",
+    });
+
+    const malformedFeature = evaluateCompatibility({
+      plugin: plugin({
+        components: {
+          skills: [],
+          hooks: [],
+          mcpServers: [{
+            kind: "mcp-server",
+            id: componentId("mcp-server", "7"),
+            nativeKey: claim("sampling", manifest),
+            declaration: claim({
+              transport: "stdio",
+              command: "server",
+              features: { sampling: { enabled: "true", required: false } },
+            }, manifest),
+            metadata: [],
+          }],
+          foreign: [],
+        },
+      }),
+      capabilities: capabilities(),
+    });
+    expect(malformedFeature.components[0]?.verdict.kind).toBe("incompatible");
+    expect(malformedFeature.components[0]?.diagnostics[0]?.code).toBe("UNSUPPORTED_DECLARATION");
+    expect(malformedFeature.components[0]?.diagnostics[0]?.location?.pointer).toBe("/components/features/sampling/enabled");
+    expect(malformedFeature.components[0]?.diagnostics[0]?.details).toMatchObject({
+      field: "features.sampling.enabled",
+      ruleId: "mcp.default-deny",
+    });
+  });
+
   it("is deterministic across component and claim insertion order", () => {
     const first = plugin();
     const second = plugin({

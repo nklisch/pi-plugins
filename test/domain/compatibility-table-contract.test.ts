@@ -46,8 +46,73 @@ function reportFor(fixture: PolicyFixture, positive: boolean) {
   });
 }
 
+function diagnosticsFor(report: ReturnType<typeof reportFor>) {
+  return [
+    ...report.diagnostics,
+    ...report.components.flatMap((component) => component.diagnostics),
+  ];
+}
+
+function sourcePointersFor(report: ReturnType<typeof reportFor>): string[] {
+  return diagnosticsFor(report).flatMap((diagnostic) => {
+    const details = diagnostic.details;
+    if (details !== null && typeof details === "object" && !Array.isArray(details)) {
+      const locations = (details as Record<string, unknown>).sourceLocations;
+      if (Array.isArray(locations)) {
+        return locations.flatMap((location) => {
+          if (location === null || typeof location !== "object" || Array.isArray(location)) return [];
+          const pointer = (location as Record<string, unknown>).pointer;
+          return typeof pointer === "string" ? [pointer] : [];
+        });
+      }
+    }
+    return diagnostic.location?.pointer === undefined ? [] : [diagnostic.location.pointer];
+  });
+}
+
+function observedOutcome(report: ReturnType<typeof reportFor>) {
+  const diagnostics = diagnosticsFor(report);
+  return {
+    componentVerdicts: report.components.map((component) => component.verdict.kind),
+    activatable: report.activatable,
+    diagnosticCodes: diagnostics.map((diagnostic) => diagnostic.code).sort(),
+    diagnosticRuleIds: diagnostics.flatMap((diagnostic) => detailRuleIds(diagnostic.details)).sort(),
+    requirements: report.requirements
+      .map((assessment) => ({ id: assessment.requirement.id, status: assessment.status }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+    diagnosticSourcePointers: sourcePointersFor(report).sort(),
+  };
+}
+
+function expectedOutcome(value: PolicyFixture["positiveExpected"]) {
+  return {
+    componentVerdicts: [...value.componentVerdicts],
+    activatable: value.activatable,
+    diagnosticCodes: [...value.diagnosticCodes].sort(),
+    diagnosticRuleIds: [...value.diagnosticRuleIds].sort(),
+    requirements: [...value.requirements].sort((left, right) => left.id.localeCompare(right.id)),
+    diagnosticSourcePointers: [...value.diagnosticSourcePointers].sort(),
+  };
+}
+
+function assertSafeDiagnostics(report: ReturnType<typeof reportFor>, fixtureId: string): void {
+  for (const diagnostic of diagnosticsFor(report)) {
+    expect(diagnostic.location, `${fixtureId} diagnostics need source provenance`).toBeDefined();
+    const details = diagnostic.details;
+    expect(details, `${fixtureId} diagnostics need safe details`).toBeDefined();
+    if (details === null || typeof details !== "object" || Array.isArray(details)) continue;
+    const locations = (details as Record<string, unknown>).sourceLocations;
+    expect(Array.isArray(locations), `${fixtureId} diagnostics need sourceLocations`).toBe(true);
+    expect(JSON.stringify(details)).not.toMatch(/CANARY_[A-Z0-9_]+/u);
+    for (const location of locations as readonly unknown[]) {
+      expect(location).toMatchObject({ host: expect.any(String), documentKind: expect.any(String), path: expect.any(String) });
+      expect(location).not.toHaveProperty("declaration");
+    }
+  }
+}
+
 describe("compatibility table contract", () => {
-  it("grounds every registry rule in one executable positive and negative fixture", () => {
+  it("grounds every registry rule in complete positive and negative fixture outcomes", () => {
     const ruleIds = Object.keys(CompatibilityPolicyRuleRegistry).sort();
     const fixtureIds = fixtures.map((fixture) => fixture.ruleId).sort();
     expect(new Set(fixtureIds).size).toBe(fixtureIds.length);
@@ -60,25 +125,11 @@ describe("compatibility table contract", () => {
       const negative = reportFor(fixture, false);
       expect(positive).toMatchObject({ plugin: { key: "fixture@compatibility" } });
       expect(negative).toMatchObject({ plugin: { key: "fixture@compatibility" } });
+      assertSafeDiagnostics(positive, `${fixture.id}/positive`);
+      assertSafeDiagnostics(negative, `${fixture.id}/negative`);
+      expect(observedOutcome(positive)).toEqual(expectedOutcome(fixture.positiveExpected));
+      expect(observedOutcome(negative)).toEqual(expectedOutcome(fixture.negativeExpected));
 
-      const positiveAssessments = positive.components.filter((assessment) =>
-        assessment.verdict.kind === fixture.positiveVerdict,
-      );
-      if (fixture.positiveVerdict === "incompatible") {
-        expect(positiveAssessments.length, fixture.id).toBeGreaterThan(0);
-        expect(positive.activatable, fixture.id).toBe(false);
-      }
-      if (fixture.positiveVerdict === "supported" && positive.components.length > 0) {
-        expect(positive.components.every((assessment) => assessment.verdict.kind === "supported"), fixture.id).toBe(true);
-      }
-
-      const observedRuleIds = [
-        ...positive.diagnostics.flatMap((diagnostic) => detailRuleIds(diagnostic.details)),
-        ...positive.components.flatMap((assessment) => assessment.diagnostics.flatMap((diagnostic) => detailRuleIds(diagnostic.details))),
-      ];
-      if (fixture.diagnosticRuleId !== undefined) {
-        expect(observedRuleIds, `${fixture.id} must emit ${fixture.diagnosticRuleId}`).toContain(fixture.diagnosticRuleId);
-      }
       for (const capability of rule!.requirementCapabilityIds) {
         if (fixture.positiveVerdict === "supported") {
           expect(positive.requirements.some((requirement) => requirement.requirement.capability === capability),

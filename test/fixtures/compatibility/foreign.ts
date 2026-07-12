@@ -1,4 +1,11 @@
-import { directPlugin, fixtureProvenance, claimFixture, componentId, type PolicyFixture } from "./common.js";
+import {
+  directPlugin,
+  fixtureProvenance,
+  claimFixture,
+  componentId,
+  expectedOutcome,
+  type PolicyFixture,
+} from "./common.js";
 
 const nativeKinds = [
   "agents",
@@ -38,6 +45,12 @@ export const foreignPolicyFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "incompatible",
     diagnosticRuleId: "foreign.default-deny",
+    positiveExpected: expectedOutcome(new Array(nativeKinds.length + 1).fill("incompatible"), false, {
+      diagnosticCodes: new Array(nativeKinds.length + 1).fill("UNSUPPORTED_DECLARATION"),
+      diagnosticRuleIds: new Array(nativeKinds.length + 1).fill("foreign.default-deny"),
+      diagnosticSourcePointers: [...nativeKinds, "future-runtime-kind"].map((kind) => `/${kind}`),
+    }),
+    negativeExpected: expectedOutcome([], true),
   },
 ];
 

@@ -97,12 +97,54 @@ export function directPlugin(
   });
 }
 
+export type PolicyRequirementExpectation = Readonly<{
+  id: string;
+  status: "available" | "unavailable";
+}>;
+
+export type PolicyOutcome = Readonly<{
+  componentVerdicts: readonly ("supported" | "incompatible")[];
+  activatable: boolean;
+  diagnosticCodes: readonly string[];
+  diagnosticRuleIds: readonly string[];
+  requirements: readonly PolicyRequirementExpectation[];
+  diagnosticSourcePointers: readonly string[];
+}>;
+
+export function expectedRequirement(
+  kind: "skill" | "hook" | "mcp-server" | "foreign",
+  token: string,
+  capability: string,
+  status: PolicyRequirementExpectation["status"] = "available",
+): PolicyRequirementExpectation {
+  const id = `requirement-v1:${capability}:${componentId(kind, token)}`;
+  return { id, status };
+}
+
+export function expectedOutcome(
+  componentVerdicts: readonly ("supported" | "incompatible")[],
+  activatable: boolean,
+  options: Readonly<Partial<Omit<PolicyOutcome, "componentVerdicts" | "activatable">>> = {},
+): PolicyOutcome {
+  return {
+    componentVerdicts,
+    activatable,
+    diagnosticCodes: [],
+    diagnosticRuleIds: [],
+    requirements: [],
+    diagnosticSourcePointers: [],
+    ...options,
+  };
+}
+
 export type PolicyFixture = Readonly<{
   id: string;
   ruleId: string;
   positive: () => NormalizedPlugin;
   negative: () => NormalizedPlugin;
   positiveVerdict: "supported" | "incompatible";
+  positiveExpected: PolicyOutcome;
+  negativeExpected: PolicyOutcome;
   positivePolicy?: unknown;
   negativePolicy?: unknown;
   diagnosticRuleId?: string;

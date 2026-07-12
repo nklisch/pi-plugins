@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-compatibility-reporting-review-hardening
 kind: story
-stage: implementing
+stage: review
 tags: [compatibility, tests]
 parent: epic-foreign-plugin-model-compatibility-reporting
 depends_on: [epic-foreign-plugin-model-compatibility-reporting-contract-hardening]
@@ -29,9 +29,19 @@ Resolve all accepted blocker and important findings from the compatibility-repor
 
 ## Acceptance criteria
 
-- [ ] Only registry-recognized hook-condition syntax is supported; arbitrary strings are incompatible.
-- [ ] Ambiguous/malformed OAuth and MCP feature shapes are incompatible with explicit diagnostics.
-- [ ] Valid MCP shapes continue to derive the correct supported verdict and requirements.
-- [ ] Every positive and negative fixture asserts its complete expected outcome rather than identity alone.
-- [ ] Foundation compatibility claims and implementation agree.
-- [ ] Full `npm test`, build, boundaries, and exact compiled package import pass.
+- [x] Only registry-recognized hook-condition syntax is supported; arbitrary strings are incompatible.
+- [x] Ambiguous/malformed OAuth and MCP feature shapes are incompatible with explicit diagnostics.
+- [x] Valid MCP shapes continue to derive the correct supported verdict and requirements.
+- [x] Every positive and negative fixture asserts its complete expected outcome rather than identity alone.
+- [x] Foundation compatibility claims and implementation agree.
+- [x] Full `npm test`, build, boundaries, and exact compiled package import pass.
+
+## Implementation notes
+
+- Execution capability: direct-read inline implementation; the caller explicitly prohibited agents and the existing unstaged evaluator/policy/fixture work provided the implementation surface.
+- Review weight: standard default; caller requested the lifecycle boundary at `stage: review`, so no independent review pass was invoked.
+- Files changed: `src/domain/compatibility-evaluator.ts`, `src/domain/compatibility-policy.ts`, `test/domain/compatibility-evaluator.test.ts`, `test/domain/compatibility-table-contract.test.ts`, and compatibility fixtures under `test/fixtures/compatibility/`.
+- Tests added: strict hook-condition, coherent OAuth, exact nested MCP feature-shape, bearer-auth, conflicting-transport, nested-unknown-key, safe-provenance, and complete positive/negative fixture outcome assertions.
+- Verification: `npm test` passed (51 files, 348 tests, typecheck, dependency boundaries, build, and compiled package import); independent `npm run build && node test/compiled-package-import.mjs` passed (131 exports).
+- Discrepancies from design: the existing evaluator implementation was completed in place; nested MCP diagnostics now identify the exact JSON-pointer field, and false async flags remain valid while true/non-boolean ordering declarations fail closed.
+- Adjacent issues parked: none.

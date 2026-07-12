@@ -305,6 +305,10 @@ function metadataProvenance(metadata: RetainedMetadata): readonly Provenance[] {
   return sortedProvenance(metadata.claimed.provenance);
 }
 
+function hasMetadataNamespace(key: string, prefixes: readonly string[]): boolean {
+  return prefixes.some((prefix) => key === prefix || key.startsWith(`${prefix}.`));
+}
+
 function knownCodexInvocationValue(value: JsonValue): boolean {
   if (typeof value === "boolean") return true;
   if (typeof value === "string") return CompatibilityPolicyRegistry.skills.invocationPolicyValues.includes(value as never);
@@ -332,6 +336,14 @@ function evaluateSkill(
     const provenance = metadataProvenance(metadata);
     const value = metadata.claimed.value;
 
+    if (!hasMetadataNamespace(metadata.key, CompatibilityPolicyRegistry.skills.metadataPrefixes)) {
+      incompatible = true;
+      diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.skills.unknownFrontmatter.id, "error", provenance, {
+        componentId: component.id,
+        field,
+      }));
+      continue;
+    }
     if (CompatibilityPolicyRegistry.skills.presentationKeys.includes(field as never)) {
       diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.skills.presentation.id, "warning", provenance, {
         componentId: component.id,
@@ -397,19 +409,46 @@ function evaluateSkill(
   return decision(incompatible ? "incompatible" : "supported", requirements, diagnostics);
 }
 
+function isConditionPrimitive(value: JsonValue): boolean {
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+}
+
+function conditionValueMatchesOperator(value: JsonValue, operator: string): boolean {
+  const kind = (CompatibilityPolicyRegistry.hookEvents.conditionOperatorDefinitions as
+    Readonly<Record<string, string>>)[operator];
+  if (kind === "primitive") return isConditionPrimitive(value);
+  if (kind === "string") return typeof value === "string";
+  if (kind === "primitive-array") {
+    return Array.isArray(value) && value.length > 0 && value.every(isConditionPrimitive);
+  }
+  return false;
+}
+
+/**
+ * Hook conditions are retained opaque metadata, so this is a second, strict
+ * policy-boundary parse rather than an assumption that any non-empty string is
+ * a condition. The grammar is intentionally derived from the policy registry:
+ * unknown syntax cannot silently acquire runtime semantics.
+ */
 function conditionIsKnown(value: JsonValue): boolean {
-  if (typeof value === "string") return value.trim().length > 0;
   if (Array.isArray(value)) return value.length > 0 && value.every((entry) => conditionIsKnown(entry));
   if (!isRecord(value)) return false;
   const keys = Object.keys(value);
-  if (keys.length === 1 && keys[0] === "if") return value.if !== undefined && conditionIsKnown(value.if);
-  if (keys.length !== 3 || !keys.includes("field") || !keys.includes("operator") || !keys.includes("value")) return false;
+  const wrapperKeys = CompatibilityPolicyRegistry.hookEvents.conditionWrapperKeys as readonly string[];
+  if (keys.length === 1 && wrapperKeys.includes(keys[0]!)) {
+    return conditionIsKnown(value[keys[0]!]!);
+  }
+  const predicateKeys = CompatibilityPolicyRegistry.hookEvents.conditionPredicateKeys as readonly string[];
+  if (keys.length !== predicateKeys.length || keys.some((key) => !predicateKeys.includes(key))) return false;
   const field = value.field;
   const operator = value.operator;
-  return typeof field === "string" && field.length > 0 &&
-    typeof operator === "string" &&
-    CompatibilityPolicyRegistry.hookEvents.conditionOperators.includes(operator as never) &&
-    (typeof value.value === "string" || typeof value.value === "number" || typeof value.value === "boolean");
+  if (typeof field !== "string" ||
+      !(CompatibilityPolicyRegistry.hookEvents.conditionFields as readonly string[]).includes(field) ||
+      typeof operator !== "string" ||
+      !(CompatibilityPolicyRegistry.hookEvents.conditionOperators as readonly string[]).includes(operator)) {
+    return false;
+  }
+  return conditionValueMatchesOperator(value.value!, operator);
 }
 
 function evaluateHook(
@@ -457,6 +496,14 @@ function evaluateHook(
     const provenance = metadataProvenance(metadata);
     const value = metadata.claimed.value;
 
+    if (!hasMetadataNamespace(metadata.key, CompatibilityPolicyRegistry.hookEvents.metadata.prefixes)) {
+      incompatible = true;
+      diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id, "error", provenance, {
+        componentId: component.id,
+        field,
+      }));
+      continue;
+    }
     if (CompatibilityPolicyRegistry.hookEvents.metadata.statusMessage.includes(field as never)) {
       if (typeof value !== "string") {
         incompatible = true;
@@ -490,7 +537,7 @@ function evaluateHook(
       continue;
     }
     if (CompatibilityPolicyRegistry.hookEvents.metadata.async.includes(field as never)) {
-      if (value === true || field === "asyncRewake") {
+      if (typeof value !== "boolean" || value === true) {
         incompatible = true;
         diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.hookHandlers.async.id, "error", provenance, {
           componentId: component.id,
@@ -581,19 +628,154 @@ function mcpIssue(
   });
 }
 
-function oauthFlow(value: JsonValue): "authorization-code" | "client-credentials" | undefined {
-  if (typeof value === "string") {
-    if ((CompatibilityPolicyRegistry.mcp.keys.oauthGrantTypes as readonly string[]).includes(value)) {
-      if (value === "authorization-code" || value === "authorization_code" || value === "authorizationCode") return "authorization-code";
-      if (value === "client-credentials" || value === "client_credentials" || value === "clientCredentials") return "client-credentials";
+type OAuthFlow = "authorization-code" | "client-credentials";
+type OAuthFlowValidation = Readonly<{
+  candidate: boolean;
+  valid: boolean;
+  flow?: OAuthFlow;
+  ruleId?: string;
+}>;
+
+function recognizedOAuthFlow(value: string): Readonly<{ flow: OAuthFlow; ruleId: string }> | undefined {
+  for (const definition of Object.values(CompatibilityPolicyRegistry.mcp.keys.oauthFlowDefinitions)) {
+    if ((definition.aliases as readonly string[]).includes(value)) {
+      const flow = definition.ruleId === CompatibilityPolicyRegistry.mcp.oauthAuthorizationCode.id
+        ? "authorization-code"
+        : "client-credentials";
+      return { flow, ruleId: definition.ruleId };
     }
-    return undefined;
   }
-  if (!isRecord(value)) return undefined;
-  if (value.authorizationCode === true || value.authorization_code === true) return "authorization-code";
-  if (value.clientCredentials === true || value.client_credentials === true) return "client-credentials";
-  const candidate = value.grantType ?? value.grant_type ?? value.flow ?? value.type;
-  return candidate === undefined ? undefined : oauthFlow(candidate);
+  return undefined;
+}
+
+/**
+ * Parse OAuth without selecting the first recognizable branch. Every declared
+ * selector must be well typed and exactly one flow selector must be present;
+ * otherwise the declaration is ambiguous or malformed and is rejected.
+ */
+function oauthFlow(value: JsonValue): OAuthFlowValidation {
+  if (typeof value === "string") {
+    const recognized = recognizedOAuthFlow(value);
+    return recognized === undefined
+      ? { candidate: value === "oauth", valid: false }
+      : { candidate: true, valid: true, ...recognized };
+  }
+  if (!isRecord(value)) return { candidate: false, valid: false };
+
+  const authKeys = CompatibilityPolicyRegistry.mcp.keys.authKeys as readonly string[];
+  if (Object.keys(value).some((key) => !authKeys.includes(key))) {
+    return { candidate: true, valid: false };
+  }
+
+  let candidate = false;
+  let modeSelectors = 0;
+  const flows: Array<{ flow: OAuthFlow; ruleId: string }> = [];
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === "grantType" || key === "grant_type" || key === "flow") {
+      candidate = true;
+      if (typeof entry !== "string") return { candidate, valid: false };
+      const recognized = recognizedOAuthFlow(entry);
+      if (recognized === undefined) return { candidate, valid: false };
+      flows.push(recognized);
+      continue;
+    }
+    if (key === "authorizationCode" || key === "authorization_code" ||
+        key === "clientCredentials" || key === "client_credentials") {
+      candidate = true;
+      if (typeof entry !== "boolean") return { candidate, valid: false };
+      if (entry) {
+        const recognized = recognizedOAuthFlow(
+          key.startsWith("authorization") ? "authorization-code" : "client-credentials",
+        );
+        if (recognized === undefined) return { candidate, valid: false };
+        flows.push(recognized);
+      }
+      continue;
+    }
+    if (key === "type") {
+      if (typeof entry !== "string") return { candidate: true, valid: false };
+      if (entry === "oauth") {
+        candidate = true;
+        modeSelectors += 1;
+      } else if (entry === "bearer" || entry === "none") {
+        // These are handled by the bearer/none authentication policy below;
+        // they are not OAuth selectors and must not be treated as malformed
+        // OAuth merely because they use the shared `type` key.
+      } else {
+        const recognized = recognizedOAuthFlow(entry);
+        if (recognized === undefined) return { candidate: false, valid: false };
+        candidate = true;
+        flows.push(recognized);
+      }
+      continue;
+    }
+    if (key === "mode") {
+      if (typeof entry !== "string") return { candidate: true, valid: false };
+      if (entry === "oauth") {
+        candidate = true;
+        modeSelectors += 1;
+      } else if (entry !== "bearer" && entry !== "none") {
+        return { candidate: false, valid: false };
+      }
+      continue;
+    }
+    if (key === "env" || key === "clientId" || key === "client_id" ||
+        key === "redirectUri" || key === "redirect_uri") {
+      if (typeof entry !== "string" || entry.length === 0) return { candidate, valid: false };
+    }
+  }
+  if (!candidate) return { candidate: false, valid: false };
+  if (modeSelectors > 1 || flows.length !== 1) return { candidate: true, valid: false };
+  const selected = flows[0];
+  return selected === undefined
+    ? { candidate: true, valid: false }
+    : { candidate: true, valid: true, ...selected };
+}
+
+function bearerAuthIsKnown(value: JsonValue, externalEnvironment: JsonValue | undefined): boolean {
+  if (typeof value === "string") {
+    return (value === "bearer" || value === "bearer-env") &&
+      typeof externalEnvironment === "string" && externalEnvironment.length > 0;
+  }
+  if (!isRecord(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.length === 0 || keys.some((key) => !["mode", "type", "env"].includes(key))) return false;
+  const selectors = ["mode", "type"].filter((key) => value[key] !== undefined);
+  if (selectors.length !== 1 || value[selectors[0]!] !== "bearer") return false;
+  if (value.env !== undefined && (typeof value.env !== "string" || value.env.length === 0)) return false;
+  const environment = value.env ?? externalEnvironment;
+  return typeof environment === "string" && environment.length > 0;
+}
+
+function invalidHeaderFields(value: JsonValue): readonly string[] {
+  if (!isRecord(value)) return [""];
+  const invalid: string[] = [];
+  const allowedEnvironmentKeys = CompatibilityPolicyRegistry.mcp.keys.headerEnvironmentKeys as readonly string[];
+  for (const [name, entry] of Object.entries(value)) {
+    if (name.length === 0) {
+      invalid.push(name);
+      continue;
+    }
+    if (typeof entry === "string") {
+      if (entry.length === 0 || (/^bearer\s+/i.test(entry) && !/^bearer\s+\$\{[^}]+\}$/i.test(entry))) {
+        invalid.push(name);
+      }
+      continue;
+    }
+    if (!isRecord(entry) || Object.keys(entry).some((key) => !allowedEnvironmentKeys.includes(key)) ||
+        Object.keys(entry).length !== allowedEnvironmentKeys.length ||
+        typeof entry.env !== "string" || entry.env.length === 0) {
+      invalid.push(name);
+    }
+  }
+  return invalid;
+}
+
+type McpFeatureDefinition = (typeof CompatibilityPolicyRegistry.mcp.keys.featurePayloadDefinitions)[keyof typeof CompatibilityPolicyRegistry.mcp.keys.featurePayloadDefinitions];
+
+function featureDefinitionFor(field: string): McpFeatureDefinition | undefined {
+  return Object.values(CompatibilityPolicyRegistry.mcp.keys.featurePayloadDefinitions)
+    .find((definition) => (definition.aliases as readonly string[]).includes(field));
 }
 
 function mcpFeatureUses(
@@ -601,34 +783,94 @@ function mcpFeatureUses(
   component: McpServerComponent,
   field: string,
   value: JsonValue,
+  definition: McpFeatureDefinition,
 ): Readonly<{ requirements: readonly RequirementUse[]; diagnostics: readonly Diagnostic[]; incompatible: boolean }> {
-  const provenance = component.declaration.provenance;
   const requirements: RequirementUse[] = [];
   const diagnostics: Diagnostic[] = [];
   let incompatible = false;
-  const enabled = value !== false && value !== null;
-  if (!enabled) return { requirements, diagnostics, incompatible };
+  const issue = (path = field) => diagnostics.push(mcpIssue(pluginKey, component, path));
 
-  if (field === "toolApproval" || field === "tool_approval") {
-    if (typeof value !== "boolean" && !recordHasOnlyKeys(value, ["enabled", "required"])) incompatible = true;
-    if (!incompatible) requirements.push(...requirementUse(CompatibilityPolicyRegistry.mcp.featureToolApproval.id, provenance));
-  } else if (field === "sampling") {
-    if (typeof value !== "boolean" && !recordHasOnlyKeys(value, ["enabled", "required"])) incompatible = true;
-    if (!incompatible) requirements.push(...requirementUse(CompatibilityPolicyRegistry.mcp.featureSampling.id, provenance));
-  } else if (field === "elicitation") {
-    const objectValue = isRecord(value);
-    if (objectValue && !recordHasOnlyKeys(value, ["form", "url"])) incompatible = true;
-    if (value === "form" || (objectValue && value.form === true)) {
-      requirements.push(...requirementUse(CompatibilityPolicyRegistry.mcp.featureElicitationForm.id, provenance));
-    }
-    if (value === "url" || (objectValue && value.url === true)) {
-      requirements.push(...requirementUse(CompatibilityPolicyRegistry.mcp.featureElicitationUrl.id, provenance));
-    }
-    if (value !== "form" && value !== "url" && !(objectValue && (value.form === true || value.url === true))) {
+  if (definition.shape === "boolean-flags") {
+    let enabled: boolean | undefined;
+    if (typeof value === "boolean") {
+      enabled = value;
+    } else if (isRecord(value)) {
+      const allowed = CompatibilityPolicyRegistry.mcp.keys.booleanFeatureKeys as readonly string[];
+      const keys = Object.keys(value);
+      const unknownKeys = keys.filter((key) => !allowed.includes(key));
+      if (unknownKeys.length > 0) {
+        incompatible = true;
+        for (const key of unknownKeys) issue(`${field}.${key}`);
+      }
+      if (typeof value.enabled !== "boolean") {
+        incompatible = true;
+        issue(`${field}.enabled`);
+      } else {
+        enabled = value.enabled;
+      }
+      if (value.required !== undefined && typeof value.required !== "boolean") {
+        incompatible = true;
+        issue(`${field}.required`);
+      }
+      if (value.required === true && value.enabled === false) {
+        incompatible = true;
+        issue(`${field}.required`);
+      }
+    } else {
       incompatible = true;
+      issue();
+    }
+    if (!incompatible && enabled === true) requirements.push(...requirementUse(definition.ruleId, mcpFieldProvenance(component, field)));
+  } else if (definition.shape === "elicitation-flags") {
+    const elicitationRules = {
+      form: CompatibilityPolicyRegistry.mcp.featureElicitationForm.id,
+      url: CompatibilityPolicyRegistry.mcp.featureElicitationUrl.id,
+    } as const;
+    if (typeof value === "string") {
+      if (value === "form") requirements.push(...requirementUse(elicitationRules.form, mcpFieldProvenance(component, field)));
+      else if (value === "url") requirements.push(...requirementUse(elicitationRules.url, mcpFieldProvenance(component, field)));
+      else {
+        incompatible = true;
+        issue();
+      }
+    } else if (isRecord(value)) {
+      const allowed = CompatibilityPolicyRegistry.mcp.keys.elicitationFeatureKeys as readonly string[];
+      const keys = Object.keys(value);
+      const unknownKeys = keys.filter((key) => !allowed.includes(key));
+      if (unknownKeys.length > 0) {
+        incompatible = true;
+        for (const key of unknownKeys) issue(`${field}.${key}`);
+      }
+      if (keys.length === 0) {
+        incompatible = true;
+        issue();
+      }
+      for (const key of keys.filter((candidate) => allowed.includes(candidate))) {
+        if (typeof value[key] !== "boolean") {
+          incompatible = true;
+          issue(`${field}.${key}`);
+        }
+      }
+      if (!incompatible) {
+        if (value.form === true) requirements.push(...requirementUse(elicitationRules.form, mcpFieldProvenance(component, `${field}.form`)));
+        if (value.url === true) requirements.push(...requirementUse(elicitationRules.url, mcpFieldProvenance(component, `${field}.url`)));
+      }
+    } else {
+      incompatible = true;
+      issue();
+    }
+  } else if (definition.shape === "oauth") {
+    const parsed = oauthFlow(value);
+    if (!parsed.valid || parsed.flow === undefined || parsed.ruleId === undefined) incompatible = true;
+    else requirements.push(...requirementUse(parsed.ruleId, mcpFieldProvenance(component, field)));
+  } else if (definition.shape === "headers") {
+    for (const name of invalidHeaderFields(value)) {
+      incompatible = true;
+      issue(name.length === 0 ? field : `${field}.${name}`);
     }
   }
-  if (incompatible) diagnostics.push(mcpIssue(pluginKey, component, field));
+
+  if (incompatible && diagnostics.length === 0) issue();
   return { requirements, diagnostics, incompatible };
 }
 
@@ -772,21 +1014,10 @@ function evaluateMcp(
     diagnostics.push(mcpIssue(pluginKey, component, "resources"));
   }
   if (declaration.headers !== undefined) {
-    if (!isRecord(declaration.headers)) {
+    const invalid = invalidHeaderFields(declaration.headers);
+    for (const name of invalid) {
       incompatible = true;
-      diagnostics.push(mcpIssue(pluginKey, component, "headers"));
-    } else {
-      for (const [name, value] of Object.entries(declaration.headers)) {
-        const validEnvironmentHeader = isRecord(value) && Object.keys(value).length === 1 && typeof value.env === "string";
-        if (typeof value !== "string" && !validEnvironmentHeader) {
-          incompatible = true;
-          diagnostics.push(mcpIssue(pluginKey, component, `headers.${name}`));
-        }
-        if (typeof value === "string" && /^bearer\s+/i.test(value) && !/^bearer\s+\$\{[^}]+\}$/i.test(value)) {
-          incompatible = true;
-          diagnostics.push(mcpIssue(pluginKey, component, `headers.${name}`));
-        }
-      }
+      diagnostics.push(mcpIssue(pluginKey, component, name.length === 0 ? "headers" : `headers.${name}`));
     }
   }
 
@@ -798,36 +1029,32 @@ function evaluateMcp(
     diagnostics.push(mcpIssue(pluginKey, component, "auth"));
   } else if (authValues[0] !== undefined) {
     const { field, value } = authValues[0];
-    if (isRecord(value)) {
-      for (const key of Object.keys(value)) {
-        if (!(CompatibilityPolicyRegistry.mcp.keys.authKeys as readonly string[]).includes(key)) {
-          incompatible = true;
-          diagnostics.push(mcpIssue(pluginKey, component, `${field}.${key}`));
-        }
-      }
-    }
-    const flow = oauthFlow(value);
-    const isOAuth = field === "oauth" || flow !== undefined ||
-      (isRecord(value) && (value.type === "oauth" || value.mode === "oauth")) || value === "oauth";
+    const parsedOAuth = oauthFlow(value);
+    const isOAuth = field === "oauth" || parsedOAuth.candidate || value === "oauth";
     if (isOAuth) {
-      if (flow === "authorization-code") {
-        requirements.push(...requirementUse(CompatibilityPolicyRegistry.mcp.oauthAuthorizationCode.id, component.declaration.provenance));
-      } else if (flow === "client-credentials") {
-        requirements.push(...requirementUse(CompatibilityPolicyRegistry.mcp.oauthClientCredentials.id, component.declaration.provenance));
+      if (!parsedOAuth.valid || parsedOAuth.flow === undefined || parsedOAuth.ruleId === undefined || transport !== "streamable-http") {
+        incompatible = true;
+        diagnostics.push(mcpIssue(pluginKey, component, field, value));
       } else {
+        requirements.push(...requirementUse(parsedOAuth.ruleId, component.declaration.provenance));
+      }
+    } else if (value === "none") {
+      if (declaration.bearerTokenEnv !== undefined) {
+        incompatible = true;
+        diagnostics.push(mcpIssue(pluginKey, component, "bearerTokenEnv"));
+      }
+    } else if (value === "bearer" || value === "bearer-env" || isRecord(value)) {
+      if (!bearerAuthIsKnown(value, declaration.bearerTokenEnv)) {
         incompatible = true;
         diagnostics.push(mcpIssue(pluginKey, component, field, value));
       }
-    } else if (value !== "none" && value !== "bearer" && value !== "bearer-env" && !(isRecord(value) && (value.mode === "bearer" || value.type === "bearer"))) {
+    } else {
       incompatible = true;
       diagnostics.push(mcpIssue(pluginKey, component, field, value));
-    } else if (value === "bearer" || value === "bearer-env" || (isRecord(value) && (value.mode === "bearer" || value.type === "bearer"))) {
-      const environment = declaration.bearerTokenEnv ?? (isRecord(value) ? value.env : undefined);
-      if (typeof environment !== "string" || environment.length === 0) {
-        incompatible = true;
-        diagnostics.push(mcpIssue(pluginKey, component, field, value));
-      }
     }
+  } else if (declaration.bearerTokenEnv !== undefined) {
+    incompatible = true;
+    diagnostics.push(mcpIssue(pluginKey, component, "bearerTokenEnv"));
   }
 
   if (declaration.headersHelper !== undefined) {
@@ -839,26 +1066,50 @@ function evaluateMcp(
     diagnostics.push(mcpIssue(pluginKey, component, "channels", undefined, CompatibilityPolicyRegistry.mcp.channels.id));
   }
 
-  const featureRecords: JsonRecord[] = [declaration];
+  const featureDefinitions = CompatibilityPolicyRegistry.mcp.keys.featurePayloadDefinitions;
+  const seenFeatures = new Set<string>();
+  const evaluateFeatureRecord = (record: JsonRecord, prefix: string, topLevel: boolean): void => {
+    for (const [field, value] of Object.entries(record)) {
+      const definition = featureDefinitionFor(field);
+      if (definition === undefined || (topLevel && !definition.topLevel)) continue;
+      const canonical = Object.entries(featureDefinitions)
+        .find(([, candidate]) => (candidate.aliases as readonly string[]).includes(field))?.[0];
+      if (canonical === undefined) continue;
+      if (seenFeatures.has(canonical)) {
+        incompatible = true;
+        diagnostics.push(mcpIssue(pluginKey, component, `${prefix}${field}`));
+        continue;
+      }
+      seenFeatures.add(canonical);
+      const fieldPath = `${prefix}${field}`;
+      const result = mcpFeatureUses(pluginKey, component, fieldPath, value, definition);
+      requirements.push(...result.requirements);
+      diagnostics.push(...result.diagnostics);
+      incompatible ||= result.incompatible;
+      if (definition.shape === "oauth" && transport !== "streamable-http") {
+        incompatible = true;
+        diagnostics.push(mcpIssue(pluginKey, component, fieldPath));
+      }
+    }
+  };
+
+  // Direct feature aliases are supported by the normalized declaration. The
+  // nested feature map is an additional exact shape, not a second chance to
+  // interpret arbitrary keys. Core auth/header declarations occupy the same
+  // canonical feature slots, so duplicate nested aliases are ambiguous too.
+  if (declaration.oauth !== undefined || declaration.auth !== undefined || declaration.authentication !== undefined) {
+    seenFeatures.add("oauth");
+  }
+  if (declaration.headers !== undefined) seenFeatures.add("headers");
+  evaluateFeatureRecord(declaration, "", true);
   if (declaration.features !== undefined) {
     if (!isRecord(declaration.features)) {
       incompatible = true;
       diagnostics.push(mcpIssue(pluginKey, component, "features"));
     } else {
-      featureRecords.push(declaration.features);
-    }
-  }
-  for (const record of featureRecords) {
-    for (const [field, value] of Object.entries(record)) {
-      if (field !== "toolApproval" && field !== "tool_approval" && field !== "sampling" && field !== "elicitation") continue;
-      const result = mcpFeatureUses(pluginKey, component, field, value);
-      requirements.push(...result.requirements);
-      diagnostics.push(...result.diagnostics);
-      incompatible ||= result.incompatible;
-    }
-    if (record === declaration.features) {
-      for (const field of Object.keys(record)) {
-        if (!(CompatibilityPolicyRegistry.mcp.keys.featureKeys as readonly string[]).includes(field)) {
+      evaluateFeatureRecord(declaration.features, "features.", false);
+      for (const field of Object.keys(declaration.features)) {
+        if (featureDefinitionFor(field) === undefined) {
           incompatible = true;
           diagnostics.push(mcpIssue(pluginKey, component, `features.${field}`));
         }

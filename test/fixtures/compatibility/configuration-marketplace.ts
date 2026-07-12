@@ -1,4 +1,4 @@
-import { directPlugin, fixtureProvenance, claimFixture, type PolicyFixture } from "./common.js";
+import { directPlugin, fixtureProvenance, claimFixture, expectedOutcome, type PolicyFixture } from "./common.js";
 
 function option(
   key: string,
@@ -38,6 +38,12 @@ export const configurationMarketplaceFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "supported",
     diagnosticRuleId: "configuration.descriptor",
+    positiveExpected: expectedOutcome([], true, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["configuration.descriptor"],
+      diagnosticSourcePointers: ["/userConfig/PATH_VALUE"],
+    }),
+    negativeExpected: expectedOutcome([], true),
   },
   {
     id: "configuration-required-input",
@@ -48,6 +54,12 @@ export const configurationMarketplaceFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "supported",
     diagnosticRuleId: "configuration.required-input",
+    positiveExpected: expectedOutcome([], true, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["configuration.descriptor", "configuration.required-input"],
+      diagnosticSourcePointers: ["/userConfig/REQUIRED_VALUE", "/userConfig/REQUIRED_VALUE"],
+    }),
+    negativeExpected: expectedOutcome([], true),
   },
   {
     id: "configuration-sensitive",
@@ -58,6 +70,12 @@ export const configurationMarketplaceFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "supported",
     diagnosticRuleId: "configuration.sensitive",
+    positiveExpected: expectedOutcome([], true, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["configuration.descriptor", "configuration.required-input", "configuration.sensitive"],
+      diagnosticSourcePointers: ["/userConfig/SECRET_VALUE", "/userConfig/SECRET_VALUE", "/userConfig/SECRET_VALUE"],
+    }),
+    negativeExpected: expectedOutcome([], true),
   },
   {
     id: "marketplace-availability-available",
@@ -67,6 +85,12 @@ export const configurationMarketplaceFixtures: readonly PolicyFixture[] = [
     positiveVerdict: "supported",
     positivePolicy: policy("available"),
     diagnosticRuleId: "marketplace.availability.available",
+    positiveExpected: expectedOutcome([], true, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["marketplace.availability.available"],
+      diagnosticSourcePointers: ["/plugins/0/policy/installation"],
+    }),
+    negativeExpected: expectedOutcome([], true),
   },
   {
     id: "marketplace-availability-installed-by-default",
@@ -76,6 +100,12 @@ export const configurationMarketplaceFixtures: readonly PolicyFixture[] = [
     positiveVerdict: "supported",
     positivePolicy: policy("installed-by-default"),
     diagnosticRuleId: "marketplace.availability.installed-by-default",
+    positiveExpected: expectedOutcome([], true, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["marketplace.availability.installed-by-default"],
+      diagnosticSourcePointers: ["/plugins/0/policy/installation"],
+    }),
+    negativeExpected: expectedOutcome([], true),
   },
   {
     id: "marketplace-availability-not-available",
@@ -85,6 +115,12 @@ export const configurationMarketplaceFixtures: readonly PolicyFixture[] = [
     positiveVerdict: "supported",
     positivePolicy: policy("not-available", "CANARY_AUTH_POLICY"),
     diagnosticRuleId: "marketplace.availability.not-available",
+    positiveExpected: expectedOutcome([], true, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["marketplace.availability.not-available", "marketplace.policy"],
+      diagnosticSourcePointers: ["/plugins/0/policy/installation", "/plugins/0/policy/authentication"],
+    }),
+    negativeExpected: expectedOutcome([], true),
   },
   {
     id: "marketplace-policy",
@@ -94,6 +130,12 @@ export const configurationMarketplaceFixtures: readonly PolicyFixture[] = [
     positiveVerdict: "supported",
     positivePolicy: policy("available", "oauth"),
     diagnosticRuleId: "marketplace.policy",
+    positiveExpected: expectedOutcome([], true, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["marketplace.availability.available", "marketplace.policy"],
+      diagnosticSourcePointers: ["/plugins/0/policy/installation", "/plugins/0/policy/authentication"],
+    }),
+    negativeExpected: expectedOutcome([], true),
   },
 ];
 

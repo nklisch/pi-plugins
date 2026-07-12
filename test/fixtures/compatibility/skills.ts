@@ -1,4 +1,12 @@
-import { directPlugin, fixtureProvenance, claimFixture, componentId, type PolicyFixture } from "./common.js";
+import {
+  directPlugin,
+  fixtureProvenance,
+  claimFixture,
+  componentId,
+  expectedOutcome,
+  expectedRequirement,
+  type PolicyFixture,
+} from "./common.js";
 
 function skill(metadata: readonly unknown[] = [], token = "1") {
   const provenance = fixtureProvenance("skills/demo/SKILL.md", "/name", "claude", "skill");
@@ -27,6 +35,8 @@ export const skillPolicyFixtures: readonly PolicyFixture[] = [
     positive: baseline,
     negative: () => directPlugin(),
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true),
+    negativeExpected: expectedOutcome([], true),
   },
   {
     id: "skill-presentation",
@@ -39,6 +49,12 @@ export const skillPolicyFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "supported",
     diagnosticRuleId: "skill.presentation",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["skill.presentation", "skill.presentation", "skill.presentation"],
+      diagnosticSourcePointers: ["/license", "/compatibility", "/metadata"],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true),
   },
   {
     id: "skill-disable-model-invocation",
@@ -48,6 +64,8 @@ export const skillPolicyFixtures: readonly PolicyFixture[] = [
     ], "3")] } }),
     negative: baseline,
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true),
+    negativeExpected: expectedOutcome(["supported"], true),
   },
   {
     id: "skill-codex-presentation",
@@ -58,6 +76,12 @@ export const skillPolicyFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "supported",
     diagnosticRuleId: "skill.codex-presentation",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["skill.codex-presentation"],
+      diagnosticSourcePointers: ["/agents/openai.yaml/interface"],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true),
   },
   {
     id: "skill-codex-invocation-policy",
@@ -69,6 +93,12 @@ export const skillPolicyFixtures: readonly PolicyFixture[] = [
       metadata("codex.agents.policy", { allow_implicit_invocation: "unknown" }, "/agents/openai.yaml/policy"),
     ], "6")] } }),
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true),
+    negativeExpected: expectedOutcome(["incompatible"], false, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["skill.unknown-frontmatter"],
+      diagnosticSourcePointers: ["/agents/openai.yaml/policy"],
+    }),
   },
   {
     id: "skill-allowed-tools",
@@ -78,6 +108,10 @@ export const skillPolicyFixtures: readonly PolicyFixture[] = [
     ], "7")] } }),
     negative: baseline,
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("skill", "7", "pi.skill.allowed-tools")],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true),
   },
   {
     id: "skill-scoped-hooks",
@@ -88,6 +122,12 @@ export const skillPolicyFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "incompatible",
     diagnosticRuleId: "skill.scoped-hooks",
+    positiveExpected: expectedOutcome(["incompatible"], false, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["skill.scoped-hooks"],
+      diagnosticSourcePointers: ["/hooks"],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true),
   },
   {
     id: "skill-unknown-frontmatter",
@@ -98,6 +138,12 @@ export const skillPolicyFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "incompatible",
     diagnosticRuleId: "skill.unknown-frontmatter",
+    positiveExpected: expectedOutcome(["incompatible"], false, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["skill.unknown-frontmatter"],
+      diagnosticSourcePointers: ["/future-runtime"],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true),
   },
 ];
 

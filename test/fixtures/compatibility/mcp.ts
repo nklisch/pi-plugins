@@ -1,4 +1,12 @@
-import { directPlugin, fixtureProvenance, claimFixture, componentId, type PolicyFixture } from "./common.js";
+import {
+  directPlugin,
+  fixtureProvenance,
+  claimFixture,
+  componentId,
+  expectedOutcome,
+  expectedRequirement,
+  type PolicyFixture,
+} from "./common.js";
 
 export function mcp(declaration: Record<string, unknown>, token: string): unknown {
   const path = "plugin.mcp.json";
@@ -22,6 +30,12 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     positive: () => directPlugin({ components: { mcpServers: [stdio("1")] } }),
     negative: () => directPlugin({ components: { mcpServers: [http("2")] } }),
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("mcp-server", "2", "pi.mcp.runtime")],
+    }),
   },
   {
     id: "mcp-transport-streamable-http",
@@ -29,6 +43,12 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     positive: () => directPlugin({ components: { mcpServers: [http("3")] } }),
     negative: () => directPlugin({ components: { mcpServers: [stdio("4")] } }),
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("mcp-server", "3", "pi.mcp.runtime")],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("mcp-server", "4", "pi.mcp.runtime")],
+    }),
   },
   {
     id: "mcp-transport-sse",
@@ -37,6 +57,14 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "incompatible",
     diagnosticRuleId: "mcp.transport.sse",
+    positiveExpected: expectedOutcome(["incompatible"], false, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["mcp.transport.sse"],
+      diagnosticSourcePointers: ["/mcpServers/server-5/transport"],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+    }),
   },
   {
     id: "mcp-transport-websocket",
@@ -45,6 +73,14 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "incompatible",
     diagnosticRuleId: "mcp.transport.websocket",
+    positiveExpected: expectedOutcome(["incompatible"], false, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["mcp.transport.websocket"],
+      diagnosticSourcePointers: ["/mcpServers/server-6/transport"],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+    }),
   },
   {
     id: "mcp-oauth-authorization-code",
@@ -56,6 +92,15 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     }, "7")] } }),
     negative: () => directPlugin({ components: { mcpServers: [http("8")] } }),
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      requirements: [
+        expectedRequirement("mcp-server", "7", "pi.mcp.runtime"),
+        expectedRequirement("mcp-server", "7", "pi.mcp.oauth.authorization-code"),
+      ],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("mcp-server", "8", "pi.mcp.runtime")],
+    }),
   },
   {
     id: "mcp-oauth-client-credentials",
@@ -67,6 +112,15 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     }, "9")] } }),
     negative: () => directPlugin({ components: { mcpServers: [http("a")] } }),
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      requirements: [
+        expectedRequirement("mcp-server", "9", "pi.mcp.runtime"),
+        expectedRequirement("mcp-server", "9", "pi.mcp.oauth.client-credentials"),
+      ],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("mcp-server", "a", "pi.mcp.runtime")],
+    }),
   },
   {
     id: "mcp-features-core",
@@ -83,11 +137,16 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
       instructions: "Use read-only tools",
       resources: ["docs"],
       headers: { Authorization: "CANARY_HEADER_VALUE" },
-      auth: "bearer-env",
-      bearerTokenEnv: "TOKEN",
+      auth: { type: "bearer", env: "TOKEN" },
     }, "b")] } }),
     negative: baseline,
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("mcp-server", "b", "pi.mcp.runtime")],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+    }),
   },
   {
     id: "mcp-feature-tool-approval",
@@ -95,6 +154,15 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     positive: () => directPlugin({ components: { mcpServers: [mcp({ transport: "stdio", command: "server", toolApproval: true }, "c")] } }),
     negative: baseline,
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      requirements: [
+        expectedRequirement("mcp-server", "c", "pi.mcp.runtime"),
+        expectedRequirement("mcp-server", "c", "pi.mcp.tool-approval"),
+      ],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+    }),
   },
   {
     id: "mcp-feature-sampling",
@@ -102,6 +170,15 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     positive: () => directPlugin({ components: { mcpServers: [mcp({ transport: "stdio", command: "server", sampling: true }, "d")] } }),
     negative: baseline,
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      requirements: [
+        expectedRequirement("mcp-server", "d", "pi.mcp.runtime"),
+        expectedRequirement("mcp-server", "d", "pi.mcp.sampling"),
+      ],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+    }),
   },
   {
     id: "mcp-feature-elicitation-form",
@@ -109,6 +186,15 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     positive: () => directPlugin({ components: { mcpServers: [mcp({ transport: "stdio", command: "server", elicitation: "form" }, "e")] } }),
     negative: baseline,
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      requirements: [
+        expectedRequirement("mcp-server", "e", "pi.mcp.runtime"),
+        expectedRequirement("mcp-server", "e", "pi.mcp.elicitation.form"),
+      ],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+    }),
   },
   {
     id: "mcp-feature-elicitation-url",
@@ -116,6 +202,15 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     positive: () => directPlugin({ components: { mcpServers: [mcp({ transport: "stdio", command: "server", elicitation: "url" }, "f")] } }),
     negative: baseline,
     positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      requirements: [
+        expectedRequirement("mcp-server", "f", "pi.mcp.runtime"),
+        expectedRequirement("mcp-server", "f", "pi.mcp.elicitation.url"),
+      ],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+    }),
   },
   {
     id: "mcp-headers-helper",
@@ -124,6 +219,14 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "incompatible",
     diagnosticRuleId: "mcp.headers-helper",
+    positiveExpected: expectedOutcome(["incompatible"], false, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["mcp.headers-helper"],
+      diagnosticSourcePointers: ["/mcpServers/server-10/headersHelper"],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+    }),
   },
   {
     id: "mcp-channels",
@@ -132,14 +235,70 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "incompatible",
     diagnosticRuleId: "mcp.channels",
+    positiveExpected: expectedOutcome(["incompatible"], false, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["mcp.channels"],
+      diagnosticSourcePointers: ["/mcpServers/server-11/channels"],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+    }),
   },
   {
     id: "mcp-default-deny",
     ruleId: "mcp.default-deny",
-    positive: () => directPlugin({ components: { mcpServers: [mcp({ transport: "stdio", command: "server", unknownBehavior: "CANARY_UNKNOWN" }, "12")] } }),
+    positive: () => directPlugin({ components: { mcpServers: [
+      mcp({ transport: "stdio", command: "server", unknownBehavior: "CANARY_UNKNOWN" }, "12"),
+      mcp({
+        transport: "streamable-http",
+        url: "https://example.invalid/mcp",
+        oauth: { grantType: "authorization-code", flow: "client-credentials" },
+      }, "13"),
+      mcp({
+        transport: "stdio",
+        command: "server",
+        features: { sampling: { enabled: "true" } },
+      }, "14"),
+      mcp({
+        transport: "stdio",
+        type: "streamable-http",
+        url: "https://example.invalid/mcp",
+      }, "15"),
+      mcp({
+        transport: "stdio",
+        command: "server",
+        features: { sampling: { enabled: true, futureFlag: false } },
+      }, "16"),
+    ] } }),
     negative: baseline,
     positiveVerdict: "incompatible",
     diagnosticRuleId: "mcp.default-deny",
+    positiveExpected: expectedOutcome(["incompatible", "incompatible", "incompatible", "incompatible", "incompatible"], false, {
+      diagnosticCodes: [
+        "UNSUPPORTED_DECLARATION",
+        "UNSUPPORTED_DECLARATION",
+        "UNSUPPORTED_DECLARATION",
+        "UNSUPPORTED_DECLARATION",
+        "UNSUPPORTED_DECLARATION",
+      ],
+      diagnosticRuleIds: [
+        "mcp.default-deny",
+        "mcp.default-deny",
+        "mcp.default-deny",
+        "mcp.default-deny",
+        "mcp.default-deny",
+      ],
+      diagnosticSourcePointers: [
+        "/mcpServers/server-12/unknownBehavior",
+        "/mcpServers/server-13/oauth",
+        "/mcpServers/server-14/features/sampling/enabled",
+        "/mcpServers/server-15/type",
+        "/mcpServers/server-16/features/sampling/futureFlag",
+      ],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+    }),
   },
 ];
 

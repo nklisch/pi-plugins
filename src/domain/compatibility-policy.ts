@@ -234,6 +234,7 @@ const skillRules = {
     "policy",
   ] as const,
   invocationPolicyValues: ["always", "never", "manual", "implicit", "explicit"] as const,
+  metadataPrefixes: ["agent-skills", "codex.agents"] as const,
 } as const;
 
 const hookHandlerRules = {
@@ -332,13 +333,30 @@ const hookHandlerRules = {
 } as const;
 
 const hookMetadataKeys = {
+  prefixes: ["handler", "group", "claude.hook", "codex.hook"] as const,
   statusMessage: ["statusMessage", "status_message", "statusText"] as const,
   shell: ["shell"] as const,
   async: ["async", "asyncRewake"] as const,
   ifRule: ["if", "conditions"] as const,
 } as const;
 
-const hookConditionOperators = ["equals", "contains", "matches", "regex", "in"] as const;
+const hookConditionOperatorDefinitions = {
+  equals: "primitive",
+  contains: "string",
+  matches: "string",
+  regex: "string",
+  in: "primitive-array",
+} as const;
+const hookConditionOperators = Object.keys(hookConditionOperatorDefinitions) as [
+  keyof typeof hookConditionOperatorDefinitions,
+  ...(keyof typeof hookConditionOperatorDefinitions)[],
+];
+const hookConditionFields = [
+  "tool_name",
+  "tool_input",
+  "tool_response",
+  "hook_event_name",
+] as const;
 
 const hookEvents = {
   supported: [
@@ -376,7 +394,11 @@ const hookEvents = {
   ] as const,
   rules: hookHandlerRules,
   metadata: hookMetadataKeys,
+  conditionFields: hookConditionFields,
   conditionOperators: hookConditionOperators,
+  conditionOperatorDefinitions: hookConditionOperatorDefinitions,
+  conditionPredicateKeys: ["field", "operator", "value"] as const,
+  conditionWrapperKeys: ["if"] as const,
 } as const;
 
 const mcpRules = {
@@ -506,6 +528,67 @@ const mcpRules = {
 } as const;
 
 /** Keys understood by the opaque MCP policy boundary. */
+const mcpOAuthFlowDefinitions = {
+  authorizationCode: {
+    aliases: ["authorization-code", "authorization_code", "authorizationCode"] as const,
+    ruleId: mcpRules.oauthAuthorizationCode.id,
+  },
+  clientCredentials: {
+    aliases: ["client-credentials", "client_credentials", "clientCredentials"] as const,
+    ruleId: mcpRules.oauthClientCredentials.id,
+  },
+} as const;
+
+const mcpFeaturePayloadDefinitions = {
+  toolApproval: {
+    aliases: ["toolApproval", "tool_approval"] as const,
+    shape: "boolean-flags" as const,
+    ruleId: mcpRules.featureToolApproval.id,
+    topLevel: true,
+  },
+  sampling: {
+    aliases: ["sampling"] as const,
+    shape: "boolean-flags" as const,
+    ruleId: mcpRules.featureSampling.id,
+    topLevel: true,
+  },
+  elicitation: {
+    aliases: ["elicitation"] as const,
+    shape: "elicitation-flags" as const,
+    ruleId: mcpRules.featureElicitationForm.id,
+    topLevel: true,
+  },
+  oauth: {
+    aliases: ["oauth"] as const,
+    shape: "oauth" as const,
+    ruleId: mcpRules.oauthAuthorizationCode.id,
+    topLevel: false,
+  },
+  headers: {
+    aliases: ["headers"] as const,
+    shape: "headers" as const,
+    ruleId: mcpRules.featuresCore.id,
+    topLevel: false,
+  },
+} as const;
+
+const mcpAuthKeys = [
+  "type",
+  "mode",
+  "env",
+  "clientId",
+  "client_id",
+  "redirectUri",
+  "redirect_uri",
+  "grantType",
+  "grant_type",
+  "flow",
+  "authorizationCode",
+  "authorization_code",
+  "clientCredentials",
+  "client_credentials",
+] as const;
+
 const mcpKeyDefinitions = {
   transport: "transport",
   transportValues: ["stdio", "streamable-http", "sse", "websocket"] as const,
@@ -539,37 +622,15 @@ const mcpKeyDefinitions = {
   sampling: "sampling",
   elicitation: "elicitation",
   features: "features",
-  featureKeys: [
-    "toolApproval",
-    "tool_approval",
-    "sampling",
-    "elicitation",
-  ] as const,
+  featureKeys: Object.values(mcpFeaturePayloadDefinitions).flatMap((definition) => definition.aliases),
   featureValues: ["tool-approval", "sampling", "elicitation-form", "elicitation-url"] as const,
-  oauthGrantTypes: [
-    "authorization-code",
-    "authorization_code",
-    "authorizationCode",
-    "client-credentials",
-    "client_credentials",
-    "clientCredentials",
-  ] as const,
-  authKeys: [
-    "type",
-    "mode",
-    "env",
-    "clientId",
-    "client_id",
-    "redirectUri",
-    "redirect_uri",
-    "grantType",
-    "grant_type",
-    "flow",
-    "authorizationCode",
-    "authorization_code",
-    "clientCredentials",
-    "client_credentials",
-  ] as const,
+  featurePayloadDefinitions: mcpFeaturePayloadDefinitions,
+  oauthGrantTypes: Object.values(mcpOAuthFlowDefinitions).flatMap((definition) => definition.aliases),
+  oauthFlowDefinitions: mcpOAuthFlowDefinitions,
+  authKeys: mcpAuthKeys,
+  booleanFeatureKeys: ["enabled", "required"] as const,
+  elicitationFeatureKeys: ["form", "url"] as const,
+  headerEnvironmentKeys: ["env"] as const,
   headersHelper: "headersHelper",
   channels: "channels",
 } as const;
