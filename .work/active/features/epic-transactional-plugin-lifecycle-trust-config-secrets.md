@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -503,6 +503,26 @@ Committed adversarial fixtures include canary secrets in every supported value s
 4. `epic-transactional-plugin-lifecycle-trust-config-secrets-contract-hardening`
 
 Trust and configured-value validation have separate write ownership and test surfaces. Secret custody consumes validation. Runtime resolution converges exact authorization and custody. Contract hardening then verifies public/boundary/leak guarantees across the completed graph.
+
+## Implementation summary
+
+All five child stories are implemented in dependency order and advanced to `stage: review`:
+
+1. `epic-transactional-plugin-lifecycle-trust-config-secrets-trust-policy` — canonical executable-surface registry, exact source/revision/materialization trust candidates, grant/revoke/diff policy, and project-trust authorization.
+2. `epic-transactional-plugin-lifecycle-trust-config-secrets-value-validation` — schema-derived configured values/documents, canonical paths, descriptor/revision/opaque-locator digests, and write-free validation.
+3. `epic-transactional-plugin-lifecycle-trust-config-secrets-secret-custody` — redacted sensitive custody, adapter-neutral stores, fresh-locator CAS replacement, cleanup outcomes, explicit removal confirmation, and port contracts.
+4. `epic-transactional-plugin-lifecycle-trust-config-secrets-runtime-resolution` — exact trust/document/path verification and callback-scoped runtime resolution with required/optional missing-secret semantics.
+5. `epic-transactional-plugin-lifecycle-trust-config-secrets-contract-hardening` — public/compiled API allowlists, dependency rules, adversarial fixtures, leak canaries, and end-to-end fake-port integration.
+
+Implementation remained host-local as requested; no agents or worktree isolation were used. The five implementation commits are:
+
+- `f991db7` — trust policy
+- `36d3ec4` — value validation
+- `eeabef8` — secret custody
+- `2e979b1` — runtime resolution
+- `eb328af` — contract hardening
+
+Verification is green: full `npm test` completed strict production/test typechecking, dependency-cruiser, 76 Vitest files with 457 passing tests, a clean build, and the compiled ESM 293-export allowlist/import check. `.work/bin/work-view` was preserved and its pre-existing working-tree modification was not staged.
 
 ## Testing
 
