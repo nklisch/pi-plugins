@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization-integration-hardening
 kind: story
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-foreign-plugin-model-source-materialization
 depends_on: [epic-foreign-plugin-model-source-materialization-git-acquisition, epic-foreign-plugin-model-source-materialization-npm-acquisition]
@@ -67,3 +67,13 @@ This story integrates but does not absorb lifecycle work. The caller still alloc
 - `node test/compiled-package-import.mjs`
 - `npx vitest run test/integration/source-materialization.test.ts`
 - `npm run boundaries`
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane story review. Independently confirmed `npm test`: 176 tests, typecheck, 152 dependency edges with no violations, build, and exact 91-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
