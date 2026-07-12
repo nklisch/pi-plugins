@@ -13,6 +13,10 @@ import {
   ComponentIdSchema,
   flattenComponents,
 } from "../components.js";
+import {
+  createExecutableSurface,
+  digestExecutableSurface,
+} from "../executable-surface.js";
 import { CompatibilityReportSchema, type CompatibilityReport } from "../compatibility.js";
 import {
   MarketplaceNameSchema,
@@ -329,21 +333,6 @@ function componentEvidence(plugin: NormalizedPlugin): InstalledComponentEvidence
     .sort((left, right) => left.id.localeCompare(right.id));
 }
 
-function executableSurface(plugin: NormalizedPlugin): JsonValue {
-  return flattenComponents(plugin.components).map((component): JsonValue => {
-    switch (component.kind) {
-      case "skill":
-        return { id: component.id, kind: component.kind, name: component.name.value, root: component.root.value };
-      case "hook":
-        return asJsonValue({ id: component.id, kind: component.kind, event: component.event.value, matcher: component.matcher?.value, handler: component.handler.value });
-      case "mcp-server":
-        return asJsonValue({ id: component.id, kind: component.kind, nativeKey: component.nativeKey.value, declaration: component.declaration.value });
-      case "foreign":
-        return asJsonValue({ id: component.id, kind: component.kind, nativeHost: component.nativeHost, nativeKind: component.nativeKind.value, declarationSubkey: component.declarationSubkey, declaration: component.declaration.value });
-    }
-  }).sort((left, right) => String((left as Record<string, unknown>).id).localeCompare(String((right as Record<string, unknown>).id)));
-}
-
 function compatibilitySurface(report: CompatibilityReport): JsonValue {
   return {
     activatable: report.activatable,
@@ -357,15 +346,6 @@ function compatibilitySurface(report: CompatibilityReport): JsonValue {
       status: requirement.status,
     })).sort((left, right) => left.id.localeCompare(right.id)),
   };
-}
-
-function configurationSurface(plugin: NormalizedPlugin): JsonValue {
-  return plugin.configuration.options.map((option) => asJsonValue({
-    key: option.key,
-    value: option.value,
-    required: option.required,
-    sensitive: option.sensitive,
-  })).sort((left, right) => String((left as Record<string, unknown>).key).localeCompare(String((right as Record<string, unknown>).key)));
 }
 
 function samePluginIdentity(
@@ -479,10 +459,10 @@ function createEvidenceSummary(plugin: NormalizedPlugin, compatibility: Compatib
       fingerprint: evidenceFingerprint("compatibility-evidence-v1", compatibilitySurface(compatibility), sha256),
     },
     trust: {
-      executableSurfaceDigest: evidenceFingerprint("executable-surface-v1", {
-        components: executableSurface(plugin),
-        configuration: configurationSurface(plugin),
-      }, sha256),
+      executableSurfaceDigest: digestExecutableSurface(
+        createExecutableSurface(plugin, compatibility),
+        sha256,
+      ),
     },
   });
 }

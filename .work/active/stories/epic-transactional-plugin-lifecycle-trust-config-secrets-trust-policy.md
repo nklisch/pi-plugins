@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets-trust-policy
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-trust-config-secrets
 depends_on: []
@@ -43,4 +43,13 @@ Implement Unit 1 of the parent feature: one registry-derived canonical executabl
 - [ ] Exact grant/revoke policy and project-trust gating pass adversarial scope/source/revision tests.
 - [ ] Registry exhaustiveness makes a future executable variant fail compilation/tests until handled.
 - [ ] Trust-change output is presentation-ready and secret/config-value free.
-- [ ] Domain/application dependency boundaries and abort/adapter-failure semantics are tested.
+- [x] Domain/application dependency boundaries and abort/adapter-failure semantics are tested.
+
+## Implementation notes
+- Execution capability: direct host implementation; trust policy and executable-surface contracts are tightly coupled and share one write surface.
+- Review weight: standard, caller did not request independent review during the stop-at-review implementation boundary.
+- Files changed: `src/domain/executable-surface.ts`, `src/domain/trust-policy.ts`, `src/domain/state/installed-state.ts`, `src/application/trust-service.ts`, `src/application/ports/project-trust.ts`, and corresponding domain/application tests.
+- Tests added: canonical surface ordering/digest and foreign exclusion; exact grant/revoke/evidence evaluation and safe trust diffs; project-trust gating, stable denial codes, abort, and adapter-failure redaction.
+- Discrepancies from design: surface entries use explicit `valueKind` and a redacted constraints projection; configuration defaults and provenance are excluded from trust bytes as intended.
+- Adjacent issues parked: none.
+- Verification: `npm run typecheck`; `npx vitest run test/domain/executable-surface.test.ts test/domain/trust-policy.test.ts test/application/trust-service.test.ts`; existing installed-state and state-contract integration tests.
