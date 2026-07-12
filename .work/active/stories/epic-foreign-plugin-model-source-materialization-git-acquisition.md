@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization-git-acquisition
 kind: story
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-foreign-plugin-model-source-materialization
 depends_on: [epic-foreign-plugin-model-source-materialization-secure-content-contract]
@@ -58,3 +58,13 @@ Implement Unit 2 from the parent feature: abort-aware argument-array command exe
 - `npm run typecheck` passes.
 - `npm run boundaries` passes.
 - `npm test` passes: 161 tests, build, and compiled-package import allowlist.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane story review. Independently confirmed `npm test`: 161 tests, typecheck, 112 dependency edges with no violations, build, and exact 90-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
