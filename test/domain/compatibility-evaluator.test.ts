@@ -269,6 +269,102 @@ describe("pure compatibility evaluator", () => {
     });
   });
 
+  it("rejects bearer/OAuth selector conflicts and credential-bearing MCP URLs", () => {
+    const combinedAuth = evaluateCompatibility({
+      plugin: plugin({
+        components: {
+          skills: [],
+          hooks: [],
+          mcpServers: [{
+            kind: "mcp-server",
+            id: componentId("mcp-server", "8"),
+            nativeKey: claim("combined-auth", manifest),
+            declaration: claim({
+              transport: "streamable-http",
+              url: "https://example.invalid/mcp",
+              auth: { type: "oauth", env: "CANARY_BEARER_ENV", grantType: "authorization-code" },
+            }, manifest),
+            metadata: [],
+          }],
+          foreign: [],
+        },
+      }),
+      capabilities: capabilities(),
+    });
+    expect(combinedAuth.components[0]?.verdict.kind).toBe("incompatible");
+    expect(combinedAuth.components[0]?.diagnostics[0]?.location?.pointer).toBe("/components/auth");
+    expect(JSON.stringify(combinedAuth)).not.toContain("CANARY_BEARER_ENV");
+
+    const embeddedCredentials = evaluateCompatibility({
+      plugin: plugin({
+        components: {
+          skills: [],
+          hooks: [],
+          mcpServers: [{
+            kind: "mcp-server",
+            id: componentId("mcp-server", "9"),
+            nativeKey: claim("credential-url", manifest),
+            declaration: claim({
+              transport: "streamable-http",
+              url: "https://CANARY_URL_USER:CANARY_URL_PASSWORD@example.invalid/mcp",
+            }, manifest),
+            metadata: [],
+          }],
+          foreign: [],
+        },
+      }),
+      capabilities: capabilities(),
+    });
+    expect(embeddedCredentials.components[0]?.verdict.kind).toBe("incompatible");
+    expect(embeddedCredentials.components[0]?.diagnostics[0]?.location?.pointer).toBe("/components/url");
+    expect(JSON.stringify(embeddedCredentials)).not.toContain("CANARY_URL_USER");
+    expect(JSON.stringify(embeddedCredentials)).not.toContain("CANARY_URL_PASSWORD");
+  });
+
+  it("keeps bearer-only and OAuth-only authentication supported with complete requirements", () => {
+    const report = evaluateCompatibility({
+      plugin: plugin({
+        components: {
+          skills: [],
+          hooks: [],
+          mcpServers: [{
+            kind: "mcp-server",
+            id: componentId("mcp-server", "a"),
+            nativeKey: claim("bearer-only", manifest),
+            declaration: claim({
+              transport: "streamable-http",
+              url: "https://example.invalid/bearer-only",
+              auth: { type: "bearer", env: "MCP_BEARER_TOKEN" },
+            }, manifest),
+            metadata: [],
+          }, {
+            kind: "mcp-server",
+            id: componentId("mcp-server", "b"),
+            nativeKey: claim("oauth-only", manifest),
+            declaration: claim({
+              transport: "streamable-http",
+              url: "https://example.invalid/oauth-only",
+              oauth: { type: "oauth", grantType: "authorization-code", clientId: "client" },
+            }, manifest),
+            metadata: [],
+          }],
+          foreign: [],
+        },
+      }),
+      capabilities: capabilities(),
+    });
+    expect(report.components.map((assessment) => assessment.verdict.kind)).toEqual(["supported", "supported"]);
+    expect(report.activatable).toBe(true);
+    expect(report.requirements.map((assessment) => assessment.requirement.capability)).toEqual([
+      "pi.mcp.runtime",
+      "pi.mcp.runtime",
+      "pi.mcp.oauth.authorization-code",
+    ]);
+    expect(report.diagnostics).toEqual([]);
+    expect(JSON.stringify(report)).not.toMatch(/MCP_BEARER_TOKEN/u);
+
+  });
+
   it("is deterministic across component and claim insertion order", () => {
     const first = plugin();
     const second = plugin({

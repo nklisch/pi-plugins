@@ -125,24 +125,36 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
   {
     id: "mcp-features-core",
     ruleId: "mcp.features.core",
-    positive: () => directPlugin({ components: { mcpServers: [mcp({
-      transport: "stdio",
-      command: "server",
-      args: ["--safe"],
-      env: { TOKEN: "CANARY_ENV_VALUE" },
-      cwd: "/CANARY_RUNTIME_PATH",
-      timeout: 1000,
-      allowTools: ["search"],
-      denyTools: ["delete"],
-      instructions: "Use read-only tools",
-      resources: ["docs"],
-      headers: { Authorization: "CANARY_HEADER_VALUE" },
-      auth: { type: "bearer", env: "TOKEN" },
-    }, "b")] } }),
+    positive: () => directPlugin({ components: { mcpServers: [
+      mcp({
+        transport: "stdio",
+        command: "server",
+        args: ["--safe"],
+        env: { TOKEN: "CANARY_ENV_VALUE" },
+        cwd: "/CANARY_RUNTIME_PATH",
+        timeout: 1000,
+        allowTools: ["search"],
+        denyTools: ["delete"],
+        instructions: "Use read-only tools",
+        resources: ["docs"],
+        headers: { Authorization: "CANARY_HEADER_VALUE" },
+        auth: { type: "bearer", env: "TOKEN" },
+      }, "b"),
+      // A deliberately minimal bearer-only declaration keeps this positive
+      // fixture independent from the core feature fields above.
+      mcp({
+        transport: "streamable-http",
+        url: "https://example.invalid/bearer-only",
+        auth: { type: "bearer", env: "MCP_BEARER_TOKEN" },
+      }, "b2"),
+    ] } }),
     negative: baseline,
     positiveVerdict: "supported",
-    positiveExpected: expectedOutcome(["supported"], true, {
-      requirements: [expectedRequirement("mcp-server", "b", "pi.mcp.runtime")],
+    positiveExpected: expectedOutcome(["supported", "supported"], true, {
+      requirements: [
+        expectedRequirement("mcp-server", "b", "pi.mcp.runtime"),
+        expectedRequirement("mcp-server", "b2", "pi.mcp.runtime"),
+      ],
     }),
     negativeExpected: expectedOutcome(["supported"], true, {
       requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
@@ -269,24 +281,42 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
         command: "server",
         features: { sampling: { enabled: true, futureFlag: false } },
       }, "16"),
+      mcp({
+        transport: "streamable-http",
+        url: "https://CANARY_URL_USER:CANARY_URL_PASSWORD@example.invalid/mcp",
+        auth: { type: "bearer", env: "CANARY_BEARER_ENV", grantType: "authorization-code" },
+      }, "17"),
+      mcp({
+        transport: "streamable-http",
+        url: "https://example.invalid/mcp",
+        auth: { type: "bearer", env: "CANARY_BEARER_ENV_2", flow: "client-credentials" },
+      }, "18"),
+      mcp({
+        transport: "streamable-http",
+        url: "https://CANARY_SSE_USER:CANARY_SSE_PASSWORD@example.invalid/mcp",
+      }, "19"),
+      mcp({
+        transport: "sse",
+        url: "https://CANARY_SSE_USER_2:CANARY_SSE_PASSWORD_2@example.invalid/mcp",
+      }, "1a"),
     ] } }),
     negative: baseline,
     positiveVerdict: "incompatible",
     diagnosticRuleId: "mcp.default-deny",
-    positiveExpected: expectedOutcome(["incompatible", "incompatible", "incompatible", "incompatible", "incompatible"], false, {
+    positiveExpected: expectedOutcome([
+      "incompatible", "incompatible", "incompatible", "incompatible", "incompatible",
+      "incompatible", "incompatible", "incompatible", "incompatible",
+    ], false, {
       diagnosticCodes: [
-        "UNSUPPORTED_DECLARATION",
-        "UNSUPPORTED_DECLARATION",
-        "UNSUPPORTED_DECLARATION",
-        "UNSUPPORTED_DECLARATION",
-        "UNSUPPORTED_DECLARATION",
+        "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION",
+        "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION",
+        "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION",
+        "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION",
       ],
       diagnosticRuleIds: [
-        "mcp.default-deny",
-        "mcp.default-deny",
-        "mcp.default-deny",
-        "mcp.default-deny",
-        "mcp.default-deny",
+        "mcp.default-deny", "mcp.default-deny", "mcp.default-deny", "mcp.default-deny",
+        "mcp.default-deny", "mcp.default-deny", "mcp.default-deny", "mcp.default-deny",
+        "mcp.default-deny", "mcp.default-deny", "mcp.transport.sse",
       ],
       diagnosticSourcePointers: [
         "/mcpServers/server-12/unknownBehavior",
@@ -294,6 +324,12 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
         "/mcpServers/server-14/features/sampling/enabled",
         "/mcpServers/server-15/type",
         "/mcpServers/server-16/features/sampling/futureFlag",
+        "/mcpServers/server-17/auth",
+        "/mcpServers/server-17/url",
+        "/mcpServers/server-18/auth",
+        "/mcpServers/server-19/url",
+        "/mcpServers/server-1a/transport",
+        "/mcpServers/server-1a/url",
       ],
     }),
     negativeExpected: expectedOutcome(["supported"], true, {

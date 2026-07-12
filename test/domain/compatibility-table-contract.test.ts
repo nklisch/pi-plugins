@@ -96,6 +96,7 @@ function expectedOutcome(value: PolicyFixture["positiveExpected"]) {
 }
 
 function assertSafeDiagnostics(report: ReturnType<typeof reportFor>, fixtureId: string): void {
+  expect(JSON.stringify(report), `${fixtureId} serialized report must redact canary values`).not.toMatch(/CANARY_[A-Z0-9_]+/u);
   for (const diagnostic of diagnosticsFor(report)) {
     expect(diagnostic.location, `${fixtureId} diagnostics need source provenance`).toBeDefined();
     const details = diagnostic.details;

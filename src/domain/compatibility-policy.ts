@@ -572,21 +572,41 @@ const mcpFeaturePayloadDefinitions = {
   },
 } as const;
 
+/**
+ * One table describes the accepted MCP authentication selector vocabulary.
+ * The evaluator uses this table to classify modes before validating their
+ * payload, so a declaration cannot become OAuth merely because the first
+ * recognizable flow field happened to appear before a bearer selector.
+ */
+const mcpAuthSelectorDefinitions = {
+  modeKeys: ["type", "mode"] as const,
+  modes: {
+    none: { aliases: ["none"] as const },
+    bearer: { aliases: ["bearer", "bearer-env"] as const },
+    oauth: { aliases: ["oauth"] as const },
+  },
+  oauthFlowKeys: ["grantType", "grant_type", "flow"] as const,
+  oauthBooleanFlowKeys: [
+    "authorizationCode",
+    "authorization_code",
+    "clientCredentials",
+    "client_credentials",
+  ] as const,
+  bearerEnvironmentKeys: ["env"] as const,
+  oauthParameterKeys: [
+    "clientId",
+    "client_id",
+    "redirectUri",
+    "redirect_uri",
+  ] as const,
+} as const;
+
 const mcpAuthKeys = [
-  "type",
-  "mode",
-  "env",
-  "clientId",
-  "client_id",
-  "redirectUri",
-  "redirect_uri",
-  "grantType",
-  "grant_type",
-  "flow",
-  "authorizationCode",
-  "authorization_code",
-  "clientCredentials",
-  "client_credentials",
+  ...mcpAuthSelectorDefinitions.modeKeys,
+  ...mcpAuthSelectorDefinitions.bearerEnvironmentKeys,
+  ...mcpAuthSelectorDefinitions.oauthParameterKeys,
+  ...mcpAuthSelectorDefinitions.oauthFlowKeys,
+  ...mcpAuthSelectorDefinitions.oauthBooleanFlowKeys,
 ] as const;
 
 const mcpKeyDefinitions = {
@@ -627,6 +647,7 @@ const mcpKeyDefinitions = {
   featurePayloadDefinitions: mcpFeaturePayloadDefinitions,
   oauthGrantTypes: Object.values(mcpOAuthFlowDefinitions).flatMap((definition) => definition.aliases),
   oauthFlowDefinitions: mcpOAuthFlowDefinitions,
+  authSelectorDefinitions: mcpAuthSelectorDefinitions,
   authKeys: mcpAuthKeys,
   booleanFeatureKeys: ["enabled", "required"] as const,
   elicitationFeatureKeys: ["form", "url"] as const,

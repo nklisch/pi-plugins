@@ -629,9 +629,17 @@ function mcpIssue(
 }
 
 type OAuthFlow = "authorization-code" | "client-credentials";
+type McpAuthMode = keyof typeof CompatibilityPolicyRegistry.mcp.keys.authSelectorDefinitions.modes;
 type OAuthFlowValidation = Readonly<{
   candidate: boolean;
   valid: boolean;
+  flow?: OAuthFlow;
+  ruleId?: string;
+}>;
+type McpAuthValidation = Readonly<{
+  candidate: boolean;
+  valid: boolean;
+  mode?: McpAuthMode;
   flow?: OAuthFlow;
   ruleId?: string;
 }>;
@@ -648,103 +656,168 @@ function recognizedOAuthFlow(value: string): Readonly<{ flow: OAuthFlow; ruleId:
   return undefined;
 }
 
+function recognizedMcpAuthMode(value: string): McpAuthMode | undefined {
+  for (const [mode, definition] of Object.entries(CompatibilityPolicyRegistry.mcp.keys.authSelectorDefinitions.modes)) {
+    if ((definition.aliases as readonly string[]).includes(value)) return mode as McpAuthMode;
+  }
+  return undefined;
+}
+
 /**
- * Parse OAuth without selecting the first recognizable branch. Every declared
- * selector must be well typed and exactly one flow selector must be present;
- * otherwise the declaration is ambiguous or malformed and is rejected.
+ * Parse all MCP authentication selectors as one coherent declaration. In
+ * particular, bearer mode is not allowed to coexist with an OAuth flow, even
+ * when the OAuth field appears first in the object. Values are only classified
+ * through the registry table; unknown or ambiguous combinations fail closed.
  */
-function oauthFlow(value: JsonValue): OAuthFlowValidation {
+function mcpAuth(value: JsonValue, externalBearerEnvironment?: string): McpAuthValidation {
+  const definitions = CompatibilityPolicyRegistry.mcp.keys.authSelectorDefinitions;
   if (typeof value === "string") {
-    const recognized = recognizedOAuthFlow(value);
-    return recognized === undefined
-      ? { candidate: value === "oauth", valid: false }
-      : { candidate: true, valid: true, ...recognized };
+    const mode = recognizedMcpAuthMode(value);
+    if (mode !== undefined) {
+      if (mode === "oauth") return { candidate: true, valid: false, mode };
+      if (mode === "none") return { candidate: true, valid: externalBearerEnvironment === undefined, mode };
+      return {
+        candidate: true,
+        valid: externalBearerEnvironment !== undefined,
+        mode,
+      };
+    }
+    const flow = recognizedOAuthFlow(value);
+    return flow === undefined
+      ? { candidate: false, valid: false }
+      : {
+        candidate: true,
+        valid: externalBearerEnvironment === undefined,
+        mode: "oauth",
+        ...flow,
+      };
   }
   if (!isRecord(value)) return { candidate: false, valid: false };
 
-  const authKeys = CompatibilityPolicyRegistry.mcp.keys.authKeys as readonly string[];
+  const authKeys: readonly string[] = [
+    ...definitions.modeKeys,
+    ...definitions.bearerEnvironmentKeys,
+    ...definitions.oauthParameterKeys,
+    ...definitions.oauthFlowKeys,
+    ...definitions.oauthBooleanFlowKeys,
+  ];
   if (Object.keys(value).some((key) => !authKeys.includes(key))) {
     return { candidate: true, valid: false };
   }
 
   let candidate = false;
   let modeSelectors = 0;
+  const modes: McpAuthMode[] = [];
+  let flowSelectors = 0;
   const flows: Array<{ flow: OAuthFlow; ruleId: string }> = [];
+  let oauthParameters = false;
+  let nestedBearerEnvironment = false;
   for (const [key, entry] of Object.entries(value)) {
-    if (key === "grantType" || key === "grant_type" || key === "flow") {
+    if ((definitions.modeKeys as readonly string[]).includes(key)) {
       candidate = true;
+      modeSelectors += 1;
       if (typeof entry !== "string") return { candidate, valid: false };
-      const recognized = recognizedOAuthFlow(entry);
-      if (recognized === undefined) return { candidate, valid: false };
-      flows.push(recognized);
+      const mode = recognizedMcpAuthMode(entry);
+      if (mode !== undefined) {
+        modes.push(mode);
+        continue;
+      }
+      // The historical `type: "authorization-code"` form is an OAuth flow
+      // selector, while the `mode` field only accepts the explicit modes.
+      if (key === "type") {
+        const flow = recognizedOAuthFlow(entry);
+        if (flow !== undefined) {
+          flowSelectors += 1;
+          flows.push(flow);
+          continue;
+        }
+      }
+      return { candidate: false, valid: false };
+    }
+    if ((definitions.oauthFlowKeys as readonly string[]).includes(key)) {
+      candidate = true;
+      flowSelectors += 1;
+      if (typeof entry !== "string") return { candidate, valid: false };
+      const flow = recognizedOAuthFlow(entry);
+      if (flow === undefined) return { candidate, valid: false };
+      flows.push(flow);
       continue;
     }
-    if (key === "authorizationCode" || key === "authorization_code" ||
-        key === "clientCredentials" || key === "client_credentials") {
+    if ((definitions.oauthBooleanFlowKeys as readonly string[]).includes(key)) {
       candidate = true;
+      flowSelectors += 1;
       if (typeof entry !== "boolean") return { candidate, valid: false };
       if (entry) {
-        const recognized = recognizedOAuthFlow(
+        const flow = recognizedOAuthFlow(
           key.startsWith("authorization") ? "authorization-code" : "client-credentials",
         );
-        if (recognized === undefined) return { candidate, valid: false };
-        flows.push(recognized);
+        if (flow === undefined) return { candidate, valid: false };
+        flows.push(flow);
       }
       continue;
     }
-    if (key === "type") {
-      if (typeof entry !== "string") return { candidate: true, valid: false };
-      if (entry === "oauth") {
-        candidate = true;
-        modeSelectors += 1;
-      } else if (entry === "bearer" || entry === "none") {
-        // These are handled by the bearer/none authentication policy below;
-        // they are not OAuth selectors and must not be treated as malformed
-        // OAuth merely because they use the shared `type` key.
-      } else {
-        const recognized = recognizedOAuthFlow(entry);
-        if (recognized === undefined) return { candidate: false, valid: false };
-        candidate = true;
-        flows.push(recognized);
-      }
+    if ((definitions.bearerEnvironmentKeys as readonly string[]).includes(key)) {
+      candidate = true;
+      if (typeof entry !== "string" || entry.length === 0) return { candidate, valid: false };
+      nestedBearerEnvironment = true;
       continue;
     }
-    if (key === "mode") {
-      if (typeof entry !== "string") return { candidate: true, valid: false };
-      if (entry === "oauth") {
-        candidate = true;
-        modeSelectors += 1;
-      } else if (entry !== "bearer" && entry !== "none") {
-        return { candidate: false, valid: false };
-      }
-      continue;
-    }
-    if (key === "env" || key === "clientId" || key === "client_id" ||
-        key === "redirectUri" || key === "redirect_uri") {
+    if ((definitions.oauthParameterKeys as readonly string[]).includes(key)) {
+      candidate = true;
+      oauthParameters = true;
       if (typeof entry !== "string" || entry.length === 0) return { candidate, valid: false };
     }
   }
-  if (!candidate) return { candidate: false, valid: false };
-  if (modeSelectors > 1 || flows.length !== 1) return { candidate: true, valid: false };
-  const selected = flows[0];
-  return selected === undefined
-    ? { candidate: true, valid: false }
-    : { candidate: true, valid: true, ...selected };
+
+  if (!candidate || modeSelectors > 1 || modes.length > 1 || flowSelectors > 1 ||
+      flows.length > 1) return { candidate, valid: false };
+
+  const mode = modes[0];
+  const hasOAuthSelector = mode === "oauth" || flowSelectors > 0;
+  const hasBearerSelector = mode === "bearer" || nestedBearerEnvironment || externalBearerEnvironment !== undefined;
+  if (hasOAuthSelector && hasBearerSelector) {
+    return {
+      candidate: true,
+      valid: false,
+      ...(mode === undefined ? {} : { mode }),
+    };
+  }
+  if (mode === "none") {
+    return {
+      candidate: true,
+      valid: flowSelectors === 0 && !oauthParameters && !nestedBearerEnvironment && externalBearerEnvironment === undefined,
+      mode,
+    };
+  }
+  if (mode === "bearer") {
+    return {
+      candidate: true,
+      valid: flowSelectors === 0 && !oauthParameters &&
+        !(nestedBearerEnvironment && externalBearerEnvironment !== undefined) &&
+        (nestedBearerEnvironment || externalBearerEnvironment !== undefined),
+      mode,
+    };
+  }
+  if (flowSelectors !== 1 || flows.length !== 1) {
+    return {
+      candidate: true,
+      valid: false,
+      ...(mode === undefined ? {} : { mode }),
+    };
+  }
+  const selected = flows[0]!;
+  return { candidate: true, valid: true, mode: "oauth", ...selected };
 }
 
-function bearerAuthIsKnown(value: JsonValue, externalEnvironment: JsonValue | undefined): boolean {
-  if (typeof value === "string") {
-    return (value === "bearer" || value === "bearer-env") &&
-      typeof externalEnvironment === "string" && externalEnvironment.length > 0;
-  }
-  if (!isRecord(value)) return false;
-  const keys = Object.keys(value);
-  if (keys.length === 0 || keys.some((key) => !["mode", "type", "env"].includes(key))) return false;
-  const selectors = ["mode", "type"].filter((key) => value[key] !== undefined);
-  if (selectors.length !== 1 || value[selectors[0]!] !== "bearer") return false;
-  if (value.env !== undefined && (typeof value.env !== "string" || value.env.length === 0)) return false;
-  const environment = value.env ?? externalEnvironment;
-  return typeof environment === "string" && environment.length > 0;
+/** OAuth-only view used by the nested feature table. */
+function oauthFlow(value: JsonValue): OAuthFlowValidation {
+  const parsed = mcpAuth(value);
+  return {
+    candidate: parsed.candidate,
+    valid: parsed.valid && parsed.mode === "oauth",
+    ...(parsed.flow === undefined ? {} : { flow: parsed.flow }),
+    ...(parsed.ruleId === undefined ? {} : { ruleId: parsed.ruleId }),
+  };
 }
 
 function invalidHeaderFields(value: JsonValue): readonly string[] {
@@ -935,6 +1008,30 @@ function evaluateMcp(
     incompatible = true;
     diagnostics.push(mcpIssue(pluginKey, component, "transport"));
   }
+  const isRemoteHttpTransport = transport === "streamable-http" || transport === "sse";
+  if (isRemoteHttpTransport) {
+    if (typeof url !== "string" || url.length === 0) {
+      incompatible = true;
+      diagnostics.push(mcpIssue(pluginKey, component, "url"));
+    } else {
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          throw new Error("unsupported URL protocol");
+        }
+        // URL syntax accepts userinfo, but MCP declarations must use the
+        // configured credential boundary instead of embedding credentials.
+        if (parsed.username.length > 0 || parsed.password.length > 0) {
+          throw new Error("embedded URL credentials are unsupported");
+        }
+      } catch {
+        // Never pass the URL to the diagnostic detail builder: it may contain
+        // a username, password, token, or another credential-bearing value.
+        incompatible = true;
+        diagnostics.push(mcpIssue(pluginKey, component, "url"));
+      }
+    }
+  }
   if (transport === "stdio") {
     if (typeof command !== "string" || command.length === 0) {
       incompatible = true;
@@ -945,18 +1042,6 @@ function evaluateMcp(
       diagnostics.push(mcpIssue(pluginKey, component, "url"));
     }
   } else if (transport === "streamable-http") {
-    if (typeof url !== "string" || url.length === 0) {
-      incompatible = true;
-      diagnostics.push(mcpIssue(pluginKey, component, "url"));
-    } else {
-      try {
-        const parsed = new URL(url);
-        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("unsupported URL protocol");
-      } catch {
-        incompatible = true;
-        diagnostics.push(mcpIssue(pluginKey, component, "url"));
-      }
-    }
     if (command !== undefined) {
       incompatible = true;
       diagnostics.push(mcpIssue(pluginKey, component, "command"));
@@ -1024,35 +1109,34 @@ function evaluateMcp(
   const authValues = ["auth", "oauth", "authentication"]
     .filter((field) => declaration[field] !== undefined)
     .map((field) => ({ field, value: declaration[field]! }));
+  const externalBearerEnvironment = typeof declaration.bearerTokenEnv === "string" &&
+    declaration.bearerTokenEnv.length > 0
+    ? declaration.bearerTokenEnv
+    : undefined;
+  if (declaration.bearerTokenEnv !== undefined && externalBearerEnvironment === undefined) {
+    incompatible = true;
+    diagnostics.push(mcpIssue(pluginKey, component, "bearerTokenEnv"));
+  }
   if (authValues.length > 1) {
     incompatible = true;
     diagnostics.push(mcpIssue(pluginKey, component, "auth"));
   } else if (authValues[0] !== undefined) {
     const { field, value } = authValues[0];
-    const parsedOAuth = oauthFlow(value);
-    const isOAuth = field === "oauth" || parsedOAuth.candidate || value === "oauth";
-    if (isOAuth) {
-      if (!parsedOAuth.valid || parsedOAuth.flow === undefined || parsedOAuth.ruleId === undefined || transport !== "streamable-http") {
-        incompatible = true;
-        diagnostics.push(mcpIssue(pluginKey, component, field, value));
-      } else {
-        requirements.push(...requirementUse(parsedOAuth.ruleId, component.declaration.provenance));
-      }
-    } else if (value === "none") {
-      if (declaration.bearerTokenEnv !== undefined) {
-        incompatible = true;
-        diagnostics.push(mcpIssue(pluginKey, component, "bearerTokenEnv"));
-      }
-    } else if (value === "bearer" || value === "bearer-env" || isRecord(value)) {
-      if (!bearerAuthIsKnown(value, declaration.bearerTokenEnv)) {
-        incompatible = true;
-        diagnostics.push(mcpIssue(pluginKey, component, field, value));
-      }
-    } else {
+    const parsedAuth = mcpAuth(value, externalBearerEnvironment);
+    if (!parsedAuth.valid || parsedAuth.mode === undefined) {
       incompatible = true;
-      diagnostics.push(mcpIssue(pluginKey, component, field, value));
+      // Do not include the opaque auth object in details: it may contain an
+      // environment name or another credential-bearing selector.
+      diagnostics.push(mcpIssue(pluginKey, component, field));
+    } else if (parsedAuth.mode === "oauth") {
+      if (parsedAuth.flow === undefined || parsedAuth.ruleId === undefined || transport !== "streamable-http") {
+        incompatible = true;
+        diagnostics.push(mcpIssue(pluginKey, component, field));
+      } else {
+        requirements.push(...requirementUse(parsedAuth.ruleId, component.declaration.provenance));
+      }
     }
-  } else if (declaration.bearerTokenEnv !== undefined) {
+  } else if (declaration.bearerTokenEnv !== undefined && externalBearerEnvironment !== undefined) {
     incompatible = true;
     diagnostics.push(mcpIssue(pluginKey, component, "bearerTokenEnv"));
   }

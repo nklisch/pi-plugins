@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-compatibility-reporting-review-hardening-2
 kind: story
-stage: implementing
+stage: review
 tags: [compatibility, tests]
 parent: epic-foreign-plugin-model-compatibility-reporting
 depends_on: [epic-foreign-plugin-model-compatibility-reporting-review-hardening]
@@ -28,8 +28,18 @@ Close two residual MCP default-deny failures reproduced by final compatibility c
 
 ## Acceptance criteria
 
-- [ ] Conflicting bearer/OAuth selectors are incompatible and cite the auth declaration location.
-- [ ] MCP URLs with embedded username/password are incompatible without leaking credentials.
-- [ ] Valid bearer-only and OAuth-only declarations retain their documented supported behavior and requirements.
-- [ ] Negative fixtures assert full outcomes and redaction.
-- [ ] Full `npm test`, build, boundaries, and exact compiled package import pass.
+- [x] Conflicting bearer/OAuth selectors are incompatible and cite the auth declaration location.
+- [x] MCP URLs with embedded username/password are incompatible without leaking credentials.
+- [x] Valid bearer-only and OAuth-only declarations retain their documented supported behavior and requirements.
+- [x] Negative fixtures assert full outcomes and redaction.
+- [x] Full `npm test`, build, boundaries, and exact compiled package import pass.
+
+## Implementation notes
+
+- Execution capability: direct-read inline implementation; the caller explicitly prohibited agents.
+- Authentication selectors now use the policy registry as one coherent parser. Bearer credentials and OAuth flow selectors are mutually exclusive, duplicate credential sources fail closed, and valid bearer-only/OAuth-only declarations retain their runtime requirements.
+- Streamable HTTP and SSE URLs reject embedded userinfo credentials; URL and opaque authentication values are omitted from diagnostics so reports remain redacted.
+- Compatibility fixtures assert complete verdict, activatability, diagnostic, requirement, provenance, and serialized-canary outcomes for both positive and negative cases.
+- Verification: `npm test` passed (51 files, 350 tests, typecheck, dependency boundaries, build, and compiled package import); independent `npm run build && node test/compiled-package-import.mjs` passed (131 exports).
+- Files changed: `src/domain/compatibility-evaluator.ts`, `src/domain/compatibility-policy.ts`, `test/domain/compatibility-evaluator.test.ts`, `test/domain/compatibility-table-contract.test.ts`, and `test/fixtures/compatibility/mcp.ts`.
+- `.work/bin/work-view` was intentionally excluded from this story commit.
