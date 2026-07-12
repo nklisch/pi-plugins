@@ -235,7 +235,7 @@ class Scheduler implements KeyedMutationScheduler {
   }
 
   private release(waiter: Waiter): void {
-    for (const key of waiter.keys) {
+    for (const key of [...waiter.keys].reverse()) {
       const state = this.states.get(key);
       if (state?.owner === waiter) state.owner = undefined;
     }
