@@ -42,3 +42,8 @@ This epic does not implement skill, hook, or MCP behavior and does not define th
 - read-only Claude and Codex marketplace adoption
 
 <!-- The design pass on each child feature will fill in real specifics. -->
+
+## Design decisions
+
+- **Alignment status**: No unresolved high-level choices surfaced. The foundation documents already fix Pi-owned authoritative state, immutable revisions, user and project scope separation, operating-system secret storage, compare-and-commit locking, activation recovery, data retention, read-only adoption, and per-marketplace update policy. Storage schemas and transaction service boundaries remain feature-design decisions.
+- **Discovery posture**: Direct-read only — there is no implementation surface to map yet, and sibling epic boundaries make lifecycle ownership explicit.
