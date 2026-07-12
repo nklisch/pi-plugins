@@ -1,4 +1,5 @@
 import {
+  CanonicalConfigurationPathSchema,
   ConfiguredValueSchema,
   PluginConfigurationDocumentSchemaV1,
   verifyPluginConfigurationDocument,
@@ -143,7 +144,7 @@ async function resolvePath(
   }
   signal.throwIfAborted();
   switch (result.kind) {
-    case "valid": return { kind: expected, value: result.canonicalPath };
+    case "valid": return { kind: expected, value: CanonicalConfigurationPathSchema.parse(result.canonicalPath) };
     case "missing": throw new ConfigurationResolutionError("CONFIG_PATH_MISSING");
     case "wrong-kind": throw new ConfigurationResolutionError("CONFIG_PATH_WRONG_KIND");
     case "invalid": throw new ConfigurationResolutionError("CONFIG_PATH_INVALID");

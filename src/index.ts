@@ -76,6 +76,7 @@ export {
   ConfigurationValueKindRegistry,
   ConfigurationValueSchema,
   ConfigurationOptionSchema,
+  ConfigurationKeySchema,
   PluginConfigurationSchema,
 } from "./domain/configuration.js";
 export type {
@@ -84,6 +85,27 @@ export type {
   ConfigurationOption,
   PluginConfiguration,
 } from "./domain/configuration.js";
+
+export {
+  CanonicalConfigurationPathSchema,
+  ConfiguredValueSchemaRegistry,
+  ConfiguredValueSchema,
+  SecretLocatorSchema,
+  ConfigurationWriteIdSchema,
+  PluginConfigurationDocumentSchemaV1,
+  digestConfigurationDescriptors,
+  deriveSecretLocator,
+  createPluginConfigurationDocument,
+  verifyPluginConfigurationDocument,
+} from "./domain/configured-values.js";
+export type {
+  CanonicalConfigurationPath,
+  ConfiguredValue,
+  ConfiguredValueKind,
+  SecretLocator,
+  ConfigurationWriteId,
+  PluginConfigurationDocument,
+} from "./domain/configured-values.js";
 
 export {
   ComponentKindRegistry,
@@ -110,6 +132,42 @@ export type {
   Component,
   PluginComponents,
 } from "./domain/components.js";
+
+export {
+  ExecutableSurfaceKindRegistry,
+  ExecutableSurfaceEntrySchema,
+  ExecutableSurfaceSchema,
+  SkillTrustEntrySchema,
+  HookTrustEntrySchema,
+  McpTrustEntrySchema,
+  ConfigurationTrustEntrySchema,
+  createExecutableSurface,
+  digestExecutableSurface,
+  verifyExecutableSurface,
+} from "./domain/executable-surface.js";
+export type {
+  ExecutableSurfaceEntry,
+  ExecutableSurface,
+} from "./domain/executable-surface.js";
+
+export {
+  TrustCandidateSchema,
+  TrustDecisionSchema,
+  TrustChangeDescriptionSchema,
+  createTrustCandidate,
+  verifyTrustCandidate,
+  evaluateTrust,
+  grantTrust,
+  revokeTrust,
+  describeTrustChange,
+} from "./domain/trust-policy.js";
+export type {
+  TrustCandidate,
+  TrustDecision,
+  TrustChangeDescription,
+  TrustSurfaceSummary,
+  TrustSurfaceChange,
+} from "./domain/trust-policy.js";
 
 export {
   ComponentIdVersionRegistry,
@@ -226,6 +284,32 @@ export type {
   CompatibilityService,
 } from "./application/compatibility-service.js";
 export type { RuntimeCapabilityProbe } from "./application/ports/runtime-capability-probe.js";
+
+export { authorizeTrustCandidate } from "./application/trust-service.js";
+export type { TrustAuthorizationResult } from "./application/trust-service.js";
+export type { ProjectTrustPort } from "./application/ports/project-trust.js";
+
+export {
+  savePluginConfiguration,
+  removePluginConfiguration,
+} from "./application/configuration-service.js";
+export type {
+  SavePluginConfigurationRequest,
+  RemovePluginConfigurationRequest,
+  ConfigurationCleanup,
+  ConfigurationSaveResult,
+  ConfigurationRemovalResult,
+} from "./application/configuration-service.js";
+export type { ConfigurationPathContext, ConfigurationPathPort } from "./application/ports/configuration-path.js";
+export type { PluginConfigurationStore } from "./application/ports/plugin-configuration-store.js";
+export type { SecretStore } from "./application/ports/secret-store.js";
+export type { ConfigurationWriteIdPort } from "./application/ports/configuration-write-id.js";
+export { SensitiveValue } from "./application/sensitive-value.js";
+export {
+  withResolvedPluginConfiguration,
+  ConfigurationResolutionError,
+} from "./application/configuration-resolver.js";
+export type { ResolvedConfiguration } from "./application/resolved-configuration.js";
 
 export {
   ErrorCodeRegistry,

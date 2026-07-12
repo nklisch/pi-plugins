@@ -149,7 +149,11 @@ function ensureWriteId(value: unknown): ReturnType<typeof ConfigurationWriteIdSc
 function ensureRequestIdentity(request: SavePluginConfigurationRequest): void {
   PluginConfigurationRefSchema.parse(request.configurationRef);
   PluginKeySchema.parse(request.plugin);
-  if (request.pathContext.scope.kind !== request.scope.kind) throw new Error("configuration path scope does not match request");
+  const expectedScope = toScopeReference(request.scope);
+  const pathScope = toScopeReference(request.pathContext.scope);
+  if (expectedScope.kind !== pathScope.kind || (expectedScope.kind === "project" && pathScope.kind === "project" && expectedScope.projectKey !== pathScope.projectKey)) {
+    throw new Error("configuration path scope does not match request");
+  }
 }
 
 function candidateDocument(
@@ -229,13 +233,19 @@ export async function savePluginConfiguration(
     dependencies.sha256,
   );
   const freshLocators = fresh.map((entry) => entry.locator);
+  const currentLocators = new Set(current?.secrets.map((entry) => entry.locator) ?? []);
+  if (freshLocators.some((locator) => currentLocators.has(locator))) {
+    throw new Error("configuration write id reused an active secret locator");
+  }
   const written: SecretLocator[] = [];
 
   for (const entry of fresh) {
     signal.throwIfAborted();
+    // Track the attempt before calling the adapter: a provider may persist a
+    // credential and then fail while reporting the operation result.
+    written.push(entry.locator);
     try {
       await dependencies.secrets.put(entry.locator, entry.value, signal);
-      written.push(entry.locator);
     } catch (error) {
       const failedCleanup = await cleanupLocators(dependencies.secrets, written, signal);
       if (signal.aborted || isAbortRejection(error)) return assertAbort(signal, error);

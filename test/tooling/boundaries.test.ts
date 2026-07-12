@@ -92,6 +92,7 @@ describe("dependency boundary regression", () => {
       const portOutput = cruise(root, "src/application/ports/.state-port-boundary-regression-fixture.ts");
       expect(portOutput).toContain("state-port-no-node-builtins");
       expect(portOutput).toContain("state-port-no-outer-layer-imports");
+      expect(portOutput).toContain("application-ports-no-backend-technology");
     } finally {
       rmSync(stateFixture, { force: true });
       rmSync(stateTarget, { force: true });

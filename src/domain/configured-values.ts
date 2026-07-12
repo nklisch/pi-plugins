@@ -122,9 +122,21 @@ export const PluginConfigurationDocumentSchemaV1 = z.object({
     if (seen.has(entry.key)) context.addIssue({ code: "custom", path: ["values", index, "key"], message: "duplicate configuration key" });
     seen.add(entry.key);
   }
+  let previousValueKey: string | undefined;
+  for (const [index, entry] of document.values.entries()) {
+    if (previousValueKey !== undefined && utf8Compare(previousValueKey, entry.key) >= 0) {
+      context.addIssue({ code: "custom", path: ["values", index, "key"], message: "configuration values must be in unsigned UTF-8 key order" });
+    }
+    previousValueKey = entry.key;
+  }
+  let previousSecretKey: string | undefined;
   for (const [index, entry] of document.secrets.entries()) {
     if (seen.has(entry.key)) context.addIssue({ code: "custom", path: ["secrets", index, "key"], message: "duplicate configuration key" });
     seen.add(entry.key);
+    if (previousSecretKey !== undefined && utf8Compare(previousSecretKey, entry.key) >= 0) {
+      context.addIssue({ code: "custom", path: ["secrets", index, "key"], message: "configuration secrets must be in unsigned UTF-8 key order" });
+    }
+    previousSecretKey = entry.key;
   }
 });
 export type PluginConfigurationDocument = z.infer<typeof PluginConfigurationDocumentSchemaV1>;
@@ -257,6 +269,9 @@ export function verifyPluginConfigurationDocument(
   descriptors: PluginConfiguration,
   sha256: Sha256,
 ): PluginConfigurationDocument {
+  // A persisted document must already be canonical; creation is the only API
+  // that normalizes caller ordering before deriving a revision.
+  PluginConfigurationDocumentSchemaV1.parse(input);
   const document = createPluginConfigurationDocument(input, sha256);
   const configuration = PluginConfigurationSchema.parse(descriptors);
   const expectedDescriptorDigest = digestConfigurationDescriptors(configuration, sha256);

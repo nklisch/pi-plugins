@@ -5,6 +5,7 @@ import {
   type PluginConfiguration,
 } from "../domain/configuration.js";
 import {
+  CanonicalConfigurationPathSchema,
   ConfiguredValueSchema,
   PluginConfigurationDocumentSchemaV1,
   type ConfiguredValue,
@@ -100,6 +101,14 @@ function parseSubmission(request: ConfigurationSubmission): ConfigurationSubmiss
   const configurationRef = PluginConfigurationRefSchema.parse(request.configurationRef);
   const plugin = PluginKeySchema.parse(request.plugin);
   const scope = ScopeContextSchema.parse(request.scope);
+  const pathContext = request.pathContext;
+  if (pathContext === null || typeof pathContext !== "object" || typeof pathContext.trustedBaseDirectory !== "string" || pathContext.trustedBaseDirectory.length === 0) {
+    throw new ConfigurationValidationError("CONFIG_TYPE");
+  }
+  const pathScope = ScopeContextSchema.parse(pathContext.scope);
+  if (pathScope.kind !== scope.kind || (pathScope.kind === "project" && scope.kind === "project" && pathScope.projectKey !== scope.projectKey)) {
+    throw new ConfigurationValidationError("CONFIG_TYPE");
+  }
   const descriptors = PluginConfigurationSchema.parse(request.descriptors);
   if (!isRecord(request.values ?? {})) throw new ConfigurationValidationError("CONFIG_TYPE");
   const unset = request.unset ?? [];
@@ -130,7 +139,7 @@ function parseSubmission(request: ConfigurationSubmission): ConfigurationSubmiss
     values,
     unset: parsedUnset,
     ...(existing === undefined ? {} : { existing }),
-    pathContext: request.pathContext,
+    pathContext: { scope: pathScope, trustedBaseDirectory: pathContext.trustedBaseDirectory },
   };
 }
 
@@ -157,7 +166,7 @@ function validateNonSensitiveValue(
       if (option.value.pattern !== undefined && !new RegExp(option.value.pattern).test(input)) {
         throw new ConfigurationValidationError("CONFIG_PATTERN", key);
       }
-          return { kind: "string", value: input } satisfies ConfiguredValue;
+      return { kind: "string", value: input } satisfies ConfiguredValue;
     case "number":
       if (typeof input !== "number" || !Number.isFinite(input)) failType(key);
       if ((option.value.min !== undefined && input < option.value.min) ||
@@ -250,7 +259,7 @@ async function normalizePath(
   }
   signal.throwIfAborted();
   switch (result.kind) {
-    case "valid": return { kind: expected, value: result.canonicalPath };
+    case "valid": return { kind: expected, value: CanonicalConfigurationPathSchema.parse(result.canonicalPath) };
     case "missing": throw new ConfigurationValidationError("CONFIG_PATH_MISSING", key);
     case "wrong-kind": throw new ConfigurationValidationError("CONFIG_PATH_WRONG_KIND", key);
     case "invalid": throw new ConfigurationValidationError("CONFIG_PATH_INVALID", key);
@@ -264,6 +273,7 @@ export async function validateConfigurationSubmission(
   pathPort: ConfigurationPathPort,
   signal: AbortSignal,
 ): Promise<ValidatedConfigurationSubmission> {
+  signal.throwIfAborted();
   const parsed = parseSubmission(request);
   const options = descriptorMap(parsed.descriptors);
   const valuesInput = parsed.values ?? {};

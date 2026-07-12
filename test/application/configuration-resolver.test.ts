@@ -28,6 +28,7 @@ const descriptors = {
 } as const;
 const configurationRef = derivePluginConfigurationRef({ scope, plugin: "demo@catalog", content: "content", binding: "binding" }, sha256);
 const tokenLocator = deriveSecretLocator({ scope, plugin: "demo@catalog", configurationRef, key: "TOKEN", writeId: `config-write-v1:${"x".repeat(22)}` }, sha256);
+const optionalLocator = deriveSecretLocator({ scope, plugin: "demo@catalog", configurationRef, key: "OPTIONAL", writeId: `config-write-v1:${"y".repeat(22)}` }, sha256);
 
 function candidate(): TrustCandidate {
   const plugin = directPlugin({
@@ -63,7 +64,7 @@ const paths: ConfigurationPathPort = {
   },
 };
 
-function document(candidateValue: TrustCandidate, includePath = false): PluginConfigurationDocument {
+function document(candidateValue: TrustCandidate, includePath = false, includeOptional = false): PluginConfigurationDocument {
   const descriptorDigest = digestConfigurationDescriptors(descriptors, sha256);
   return createPluginConfigurationDocument({
     schemaVersion: 1,
@@ -75,7 +76,10 @@ function document(candidateValue: TrustCandidate, includePath = false): PluginCo
       { key: "NAME", value: { kind: "string", value: "demo" } },
       ...(includePath ? [{ key: "DATA_DIR", value: { kind: "directory" as const, value: CanonicalConfigurationPathSchema.parse("file:///trusted/missing") } }] : []),
     ],
-    secrets: [{ key: "TOKEN", locator: tokenLocator }],
+    secrets: [
+      { key: "TOKEN", locator: tokenLocator },
+      ...(includeOptional ? [{ key: "OPTIONAL", locator: optionalLocator }] : []),
+    ],
   }, sha256);
 }
 function dependencies(config: ConfigStore, secrets: Secrets) {
@@ -122,6 +126,16 @@ describe("trust-gated runtime configuration resolution", () => {
     const error = await withResolvedPluginConfiguration({ candidate: current, trustRecords: [grantTrust(current, sha256)], configurationRef, descriptors, pathContext }, dependencies(config, failure), new AbortController().signal, async () => "unreachable").catch((value: unknown) => value);
     expect(error).toMatchObject({ code: "ADAPTER_FAILED" });
     expect(JSON.stringify(error)).not.toContain("CANARY_SECRET");
+  });
+
+  it("omits optional missing secrets without empty/default substitution", async () => {
+    const { current, config, secrets } = await setup();
+    config.document = document(current, false, true);
+    await withResolvedPluginConfiguration({ candidate: current, trustRecords: [grantTrust(current, sha256)], configurationRef, descriptors, pathContext }, dependencies(config, secrets), new AbortController().signal, async (resolved) => {
+      expect(resolved.has("OPTIONAL")).toBe(false);
+      expect(resolved.environment()).not.toHaveProperty("CLAUDE_PLUGIN_OPTION_OPTIONAL");
+      return undefined;
+    });
   });
 
   it("rechecks paths before fetching or invoking a runtime callback", async () => {

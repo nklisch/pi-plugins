@@ -55,6 +55,15 @@ module.exports = {
       to: { path: "^src/domain/compatibility(?:/|$)" },
     },
     {
+      name: "application-ports-no-backend-technology",
+      comment: "Application ports expose contracts only; backend selection remains in composition/adapters.",
+      severity: "error",
+      from: { path: "^src/application/ports(?:/|$)" },
+      to: {
+        path: "^(?:src/(?:formats|infrastructure|runtime|pi|composition)(?:/|$)|node:)",
+      },
+    },
+    {
       name: "application-no-node-builtins",
       comment: "Application code stays portable and receives filesystem/process behavior through ports.",
       severity: "error",

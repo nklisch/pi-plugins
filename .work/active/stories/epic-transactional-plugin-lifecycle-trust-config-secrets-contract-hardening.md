@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets-contract-hardening
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-trust-config-secrets
 depends_on: [epic-transactional-plugin-lifecycle-trust-config-secrets-trust-policy, epic-transactional-plugin-lifecycle-trust-config-secrets-runtime-resolution]
@@ -40,9 +40,18 @@ Implement Unit 5 of the parent feature after the trust and resolution seams land
 
 ## Acceptance criteria
 
-- [ ] Source and compiled exports contain the intended safe API and no plaintext/backend/prompt/update/activation surface.
-- [ ] Dependency-cruiser generated violations prove all new boundaries.
-- [ ] End-to-end fake-port integration proves trust-gated runtime-only secret resolution.
-- [ ] Leak canaries are absent from every prohibited durable/observable boundary.
-- [ ] Every security-critical failure class and cleanup outcome has adversarial coverage.
-- [ ] `npm test` passes typecheck, boundaries, unit/integration tests, build, and compiled export checks.
+- [x] Source and compiled exports contain the intended safe API and no plaintext/backend/prompt/update/activation surface.
+- [x] Dependency-cruiser generated violations prove all new boundaries.
+- [x] End-to-end fake-port integration proves trust-gated runtime-only secret resolution.
+- [x] Leak canaries are absent from every prohibited durable/observable boundary.
+- [x] Every security-critical failure class and cleanup outcome has adversarial coverage.
+- [x] `npm test` passes typecheck, boundaries, unit/integration tests, build, and compiled export checks.
+
+## Implementation notes
+- Execution capability: direct host implementation; final hardening converges the public barrel, package allowlist, dependency rules, and leak/integration evidence.
+- Review weight: standard, caller requested the implementing-to-review boundary.
+- Files changed: `src/index.ts`, `.dependency-cruiser.cjs`, compiled export/public API tests, tooling boundary regression, integration leak test, and final canonicalization hardening across trust/configuration/resolution services.
+- Tests added: fake-port end-to-end save-to-runtime resolution, canary absence from state/results/errors, public safe-export allowlist, compiled ESM import, port boundary violation fixture, optional-secret omission, and wrapper redaction coverage.
+- Discrepancies from design: no foundation assertion changed; concrete backend selection, prompts, activation, automatic-update policy, and recovery-journal ownership remain outside this feature.
+- Adjacent issues parked: none.
+- Verification: full `npm test` (strict typecheck, dependency-cruiser, Vitest, build, and compiled package allowlist).

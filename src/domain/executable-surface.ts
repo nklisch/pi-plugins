@@ -187,7 +187,7 @@ function componentEntries(components: PluginComponents): ExecutableSurfaceEntry[
 }
 
 function optionEntry(option: ConfigurationOption): ExecutableSurfaceEntry {
-  const { default: _default, ...constraints } = option.value;
+  const { kind: _kind, default: _default, ...constraints } = option.value;
   return {
     kind: "configuration",
     key: option.key,

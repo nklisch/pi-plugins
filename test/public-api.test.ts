@@ -607,6 +607,16 @@ describe("explicit package API", () => {
     }
   });
 
+  it("keeps secret custody and policy boundaries out of the public surface", () => {
+    expect(sourceApi.SensitiveValue).toBeDefined();
+    expect(sourceApi.withResolvedPluginConfiguration).toBeDefined();
+    expect(sourceApi.savePluginConfiguration).toBeDefined();
+    expect(sourceApi.authorizeTrustCandidate).toBeDefined();
+    expect(sourceApi).not.toHaveProperty("withSensitiveValue");
+    expect(sourceApi).not.toHaveProperty("validateConfigurationSubmission");
+    expect(sourceApi).not.toHaveProperty("createResolvedConfiguration");
+  });
+
   it("keeps public types inferred from the exported schemas", () => {
     expectTypeOf<BundleDocumentLimitsContract>().toEqualTypeOf<z.infer<typeof BundleDocumentLimitsSchema>>();
     expectTypeOf<PluginInspectionService>().toMatchTypeOf<{ inspect: Function }>();
