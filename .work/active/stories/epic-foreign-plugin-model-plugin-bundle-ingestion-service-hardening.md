@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-plugin-bundle-ingestion-service-hardening
 kind: story
-stage: review
+stage: done
 tags: [compatibility]
 parent: epic-foreign-plugin-model-plugin-bundle-ingestion
 depends_on: [epic-foreign-plugin-model-plugin-bundle-ingestion-manifest-reconciliation, epic-foreign-plugin-model-plugin-bundle-ingestion-skills-configuration, epic-foreign-plugin-model-plugin-bundle-ingestion-hooks-mcp-foreign]
@@ -65,4 +65,4 @@ Compatibility verdicts, runtime requirement availability, activatability, trust,
 **Important**: none
 **Nits**: none
 
-**Notes**: Implemented the final ingestion seam with deterministic manifest-indexed discovery, exact bounded reads, dual-claim reconciliation, and Node-only composition. The story is intentionally left at `stage: review` for the requested review transition.
+**Notes**: Implemented the final ingestion seam with deterministic manifest-indexed discovery, exact bounded reads, dual-claim reconciliation, and Node-only composition. Independently confirmed `npm test`: 300 tests, typecheck, dependency boundaries with no violations, build, and exact 114-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
