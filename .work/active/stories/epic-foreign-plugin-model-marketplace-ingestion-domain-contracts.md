@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion-domain-contracts
 kind: story
-stage: review
+stage: done
 tags: [compatibility]
 parent: epic-foreign-plugin-model-marketplace-ingestion
 depends_on: []
@@ -23,11 +23,11 @@ Update `src/index.ts`, `test/public-api.test.ts`, and `test/compiled-package-imp
 
 ## Acceptance criteria
 
-- [ ] `NormalizedMarketplaceSchema` and `NormalizedMarketplaceEntrySchema` enforce root/entry identity agreement, unique entries, unique authority hosts, and unique retained metadata keys.
-- [ ] `MarketplaceAuthoritySchema` accepts only valid Claude strict and Codex manifest/catalog-authority combinations.
-- [ ] Entries carry declared `PluginSource`, raw declaration/provenance, availability policy, authorities, retained declarations, and metadata without satisfying `NormalizedPlugin`.
-- [ ] Every public marketplace type is inferred from a runtime schema and exported explicitly.
-- [ ] Domain, public API, build, and compiled-package allowlist tests pass.
+- [x] `NormalizedMarketplaceSchema` and `NormalizedMarketplaceEntrySchema` enforce root/entry identity agreement, unique entries, unique authority hosts, and unique retained metadata keys.
+- [x] `MarketplaceAuthoritySchema` accepts only valid Claude strict and Codex manifest/catalog-authority combinations.
+- [x] Entries carry declared `PluginSource`, raw declaration/provenance, availability policy, authorities, retained declarations, and metadata without satisfying `NormalizedPlugin`.
+- [x] Every public marketplace type is inferred from a runtime schema and exported explicitly.
+- [x] Domain, public API, build, and compiled-package allowlist tests pass.
 
 ## Design source
 
@@ -44,3 +44,13 @@ Implement Parent Feature Units 1 and the exact contracts under `## Implementatio
 
 - `npm test` — 12 test files, 123 tests passed; typecheck, dependency boundaries, build, and compiled export allowlist passed.
 - Compiled package allowlist contains 81 intended runtime exports.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane story review. Independently confirmed `npm test`: 123 tests, typecheck, dependency boundaries, build, and exact 81-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
