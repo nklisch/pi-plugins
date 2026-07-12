@@ -103,6 +103,14 @@ function validateProtocolSchema(database: DatabaseSync): void {
     throw new Error("scope lock database contains an unexpected object");
   }
 
+  const tableDefinition = database
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(PROTOCOL_TABLE) as SqliteRow | undefined;
+  const expectedDefinition = `CREATE TABLE ${PROTOCOL_TABLE} (protocol TEXT PRIMARY KEY NOT NULL CHECK (protocol = '${PROTOCOL}'), version INTEGER NOT NULL CHECK (version = ${PROTOCOL_VERSION})) STRICT`;
+  if (typeof tableDefinition?.sql !== "string" || tableDefinition.sql.replaceAll(/\s+/g, " ").trim() !== expectedDefinition) {
+    throw new Error("scope lock protocol table definition is invalid");
+  }
+
   const columns = database.prepare(`PRAGMA table_info(${PROTOCOL_TABLE})`).all() as SqliteRow[];
   const expected = [
     { name: "protocol", type: "TEXT", notnull: 1, pk: 1 },
