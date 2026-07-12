@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-generation-locking
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -318,3 +318,20 @@ The scheduler/port story establishes canonical ownership semantics. The SQLite a
 This feature fails if two processes enter one scope window, a cancelled waiter later runs, user/project or opposite multi-plugin requests deadlock, a stale generation performs promotion, or a successful commit is retried after cleanup failure. The design counters those failures with an OS-released SQLite write transaction, cancellable FIFO/retry queues, one-scope requests and sorted canonical keys, generation comparison before callback plus store-level compare-and-swap, and typed committed-cleanup failure.
 
 The least recoverable failure is treating an expiring lease's last ownership check as atomic with state commit. This revision removes that unsafe premise: a live SQLite transaction does not expire, and process death releases it. If the adapter cannot prove local SQLite exclusion, implementation stops at a capability error; it does not use heartbeat takeover or fall back to in-process-only safety.
+
+## Implementation summary
+
+All four child stories were implemented in dependency order and advanced from `implementing` to `review`:
+
+1. `epic-transactional-plugin-lifecycle-generation-locking-contracts-scheduler` — portable scope-lock/mutation contracts and scope-qualified FIFO scheduler with canonical multi-key order, cancellation cleanup, and explicit nested context.
+2. `epic-transactional-plugin-lifecycle-generation-locking-sqlite-scope-lock` — private-root capability checks, one rollback-journal SQLite database per scope, `BEGIN IMMEDIATE`, numeric busy-code retry, abort-aware jitter, protocol validation, crash release, and redacted adapter failures.
+3. `epic-transactional-plugin-lifecycle-generation-locking-guarded-window` — generation-guarded prepared mutation coordinator composing scheduler, scope lease, and opaque verified state commit with typed cleanup evidence.
+4. `epic-transactional-plugin-lifecycle-generation-locking-contract-hardening` — real SQLite-backed competing-writer integration, child-process kill/cancellation coverage, source/compiled API allowlists, dependency canaries, and rolled-forward foundation assertions.
+
+Implementation commits:
+- `f33dc4a` — `implement: epic-transactional-plugin-lifecycle-generation-locking-contracts-scheduler`
+- `6e51db0` — `implement: epic-transactional-plugin-lifecycle-generation-locking-sqlite-scope-lock`
+- `ac85767` — `implement: epic-transactional-plugin-lifecycle-generation-locking-guarded-window`
+- `8403add` — `implement: epic-transactional-plugin-lifecycle-generation-locking-contract-hardening`
+
+Verification: full `npm test` passed with strict production typecheck, dependency boundaries, 80 Vitest files / 478 tests and no type errors, build, and compiled package import (298 exports). The feature is left at `stage: review` per the requested implementation boundary; no review lane was invoked.
