@@ -71,7 +71,7 @@ describe("configuration value schemas", () => {
     [{ kind: "strings", minItems: 2, default: ["one"] }, "string-array default below min"],
     [{ kind: "strings", maxItems: 1, default: ["one", "two"] }, "string-array default above max"],
     [{ kind: "string", pattern: "[" }, "invalid pattern"],
-  ])("rejects inconsistent value descriptors (%s)", (value) => {
+  ])("rejects inconsistent value descriptors (%s)", (value, _label) => {
     expect(ConfigurationValueSchema.safeParse(value).success).toBe(false);
   });
 
@@ -79,7 +79,7 @@ describe("configuration value schemas", () => {
     [{ kind: "string", configured: "secret" }, "configured string"],
     [{ kind: "number", secret: 4 }, "secret number"],
     [{ kind: "boolean", currentValue: true }, "configured boolean"],
-  ])("rejects value-bearing fields in descriptors (%s)", (value) => {
+  ])("rejects value-bearing fields in descriptors (%s)", (value, _label) => {
     expect(ConfigurationValueSchema.safeParse(value).success).toBe(false);
   });
 });

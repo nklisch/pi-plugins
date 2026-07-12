@@ -5,7 +5,8 @@ import {
   encodeStateDocument,
   hashStateDocument,
 } from "../../../src/domain/state/codec.js";
-import { HostConfigDocumentSchemaV1 } from "../../../src/domain/state/config-state.js";
+import { ContentDigestSchema } from "../../../src/domain/content-manifest.js";
+import { GenerationSchema, HostConfigDocumentSchemaV1 } from "../../../src/domain/state/config-state.js";
 import { MarketplaceNameSchema } from "../../../src/domain/identity.js";
 import { MarketplaceSourceSchema } from "../../../src/domain/source.js";
 
@@ -14,7 +15,7 @@ const marketplace = MarketplaceNameSchema.parse("team");
 const source = MarketplaceSourceSchema.parse({ kind: "github", repository: "example/plugins" });
 const context = {
   scope: { kind: "user" as const },
-  generation: 0 as const,
+  generation: GenerationSchema.parse(0),
   sha256,
 };
 const valid = HostConfigDocumentSchemaV1.parse({
@@ -65,7 +66,7 @@ describe("state codecs", () => {
     expect(decodeStateDocument("hostConfig", encoded, { ...context, expectedDigest: digest }).value).toEqual(valid);
     expect(() => decodeStateDocument("hostConfig", encoded, {
       ...context,
-      expectedDigest: `sha256:${"ff".repeat(32)}`,
+      expectedDigest: ContentDigestSchema.parse(`sha256:${"ff".repeat(32)}`),
     })).toThrowError(StateCodecError);
   });
 

@@ -65,16 +65,20 @@ function makeInput(
     for (let index = 1; index < segments.length; index += 1) paths.add(segments.slice(0, index).join("/"));
   }
   const entries: ContentManifestEntry[] = [
-    ...[...paths].map((path) => ({ kind: "directory" as const, path, mode: 0o755 })),
+    ...[...paths].map((path): ContentManifestEntry => ({ kind: "directory", path, mode: 0o755 })),
     ...[...files.entries()].map(([path, bytes]) => file(path, bytes)),
     ...extraEntries,
   ];
   const content = createContentManifest(entries, sha256);
-  const source = resolvedSource ?? createResolvedPluginSource({
-    kind: "marketplace-path",
-    marketplaceRevision: "a".repeat(40),
-    path: entry.source.value.path,
-  }, sha256);
+  const source = resolvedSource ?? (() => {
+    const declared = entry.source.value;
+    if (declared.kind !== "marketplace-path") throw new Error("test entry is not a marketplace path");
+    return createResolvedPluginSource({
+      kind: "marketplace-path",
+      marketplaceRevision: "a".repeat(40),
+      path: declared.path,
+    }, sha256);
+  })();
   return {
     entry,
     materialized: {
@@ -115,7 +119,7 @@ function service(
     },
     readers: readers(),
     sha256,
-    limits,
+    ...(limits === undefined ? {} : { limits }),
   });
 }
 

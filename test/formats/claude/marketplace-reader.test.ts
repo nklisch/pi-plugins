@@ -133,8 +133,8 @@ describe("Claude marketplace reader", () => {
     });
     expect(result.marketplace.entries.map((entry) => entry.identity.value.marketplaceEntryName)).toEqual(["good", "good-two"]);
     expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["SOURCE_INVALID", "ENTRY_INVALID"]);
-    expect(result.diagnostics[0]?.location.pointer).toBe("/plugins/1/source");
-    expect(result.diagnostics[1]?.location.pointer).toBe("/plugins/2/hooks");
+    expect(result.diagnostics[0]?.location?.pointer).toBe("/plugins/1/source");
+    expect(result.diagnostics[1]?.location?.pointer).toBe("/plugins/2/hooks");
   });
 
   it("validates nested declarations atomically and reports original indexes", () => {

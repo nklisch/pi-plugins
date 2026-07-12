@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   CompatibilityReportSchema,
   ContentDigestSchema,
+  GenerationSchema,
   HostConfigDocumentSchemaV1,
   InstalledUserStateDocumentSchemaV1,
   MarketplaceNameSchema,
@@ -143,6 +144,8 @@ const projectScope: ProjectScopeContext = {
   projectKey,
 };
 const userScope = { kind: "user" as const };
+const generation0 = GenerationSchema.parse(0);
+const generation4 = GenerationSchema.parse(4);
 
 function makeUserSnapshot(generation: Generation): UserGenerationSnapshot {
   const config = HostConfigDocumentSchemaV1.parse({
@@ -204,8 +207,8 @@ class FakeLifecycleStateStore implements LifecycleStateStore {
   private project: ProjectGenerationSnapshot;
 
   constructor() {
-    this.user = makeUserSnapshot(0);
-    this.project = makeProjectSnapshot(0);
+    this.user = makeUserSnapshot(generation0);
+    this.project = makeProjectSnapshot(generation0);
   }
 
   async read(scope: ScopeContext, signal: AbortSignal): Promise<StateLoadResult> {
@@ -219,7 +222,7 @@ class FakeLifecycleStateStore implements LifecycleStateStore {
           document: "projectLocal",
           scope: { kind: "project", projectKey: scope.projectKey },
           code: "SCOPE_MISMATCH",
-          message: "state document scope is not the requested scope",
+          summary: "state document scope is not selected",
         }],
       };
     }
@@ -236,8 +239,9 @@ class FakeLifecycleStateStore implements LifecycleStateStore {
       if (validated.expectedGeneration !== this.user.generation) {
         return { kind: "stale-generation", expected: validated.expectedGeneration, actual: this.user.generation };
       }
-      const next = (validated.expectedGeneration + 1) as Generation;
+      const next = GenerationSchema.parse(validated.expectedGeneration + 1);
       const replacement = validated.replace;
+      if ("project" in replacement) throw new Error("user mutation contains a project replacement");
       this.user = {
         ...this.user,
         generation: next,
@@ -251,7 +255,8 @@ class FakeLifecycleStateStore implements LifecycleStateStore {
     if (validated.expectedGeneration !== this.project.generation) {
       return { kind: "stale-generation", expected: validated.expectedGeneration, actual: this.project.generation };
     }
-    const next = (validated.expectedGeneration + 1) as Generation;
+    const next = GenerationSchema.parse(validated.expectedGeneration + 1);
+    if (!("project" in validated.replace)) throw new Error("project mutation is missing a project replacement");
     const project = createProjectLocalStateDocument({
       ...validated.replace.project,
       generation: next,
@@ -275,7 +280,7 @@ describe("state contract integration", () => {
   it("quarantines mixed records while fatal roots expose no partial snapshot", () => {
     const decoded = decodeStateDocument("hostConfig", fixture("v1/corrupt/host-config-mixed.json"), {
       scope: userScope,
-      generation: 0,
+      generation: generation0,
       sha256,
     });
     expect(decoded.value.records.map((record) => record.marketplace)).toEqual(["alpha"]);
@@ -286,37 +291,37 @@ describe("state contract integration", () => {
       "RECORD_INVALID",
     ]);
 
-    const userState = makeUserSnapshot(0).installed;
+    const userState = makeUserSnapshot(generation0).installed;
     const userWithCorruptSibling = decodeStateDocument("installedUser", {
       ...userState,
       plugins: [
         userState.plugins[0],
         { ...userState.plugins[0], plugin: "other@community", activation: "corrupt" },
       ],
-    }, { scope: userScope, generation: 0, sha256 });
+    }, { scope: userScope, generation: generation0, sha256 });
     expect(userWithCorruptSibling.value.plugins.map((entry) => entry.plugin)).toEqual([plugin.identity.key]);
     expect(userWithCorruptSibling.corruptions).toHaveLength(1);
 
-    const projectState = makeProjectSnapshot(0).project;
+    const projectState = makeProjectSnapshot(generation0).project;
     const projectWithCorruptSibling = decodeStateDocument("projectLocal", {
       ...projectState,
       plugins: [
         projectState.plugins[0],
         { ...projectState.plugins[0], plugin: "other@community", activation: "corrupt" },
       ],
-    }, { scope: projectScope, generation: 0, sha256 });
+    }, { scope: projectScope, generation: generation0, sha256 });
     expect(projectWithCorruptSibling.value.plugins.map((entry) => entry.plugin)).toEqual([plugin.identity.key]);
     expect(projectWithCorruptSibling.corruptions).toHaveLength(1);
 
     expect(() => decodeStateDocument("pointers", fixture("v1/corrupt/pointers-fatal.json"), {
       scope: userScope,
-      generation: 4,
+      generation: generation4,
       sha256,
     })).toThrowError(StateCodecError);
     try {
       decodeStateDocument("pointers", fixture("v1/corrupt/pointers-fatal.json"), {
         scope: userScope,
-        generation: 4,
+        generation: generation4,
         sha256,
       });
     } catch (error) {
@@ -329,19 +334,19 @@ describe("state contract integration", () => {
   it("rejects future versions and portable canaries without partial intent", () => {
     expect(() => decodeStateDocument("hostConfig", fixture("v1/corrupt/future-version.json"), {
       scope: userScope,
-      generation: 0,
+      generation: generation0,
       sha256,
     })).toThrowError(StateCodecError);
     expect(() => decodeStateDocument("pointers", fixture("v1/corrupt/scope-mismatch.json"), {
       scope: userScope,
-      generation: 0,
+      generation: generation0,
       sha256,
     })).toThrowError(StateCodecError);
     expect(() => decodeStateDocument("hostConfig", fixture("v1/corrupt/digest-mismatch.json"), {
       scope: userScope,
-      generation: 0,
+      generation: generation0,
       sha256,
-      expectedDigest: `sha256:${"ff".repeat(32)}`,
+      expectedDigest: ContentDigestSchema.parse(`sha256:${"ff".repeat(32)}`),
     })).toThrowError(StateCodecError);
     const canaries = JSON.stringify(fixture("portable/prohibited-canaries.json"));
     expect(() => parsePortableProjectDeclaration(fixture("portable/prohibited-canaries.json"))).toThrow();
@@ -351,23 +356,23 @@ describe("state contract integration", () => {
   });
 
   it("encodes records and nested object keys deterministically", () => {
-    const left = {
-      schemaVersion: 1 as const,
-      generation: 0 as const,
+    const left = HostConfigDocumentSchemaV1.parse({
+      schemaVersion: 1,
+      generation: generation0,
       records: [
-        { marketplace: "team", source: { kind: "github" as const, repository: "example/plugins" }, updateApplication: "manual" as const },
-        { marketplace: "alpha", source: { kind: "github" as const, repository: "example/plugins" }, updateApplication: "automatic" as const },
+        { marketplace: "team", source: { kind: "github", repository: "example/plugins" }, updateApplication: "manual" },
+        { marketplace: "alpha", source: { kind: "github", repository: "example/plugins" }, updateApplication: "automatic" },
       ],
-    };
-    const right = {
-      schemaVersion: 1 as const,
-      generation: 0 as const,
+    });
+    const right = HostConfigDocumentSchemaV1.parse({
+      schemaVersion: 1,
+      generation: generation0,
       records: [
-        { updateApplication: "automatic" as const, source: { repository: "example/plugins", kind: "github" as const }, marketplace: "alpha" },
-        { updateApplication: "manual" as const, source: { repository: "example/plugins", kind: "github" as const }, marketplace: "team" },
+        { updateApplication: "automatic", source: { repository: "example/plugins", kind: "github" }, marketplace: "alpha" },
+        { updateApplication: "manual", source: { repository: "example/plugins", kind: "github" }, marketplace: "team" },
       ],
-    };
-    const context = { scope: userScope, generation: 0 as Generation, sha256 };
+    });
+    const context = { scope: userScope, generation: generation0, sha256 };
     expect(JSON.stringify(encodeStateDocument("hostConfig", left, context))).toBe(
       JSON.stringify(encodeStateDocument("hostConfig", right, context)),
     );
@@ -381,9 +386,12 @@ describe("state contract integration", () => {
     const controller = new AbortController();
     const user = await store.read(userScope, controller.signal);
     const project = await store.read(projectScope, controller.signal);
-    expect(user.ok && user.snapshot.installed.plugins[0]?.revisions[0]?.evidence.plugin).toEqual(plugin.identity);
-    expect(project.ok && project.snapshot.project.plugins[0]?.revisions[0]?.evidence.compatibility.activatable).toBe(true);
     if (!user.ok || !project.ok) throw new Error("fake store did not return snapshots");
+    if (!("installed" in user.snapshot) || !("project" in project.snapshot)) {
+      throw new Error("fake store returned the wrong scope snapshot");
+    }
+    expect(user.snapshot.installed.plugins[0]?.revisions[0]?.evidence.plugin).toEqual(plugin.identity);
+    expect(project.snapshot.project.plugins[0]?.revisions[0]?.evidence.compatibility.activatable).toBe(true);
     expect(user.snapshot.installed.plugins[0]!.revisions[0]!.dataRef)
       .not.toBe(project.snapshot.project.plugins[0]!.revisions[0]!.dataRef);
 
@@ -394,7 +402,7 @@ describe("state contract integration", () => {
       replace: { config: nextConfig },
     }, sha256), controller.signal);
     expect(committed.kind).toBe("committed");
-    if (committed.kind !== "committed" || committed.snapshot.scope.kind !== "user") throw new Error("user commit failed");
+    if (committed.kind !== "committed" || !("installed" in committed.snapshot)) throw new Error("user commit failed");
     expect(committed.snapshot.generation).toBe(1);
     expect(committed.snapshot.installed.plugins).toHaveLength(1);
     expect((await store.commit(parseStateMutation({
@@ -418,8 +426,8 @@ describe("state contract integration", () => {
     const controller = new AbortController();
     const structural = StateMutationInputSchema.parse({
       scope: userScope,
-      expectedGeneration: 0,
-      replace: { config: makeUserSnapshot(0).config },
+      expectedGeneration: generation0,
+      replace: { config: makeUserSnapshot(generation0).config },
     });
     expect(isVerifiedStateMutation(structural)).toBe(false);
     await expect(store.commit(
@@ -436,13 +444,13 @@ describe("state contract integration", () => {
     await expect(store.read(userScope, controller.signal)).rejects.toBe(reason);
     await expect(store.commit(parseStateMutation({
       scope: userScope,
-      expectedGeneration: 0,
-      replace: { config: makeUserSnapshot(0).config },
+      expectedGeneration: generation0,
+      replace: { config: makeUserSnapshot(generation0).config },
     }, sha256), controller.signal)).rejects.toBe(reason);
   });
 
   it("keeps fixture migration inputs and state serialization free of operational canaries", async () => {
-    const serialized = JSON.stringify(makeUserSnapshot(0));
+    const serialized = JSON.stringify(makeUserSnapshot(generation0));
     for (const canary of ["CANARY_SECRET_VALUE", "authorization", "x-api-key", "generatedProjection", "NODE_ENV", "/var/lib", "2026-07-12T00:00:00.000Z", "nativeCause"]) {
       expect(serialized.toLowerCase()).not.toContain(canary.toLowerCase());
     }
@@ -450,7 +458,7 @@ describe("state contract integration", () => {
     const v2 = z.object({ schemaVersion: z.literal(2), value: z.string(), enabled: z.boolean() }).strict();
     const family = defineVersionedSchemaFamily({
       latestVersion: 2,
-      versions: new Map([[1, v1], [2, v2]]),
+      versions: new Map<number, z.ZodTypeAny>([[1, v1], [2, v2]]),
       migrations: new Map([[1, (value: unknown) => ({ ...(value as object), schemaVersion: 2, enabled: true })]]),
     });
     const migrationInput = fixture("v1/corrupt/migration-v1.json");

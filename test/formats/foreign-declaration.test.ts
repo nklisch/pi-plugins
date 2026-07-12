@@ -6,6 +6,7 @@ import {
 } from "../../src/formats/foreign-declaration.js";
 import { deriveComponentId } from "../../src/domain/component-identity.js";
 import type { Provenance } from "../../src/domain/provenance.js";
+import { PluginKeySchema } from "../../src/domain/identity.js";
 
 const provenance: Provenance = {
   location: {
@@ -35,11 +36,12 @@ describe("foreign declaration construction", () => {
     expect(result.value).not.toHaveProperty("requirement");
     expect(result.value).not.toHaveProperty("activatable");
 
-    const component = createForeignComponent(result.value, "demo@catalog");
+    const plugin = PluginKeySchema.parse("demo@catalog");
+    const component = createForeignComponent(result.value, plugin);
     expect(component.ok).toBe(true);
     if (!component.ok) return;
     expect(component.value).toMatchObject({ kind: "foreign", nativeHost: "codex" });
-    expect(component.value.id).toBe(deriveComponentId("demo@catalog", {
+    expect(component.value.id).toBe(deriveComponentId(plugin, {
       kind: "foreign",
       nativeHost: "codex",
       nativeKind: "apps",

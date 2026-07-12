@@ -11,6 +11,7 @@ import {
   type Claimed,
   type Provenance,
 } from "../../src/domain/provenance.js";
+import type { JsonValue } from "../../src/domain/schema.js";
 
 const location = (
   path: string,
@@ -22,7 +23,7 @@ const location = (
   ...overrides,
 });
 
-const provenance = (path: string, declaration?: unknown): Provenance => ({
+const provenance = (path: string, declaration?: JsonValue): Provenance => ({
   location: location(path),
   ...(declaration === undefined ? {} : { declaration }),
 });
@@ -41,7 +42,10 @@ describe("provenance schemas", () => {
         provenance(".claude-plugin/plugin.json", { description: "description" }),
       ],
     });
-    expectTypeOf<z.infer<typeof stringClaimSchema>>().toMatchTypeOf<Claimed<string>>();
+    expectTypeOf<z.infer<typeof stringClaimSchema>>().toMatchTypeOf<{
+      value: string;
+      provenance: readonly Provenance[];
+    }>();
   });
 
   it.each([
@@ -52,7 +56,7 @@ describe("provenance schemas", () => {
     [{ location: { host: "claude", documentKind: "manifest", path: "manifest", line: 0 } }, "non-positive line"],
     [{ location: { host: "other", documentKind: "manifest", path: "manifest" } }, "unknown host"],
     [{ location: { host: "claude", documentKind: "unknown", path: "manifest" } }, "unknown document kind"],
-  ])("rejects malformed source locations (%s)", (value) => {
+  ])("rejects malformed source locations (%s)", (value, _label) => {
     expect(SourceLocationSchema.safeParse(value).success).toBe(false);
   });
 

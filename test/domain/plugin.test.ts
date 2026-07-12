@@ -176,11 +176,12 @@ describe("normalized plugin contract", () => {
 
   it("keeps inferred plugin, component, and configuration types aligned", () => {
     expectTypeOf<z.infer<typeof NormalizedPluginSchema>>().toEqualTypeOf<NormalizedPlugin>();
+    const parsed = NormalizedPluginSchema.parse(representativeBundle);
     expectTypeOf<z.infer<typeof PluginConfigurationSchema>>().toEqualTypeOf(
-      representativeBundle.configuration,
+      parsed.configuration,
     );
     expectTypeOf<z.infer<typeof PluginComponentsSchema>>().toEqualTypeOf(
-      representativeBundle.components,
+      parsed.components,
     );
   });
 });

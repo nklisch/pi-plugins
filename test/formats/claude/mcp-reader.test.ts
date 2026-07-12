@@ -2,9 +2,10 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { readClaudeMcp } from "../../../src/formats/claude/mcp-reader.js";
 import type { Provenance } from "../../../src/domain/provenance.js";
+import { PluginKeySchema, type PluginKey } from "../../../src/domain/identity.js";
 
-const context: Readonly<{ plugin: "demo@catalog"; nativeHost: "claude"; provenance: Provenance }> = {
-  plugin: "demo@catalog",
+const context: Readonly<{ plugin: PluginKey; nativeHost: "claude"; provenance: Provenance }> = {
+  plugin: PluginKeySchema.parse("demo@catalog"),
   nativeHost: "claude",
   provenance: { location: { host: "claude", documentKind: "mcp", path: ".mcp.json", pointer: "" } },
 };

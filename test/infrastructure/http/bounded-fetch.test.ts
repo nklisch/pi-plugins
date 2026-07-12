@@ -1,15 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { createBoundedFetch, createNpmCredentialProvider, type BoundedFetchResponse } from "../../../src/infrastructure/http/bounded-fetch.js";
+import { createBoundedFetch, createNpmCredentialProvider, type BoundedFetchResponse, type NpmCredentialProvider } from "../../../src/infrastructure/http/bounded-fetch.js";
 
 const signal = (): AbortSignal => new AbortController().signal;
 
-function credentials(seen: Headers[]): { apply(url: URL, headers: Headers): void } {
+function credentials(seen: Headers[]): NpmCredentialProvider {
   return {
-    apply(_url, headers) {
+    apply(_url, headers, _signal) {
       headers.set("authorization", "Bearer test-secret");
       seen.push(new Headers(headers));
     },
   };
+}
+
+const noCredentials: NpmCredentialProvider = {
+  apply(_url, _headers, _signal) {},
+};
+
+async function applyCredentials(provider: NpmCredentialProvider, url: URL, headers: Headers, signal: AbortSignal): Promise<void> {
+  if (typeof provider === "function") throw new Error("test provider unexpectedly used function form");
+  await provider.apply(url, headers, signal);
 }
 
 async function collect(response: BoundedFetchResponse): Promise<string> {
@@ -25,7 +34,7 @@ describe("bounded HTTPS fetch", () => {
   it("follows only HTTPS redirects and applies credentials afresh per hop", async () => {
     const requests: Array<{ url: string; authorization: string | null }> = [];
     const seen: Headers[] = [];
-    const fetch = async (input: string | URL, init?: RequestInit): Promise<Response> => {
+    const fetch: typeof globalThis.fetch = async (input, init) => {
       const url = String(input);
       requests.push({ url, authorization: new Headers(init?.headers).get("authorization") });
       if (url === "https://registry.example.test/package") {
@@ -49,13 +58,13 @@ describe("bounded HTTPS fetch", () => {
 
   it("rejects HTTP redirects and enforces streamed byte limits without retaining the body", async () => {
     const fetch = async (): Promise<Response> => new Response(new TextEncoder().encode("too long"), { status: 200 });
-    const bounded = createBoundedFetch({ fetch, credentials: { apply() {} } });
+    const bounded = createBoundedFetch({ fetch, credentials: noCredentials });
     const response = await bounded.request({ url: "https://registry.example.test/package", maxBytes: 3, signal: signal() });
     await expect((async () => { for await (const _chunk of response.body) { /* consume */ } })()).rejects.toMatchObject({ kind: "limit" });
 
     const httpRedirect = createBoundedFetch({
       fetch: async () => new Response(null, { status: 302, headers: { location: "http://evil.test/package" } }),
-      credentials: { apply() {} },
+      credentials: noCredentials,
     });
     await expect(httpRedirect.request({ url: "https://registry.example.test/package", maxBytes: 100, signal: signal() })).rejects.toMatchObject({ kind: "redirect" });
   });
@@ -65,30 +74,30 @@ describe("bounded HTTPS fetch", () => {
       configText: "//registry.example.test:4873/:_authToken=port-secret\n//registry.example.test/team/:_authToken=team-secret\n//registry.example.test/team/tools/:_authToken=tools-secret\n",
     });
     const portHeaders = new Headers();
-    await provider.apply(new URL("https://registry.example.test:4873/package"), portHeaders, signal());
+    await applyCredentials(provider, new URL("https://registry.example.test:4873/package"), portHeaders, signal());
     expect(portHeaders.get("authorization")).toBe("Bearer port-secret");
     const toolsHeaders = new Headers();
-    await provider.apply(new URL("https://registry.example.test/team/tools/package"), toolsHeaders, signal());
+    await applyCredentials(provider, new URL("https://registry.example.test/team/tools/package"), toolsHeaders, signal());
     expect(toolsHeaders.get("authorization")).toBe("Bearer tools-secret");
     const teamHeaders = new Headers();
-    await provider.apply(new URL("https://registry.example.test/team/other"), teamHeaders, signal());
+    await applyCredentials(provider, new URL("https://registry.example.test/team/other"), teamHeaders, signal());
     expect(teamHeaders.get("authorization")).toBe("Bearer team-secret");
     const unrelatedPathHeaders = new Headers();
-    await provider.apply(new URL("https://registry.example.test/teamwork/package"), unrelatedPathHeaders, signal());
+    await applyCredentials(provider, new URL("https://registry.example.test/teamwork/package"), unrelatedPathHeaders, signal());
     expect(unrelatedPathHeaders.get("authorization")).toBeNull();
     const defaultHeaders = new Headers();
-    await provider.apply(new URL("https://registry.example.test/package"), defaultHeaders, signal());
+    await applyCredentials(provider, new URL("https://registry.example.test/package"), defaultHeaders, signal());
     expect(defaultHeaders.get("authorization")).toBeNull();
 
     const unreadable = createNpmCredentialProvider({ configPath: process.cwd() });
-    await expect(unreadable.apply(new URL("https://registry.example.test/package"), new Headers(), signal())).rejects.toMatchObject({ kind: "credential" });
+    await expect(applyCredentials(unreadable, new URL("https://registry.example.test/package"), new Headers(), signal())).rejects.toMatchObject({ kind: "credential" });
   });
 
   it("bounds redirect hops", async () => {
     const bounded = createBoundedFetch({
       maxRedirects: 1,
       fetch: async (input) => new Response(null, { status: 302, headers: { location: `${String(input)}-next` } }),
-      credentials: { apply() {} },
+      credentials: noCredentials,
     });
     await expect(bounded.request({ url: "https://registry.example.test/package", maxBytes: 100, signal: signal() })).rejects.toMatchObject({ kind: "redirect" });
   });

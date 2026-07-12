@@ -22,7 +22,9 @@ export const DEFAULT_MATERIALIZATION_LIMITS = Object.freeze({
   maxPackumentBytes: 10 * 1024 * 1024,
   maxRedirects: 5,
 });
-export type MaterializationLimits = Readonly<typeof DEFAULT_MATERIALIZATION_LIMITS>;
+export type MaterializationLimits = Readonly<{
+  [K in keyof typeof DEFAULT_MATERIALIZATION_LIMITS]: number;
+}>;
 
 /** A caller-owned, pre-created empty directory. No adapter may select it. */
 export type StagingSlot = Readonly<{ root: string }>;

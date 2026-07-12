@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
+  ComponentIdSchema,
   ComponentKindRegistry,
   ComponentSchema,
   ForeignComponentSchema,
@@ -43,14 +44,14 @@ const metadata = [
 
 const skill = {
   kind: "skill" as const,
-  id: "component-v1:skill:0000000000000000000000000000000000000000000000000000000000000000",
+  id: ComponentIdSchema.parse("component-v1:skill:0000000000000000000000000000000000000000000000000000000000000000"),
   name: claim("demo", claudeManifest),
   root: claim("./skills/demo", claudeManifest),
   metadata,
 };
 const hook = {
   kind: "hook" as const,
-  id: "component-v1:hook:1111111111111111111111111111111111111111111111111111111111111111",
+  id: ComponentIdSchema.parse("component-v1:hook:1111111111111111111111111111111111111111111111111111111111111111"),
   event: claim("SessionStart", claudeManifest),
   matcher: claim("Write|Edit", claudeManifest),
   handler: claim(
@@ -61,7 +62,7 @@ const hook = {
 };
 const mcp = {
   kind: "mcp-server" as const,
-  id: "component-v1:mcp-server:2222222222222222222222222222222222222222222222222222222222222222",
+  id: ComponentIdSchema.parse("component-v1:mcp-server:2222222222222222222222222222222222222222222222222222222222222222"),
   nativeKey: claim("search", claudeManifest),
   declaration: claim(
     { command: "search-server", args: ["--stdio"], env: { MODE: "safe" } },
@@ -71,7 +72,7 @@ const mcp = {
 };
 const foreign = {
   kind: "foreign" as const,
-  id: "component-v1:foreign:3333333333333333333333333333333333333333333333333333333333333333",
+  id: ComponentIdSchema.parse("component-v1:foreign:3333333333333333333333333333333333333333333333333333333333333333"),
   nativeHost: "codex" as const,
   nativeKind: claim("apps", codexManifest),
   declarationSubkey: "key:remote-connector",

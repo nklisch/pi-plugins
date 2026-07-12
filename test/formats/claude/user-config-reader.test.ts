@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { readClaudeUserConfig } from "../../../src/formats/claude/user-config-reader.js";
+import { PluginKeySchema } from "../../../src/domain/identity.js";
 
 const context = {
-  plugin: "demo@catalog" as const,
+  plugin: PluginKeySchema.parse("demo@catalog"),
   path: ".claude-plugin/plugin.json",
   pointer: "/userConfig",
 };

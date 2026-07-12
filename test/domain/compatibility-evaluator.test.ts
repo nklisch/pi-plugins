@@ -176,7 +176,8 @@ describe("pure compatibility evaluator", () => {
     const report = evaluateCompatibility({ plugin: value, capabilities: capabilities() });
     const assessment = report.components.find((item) => item.componentId === componentId("mcp-server", "4"));
     expect(assessment?.verdict.kind).toBe("incompatible");
-    expect(assessment?.diagnostics.some((diagnostic) => diagnostic.details &&
+    expect(assessment?.diagnostics.some((diagnostic) =>
+      diagnostic.details !== null && typeof diagnostic.details === "object" &&
       "sourceLocations" in diagnostic.details)).toBe(true);
     expect(JSON.stringify(report)).not.toContain("secret-helper");
   });

@@ -25,7 +25,7 @@ describe("JsonValueSchema", () => {
     [Number.NEGATIVE_INFINITY, "negative infinity"],
     [{ nested: undefined }, "undefined object member"],
     [undefined, "undefined"],
-  ])("rejects %s (%s)", (value) => {
+  ])("rejects %s (%s)", (value, _label) => {
     expect(JsonValueSchema.safeParse(value).success).toBe(false);
   });
 
@@ -60,7 +60,7 @@ describe("nonEmptyReadonly", () => {
     const values = nonEmptyReadonly(["one", "two"] as const);
 
     expect(values).toEqual(["one", "two"]);
-    expectTypeOf(values).toEqualTypeOf<readonly ["one", "two"]>();
+    expectTypeOf(values).toEqualTypeOf<readonly ["one" | "two", ...("one" | "two")[]]>();
   });
 
   it("rejects an empty collection deterministically", () => {

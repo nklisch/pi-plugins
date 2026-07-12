@@ -9,7 +9,7 @@ import { createContentManifest, hashContent, type ContentManifestEntry } from ".
 const sha256 = (bytes: Uint8Array): Uint8Array =>
   new Uint8Array(createHash("sha256").update(bytes).digest());
 
-function file(path: string, bytes: Uint8Array): ContentManifestEntry {
+function file(path: string, bytes: Uint8Array): Extract<ContentManifestEntry, { kind: "file" }> {
   return {
     kind: "file",
     path,

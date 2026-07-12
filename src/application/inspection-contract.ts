@@ -10,10 +10,7 @@ import {
 import {
   NormalizedPluginSchema,
 } from "../domain/plugin.js";
-import {
-  ReadResultSchema,
-  type ReadResult,
-} from "../domain/errors.js";
+import { ReadResultSchema } from "../domain/errors.js";
 import { ResolvedPluginSourceSchema } from "../domain/source.js";
 
 /** Hard limits used by bounded document readers at the bundle boundary. */
@@ -76,4 +73,4 @@ export type BundleInspectionInput = Readonly<{
 }>;
 
 export const BundleInspectionResultSchema = ReadResultSchema(NormalizedPluginSchema);
-export type BundleInspectionResult = ReadResult<z.infer<typeof NormalizedPluginSchema>>;
+export type BundleInspectionResult = z.infer<typeof BundleInspectionResultSchema>;

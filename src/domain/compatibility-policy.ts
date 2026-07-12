@@ -147,7 +147,7 @@ export type CompatibilityPolicyRule = Readonly<{
   surface: CompatibilityPolicySurface;
   disposition: CompatibilityPolicyDisposition;
   requirementCapabilityIds: readonly RuntimeCapabilityId[];
-  diagnosticCode?: ErrorCode;
+  diagnosticCode?: ErrorCode | undefined;
   message: string;
   rank: number;
 }>;

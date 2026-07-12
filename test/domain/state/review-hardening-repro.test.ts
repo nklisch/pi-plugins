@@ -2,8 +2,10 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { claim, type Provenance } from "../../../src/domain/provenance.js";
 import { CompatibilityReportSchema } from "../../../src/domain/compatibility.js";
+import { ContentDigestSchema } from "../../../src/domain/content-manifest.js";
 import { createContentManifest, hashContent } from "../../../src/domain/content-manifest.js";
 import { NormalizedPluginSchema } from "../../../src/domain/plugin.js";
+import { JsonValueSchema } from "../../../src/domain/schema.js";
 import { createResolvedPluginSource, MarketplaceSourceSchema } from "../../../src/domain/source.js";
 import {
   createInstalledRevisionRecord,
@@ -16,7 +18,7 @@ import {
   encodeStateDocument,
   hashStateDocument,
 } from "../../../src/domain/state/codec.js";
-import { HostConfigDocumentSchemaV1 } from "../../../src/domain/state/config-state.js";
+import { GenerationSchema, HostConfigDocumentSchemaV1 } from "../../../src/domain/state/config-state.js";
 import { MarketplaceNameSchema } from "../../../src/domain/identity.js";
 import { parseStateMutation } from "../../../src/application/state-contract.js";
 
@@ -54,7 +56,7 @@ const report = CompatibilityReportSchema.parse({
   diagnostics: [],
 });
 const revisionInput = { plugin, compatibility: report, content };
-const context = { scope: { kind: "user" as const }, generation: 0 as const, sha256 };
+const context = { scope: { kind: "user" as const }, generation: GenerationSchema.parse(0), sha256 };
 const sourceRecord = { marketplace: MarketplaceNameSchema.parse("team"), source: MarketplaceSourceSchema.parse({ kind: "github", repository: "example/plugins" }), updateApplication: "manual" as const };
 const validConfig = HostConfigDocumentSchemaV1.parse({ schemaVersion: 1, generation: 0, records: [sourceRecord] });
 
@@ -73,15 +75,15 @@ describe("review hardening regressions", () => {
   });
 
   it("verifies the exact raw digest before isolating identifiable siblings", () => {
-    const raw = { schemaVersion: 1, generation: 0, records: [sourceRecord, { marketplace: "bad", sourceRecord: true }] };
-    const rawDigest = hashStateDocument(raw, sha256);
+    const raw = { schemaVersion: 1, generation: 0, records: [sourceRecord, { marketplace: "bad", sourceRecord: true }] } as const;
+    const rawDigest = hashStateDocument(JsonValueSchema.parse(raw), sha256);
     const decoded = decodeStateDocument("hostConfig", raw, { ...context, expectedDigest: rawDigest });
     expect(decoded.value.records).toHaveLength(1);
     expect(decoded.corruptions).toHaveLength(1);
 
     const cleaned = encodeStateDocument("hostConfig", validConfig, context);
     const cleanedDigest = hashStateDocument(cleaned, sha256);
-    expect(() => decodeStateDocument("hostConfig", raw, { ...context, expectedDigest: cleanedDigest }))
+    expect(() => decodeStateDocument("hostConfig", raw, { ...context, expectedDigest: ContentDigestSchema.parse(cleanedDigest) }))
       .toThrowError(StateCodecError);
   });
 

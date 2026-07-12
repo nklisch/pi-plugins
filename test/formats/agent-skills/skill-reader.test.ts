@@ -3,9 +3,10 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { readAgentSkill, readCodexSkillPresentation } from "../../../src/formats/agent-skills/skill-reader.js";
 import { type Provenance } from "../../../src/domain/provenance.js";
+import { PluginKeySchema } from "../../../src/domain/identity.js";
 
 const context = {
-  plugin: "agile-workflow@nklisch-skills" as const,
+  plugin: PluginKeySchema.parse("agile-workflow@nklisch-skills"),
   root: "skills/autopilot",
   documentPath: "skills/autopilot/SKILL.md",
   provenance: {
@@ -77,7 +78,7 @@ describe("Agent Skills reader", () => {
   it("retains known policy metadata without interpreting it", () => {
     const result = readAgentSkill(
       "---\nname: demo\ndescription: demo\nlicense: MIT\ncompatibility: shell\nmetadata:\n  owner: test\nallowed-tools: Bash Read\ndisable-model-invocation: true\nfuture-field: retained\n---\n",
-      { ...context, root: "skills/demo", documentPath: "skills/demo/SKILL.md", presentation: undefined },
+      { ...context, root: "skills/demo", documentPath: "skills/demo/SKILL.md" },
       sha256,
     );
     expect(result.ok).toBe(true);

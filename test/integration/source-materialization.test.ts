@@ -109,7 +109,7 @@ function npmFetch(tarball: Uint8Array): typeof globalThis.fetch {
       }), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (url === "https://registry.fixture.test/fixture-1.0.0.tgz") {
-      return new Response(tarball, { status: 200 });
+      return new Response(Buffer.from(tarball), { status: 200 });
     }
     return new Response("not found", { status: 404 });
   };

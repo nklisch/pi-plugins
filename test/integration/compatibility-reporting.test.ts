@@ -140,9 +140,10 @@ describe("compatibility reporting integration", () => {
       "pi.mcp.runtime": "CANARY_RUNTIME_PATH 2026-07-12 native error",
       "pi.hooks.command": "CANARY_ENV_VALUE",
     }));
+    const marketplacePolicy = marketplacePolicyForFixture(mixedSpec);
     const report = await service.assess({
       plugin,
-      marketplacePolicy: marketplacePolicyForFixture(mixedSpec),
+      ...(marketplacePolicy === undefined ? {} : { marketplacePolicy }),
     }, new AbortController().signal);
     const flattened = flattenComponents(plugin.components);
 
@@ -250,10 +251,11 @@ describe("compatibility reporting integration", () => {
       skillMarkdown: skillIngestionFixtures.presentation.skillMarkdown,
       manifest: mixedManifest,
     });
+    const marketplacePolicy = marketplacePolicyForFixture(mixedSpec);
     const firstReport = evaluateCompatibility({
       plugin: first,
       capabilities: capabilities(),
-      marketplacePolicy: marketplacePolicyForFixture(mixedSpec),
+      ...(marketplacePolicy === undefined ? {} : { marketplacePolicy }),
     });
     const complete = capabilities();
     const reversedCapabilities = Object.fromEntries(Object.entries(complete.capabilities).reverse());
@@ -263,7 +265,7 @@ describe("compatibility reporting integration", () => {
         capabilities: reversedCapabilities,
         capturedBy: "compatibility-fixture",
       }),
-      marketplacePolicy: marketplacePolicyForFixture(mixedSpec),
+      ...(marketplacePolicy === undefined ? {} : { marketplacePolicy }),
     });
     expect(JSON.stringify(firstReport)).toBe(JSON.stringify(secondReport));
   });

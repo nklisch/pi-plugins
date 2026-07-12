@@ -120,7 +120,9 @@ describe("installed lifecycle state", () => {
         plugin: "other@community",
         source: plugin.source.canonical,
         sourceHash: plugin.source.hash,
-        sourceRevision: plugin.source.revision,
+        sourceRevision: plugin.source.kind === "git" || plugin.source.kind === "git-subdir"
+        ? plugin.source.revision
+        : (() => { throw new Error("test plugin source is not Git-backed"); })(),
         content: content.rootDigest,
         binding: revision.revision,
       }, sha256),

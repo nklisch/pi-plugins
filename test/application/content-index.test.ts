@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
+  ContentDigestSchema,
   createContentManifest,
   hashContent,
   type ContentManifestEntry,
@@ -92,8 +93,8 @@ describe("manifest-backed content index", () => {
     expect(() => createContentIndex({
       version: 1,
       algorithm: "sha256",
-      entries: [{ kind: "file", path: "./file.txt", mode: 0o644, size: 0, digest: "sha256:" + "0".repeat(64) }],
-      rootDigest: "sha256:" + "0".repeat(64),
+      entries: [{ kind: "file", path: "./file.txt", mode: 0o644, size: 0, digest: ContentDigestSchema.parse("sha256:" + "0".repeat(64)) }],
+      rootDigest: ContentDigestSchema.parse("sha256:" + "0".repeat(64)),
     })).toThrow();
   });
 });

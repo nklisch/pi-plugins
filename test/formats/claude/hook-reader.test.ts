@@ -4,8 +4,9 @@ import { describe, expect, it } from "vitest";
 import { readClaudeHooks } from "../../../src/formats/claude/hook-reader.js";
 import { deriveComponentId } from "../../../src/domain/component-identity.js";
 import type { Provenance } from "../../../src/domain/provenance.js";
+import { PluginKeySchema } from "../../../src/domain/identity.js";
 
-const plugin = "agile-workflow@nklisch-skills" as const;
+const plugin = PluginKeySchema.parse("agile-workflow@nklisch-skills");
 const provenance: Provenance = {
   location: {
     host: "claude",

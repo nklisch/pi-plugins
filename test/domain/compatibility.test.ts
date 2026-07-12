@@ -6,6 +6,7 @@ import {
   ComponentVerdictRegistry,
   ComponentVerdictSchema,
   RuntimeRequirementAssessmentSchema,
+  RuntimeRequirementIdSchema,
   RuntimeRequirementSchema,
   RuntimeRequirementStatusRegistry,
   RuntimeRequirementStatusSchema,
@@ -16,6 +17,7 @@ import {
   type ComponentVerdict,
   type RuntimeRequirementAssessment,
 } from "../../src/domain/compatibility.js";
+import { ComponentIdSchema } from "../../src/domain/components.js";
 import { type Diagnostic } from "../../src/domain/errors.js";
 
 const manifestLocation = {
@@ -25,13 +27,13 @@ const manifestLocation = {
   pointer: "/hooks/0",
 };
 
-const componentIdFor = (value: string): string => {
+const componentIdFor = (value: string) => {
   const bytes = new TextEncoder().encode(value);
   let hex = "";
   for (let index = 0; index < 32; index += 1) {
     hex += (bytes[index % Math.max(bytes.length, 1)] ?? 0).toString(16).padStart(2, "0");
   }
-  return `component-v1:skill:${hex}`;
+  return ComponentIdSchema.parse(`component-v1:skill:${hex}`);
 };
 
 const requirement = (
@@ -160,7 +162,7 @@ describe("compatibility verdict and requirement contracts", () => {
           {
             componentId: componentIdFor("metadata:label"),
             verdict: { kind: "metadata-only", reason: "display only" },
-            requirementIds: ["runtime"],
+            requirementIds: [RuntimeRequirementIdSchema.parse("runtime")],
             diagnostics: [],
           },
         ],

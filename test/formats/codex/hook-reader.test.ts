@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readCodexHooks } from "../../../src/formats/codex/hook-reader.js";
 import type { Provenance } from "../../../src/domain/provenance.js";
+import { PluginKeySchema } from "../../../src/domain/identity.js";
 
 const provenance: Provenance = {
   location: {
@@ -11,7 +12,7 @@ const provenance: Provenance = {
   },
 };
 const context = {
-  plugin: "demo@catalog" as const,
+  plugin: PluginKeySchema.parse("demo@catalog"),
   nativeHost: "codex" as const,
   provenance,
 };

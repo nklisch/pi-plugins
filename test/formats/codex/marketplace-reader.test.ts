@@ -110,7 +110,7 @@ describe("Codex marketplace reader", () => {
       "ENTRY_INVALID",
       "ENTRY_INVALID",
     ]);
-    expect(result.diagnostics.map((diagnostic) => diagnostic.location.pointer)).toEqual([
+    expect(result.diagnostics.map((diagnostic) => diagnostic.location?.pointer)).toEqual([
       "/plugins/1/policy",
       "/plugins/2/policy/installation",
       "/plugins/3/strict",
@@ -270,7 +270,7 @@ describe("Codex marketplace reader", () => {
     });
     expect(result.marketplace.entries).toHaveLength(1);
     expect(result.marketplace.entries[0]?.source.provenance[0]?.declaration).toEqual({ source: "local", path: "./good" });
-    expect(result.diagnostics.map((diagnostic) => diagnostic.location.pointer)).toEqual([
+    expect(result.diagnostics.map((diagnostic) => diagnostic.location?.pointer)).toEqual([
       "/plugins/0/source/source",
       "/plugins/1/source/path",
     ]);

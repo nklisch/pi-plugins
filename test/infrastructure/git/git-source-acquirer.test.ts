@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createResolvedMarketplaceSource,
+  GitRevisionSchema,
   type Sha256,
 } from "../../../src/domain/source.js";
 import { createSecureContentWriterFactory } from "../../../src/infrastructure/filesystem/secure-content-writer.js";
@@ -115,8 +116,9 @@ describe("Git source acquisition", () => {
     roots.push(shaRoot);
     const shaSink = await sink(shaRoot);
     const real = createNodeCommandRunner();
-    const source = { kind: "git", url: "ssh://git@example.test/plugin.git", sha: fixture.first, ref: "does-not-exist" } as const;
+    const source = { kind: "git", url: "ssh://git@example.test/plugin.git", sha: GitRevisionSchema.parse(fixture.first), ref: "does-not-exist" } as const;
     const result = await createGitSourceAcquirer({ command: localizingCommand(real, fixture.root, calls), archive: createTarReader(), sha256 }).materializePlugin(source, shaSink, signal());
+    if (result.kind !== "git") throw new Error("expected resolved Git source");
     expect(result.revision).toBe(fixture.first);
     expect(calls.some((call) => call.args[0] === "ls-remote")).toBe(false);
     await shaSink.abort();

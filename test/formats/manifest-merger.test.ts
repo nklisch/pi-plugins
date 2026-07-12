@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 import { readClaudePluginManifest } from "../../src/formats/claude/manifest-reader.js";
 import { readCodexPluginManifest } from "../../src/formats/codex/manifest-reader.js";
 import { mergePluginManifestClaims } from "../../src/formats/manifest-merger.js";
+import { PluginKeySchema } from "../../src/domain/identity.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array =>
   new Uint8Array(createHash("sha256").update(bytes).digest());
-const plugin = "demo@catalog" as const;
+const plugin = PluginKeySchema.parse("demo@catalog");
 
 function read(host: "claude" | "codex", value: unknown) {
   const result = host === "claude"

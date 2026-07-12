@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { readCodexPluginManifest } from "../../../src/formats/codex/manifest-reader.js";
+import { PluginKeySchema } from "../../../src/domain/identity.js";
 
 const context = {
-  plugin: "agile-workflow@nklisch-skills" as const,
+  plugin: PluginKeySchema.parse("agile-workflow@nklisch-skills"),
   path: ".codex-plugin/plugin.json",
 };
 const fixture = JSON.parse(readFileSync(

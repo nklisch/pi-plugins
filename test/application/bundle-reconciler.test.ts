@@ -8,13 +8,14 @@ import { readCodexMarketplace } from "../../src/formats/codex/marketplace-reader
 import { readCodexPluginManifest } from "../../src/formats/codex/manifest-reader.js";
 import { mergeMarketplaces } from "../../src/formats/marketplace-merger.js";
 import { createResolvedPluginSource } from "../../src/domain/source.js";
+import { PluginKeySchema } from "../../src/domain/identity.js";
 import { claim } from "../../src/domain/provenance.js";
 import type { ForeignComponentDeclaration, PluginManifestClaims } from "../../src/domain/bundle-ingestion.js";
 import type { NormalizedMarketplaceEntry } from "../../src/domain/marketplace.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array =>
   new Uint8Array(createHash("sha256").update(bytes).digest());
-const plugin = "demo@catalog" as const;
+const plugin = PluginKeySchema.parse("demo@catalog");
 
 function entryForClaude(fields: Record<string, unknown> = {}): NormalizedMarketplaceEntry {
   const result = readClaudeMarketplace({
@@ -27,10 +28,12 @@ function entryForClaude(fields: Record<string, unknown> = {}): NormalizedMarketp
 }
 
 function source(entry: NormalizedMarketplaceEntry) {
+  const declared = entry.source.value;
+  if (declared.kind !== "marketplace-path") throw new Error("test entry is not a marketplace path");
   return createResolvedPluginSource({
     kind: "marketplace-path",
     marketplaceRevision: "a".repeat(40),
-    path: entry.source.value.path,
+    path: declared.path,
   }, sha256);
 }
 

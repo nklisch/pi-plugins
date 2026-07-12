@@ -13,7 +13,7 @@ import {
   type Diagnostic,
   type ReadResult,
 } from "../../src/domain/errors.js";
-import { ClaimConflictError as ProvenanceClaimConflictError } from "../../src/domain/provenance.js";
+import { ClaimConflictError as ProvenanceClaimConflictError, claim } from "../../src/domain/provenance.js";
 import { PluginKeySchema } from "../../src/domain/identity.js";
 
 const location = {
@@ -86,8 +86,8 @@ describe("error and diagnostic registries", () => {
 
   it("integrates the existing claim conflict class into common diagnostics without a cycle", () => {
     expect(ErrorModuleClaimConflictError).toBe(ProvenanceClaimConflictError);
-    const left = { value: "claude", provenance: [{ location }] };
-    const right = { value: "codex", provenance: [{ location: { ...location, path: "codex.json" } }] };
+    const left = claim("claude", { location });
+    const right = claim("codex", { location: { ...location, path: "codex.json" } });
     const conflict = new ProvenanceClaimConflictError(left, right);
     expect(conflict).toBeInstanceOf(DomainContractError);
     expect(conflict.toDiagnostic()).toMatchObject({
@@ -205,6 +205,13 @@ describe("partial read result schemas", () => {
     ).toBe(true);
 
     type Result = ReadResult<{ id: string }>;
-    expectTypeOf<z.infer<typeof readResultSchema>>().toMatchTypeOf<Result>();
+    expectTypeOf<Result>().toMatchTypeOf<{
+      readonly ok: boolean;
+      readonly diagnostics: readonly Diagnostic[];
+    }>();
+    expectTypeOf<z.infer<typeof readResultSchema>>().toMatchTypeOf<{
+      readonly ok: boolean;
+      readonly diagnostics: readonly Diagnostic[];
+    }>();
   });
 });

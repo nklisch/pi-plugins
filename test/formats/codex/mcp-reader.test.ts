@@ -3,14 +3,15 @@ import { describe, expect, it } from "vitest";
 import { readCodexMcp } from "../../../src/formats/codex/mcp-reader.js";
 import { readClaudeMcp } from "../../../src/formats/claude/mcp-reader.js";
 import type { Provenance } from "../../../src/domain/provenance.js";
+import { PluginKeySchema, type PluginKey } from "../../../src/domain/identity.js";
 
-const codexContext: Readonly<{ plugin: "demo@catalog"; nativeHost: "codex"; provenance: Provenance }> = {
-  plugin: "demo@catalog",
+const codexContext: Readonly<{ plugin: PluginKey; nativeHost: "codex"; provenance: Provenance }> = {
+  plugin: PluginKeySchema.parse("demo@catalog"),
   nativeHost: "codex",
   provenance: { location: { host: "codex", documentKind: "mcp", path: ".mcp.json", pointer: "" } },
 };
-const claudeContext: Readonly<{ plugin: "demo@catalog"; nativeHost: "claude"; provenance: Provenance }> = {
-  plugin: "demo@catalog",
+const claudeContext: Readonly<{ plugin: PluginKey; nativeHost: "claude"; provenance: Provenance }> = {
+  plugin: PluginKeySchema.parse("demo@catalog"),
   nativeHost: "claude",
   provenance: { location: { host: "claude", documentKind: "manifest", path: "plugin.json", pointer: "/mcpServers" } },
 };

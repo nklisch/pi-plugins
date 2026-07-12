@@ -281,6 +281,7 @@ describe("resolved source construction and verification", () => {
     expect(ResolvedMarketplaceSourceSchema.safeParse(marketplace).success).toBe(true);
 
     const plugin = resolvedGit();
+    if (plugin.kind !== "git") throw new Error("expected resolved Git source");
     expect(plugin.url).toBe("https://example.com/plugin.git");
     expect(plugin.canonical).toBe(`source-v1|git|url:30:https://example.com/plugin.git|revision:40:${revision}`);
     expect(ResolvedPluginSourceSchema.safeParse(plugin).success).toBe(true);

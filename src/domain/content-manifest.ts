@@ -15,7 +15,9 @@ export const DEFAULT_CONTENT_MANIFEST_LIMITS = Object.freeze({
   maxSegmentBytes: 255,
   maxTotalPathBytes: 16 * 1024 * 1024,
 });
-export type ContentManifestLimits = Readonly<typeof DEFAULT_CONTENT_MANIFEST_LIMITS>;
+export type ContentManifestLimits = Readonly<{
+  [K in keyof typeof DEFAULT_CONTENT_MANIFEST_LIMITS]: number;
+}>;
 
 function hasLoneSurrogate(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {

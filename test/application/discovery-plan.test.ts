@@ -7,6 +7,7 @@ import { readClaudeMarketplace } from "../../src/formats/claude/marketplace-read
 import { readCodexMarketplace } from "../../src/formats/codex/marketplace-reader.js";
 import { readClaudePluginManifest } from "../../src/formats/claude/manifest-reader.js";
 import { readCodexPluginManifest } from "../../src/formats/codex/manifest-reader.js";
+import { PluginKeySchema } from "../../src/domain/identity.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array =>
   new Uint8Array(createHash("sha256").update(bytes).digest());
@@ -60,7 +61,7 @@ describe("authority-aware discovery planning", () => {
       { kind: "directory", path: "./skills" },
       { kind: "file", path: "./SKILL.md" },
     ]);
-    expect(result.value.locators.find((locator) => locator.target.path === "./skills")?.provenance)
+    expect(result.value.locators.find((locator) => locator.target.kind !== "inline" && locator.target.path === "./skills")?.provenance)
       .toHaveLength(2);
     expect(result.value.catalogForeign[0]?.nativeKind.value).toBe("agents");
   });
@@ -88,7 +89,7 @@ describe("authority-aware discovery planning", () => {
     }).marketplace.entries[0]!;
     const manifest = readCodexPluginManifest(
       { name: "demo", skills: "./skills" },
-      { plugin: "demo@catalog", path: ".codex-plugin/plugin.json" },
+      { plugin: PluginKeySchema.parse("demo@catalog"), path: ".codex-plugin/plugin.json" },
     );
     expect(manifest.ok).toBe(true);
     if (!manifest.ok) return;
@@ -119,7 +120,7 @@ describe("authority-aware discovery planning", () => {
     }).marketplace.entries[0]!;
     const manifest = readClaudePluginManifest(
       { name: "demo", skills: "./declared-skills" },
-      { plugin: "demo@catalog", path: ".claude-plugin/plugin.json" },
+      { plugin: PluginKeySchema.parse("demo@catalog"), path: ".claude-plugin/plugin.json" },
     );
     expect(manifest.ok).toBe(true);
     if (!manifest.ok) return;
@@ -146,7 +147,7 @@ describe("authority-aware discovery planning", () => {
     }).marketplace.entries[0]!;
     const manifest = readClaudePluginManifest(
       { name: "demo", skills: "./manifest-skills" },
-      { plugin: "demo@catalog", path: ".claude-plugin/plugin.json" },
+      { plugin: PluginKeySchema.parse("demo@catalog"), path: ".claude-plugin/plugin.json" },
     );
     expect(manifest.ok).toBe(true);
     if (!manifest.ok) return;

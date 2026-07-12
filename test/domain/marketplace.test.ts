@@ -11,6 +11,7 @@ import {
   type NormalizedMarketplaceEntry,
 } from "../../src/domain/marketplace.js";
 import { claim, type Provenance } from "../../src/domain/provenance.js";
+import { MarketplaceNameSchema, PluginIdentitySchema } from "../../src/domain/identity.js";
 
 const marketplace: Provenance = {
   location: {
@@ -37,11 +38,11 @@ const codexEntry: Provenance = {
   },
 };
 
-const identity = {
+const identity = PluginIdentitySchema.parse({
   key: "demo@community",
   marketplaceName: "community",
   marketplaceEntryName: "demo",
-} as const;
+});
 
 const claudeAuthority: MarketplaceAuthority = {
   nativeHost: "claude",
@@ -80,7 +81,7 @@ const baseEntry: NormalizedMarketplaceEntry = {
 };
 
 const baseMarketplace: NormalizedMarketplace = {
-  name: claim("community", marketplace),
+  name: claim(MarketplaceNameSchema.parse("community"), marketplace),
   entries: [baseEntry],
   metadata: [{ key: "owner", claimed: claim("team", marketplace) }],
   sourceDocuments: [marketplace],

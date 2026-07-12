@@ -125,6 +125,7 @@ describe("project scope identity", () => {
 
     expect(toScopeReference(user)).toEqual({ kind: "user" });
     const projectReference = toScopeReference(project);
+    if (project.kind !== "project") throw new Error("expected project scope");
     expect(projectReference).toEqual({ kind: "project", projectKey: project.projectKey });
     expect(JSON.stringify(projectReference)).not.toContain("file:");
     expect(ScopeReferenceSchema.parse(projectReference)).toEqual(projectReference);

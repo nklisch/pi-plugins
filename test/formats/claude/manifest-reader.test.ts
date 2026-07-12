@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { readClaudePluginManifest } from "../../../src/formats/claude/manifest-reader.js";
+import { PluginKeySchema } from "../../../src/domain/identity.js";
 
-const plugin = "agile-workflow@nklisch-skills" as const;
+const plugin = PluginKeySchema.parse("agile-workflow@nklisch-skills");
 const path = ".claude-plugin/plugin.json";
 const context = { plugin, path };
 const fixture = JSON.parse(readFileSync(

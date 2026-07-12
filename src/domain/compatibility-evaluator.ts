@@ -64,12 +64,6 @@ type PolicyDecision = Readonly<{
   diagnostics: readonly Diagnostic[];
 }>;
 
-export type CompatibilityEvaluationInput = Readonly<{
-  plugin: NormalizedPlugin;
-  capabilities: RuntimeCapabilitySnapshot;
-  marketplacePolicy?: MarketplaceInstallationPolicy;
-}>;
-
 export const CompatibilityEvaluationInputSchema = z
   .object({
     plugin: NormalizedPluginSchema,
@@ -78,6 +72,7 @@ export const CompatibilityEvaluationInputSchema = z
   })
   .strict()
   .readonly();
+export type CompatibilityEvaluationInput = z.infer<typeof CompatibilityEvaluationInputSchema>;
 
 function isRecord(value: JsonValue): value is JsonRecord {
   return value !== null && typeof value === "object" && !Array.isArray(value);

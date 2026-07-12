@@ -14,6 +14,7 @@ import { readCodexPluginManifest } from "../../../src/formats/codex/manifest-rea
 import { readCodexMcp } from "../../../src/formats/codex/mcp-reader.js";
 import { NormalizedPluginSchema, type NormalizedPlugin } from "../../../src/domain/plugin.js";
 import { createResolvedPluginSource } from "../../../src/domain/source.js";
+import type { Claimed } from "../../../src/domain/provenance.js";
 import { claim, type Provenance } from "../../../src/domain/provenance.js";
 import type { JsonValue } from "../../../src/domain/schema.js";
 import type { MarketplaceInstallationPolicy } from "../../../src/domain/marketplace.js";
@@ -236,10 +237,12 @@ export async function inspectNormalizedBundle(spec: RawBundleFixture): Promise<N
   const marketplaceEntry = marketplaceEntryFor(spec);
   if (marketplaceEntry === undefined) throw new Error("compatibility marketplace fixture did not produce an entry");
 
+  const declaredSource = marketplaceEntry.source.value;
+  if (declaredSource.kind !== "marketplace-path") throw new Error("compatibility fixture is not a marketplace path");
   const materializedSource = createResolvedPluginSource({
     kind: "marketplace-path",
     marketplaceRevision: "b".repeat(40),
-    path: marketplaceEntry.source.value.path,
+    path: declaredSource.path,
   }, sha256);
   const manifest = contentManifest(files);
   const input: BundleInspectionInput = {
@@ -269,7 +272,7 @@ export async function inspectNormalizedBundle(spec: RawBundleFixture): Promise<N
   return result.value;
 }
 
-export function claimFixture<T>(value: T, provenance = fixtureProvenance()): { value: T; provenance: readonly [Provenance] } {
+export function claimFixture<T>(value: T, provenance = fixtureProvenance()): Claimed<T> {
   return claim(value, provenance);
 }
 

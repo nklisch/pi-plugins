@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores-review-hardening-3
 kind: story
-stage: implementing
+stage: review
 tags: [tests, infra]
 parent: epic-transactional-plugin-lifecycle-state-schemas-stores
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores-review-hardening-2]
@@ -29,8 +29,17 @@ Make the project's reported Vitest TypeScript verification real and ensure this 
 
 ## Acceptance criteria
 
-- [ ] `npm test` performs real test-file typechecking with no rootDir diagnostics or silently skipped files.
-- [ ] All production and test TypeScript errors are zero under the corrected configuration.
-- [ ] Compile-time verified-mutation rejection is actually exercised and remains valid.
-- [ ] No strictness flags are weakened and no blanket suppressions are introduced.
-- [ ] Runtime suites, boundaries, build, and exact compiled package import remain green.
+- [x] `npm test` performs real test-file typechecking with no rootDir diagnostics or silently skipped files.
+- [x] All production and test TypeScript errors are zero under the corrected configuration.
+- [x] Compile-time verified-mutation rejection is actually exercised and remains valid.
+- [x] No strictness flags are weakened and no blanket suppressions are introduced.
+- [x] Runtime suites, boundaries, build, and exact compiled package import remain green.
+
+## Implementation notes
+- Execution capability: inline implementation; the caller explicitly prohibited agents and the work is one cohesive test-contract hardening pass.
+- Review weight: standard; caller requested the story advance to review after verification.
+- Files changed: `tsconfig.test.json`, strict test fixtures and assertions across the suite, generated-contract type aliases, numeric limit contracts, and `test/typecheck-participation.test.ts`.
+- Tests added: the test-program regression checks that `tsconfig.test.json` keeps the repository root and includes `test/**/*.ts`; compile-time sentinels preserve verified-mutation rejection.
+- Discrepancies from design: the corrected rootDir exposed pre-existing strict errors throughout the suite, so branded fixtures, safe corruption summaries, exact-optional inputs, union narrowing, and public schema/type alignments were repaired at their actual contracts.
+- Adjacent issues parked: none.
+- Verification: corrected test typecheck, `npm test`, and the compiled package import all pass.

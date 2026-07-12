@@ -45,7 +45,7 @@ function malformedSize(entry: Uint8Array): Uint8Array {
   copy.set(new TextEncoder().encode("not-octal"), 124);
   copy.fill(0x20, 148, 156);
   let checksum = 0;
-  for (let index = 0; index < BLOCK; index += 1) checksum += copy[index] ?? 0;
+  for (let index = 0; index < 512; index += 1) checksum += copy[index] ?? 0;
   copy.set(new TextEncoder().encode(checksum.toString(8).padStart(6, "0") + "\0 "), 148);
   return copy;
 }

@@ -21,7 +21,7 @@ describe("versioned state schema families", () => {
   function family(): VersionedSchemaFamily<{ readonly schemaVersion: 2; readonly displayName: string; readonly enabled: boolean }> {
     return defineVersionedSchemaFamily({
       latestVersion: 2,
-      versions: new Map([[1, v1], [2, v2]]),
+      versions: new Map<number, z.ZodTypeAny>([[1, v1], [2, v2]]),
       migrations: new Map([
         [1, (input: unknown) => {
           const value = input as { readonly name: string };
@@ -62,7 +62,7 @@ describe("versioned state schema families", () => {
     }).strict();
     const migrationFamily = defineVersionedSchemaFamily({
       latestVersion: 2,
-      versions: new Map([[1, schema], [2, latest]]),
+      versions: new Map<number, z.ZodTypeAny>([[1, schema], [2, latest]]),
       migrations: new Map([[1, (value: unknown) => {
         const document = value as { schemaVersion: number; nested: { value: string } };
         document.nested.value = document.nested.value.toUpperCase();
@@ -85,7 +85,7 @@ describe("versioned state schema families", () => {
   it("validates every migration hop rather than trusting the final result", () => {
     const invalidFamily = defineVersionedSchemaFamily({
       latestVersion: 2,
-      versions: new Map([[1, v1], [2, v2]]),
+      versions: new Map<number, z.ZodTypeAny>([[1, v1], [2, v2]]),
       migrations: new Map([[1, () => ({ schemaVersion: 2, displayName: "missing enabled" })]]),
     });
 
@@ -95,19 +95,19 @@ describe("versioned state schema families", () => {
   it("rejects gaps, non-adjacent edges, future versions, and malformed documents", () => {
     expect(() => defineVersionedSchemaFamily({
       latestVersion: 3,
-      versions: new Map([[1, v1], [3, v2]]),
+      versions: new Map<number, z.ZodTypeAny>([[1, v1], [3, v2]]),
       migrations: new Map([[1, () => ({ schemaVersion: 2 })], [2, () => ({ schemaVersion: 3 })]]),
     })).toThrow(/gap/);
 
     expect(() => defineVersionedSchemaFamily({
       latestVersion: 2,
-      versions: new Map([[1, v1], [2, v2]]),
+      versions: new Map<number, z.ZodTypeAny>([[1, v1], [2, v2]]),
       migrations: new Map([[2, () => ({ schemaVersion: 3 })]]),
     })).toThrow(/adjacent target/);
 
     expect(() => defineVersionedSchemaFamily({
       latestVersion: 2,
-      versions: new Map([[1, v1], [2, v2]]),
+      versions: new Map<number, z.ZodTypeAny>([[1, v1], [2, v2]]),
       migrations: new Map(),
     })).toThrow(/missing adjacent/);
 

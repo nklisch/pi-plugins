@@ -174,7 +174,8 @@ describe("compatibility capability service", () => {
 
   it("turns incomplete and unknown snapshots into adapter boundary errors", async () => {
     const incompleteProbe = {
-      snapshot: vi.fn(async () => completeSnapshotWithout("pi.mcp.runtime")),
+      snapshot: vi.fn(async (): Promise<RuntimeCapabilitySnapshot> =>
+        completeSnapshotWithout("pi.mcp.runtime") as RuntimeCapabilitySnapshot),
     };
     const incomplete = await service(incompleteProbe).assess({ plugin: plugin() }, new AbortController().signal)
       .catch((error: unknown) => error);

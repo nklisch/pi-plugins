@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createNpmRegistryClient, type NpmRegistryClient } from "../../../src/infrastructure/npm/npm-registry-client.js";
-import type { BoundedFetch, BoundedFetchResponse } from "../../../src/infrastructure/http/bounded-fetch.js";
+import type { BoundedFetch, BoundedFetchResponse, NpmCredentialProvider } from "../../../src/infrastructure/http/bounded-fetch.js";
 import { DEFAULT_MATERIALIZATION_LIMITS } from "../../../src/application/ports/source-acquisition.js";
 
 const signal = (): AbortSignal => new AbortController().signal;
@@ -112,7 +112,7 @@ describe("npm registry client", () => {
           throw new Error(`server rejected Authorization: Bearer ${secret}`);
         },
       },
-      credentials: { apply(_url, headers) { headers.set("authorization", `Bearer ${secret}`); } },
+      credentials: { apply(_url: URL, headers: Headers, _signal: AbortSignal) { headers.set("authorization", `Bearer ${secret}`); } } satisfies NpmCredentialProvider,
     });
     const error = await registry.resolve({ kind: "npm", package: "fixture" }, signal()).catch((value: unknown) => value);
     expect(String(error)).not.toContain(secret);

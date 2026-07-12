@@ -70,11 +70,15 @@ function makeInput(
     ...[...files.entries()].map(([path, bytes]) => file(path, bytes)),
   ];
   const content = createContentManifest(entries, sha256);
-  const source = resolvedSource ?? createResolvedPluginSource({
-    kind: "marketplace-path",
-    marketplaceRevision: "a".repeat(40),
-    path: entry.source.value.path,
-  }, sha256);
+  const source = resolvedSource ?? (() => {
+    const declared = entry.source.value;
+    if (declared.kind !== "marketplace-path") throw new Error("test entry is not a marketplace path");
+    return createResolvedPluginSource({
+      kind: "marketplace-path",
+      marketplaceRevision: "a".repeat(40),
+      path: declared.path,
+    }, sha256);
+  })();
   return {
     entry,
     materialized: {
@@ -227,7 +231,9 @@ describe("plugin bundle inspection integration", () => {
         const declared = entry.source.value;
         const source = declared.kind === "git"
           ? createResolvedPluginSource({ kind: "git", url: declared.url, revision }, sha256)
-          : createResolvedPluginSource({ kind: "git-subdir", url: declared.url, path: declared.path, revision }, sha256);
+          : declared.kind === "git-subdir"
+            ? createResolvedPluginSource({ kind: "git-subdir", url: declared.url, path: declared.path, revision }, sha256)
+            : (() => { throw new Error("expected a Git source"); })();
         const result = await service.inspect(
           makeInput(files, entry, [], source),
           new AbortController().signal,
@@ -235,7 +241,10 @@ describe("plugin bundle inspection integration", () => {
         expect(result.ok, `${kind} ${JSON.stringify(selectors)}`).toBe(true);
         if (!result.ok) continue;
         expect(result.value.source).toMatchObject({ kind, url, revision });
-        if (kind === "git-subdir") expect(result.value.source.path).toBe("plugins/demo");
+        if (kind === "git-subdir") {
+          if (result.value.source.kind !== "git-subdir") throw new Error("expected a Git subdirectory source");
+          expect(result.value.source.path).toBe("plugins/demo");
+        }
       }
     }
   });
