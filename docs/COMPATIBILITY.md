@@ -35,7 +35,7 @@ logs but are omitted from serialized diagnostics.
 | Claude-compatible catalog | Native | `.claude-plugin/marketplace.json` | Supported |
 | GitHub shorthand | Supported | Supported | Supported |
 | HTTPS Git | Supported | Supported | Supported |
-| SSH Git (`ssh://` or common SCP `user@host:path`) | Supported | Supported | Supported; SCP normalizes to SSH |
+| SSH Git (`ssh://` or common SCP `user@host:path`) | Supported | Supported | Supported; SCP retains remote-home-relative identity distinct from absolute SSH |
 | Local Git checkout | Supported | Supported | Supported |
 | Raw remote catalog URL | Supported | Not the shared Git path | Incompatible |
 | Marketplace ref | Supported | Supported | Supported |

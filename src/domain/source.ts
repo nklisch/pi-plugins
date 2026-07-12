@@ -30,7 +30,37 @@ const CanonicalSourceKinds = new Set([
   "npm",
 ]);
 const ScpGitUrl = /^(?:(?<user>[A-Za-z0-9._-]+)@)?(?<host>[A-Za-z0-9.-]+):(?<path>[^/\\\s:][^\s]*)$/;
+const CanonicalScpGitUrl = /^scp:\/\/(?:(?<user>[A-Za-z0-9._-]+)@)?(?<host>[A-Za-z0-9.-]+)\/(?<path>[^/\\\s:][^\s]*)$/;
 const GitHubRepository = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+function hasLoneSurrogate(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (Number.isNaN(next) || next < 0xdc00 || next > 0xdfff) {
+        return true;
+      }
+      index += 1;
+    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function issue(context: z.RefinementCtx, message: string): void {
+  context.addIssue({ code: "custom", message });
+}
+
+function rejectLoneSurrogates(value: string, context: z.RefinementCtx): void {
+  if (hasLoneSurrogate(value)) {
+    issue(context, "source strings cannot contain lone UTF-16 surrogate code units");
+  }
+}
+
+const SourceStringSchema = z.string().superRefine(rejectLoneSurrogates);
+const NonEmptySourceStringSchema = SourceStringSchema.min(1);
 
 function hasValidPercentEscapes(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
@@ -46,10 +76,6 @@ function hasValidPercentEscapes(value: string): boolean {
   return true;
 }
 
-function issue(context: z.RefinementCtx, message: string): void {
-  context.addIssue({ code: "custom", message });
-}
-
 function isScpGitUrl(value: string): boolean {
   const match = ScpGitUrl.exec(value);
   if (match === null) {
@@ -62,12 +88,14 @@ function isScpGitUrl(value: string): boolean {
 }
 
 function validateGitUrl(value: string, context: z.RefinementCtx): void {
-  if (!hasValidPercentEscapes(value)) {
-    issue(context, "Git URL contains a malformed percent escape");
+  // SCP is not a URI: its path is remote-home-relative and `%` is literal
+  // path text, so URL percent-escape validation must not rewrite its meaning.
+  if (isScpGitUrl(value)) {
     return;
   }
 
-  if (isScpGitUrl(value)) {
+  if (!hasValidPercentEscapes(value)) {
+    issue(context, "Git URL contains a malformed percent escape");
     return;
   }
 
@@ -93,7 +121,7 @@ function validateGitUrl(value: string, context: z.RefinementCtx): void {
   }
 }
 
-const GitUrlSchema = z.string().min(1).superRefine(validateGitUrl);
+const GitUrlSchema = NonEmptySourceStringSchema.superRefine(validateGitUrl);
 
 function validateNpmRegistry(value: string, context: z.RefinementCtx): void {
   if (!hasValidPercentEscapes(value)) {
@@ -117,9 +145,8 @@ function validateNpmRegistry(value: string, context: z.RefinementCtx): void {
   }
 }
 
-const NpmRegistrySchema = z.string().url().superRefine(validateNpmRegistry);
-const GitRevisionInputSchema = z
-  .string()
+const NpmRegistrySchema = NonEmptySourceStringSchema.url().superRefine(validateNpmRegistry);
+const GitRevisionInputSchema = NonEmptySourceStringSchema
   .regex(/^[0-9a-f]{40}$/, "Git revision must be a full 40-character lowercase SHA-1")
   .brand<"GitRevision">();
 
@@ -129,8 +156,8 @@ export const MarketplaceSourceVariantRegistry = {
     schema: z
       .object({
         kind: z.literal("github"),
-        repository: z.string().regex(GitHubRepository),
-        ref: z.string().min(1).optional(),
+        repository: SourceStringSchema.regex(GitHubRepository),
+        ref: NonEmptySourceStringSchema.optional(),
       })
       .strict(),
   },
@@ -140,7 +167,7 @@ export const MarketplaceSourceVariantRegistry = {
       .object({
         kind: z.literal("git"),
         url: GitUrlSchema,
-        ref: z.string().min(1).optional(),
+        ref: NonEmptySourceStringSchema.optional(),
       })
       .strict(),
   },
@@ -149,8 +176,8 @@ export const MarketplaceSourceVariantRegistry = {
     schema: z
       .object({
         kind: z.literal("local-git"),
-        path: z.string().min(1),
-        ref: z.string().min(1).optional(),
+        path: NonEmptySourceStringSchema,
+        ref: NonEmptySourceStringSchema.optional(),
       })
       .strict(),
   },
@@ -168,7 +195,7 @@ export const PluginSourceVariantRegistry = {
     schema: z
       .object({
         kind: z.literal("marketplace-path"),
-        path: z.string().min(1),
+        path: NonEmptySourceStringSchema,
       })
       .strict(),
   },
@@ -178,7 +205,7 @@ export const PluginSourceVariantRegistry = {
       .object({
         kind: z.literal("git"),
         url: GitUrlSchema,
-        ref: z.string().min(1).optional(),
+        ref: NonEmptySourceStringSchema.optional(),
         sha: GitRevisionInputSchema.optional(),
       })
       .strict(),
@@ -189,8 +216,8 @@ export const PluginSourceVariantRegistry = {
       .object({
         kind: z.literal("git-subdir"),
         url: GitUrlSchema,
-        path: z.string().min(1),
-        ref: z.string().min(1).optional(),
+        path: NonEmptySourceStringSchema,
+        ref: NonEmptySourceStringSchema.optional(),
         sha: GitRevisionInputSchema.optional(),
       })
       .strict(),
@@ -200,8 +227,8 @@ export const PluginSourceVariantRegistry = {
     schema: z
       .object({
         kind: z.literal("npm"),
-        package: z.string().min(1),
-        selector: z.string().min(1).optional(),
+        package: NonEmptySourceStringSchema,
+        selector: NonEmptySourceStringSchema.optional(),
         registry: NpmRegistrySchema.optional(),
       })
       .strict(),
@@ -215,8 +242,7 @@ export const PluginSourceSchema = z.discriminatedUnion(
 export type PluginSource = z.infer<typeof PluginSourceSchema>;
 
 export const GitRevisionSchema = GitRevisionInputSchema;
-export const NpmIntegritySchema = z
-  .string()
+export const NpmIntegritySchema = SourceStringSchema
   // A SHA-512 digest is exactly 64 bytes, represented by 86 data characters
   // and two padding characters. The final data character also has only two
   // meaningful bits; rejecting non-canonical pad bits avoids alternate text
@@ -250,25 +276,102 @@ function readUtf8Value(
     : undefined;
 }
 
+const CanonicalFieldSignatures: Record<
+  string,
+  readonly (readonly string[])[]
+> = {
+  github: [["repository"], ["repository", "ref"], ["repository", "revision"]],
+  git: [
+    ["url"],
+    ["url", "ref"],
+    ["url", "sha"],
+    ["url", "ref", "sha"],
+    ["url", "revision"],
+  ],
+  "local-git": [["path"], ["path", "ref"], ["path", "revision"]],
+  "marketplace-path": [["path"], ["path", "marketplaceRevision"]],
+  "git-subdir": [
+    ["url", "path"],
+    ["url", "path", "ref"],
+    ["url", "path", "sha"],
+    ["url", "path", "ref", "sha"],
+    ["url", "path", "revision"],
+  ],
+  npm: [
+    ["package"],
+    ["package", "selector"],
+    ["package", "registry"],
+    ["package", "selector", "registry"],
+    ["package", "version", "integrity", "registry"],
+  ],
+};
+
+type ParsedCanonicalField = readonly [name: string, value: string];
+
+function canonicalSignatureIsAllowed(
+  kind: string,
+  fields: readonly ParsedCanonicalField[],
+): boolean {
+  return (CanonicalFieldSignatures[kind] ?? []).some((signature) =>
+    signature.length === fields.length &&
+    signature.every((name, index) => name === fields[index]?.[0])
+  );
+}
+
+function isCanonicalFieldValue(
+  kind: string,
+  name: string,
+  value: string,
+): boolean {
+  if (hasLoneSurrogate(value)) {
+    return false;
+  }
+
+  switch (name) {
+    case "url":
+      return kind === "git" || kind === "git-subdir"
+        ? isCanonicalGitUrl(value)
+        : false;
+    case "registry":
+      return kind === "npm" && isCanonicalNpmRegistry(value);
+    case "path":
+      return isCanonicalEncodedPath(value);
+    case "repository":
+      return SourceStringSchema.regex(GitHubRepository).safeParse(value).success;
+    case "sha":
+    case "revision":
+    case "marketplaceRevision":
+      return GitRevisionInputSchema.safeParse(value).success;
+    case "integrity":
+      return NpmIntegritySchema.safeParse(value).success;
+    case "ref":
+    case "selector":
+    case "package":
+    case "version":
+      return NonEmptySourceStringSchema.safeParse(value).success;
+    default:
+      return false;
+  }
+}
+
 function parseCanonicalSource(value: string): boolean {
-  if (!value.startsWith("source-v1|")) {
+  if (!value.startsWith("source-v1|") || hasLoneSurrogate(value)) {
     return false;
   }
 
   const kindStart = "source-v1|".length;
   const kindEnd = value.indexOf("|", kindStart);
-  const kind = kindEnd === -1
-    ? value.slice(kindStart)
-    : value.slice(kindStart, kindEnd);
-  if (!/^[a-z][a-z0-9-]*$/.test(kind) || !CanonicalSourceKinds.has(kind)) {
+  if (kindEnd === -1) {
     return false;
   }
-  if (kindEnd === -1) {
+  const kind = value.slice(kindStart, kindEnd);
+  if (!/^[a-z][a-z0-9-]*$/.test(kind) || !CanonicalSourceKinds.has(kind)) {
     return false;
   }
 
   let cursor = kindEnd + 1;
   const fieldNames = new Set<string>();
+  const fields: ParsedCanonicalField[] = [];
   while (cursor < value.length) {
     const nameEnd = value.indexOf(":", cursor);
     if (nameEnd === -1 || !/^[a-zA-Z][a-zA-Z0-9-]*$/.test(value.slice(cursor, nameEnd))) {
@@ -285,7 +388,7 @@ function parseCanonicalSource(value: string): boolean {
     const lengthText = lengthEnd === -1
       ? ""
       : value.slice(lengthStart, lengthEnd);
-    if (lengthEnd === -1 || !/^\d+$/.test(lengthText)) {
+    if (lengthEnd === -1 || !/^[1-9]\d*$/.test(lengthText)) {
       return false;
     }
     const byteLength = Number(lengthText);
@@ -294,12 +397,13 @@ function parseCanonicalSource(value: string): boolean {
     }
 
     const parsed = readUtf8Value(value, lengthEnd + 1, byteLength);
-    if (parsed === undefined) {
+    if (parsed === undefined || parsed.value.length === 0) {
       return false;
     }
+    fields.push([fieldName, parsed.value]);
     cursor = parsed.next;
     if (cursor === value.length) {
-      return true;
+      break;
     }
     if (value[cursor] !== "|") {
       return false;
@@ -309,7 +413,10 @@ function parseCanonicalSource(value: string): boolean {
       return false;
     }
   }
-  return false;
+
+  return fields.length > 0 &&
+    canonicalSignatureIsAllowed(kind, fields) &&
+    fields.every(([name, fieldValue]) => isCanonicalFieldValue(kind, name, fieldValue));
 }
 
 export const CanonicalSourceSchema = z
@@ -323,14 +430,26 @@ export const SourceHashSchema = z
 export type CanonicalSource = z.infer<typeof CanonicalSourceSchema>;
 export type SourceHash = z.infer<typeof SourceHashSchema>;
 
-function normalizedScpUrl(value: string): string {
+function isCanonicalScpUrl(value: string): boolean {
+  return CanonicalScpGitUrl.test(value);
+}
+
+function normalizeScpUrl(value: string): string {
   const match = ScpGitUrl.exec(value);
-  if (match === null || !isScpGitUrl(value)) {
-    return value;
+  if (match !== null && isScpGitUrl(value)) {
+    const user = match.groups?.user;
+    const prefix = user === undefined ? "" : `${user}@`;
+    return `scp://${prefix}${(match.groups?.host ?? "").toLowerCase()}/${match.groups?.path ?? ""}`;
   }
-  const user = match.groups?.user;
-  const prefix = user === undefined ? "" : `${user}@`;
-  return `ssh://${prefix}${match.groups?.host}/${match.groups?.path}`;
+
+  const canonicalMatch = CanonicalScpGitUrl.exec(value);
+  if (canonicalMatch !== null) {
+    const user = canonicalMatch.groups?.user;
+    const prefix = user === undefined ? "" : `${user}@`;
+    return `scp://${prefix}${(canonicalMatch.groups?.host ?? "").toLowerCase()}/${canonicalMatch.groups?.path ?? ""}`;
+  }
+
+  return value;
 }
 
 function decodeUrlSegment(value: string): string {
@@ -340,13 +459,24 @@ function decodeUrlSegment(value: string): string {
   if (!hasValidPercentEscapes(value)) {
     throw new TypeError("URL contains a malformed percent escape");
   }
-  return decodeURIComponent(value);
+  const decoded = decodeURIComponent(value);
+  if (hasLoneSurrogate(decoded)) {
+    throw new TypeError("URL contains a lone UTF-16 surrogate code unit");
+  }
+  return decoded;
 }
 
 const encoder = new TextEncoder();
 const hex = "0123456789ABCDEF";
 
+function assertWellFormedUtf16(value: string): void {
+  if (hasLoneSurrogate(value)) {
+    throw new TypeError("source canonicalization cannot encode a lone UTF-16 surrogate code unit");
+  }
+}
+
 function utf8ByteLength(value: string): number {
+  assertWellFormedUtf16(value);
   return encoder.encode(value).byteLength;
 }
 
@@ -374,6 +504,7 @@ function encodePathSegment(value: string): string {
 }
 
 function encodePath(value: string): string {
+  assertWellFormedUtf16(value);
   return value.split("/").map(encodePathSegment).join("/");
 }
 
@@ -391,16 +522,15 @@ function encodeUrlPath(pathname: string): string {
  * lowercase hosts consistently for every scheme (notably SSH).
  */
 function normalizeUrl(value: string): string {
-  const normalizedInput = normalizedScpUrl(value);
-  if (!hasValidPercentEscapes(normalizedInput)) {
+  assertWellFormedUtf16(value);
+  if (isScpGitUrl(value) || isCanonicalScpUrl(value)) {
+    return normalizeScpUrl(value);
+  }
+  if (!hasValidPercentEscapes(value)) {
     throw new TypeError("URL contains a malformed percent escape");
   }
-  const parsed = new URL(normalizedInput);
+  const parsed = new URL(value);
   const suffix = `${parsed.search}${parsed.hash}`;
-  const href = parsed.href;
-  const withoutSuffix = suffix
-    ? href.slice(0, href.length - suffix.length)
-    : href;
   const hierarchicalPrefix = `${parsed.protocol.toLowerCase()}//`;
   const credentials = parsed.username
     ? `${parsed.username}@`
@@ -415,6 +545,42 @@ function normalizeUrl(value: string): string {
       : "";
   const authority = `${hierarchicalPrefix}${credentials}${parsed.hostname.toLowerCase()}${port}`;
   return `${authority}${encodeUrlPath(parsed.pathname)}${suffix}`;
+}
+
+function isCanonicalGitUrl(value: string): boolean {
+  if (isCanonicalScpUrl(value)) {
+    return normalizeScpUrl(value) === value;
+  }
+  if (!GitUrlSchema.safeParse(value).success) {
+    return false;
+  }
+  try {
+    return normalizeUrl(value) === value;
+  } catch {
+    return false;
+  }
+}
+
+function isCanonicalNpmRegistry(value: string): boolean {
+  if (!NpmRegistrySchema.safeParse(value).success) {
+    return false;
+  }
+  try {
+    return normalizeUrl(value) === value;
+  } catch {
+    return false;
+  }
+}
+
+function isCanonicalEncodedPath(value: string): boolean {
+  if (!NonEmptySourceStringSchema.safeParse(value).success || !hasValidPercentEscapes(value)) {
+    return false;
+  }
+  try {
+    return encodePath(decodeURIComponent(value)) === value;
+  } catch {
+    return false;
+  }
 }
 
 type CanonicalField = readonly [name: string, value: string | undefined];
@@ -574,7 +740,7 @@ const ResolvedPluginSourceIdentityVariantRegistry = {
       .object({
         kind: z.literal("marketplace-path"),
         marketplaceRevision: GitRevisionSchema,
-        path: z.string().min(1),
+        path: NonEmptySourceStringSchema,
       })
       .strict(),
   },
@@ -595,7 +761,7 @@ const ResolvedPluginSourceIdentityVariantRegistry = {
         kind: z.literal("git-subdir"),
         url: GitUrlSchema,
         revision: GitRevisionSchema,
-        path: z.string().min(1),
+        path: NonEmptySourceStringSchema,
       })
       .strict(),
   },
@@ -604,8 +770,8 @@ const ResolvedPluginSourceIdentityVariantRegistry = {
     schema: z
       .object({
         kind: z.literal("npm"),
-        package: z.string().min(1),
-        version: z.string().min(1),
+        package: NonEmptySourceStringSchema,
+        version: NonEmptySourceStringSchema,
         integrity: NpmIntegritySchema,
         registry: NpmRegistrySchema,
       })

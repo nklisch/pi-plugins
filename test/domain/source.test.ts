@@ -102,6 +102,46 @@ describe("source schemas", () => {
     expect(PluginSourceSchema.safeParse({ kind: "git", url: "https://example.com/plugin.git", sha: "a".repeat(39) }).success).toBe(false);
   });
 
+  it("rejects lone UTF-16 surrogates in every source boundary", () => {
+    const high = String.fromCharCode(0xd800);
+    const low = String.fromCharCode(0xdc00);
+    const invalidSources: readonly [z.ZodTypeAny, unknown][] = [
+      [MarketplaceSourceSchema, { kind: "github", repository: `owner/repository${high}` }],
+      [MarketplaceSourceSchema, { kind: "git", url: `https://example.com/plugin.git`, ref: `main${low}` }],
+      [MarketplaceSourceSchema, { kind: "local-git", path: `./catalog${high}` }],
+      [PluginSourceSchema, { kind: "marketplace-path", path: `./plugins/demo${low}` }],
+      [PluginSourceSchema, { kind: "git", url: `ssh://git@example.com/plugin${high}.git` }],
+      [PluginSourceSchema, { kind: "git-subdir", url: "https://example.com/plugin.git", path: `packages/demo${low}` }],
+      [PluginSourceSchema, { kind: "npm", package: `@example/plugin${high}` }],
+      [PluginSourceSchema, { kind: "npm", package: "@example/plugin", selector: `^1.0.0${low}` }],
+      [PluginSourceSchema, { kind: "npm", package: "@example/plugin", registry: `https://registry.example.com/${high}` }],
+    ];
+
+    for (const [index, [schema, source]] of invalidSources.entries()) {
+      expect(schema.safeParse(source).success, `invalid source case ${index}`).toBe(false);
+    }
+    expect(CanonicalSourceSchema.safeParse(`source-v1|git|url:3:${high}`).success).toBe(false);
+    expect(() => hashCanonicalSource(`source-v1|git|url:3:${low}` as CanonicalSource, hashBytes)).toThrow();
+  });
+
+  it("accepts only package-produced canonical field signatures", () => {
+    const invalidCanonicalSources = [
+      "source-v1|git|foo:1:x",
+      "source-v1|git|url:01:x",
+      "source-v1|npm|package:0:",
+      "source-v1|git|ref:4:main|url:30:https://example.com/plugin.git",
+      "source-v1|git|url:30:https://example.com/plugin.git|sha:40:" + revision + "|ref:4:main",
+      "source-v1|unknown|url:30:https://example.com/plugin.git",
+    ];
+
+    for (const canonical of invalidCanonicalSources) {
+      expect(CanonicalSourceSchema.safeParse(canonical).success).toBe(false);
+    }
+    expect(CanonicalSourceSchema.safeParse(
+      "source-v1|git|url:30:https://example.com/plugin.git|sha:40:" + revision,
+    ).success).toBe(true);
+  });
+
   it("derives declared and resolved types from their schemas", () => {
     expectTypeOf<z.infer<typeof MarketplaceSourceSchema>>().toEqualTypeOf<MarketplaceSource>();
     expectTypeOf<z.infer<typeof PluginSourceSchema>>().toEqualTypeOf<PluginSource>();
@@ -173,7 +213,10 @@ describe("canonical source serialization", () => {
       "source-v1|git|url:31:https://example.com/repo%2Fname",
     );
     expect(serializePluginSource({ kind: "git", url: "git@example.com:owner/repo.git" })).toBe(
-      "source-v1|git|url:36:ssh://git@example.com/owner/repo.git",
+      "source-v1|git|url:36:scp://git@example.com/owner/repo.git",
+    );
+    expect(serializePluginSource({ kind: "git", url: "git@example.com:owner/repo.git" })).not.toBe(
+      serializePluginSource({ kind: "git", url: "ssh://git@example.com/owner/repo.git" }),
     );
     expect(serializePluginSource({ kind: "git", url: "ssh://git@example.com:22/owner/repo.git" })).toBe(
       serializePluginSource({ kind: "git", url: "ssh://git@example.com/owner/repo.git" }),
@@ -182,6 +225,19 @@ describe("canonical source serialization", () => {
       serializePluginSource({ kind: "git-subdir", url: "https://example.com/plugin.git", path: "a%2Fb" }),
     );
     expect(() => serializePluginSource({ kind: "git", url: "https://example.com/%zz" })).toThrow();
+  });
+
+  it("preserves SCP remote-home-relative and literal-percent semantics", () => {
+    const canonical = serializePluginSource({
+      kind: "git",
+      url: "GIT@Example.COM:owner/%zz.git",
+    });
+
+    expect(canonical).toBe("source-v1|git|url:35:scp://GIT@example.com/owner/%zz.git");
+    expect(CanonicalSourceSchema.safeParse(canonical).success).toBe(true);
+    expect(canonical).not.toBe(
+      serializePluginSource({ kind: "git", url: "ssh://git@example.com/owner/%25zz.git" }),
+    );
   });
 });
 

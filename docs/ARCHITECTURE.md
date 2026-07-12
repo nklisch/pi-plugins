@@ -177,9 +177,12 @@ type PluginSource =
 
 A canonical source representation provides stable equality, hashing, cache
 identity, and trust identity. Domain source schemas are strict: Git accepts
-HTTPS, `ssh://`, and common SCP-style `user@host:path` forms (SCP is normalized
-to SSH, and explicit SSH port 22 is normalized away), while npm registries are HTTPS-only. Embedded HTTPS credentials,
-unsupported URL protocols, malformed percent escapes, unknown fields, and
+HTTPS, `ssh://`, and common SCP-style `user@host:path` forms. SCP is
+remote-home-relative and remains distinct from absolute `ssh://` paths: its
+canonical value uses a tagged `scp://` form with lowercase hosts and literal
+percent/path text, while explicit SSH port 22 is normalized away. npm registries
+are HTTPS-only. Embedded HTTPS credentials, unsupported URL protocols, malformed
+percent escapes in URI forms, unknown fields, lone UTF-16 surrogates, and
 non-full Git SHA pins fail at the boundary. Canonical bytes use the injective
 `source-v1|<kind>|<field>:<UTF-8-byte-length>:<value>` grammar; malformed
 percent escapes are rejected rather than treated as literal text.

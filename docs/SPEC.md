@@ -39,9 +39,12 @@ A marketplace can be registered from:
 - an optional branch, tag, or commit selector
 
 Git declarations accept HTTPS URLs, `ssh://` URLs, and common SCP-style
-`user@host:path` syntax (normalized to an SSH URL). HTTP, FTP, file, data, and
-other protocols are rejected. HTTPS URLs cannot contain embedded credentials;
-SSH may carry its normal user component but not an embedded password.
+`user@host:path` syntax. SCP remains remote-home-relative while `ssh://` paths
+remain absolute; their canonical identities use distinct tagged forms, and SCP
+host names are lowercased while its percent signs and path text remain literal.
+HTTP, FTP, file, data, and other protocols are rejected. HTTPS URLs cannot
+contain embedded credentials; SSH may carry its normal user component but not
+an embedded password.
 
 A Git-backed marketplace contains either:
 
