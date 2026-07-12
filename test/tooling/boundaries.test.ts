@@ -40,6 +40,28 @@ describe("dependency boundary regression", () => {
     }
   });
 
+  it("rejects format Node and outer-layer imports", () => {
+    const root = process.cwd();
+    const formatFixture = resolve(root, "src/formats/.boundary-regression-fixture.ts");
+    const applicationDirectory = resolve(root, "src/application");
+    const applicationTarget = resolve(applicationDirectory, ".format-boundary-regression-target.ts");
+    mkdirSync(applicationDirectory, { recursive: true });
+    writeFileSync(applicationTarget, "export const formatBoundaryRegressionTarget = true;\n", "utf8");
+    writeFileSync(formatFixture, [
+      'import { readFile } from "node:fs/promises";',
+      'import { formatBoundaryRegressionTarget } from "../application/.format-boundary-regression-target.js";',
+      "void readFile;",
+      "void formatBoundaryRegressionTarget;",
+    ].join("\n"), "utf8");
+    try {
+      const output = cruise(root, "src/formats/.boundary-regression-fixture.ts");
+      expect(output).toContain("formats-no-outer-or-node-imports");
+    } finally {
+      rmSync(formatFixture, { force: true });
+      rmSync(applicationTarget, { force: true });
+    }
+  });
+
   it("rejects application runtime/adapter imports and infrastructure-to-format imports", () => {
     const root = process.cwd();
     const applicationFixture = resolve(root, "src/application/.boundary-regression-fixture.ts");

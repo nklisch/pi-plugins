@@ -60,6 +60,13 @@ module.exports = {
       to: { dependencyTypes: ["core"] },
     },
     {
+      name: "formats-no-outer-or-node-imports",
+      comment: "All format code is limited to domain contracts and sibling format adapters, never outer layers or Node built-ins.",
+      severity: "error",
+      from: { path: "^src/formats(?:/|$)" },
+      to: { path: "^(?:src/(?:application|infrastructure|runtime|pi)(?:/|$)|node:)" },
+    },
+    {
       name: "no-circular",
       comment: "Circular dependencies make contract initialization order implicit and fragile.",
       severity: "error",
