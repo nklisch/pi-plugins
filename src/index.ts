@@ -329,3 +329,244 @@ export { reconcilePluginBundle } from "./application/bundle-reconciler.js";
 export type { BundleReconciliationInput } from "./application/bundle-reconciler.js";
 export { createNodePluginInspector } from "./composition/create-plugin-inspector.js";
 export type { NodePluginInspectorOptions } from "./composition/create-plugin-inspector.js";
+
+// Lifecycle state is a public contract, not a storage implementation. Export
+// only schema-derived values, pure identity/codec helpers, and the adapter
+// port; physical paths, locks, secret stores, projections, and operations stay
+// outside the package boundary.
+export {
+  StateSchemaVersionSchema,
+  defineVersionedSchemaFamily,
+  migrateVersionedDocument,
+} from "./domain/state/versioning.js";
+export type {
+  StateSchemaVersion,
+  StateMigration,
+  VersionedSchemaFamily,
+} from "./domain/state/versioning.js";
+
+export {
+  CanonicalProjectRootSchema,
+  ProjectIdentitySchema,
+  ProjectKeySchema,
+  ScopeReferenceSchema,
+  ScopeContextSchema,
+  deriveProjectKey,
+  createScopeContext,
+  toScopeReference,
+} from "./domain/state/scope.js";
+export type {
+  CanonicalProjectRoot,
+  ProjectIdentity,
+  ProjectKey,
+  ScopeReference,
+  ScopeContext,
+} from "./domain/state/scope.js";
+
+export {
+  StateReferenceKindRegistry,
+  StateBlobRefSchema,
+  MarketplaceContentRefSchema,
+  PluginContentRefSchema,
+  PluginDataRefSchema,
+  PluginConfigurationRefSchema,
+  TrustSubjectRefSchema,
+  PendingTransitionRefSchema,
+  StateReferenceSchema,
+  ReferenceIdentitySchema,
+  deriveStateBlobRef,
+  deriveMarketplaceContentRef,
+  derivePluginContentRef,
+  derivePluginDataRef,
+  derivePluginConfigurationRef,
+  deriveTrustSubjectRef,
+  derivePendingTransitionRef,
+  verifyStateBlobRef,
+  verifyMarketplaceContentRef,
+  verifyPluginContentRef,
+  verifyPluginDataRef,
+  verifyPluginConfigurationRef,
+  verifyTrustSubjectRef,
+  verifyPendingTransitionRef,
+} from "./domain/state/references.js";
+export type {
+  StateReferenceKind,
+  StateReferenceTag,
+  StateBlobRef,
+  MarketplaceContentRef,
+  PluginContentRef,
+  PluginDataRef,
+  PluginConfigurationRef,
+  TrustSubjectRef,
+  PendingTransitionRef,
+  StateReference,
+  ReferenceIdentity,
+} from "./domain/state/references.js";
+
+export {
+  GenerationSchema,
+  UpdateApplicationPreferenceSchema,
+  MarketplaceConfigurationRecordSchema,
+  HostConfigDocumentSchemaV1,
+  HostConfigDocumentSchema,
+  HostConfigSchemaFamily,
+} from "./domain/state/config-state.js";
+export type {
+  Generation,
+  UpdateApplicationPreference,
+  MarketplaceConfigurationRecord,
+  HostConfigDocumentV1,
+  HostConfigDocument,
+} from "./domain/state/config-state.js";
+
+export {
+  PortableMarketplaceSourceSchema,
+  PortablePluginSourceSchema,
+  PortablePluginConstraintSchema,
+  PortableMarketplaceDeclarationSchema,
+  PortablePluginDeclarationSchema,
+  PortableProjectDeclarationSchemaV1,
+  PortableProjectDeclarationSchema,
+  PortableProjectSchemaFamily,
+  isSafePortableRelativePath,
+  assertPortableProjectDeclarationSafe,
+  parsePortableProjectDeclaration,
+  decodePortableProjectDeclaration,
+} from "./domain/state/portable-project-declaration.js";
+export type {
+  PortableMarketplaceSource,
+  PortablePluginSource,
+  PortablePluginConstraint,
+  PortableMarketplaceDeclaration,
+  PortablePluginDeclaration,
+  PortableProjectDeclarationV1,
+  PortableProjectDeclaration,
+} from "./domain/state/portable-project-declaration.js";
+
+export {
+  ActivationIntentSchema,
+  MarketplaceSnapshotRecordSchema,
+  InstalledRevisionRecordSchema,
+  InstalledPluginRecordSchema,
+  InstalledUserStateDocumentSchemaV1,
+  InstalledUserStateDocumentSchema,
+  InstalledUserStateSchema,
+  InstalledUserStateSchemaFamily,
+  createMarketplaceSnapshotRecord,
+  createInstalledRevisionRecord,
+  createInstalledPluginRecord,
+  createInstalledUserStateDocument,
+  decodeInstalledPluginRecords,
+  decodeInstalledUserPlugins,
+} from "./domain/state/installed-state.js";
+export type {
+  ActivationIntent,
+  MarketplaceSnapshotRecord,
+  InstalledRevisionRecord,
+  InstalledPluginRecord,
+  InstalledUserStateDocumentV1,
+  InstalledUserStateDocument,
+  InstalledRecordQuarantine,
+  InstalledRecordCollectionDecode,
+} from "./domain/state/installed-state.js";
+
+export {
+  ProjectLocalStateDocumentSchemaV1,
+  ProjectLocalStateDocumentSchema,
+  ProjectLocalStateSchemaFamily,
+  createProjectLocalStateDocument,
+  decodeProjectPlugins,
+} from "./domain/state/project-state.js";
+export type {
+  ProjectLocalStateDocumentV1,
+  ProjectLocalStateDocument,
+  ProjectPluginRecordCollectionDecode,
+} from "./domain/state/project-state.js";
+
+export {
+  StateDocumentKindRegistry,
+  StateDocumentKindSchema,
+  PointerDocumentKindSchema,
+  StateDocumentPointerSchema,
+  StatePointersDocumentSchemaV1,
+  StatePointersDocumentSchema,
+  StatePointersSchemaFamily,
+  createStatePointersDocument,
+  verifyStatePointersScope,
+} from "./domain/state/pointers.js";
+export type {
+  StateDocumentKind,
+  PointerDocumentKind,
+  StateDocumentPointer,
+  StatePointersDocumentV1,
+  StatePointersDocument,
+} from "./domain/state/pointers.js";
+
+export {
+  TrustDecisionStatusSchema,
+  ImmutableRevisionEvidenceSchema,
+  TrustSubjectEvidenceSchema,
+  TrustStateRecordSchema,
+  TrustStateDocumentSchemaV1,
+  TrustStateDocumentSchema,
+  TrustStateSchemaFamily,
+  createTrustStateRecord,
+  verifyTrustStateRecord,
+  createTrustStateDocument,
+  deriveTrustSubject,
+} from "./domain/state/trust-state.js";
+export type {
+  TrustDecisionStatus,
+  ImmutableRevisionEvidence,
+  TrustSubjectEvidence,
+  TrustStateRecord,
+  TrustStateDocumentV1,
+  TrustStateDocument,
+} from "./domain/state/trust-state.js";
+
+export {
+  StateDocumentRegistry,
+  getStateDocumentDefinition,
+  stateDocumentKinds,
+} from "./domain/state/registry.js";
+export type {
+  StateDocumentIsolation,
+  RegisteredStateDocument,
+  StateDocumentByKind,
+  StateDocumentFor,
+} from "./domain/state/registry.js";
+
+export {
+  StateCorruptionCodeSchema,
+  StateCorruptionSchema,
+  StateCodecError,
+  hashStateDocument,
+  decodeStateDocument,
+  encodeStateDocument,
+} from "./domain/state/codec.js";
+export type {
+  StateCorruptionCode,
+  StateCorruption,
+  StateCodecContext,
+  DecodedDocument,
+} from "./domain/state/codec.js";
+
+export {
+  UserStateMutationSchema,
+  ProjectStateMutationSchema,
+  StateMutationSchema,
+  parseStateMutation,
+  validateStateMutation,
+  StateLoadFailureSchema,
+} from "./application/state-contract.js";
+export type {
+  UserScopeContext,
+  ProjectScopeContext,
+  UserGenerationSnapshot,
+  ProjectGenerationSnapshot,
+  GenerationSnapshot,
+  StateMutation,
+  StateCommitResult,
+  StateLoadResult,
+} from "./application/state-contract.js";
+export type { LifecycleStateStore } from "./application/ports/lifecycle-state-store.js";

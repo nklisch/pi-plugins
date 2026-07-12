@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "generation": 0,
+  "records": [
+    {
+      "marketplace": "team",
+      "source": { "kind": "github", "repository": "example/plugins" },
+      "updateApplication": "manual"
+    },
+    {
+      "marketplace": "broken",
+      "source": { "kind": "github", "repository": "example/plugins" },
+      "updateApplication": "not-a-preference"
+    },
+    {
+      "marketplace": "team",
+      "source": { "kind": "github", "repository": "example/plugins" },
+      "updateApplication": "automatic"
+    },
+    {
+      "marketplace": "other",
+      "source": { "kind": "github", "repository": "example/plugins" },
+      "updateApplication": "automatic",
+      "secret": "fixture-secret-must-not-be-reported"
+    },
+    {
+      "marketplace": "alpha",
+      "source": { "kind": "github", "repository": "example/plugins" },
+      "updateApplication": "automatic"
+    }
+  ]
+}

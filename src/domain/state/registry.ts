@@ -88,18 +88,15 @@ export const StateDocumentRegistry = {
 
 export type RegisteredStateDocument = (typeof StateDocumentRegistry)[StateDocumentKind];
 
-/** Current schema-derived outputs, keyed from the registry's discriminant. */
-type StateDocumentMap = {
-  hostConfig: HostConfigDocumentV1;
-  installedUser: InstalledUserStateDocumentV1;
-  trust: TrustStateDocumentV1;
-  projectLocal: ProjectLocalStateDocumentV1;
-  portableProject: PortableProjectDeclarationV1;
-  pointers: StatePointersDocumentV1;
-};
-
-export type StateDocumentByKind<K extends StateDocumentKind = StateDocumentKind> = StateDocumentMap[K];
-export type StateDocumentFor<K extends StateDocumentKind> = StateDocumentMap[K];
+/**
+ * The registry schema is the contract source. Inferring these outputs from the
+ * registered schemas prevents a new family from acquiring a second,
+ * hand-maintained persistence interface in this module.
+ */
+export type StateDocumentByKind<K extends StateDocumentKind = StateDocumentKind> = z.infer<
+  (typeof StateDocumentRegistry)[K]["schema"]
+>;
+export type StateDocumentFor<K extends StateDocumentKind> = StateDocumentByKind<K>;
 
 export function getStateDocumentDefinition(
   kind: unknown,

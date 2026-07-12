@@ -62,6 +62,44 @@ describe("dependency boundary regression", () => {
     }
   });
 
+  it("rejects state schema and state-port imports with the dedicated rules", () => {
+    const root = process.cwd();
+    const stateDirectory = resolve(root, "src/domain/state");
+    const stateFixture = resolve(stateDirectory, ".state-boundary-regression-fixture.ts");
+    const stateTarget = resolve(root, "src/application/.state-boundary-regression-target.ts");
+    const portDirectory = resolve(root, "src/application/ports");
+    const portFixture = resolve(portDirectory, ".state-port-boundary-regression-fixture.ts");
+    const portTarget = resolve(root, "src/infrastructure/.state-port-boundary-regression-target.ts");
+    mkdirSync(resolve(root, "src/infrastructure"), { recursive: true });
+    writeFileSync(stateTarget, "export const stateBoundaryTarget = true;\n", "utf8");
+    writeFileSync(portTarget, "export const statePortBoundaryTarget = true;\n", "utf8");
+    writeFileSync(stateFixture, [
+      'import { readFile } from "node:fs/promises";',
+      'import { stateBoundaryTarget } from "../../application/.state-boundary-regression-target.js";',
+      "void readFile;",
+      "void stateBoundaryTarget;",
+    ].join("\n"), "utf8");
+    writeFileSync(portFixture, [
+      'import { readFile } from "node:fs/promises";',
+      'import { statePortBoundaryTarget } from "../../infrastructure/.state-port-boundary-regression-target.js";',
+      "void readFile;",
+      "void statePortBoundaryTarget;",
+    ].join("\n"), "utf8");
+    try {
+      const stateOutput = cruise(root, "src/domain/state/.state-boundary-regression-fixture.ts");
+      expect(stateOutput).toContain("state-domain-no-node-builtins");
+      expect(stateOutput).toContain("state-domain-no-outer-layer-imports");
+      const portOutput = cruise(root, "src/application/ports/.state-port-boundary-regression-fixture.ts");
+      expect(portOutput).toContain("state-port-no-node-builtins");
+      expect(portOutput).toContain("state-port-no-outer-layer-imports");
+    } finally {
+      rmSync(stateFixture, { force: true });
+      rmSync(stateTarget, { force: true });
+      rmSync(portFixture, { force: true });
+      rmSync(portTarget, { force: true });
+    }
+  });
+
   it("rejects application runtime/adapter imports and infrastructure-to-format imports", () => {
     const root = process.cwd();
     const applicationFixture = resolve(root, "src/application/.boundary-regression-fixture.ts");

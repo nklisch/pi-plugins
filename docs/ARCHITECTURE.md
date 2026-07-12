@@ -441,74 +441,42 @@ Marketplace-relative sources require a verified marketplace handoff carrying the
 
 ## Authoritative state
 
-### User state
-
-```text
-~/.pi/agent/plugin-host/
-├── config.json
-├── state.json
-├── trust.json
-├── marketplaces/
-├── cache/
-├── data/
-├── projects/
-├── generated/
-├── staging/
-└── locks/
-```
-
-### Project declaration
+The current state boundary is schema-first and adapter-neutral. Six
+independently versioned families define host configuration, installed user
+state, trust evidence, project-local state, portable project intent, and
+generation pointers. A single `StateDocumentRegistry` owns their current
+schemas, migrations, routing, and isolation policy.
 
 `.pi/plugins.json` is declarative and portable. It identifies desired
 marketplaces and plugins but does not claim that they are materialized or
-trusted on every machine.
+trusted on every machine. Machine-local project context uses a `ProjectKey`
+derived from a canonical root and repository fingerprint when available; a
+path-only identity is explicit and does not masquerade as repository identity.
 
-### Project runtime state
+A user pointer selects exactly the host-config, installed-user, and trust
+families for one generation. A project pointer selects only project-local
+state. Pointer and document references are logical versioned hashes, never
+physical paths. Valid records may be quarantined independently after a trusted
+envelope; invalid pointers, scope bindings, generations, digests, and unknown
+future versions fail the enclosing snapshot without exposing a partial value.
 
-Machine-local project state uses a key derived from the canonical repository
-root and its stable repository identity:
-
-```text
-projects/<project-key>/state.json
-projects/<project-key>/data/
-projects/<project-key>/generated/
-```
-
-Moving a checkout does not silently transfer trust from a different repository.
-Path-only projects use a path-derived identity and report that limitation.
-
-### State ports
+The public store port is intentionally small:
 
 ```typescript
-interface PluginStateStore {
-  read(scope: ScopeContext): Promise<StateSnapshot>;
-  transact<T>(
-    scope: ScopeContext,
-    operation: (current: StateSnapshot) => Promise<StateTransaction<T>>,
-  ): Promise<T>;
-}
-
-interface TrustStore {
-  inspect(subject: TrustSubject): Promise<TrustVerdict>;
-  grant(grant: TrustGrant): Promise<void>;
-  revoke(subject: TrustSubject): Promise<void>;
-}
-
-interface SecretStore {
-  read(key: PluginSecretKey): Promise<string | undefined>;
-  write(key: PluginSecretKey, value: string): Promise<void>;
-  deletePlugin(plugin: PluginKey): Promise<void>;
+interface LifecycleStateStore {
+  read(scope: ScopeContext, signal: AbortSignal): Promise<StateLoadResult>;
+  commit(mutation: StateMutation, signal: AbortSignal): Promise<StateCommitResult>;
 }
 ```
 
-Sensitive plugin configuration is resolved only at execution or MCP connection
-time. Generated projections contain secret references, never secret values.
-
-State writes use schema validation, a cross-process lock, generation checks,
-temporary files, fsync where available, and atomic rename.
-
-The lock prevents two Pi processes from losing each other's updates. Generation
-checks detect stale readers after a long-running source operation.
+Reads and writes are schema-validated. Mutations replace one or more documents
+against an expected generation and return a typed stale-generation result
+rather than overwriting newer state. The port does not prescribe storage,
+paths, locks, transaction callbacks, fsync/rename, secret storage, trust
+policy, promotion, generated projections, operations, or recovery. Those are
+late-bound seams for later features and adapters. No current state schema
+contains secret values, expanded environment, absolute installed/data paths,
+projection contents, timestamps in portable intent, or native error causes.
 
 ## Installation transaction
 

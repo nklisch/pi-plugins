@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "generation": 0,
+  "records": [
+    {
+      "subject": "trust-subject-v1:sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "evidence": { "plugin": "demo@team", "scope": { "kind": "user" }, "marketplaceSource": "source-v1|github|repository:15:example/plugins", "pluginSource": "source-v1|github|repository:15:example/plugins", "immutableRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "executableSurfaceDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000" },
+      "status": "invalid"
+    },
+    {
+      "subject": "trust-subject-v1:sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "evidence": { "plugin": "demo@team", "scope": { "kind": "user" }, "marketplaceSource": "source-v1|github|repository:15:example/plugins", "pluginSource": "source-v1|github|repository:15:example/plugins", "immutableRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "executableSurfaceDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000" },
+      "status": "granted",
+      "nativeCause": "fixture-native-cause"
+    }
+  ]
+}

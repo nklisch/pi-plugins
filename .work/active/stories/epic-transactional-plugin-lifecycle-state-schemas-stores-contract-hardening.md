@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores-contract-hardening
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-state-schemas-stores
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores-config-portable, epic-transactional-plugin-lifecycle-state-schemas-stores-installed-project, epic-transactional-plugin-lifecycle-state-schemas-stores-trust-pointers-ports]
@@ -51,3 +51,11 @@ No production storage/lock/trust/secret/promotion/operation/recovery adapter is 
 - [ ] Deterministic encodings are independent of input collection/property order and duplicates never use input precedence.
 - [ ] Dependency checks prove state domain/ports do not import Node, formats, infrastructure, runtime, Pi, clock, randomness, trust/secret adapters, or composition.
 - [ ] Foundation docs remain accurate without precommitting a storage/lock/trust/promotion/operation/recovery implementation.
+
+## Implementation notes
+- Execution capability: direct-read inline implementation; the caller explicitly prohibited agents and the work had one cohesive public-contract/test ownership surface.
+- Review weight: none for this requested implementation boundary; the story is left at `stage: review` for the repository review lane.
+- Files changed: `src/index.ts`, `src/domain/state/registry.ts`, `.dependency-cruiser.cjs`, `docs/SPEC.md`, `docs/ARCHITECTURE.md`, public/compiled API tests, state integration tests, boundary regressions, and committed state fixtures under `test/fixtures/state/`.
+- Tests added: exact source/compiled export allowlists, six-family fixture loading, fake public-port user/project round trips, deterministic encoding, corruption isolation/fatal-root and digest/scope/future-version checks, portable canary exclusions, migration fixture coverage, and dedicated dependency-boundary regressions.
+- Discrepancies from design: none; no production adapter, lock, trust policy, secret store, promotion, operation, projection, or recovery implementation was added.
+- Adjacent issues parked: none.

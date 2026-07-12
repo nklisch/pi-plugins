@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "generation": 0,
+  "marketplaces": [],
+  "plugins": [
+    { "plugin": "bad@team", "activation": "enabled", "revisions": [] },
+    { "plugin": "bad@team", "activation": "disabled", "revisions": [] },
+    { "plugin": "other@team", "activation": "enabled", "revisions": [], "environment": "CANARY_ENV" }
+  ]
+}

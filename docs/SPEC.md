@@ -116,18 +116,20 @@ returned, and valid siblings survive. A malformed nested runtime or dependency
 field never produces a partial entry. All claim locations use RFC 6901 JSON
 Pointers; the empty pointer identifies the document root.
 
-An installed revision records:
+An installed revision records authoritative evidence only:
 
-- marketplace identity;
-- plugin identity;
-- source type and canonical source;
-- resolved immutable source revision;
+- marketplace and plugin identity;
+- the resolved source and immutable source revision;
 - declared plugin version when present;
-- normalized component inventory;
-- scope;
-- compatibility verdict;
-- trust record;
-- active installation path.
+- the canonical normalized component inventory;
+- the compatibility report;
+- scope-bound logical content, data, and optional configuration references.
+
+Installed records carry activation intent and may carry only an opaque pending
+transition reference. Trust evidence is independently versioned and is not trust
+policy. Physical installation paths, generated projections, expanded
+configuration, secret values, reload observations, and operation or recovery
+payloads are not state-schema fields.
 
 ## Manifests
 
@@ -344,30 +346,30 @@ Materialized project-plugin state remains under the user's Pi agent directory,
 keyed by canonical project identity. A trusted project with missing materialized
 plugins requests synchronization before activation.
 
-## State layout
+## State contract
 
-```text
-~/.pi/agent/plugin-host/
-├── config.json
-├── state.json
-├── trust.json
-├── marketplaces/
-├── cache/
-├── data/
-├── projects/
-└── staging/
-```
+The authoritative state vocabulary is six independently versioned JSON-schema
+families: host marketplace configuration, installed user state, trust evidence,
+project-local state, portable project intent, and generation pointers. Each
+family has an explicit `schemaVersion`; a registry owns current schemas,
+migrations, routing, and corruption-isolation policy.
 
-- `config.json` stores user marketplace declarations and update preferences.
-- `state.json` records installed user plugin revisions and activation state.
-- `trust.json` records source and executable-surface approvals.
-- `marketplaces/` stores materialized marketplace revisions.
-- `cache/` stores immutable plugin revisions.
-- `data/` stores persistent user-plugin data.
-- `projects/` stores machine-local state for project declarations.
-- `staging/` holds incomplete transactions and is safe to clean after recovery.
+User snapshots contain configuration, installed state, and trust evidence.
+Project snapshots contain project-local state only. A pointer selects one exact
+scope generation and logical blob/digest references; it does not encode a
+filesystem path. Project keys bind the canonical project root and repository
+identity when available, while path-only identity is explicit and limited.
 
-Every state file has an explicit schema version.
+The `LifecycleStateStore` port accepts validated reads and expected-generation
+replacements. It exposes no storage technology, path layout, lock primitive,
+transaction callback, trust policy, secret store, promotion operation,
+projection content, journal, or recovery payload. Those concerns remain
+late-bound to their owning lifecycle features. Adapters may choose a durable
+representation without changing this contract.
+
+Portable `.pi/plugins.json` remains an all-or-nothing declaration containing
+only marketplace sources, requested plugin identities, constraints, and enabled
+intent. Unknown fields and machine-local or operational values fail closed.
 
 ## Lifecycle operations
 

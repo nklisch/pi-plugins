@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "generation": 0,
+  "records": [
+    {
+      "marketplace": "team",
+      "source": { "kind": "github", "repository": "example/plugins" },
+      "updateApplication": "manual"
+    }
+  ]
+}

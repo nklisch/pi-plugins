@@ -16,6 +16,20 @@ module.exports = {
       to: { dependencyTypes: ["core"] },
     },
     {
+      name: "state-domain-no-outer-layer-imports",
+      comment: "Versioned state schemas and codecs are portable domain contracts.",
+      severity: "error",
+      from: { path: "^src/domain/state(?:/|$)" },
+      to: { path: "^src/(?:application|formats|infrastructure|runtime|pi|composition)(?:/|$)" },
+    },
+    {
+      name: "state-domain-no-node-builtins",
+      comment: "State identity, schemas, and codecs cannot depend on Node APIs.",
+      severity: "error",
+      from: { path: "^src/domain/state(?:/|$)" },
+      to: { dependencyTypes: ["core"] },
+    },
+    {
       name: "domain-no-undeclared-packages",
       comment: "Domain package imports must be declared package dependencies.",
       severity: "error",
@@ -45,6 +59,20 @@ module.exports = {
       comment: "Application code stays portable and receives filesystem/process behavior through ports.",
       severity: "error",
       from: { path: "^src/application(?:/|$)" },
+      to: { dependencyTypes: ["core"] },
+    },
+    {
+      name: "state-port-no-outer-layer-imports",
+      comment: "The lifecycle state port exposes no adapter, runtime, Pi, or composition detail.",
+      severity: "error",
+      from: { path: "^src/application/(?:state-contract\\.ts|ports/.*\\.ts)$" },
+      to: { path: "^src/(?:formats|infrastructure|runtime|pi|composition)(?:/|$)" },
+    },
+    {
+      name: "state-port-no-node-builtins",
+      comment: "State snapshots and mutations remain usable outside Node.",
+      severity: "error",
+      from: { path: "^src/application/(?:state-contract\\.ts|ports/.*\\.ts)$" },
       to: { dependencyTypes: ["core"] },
     },
     {
