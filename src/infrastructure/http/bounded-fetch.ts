@@ -239,12 +239,23 @@ function parseNpmrc(text: string): NpmConfigCredential[] {
     const key = line.slice(0, equals).trim();
     const value = line.slice(equals + 1).trim();
     if (value.length === 0) continue;
-    const tokenMatch = /^(?:(\/\/[^/]+\/):)?_authToken$/u.exec(key);
-    if (tokenMatch !== null) {
-      // Keep the authority (including a non-default port) as part of the
-      // credential scope. A token for :4873 must never match the same host on
-      // :443 or an unrelated redirect origin.
-      result.push({ scope: tokenMatch[1] ?? "//registry.npmjs.org/", token: value });
+    if (key.endsWith(":_authToken")) {
+      // npm's standard token form is `//host[:port]/path/:_authToken`.
+      // Parse the whole authority plus path rather than stopping at the first
+      // slash, so scoped registries and non-default ports remain distinct.
+      const scope = key.slice(0, -":_authToken".length);
+      try {
+        const parsed = new URL(`https:${scope}`);
+        if (
+          !scope.startsWith("//") || !scope.endsWith("/") ||
+          parsed.hostname.length === 0 || parsed.username !== "" || parsed.password !== "" ||
+          parsed.search !== "" || parsed.hash !== ""
+        ) continue;
+        result.push({ scope, token: value });
+      } catch {
+        // Ignore malformed npmrc keys. They cannot authorize a request, while
+        // unreadable files remain an explicit credential adapter failure.
+      }
       continue;
     }
     if (key === "_auth") result.push({ scope: "//registry.npmjs.org/", basic: value });
@@ -252,16 +263,24 @@ function parseNpmrc(text: string): NpmConfigCredential[] {
   return result;
 }
 
-function credentialApplies(scope: string, url: URL): boolean {
-  if (scope.length === 0) return true;
+function credentialScopeLength(scope: string, url: URL): number | undefined {
   try {
+    if (url.protocol !== "https:") return undefined;
     const scoped = new URL(`https:${scope}`);
-    return scoped.hostname.toLowerCase() === url.hostname.toLowerCase()
-      && (scoped.port || "443") === (url.port || "443")
-      && url.pathname.startsWith(scoped.pathname);
+    const scopedPort = scoped.port || "443";
+    const requestPort = url.port || "443";
+    if (scoped.hostname.toLowerCase() !== url.hostname.toLowerCase() || scopedPort !== requestPort) return undefined;
+    // Scope paths are directory prefixes. Requiring the trailing slash from
+    // npmrc prevents `/team/` from authorizing `/teamwork/...`.
+    if (!url.pathname.startsWith(scoped.pathname)) return undefined;
+    return scoped.pathname.length;
   } catch {
-    return false;
+    return undefined;
   }
+}
+
+function credentialApplies(scope: string, url: URL): boolean {
+  return credentialScopeLength(scope, url) !== undefined;
 }
 
 /**
@@ -293,7 +312,9 @@ export function createNpmCredentialProvider(options: Readonly<{
       throwIfAborted(signal);
       loaded ??= readConfig();
       const credentials = await loaded;
-      const match = credentials.find((entry) => credentialApplies(entry.scope, url));
+      const match = credentials
+        .filter((entry) => credentialApplies(entry.scope, url))
+        .sort((left, right) => (credentialScopeLength(right.scope, url) ?? -1) - (credentialScopeLength(left.scope, url) ?? -1))[0];
       if (match?.token !== undefined) headers.set("authorization", `Bearer ${match.token}`);
       else if (match?.basic !== undefined) headers.set("authorization", `Basic ${match.basic}`);
     },

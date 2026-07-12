@@ -232,13 +232,44 @@ function manifestLimits(input?: Partial<ContentManifestLimits>): ContentManifest
   return Object.freeze(limits);
 }
 
+/**
+ * Apply cheap structural bounds before Zod constructs a full manifest tree.
+ * This is intentionally a best-effort preflight: malformed entries still go
+ * through the authoritative schema so callers receive the normal contract
+ * error, while valid oversized input is rejected before digest work/allocation.
+ */
+function preflightManifestEntries(entries: readonly unknown[], limits: ContentManifestLimits): void {
+  if (entries.length > limits.maxEntries) throw new Error("content manifest entry limit exceeded");
+  let totalPathBytes = 0;
+  for (const entry of entries) {
+    if (entry === null || typeof entry !== "object") continue;
+    const path = (entry as { readonly path?: unknown }).path;
+    if (typeof path !== "string") continue;
+    const pathLength = encoder.encode(path).byteLength;
+    totalPathBytes += pathLength;
+    if (totalPathBytes > limits.maxTotalPathBytes) throw new Error("content manifest aggregate path limit exceeded");
+    if (pathLength > limits.maxPathBytes) throw new Error(`content manifest path length limit exceeded: ${path}`);
+    for (const segment of path.split("/")) {
+      if (encoder.encode(segment).byteLength > limits.maxSegmentBytes) {
+        throw new Error(`content manifest path segment length limit exceeded: ${path}`);
+      }
+    }
+  }
+}
+
+function preflightManifestInput(input: unknown, limits: ContentManifestLimits): void {
+  if (input === null || typeof input !== "object") return;
+  const entries = (input as { readonly entries?: unknown }).entries;
+  if (Array.isArray(entries)) preflightManifestEntries(entries, limits);
+}
+
 function validateEntries(
   entries: readonly ContentManifestEntry[],
   sha256?: Sha256,
   inputLimits?: Partial<ContentManifestLimits>,
 ): ContentManifestEntry[] {
   const limits = manifestLimits(inputLimits);
-  if (entries.length > limits.maxEntries) throw new Error("content manifest entry limit exceeded");
+  preflightManifestEntries(entries, limits);
   const parsed = entries.map((entry) => ContentManifestEntrySchema.parse(entry));
   const byPath = new Map<string, ContentManifestEntry>();
   let totalPathBytes = 0;
@@ -331,9 +362,11 @@ export function createContentManifest(
 export function verifyContentManifest(
   input: unknown,
   sha256: Sha256,
-  limits?: Partial<ContentManifestLimits>,
+  inputLimits?: Partial<ContentManifestLimits>,
 ): ContentManifest {
   if (typeof sha256 !== "function") throw new TypeError("verifyContentManifest requires a SHA-256 function");
+  const limits = manifestLimits(inputLimits);
+  preflightManifestInput(input, limits);
   const manifest = ContentManifestSchema.parse(input);
   validateEntries(manifest.entries, sha256, limits);
   const expected = computeRootDigest(manifest.entries, sha256);

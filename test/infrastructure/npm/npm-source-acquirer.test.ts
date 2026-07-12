@@ -88,6 +88,28 @@ describe("npm source acquisition", () => {
     await expect(readFile(join(finalized.root, "marker"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("rejects an adapter result that changes an exact npm selector", async () => {
+    const tarball = gzipSync(archive(entry("package/index.js", "ok")));
+    const selected = record(tarball);
+    const mismatched: NpmRegistryClient = {
+      async resolve() {
+        return {
+          package: "fixture",
+          registry: "https://registry.npmjs.org/",
+          selected: { ...selected, version: "2.0.0" },
+        };
+      },
+      async downloadVerified() {
+        throw new Error("download must not begin");
+      },
+    };
+    const content = await sink();
+    await expect(createNpmSourceAcquirer({ registry: mismatched, archive: createTarReader(), sha256 }).materialize(
+      { kind: "npm", package: "fixture", selector: "1.0.0" }, content, signal(),
+    )).rejects.toMatchObject({ code: "SOURCE_RESOLUTION_FAILED" });
+    await content.abort();
+  });
+
   it("rejects rootless, empty, and hostile package archives before a handoff", async () => {
     for (const tarball of [
       gzipSync(archive(entry("index.js", "rootless"))),

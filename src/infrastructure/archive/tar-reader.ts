@@ -143,21 +143,73 @@ function relativeHardlinkTarget(path: string, target: string): string {
   return result.length === 0 ? "." : result;
 }
 
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+}
+
+function returnIterator(iterator: AsyncIterator<unknown>): void {
+  try {
+    const result = iterator.return?.();
+    // Iterator cleanup is best effort and must not turn a handled abort into a
+    // late unhandled rejection. Do not await a hostile iterator's return().
+    if (result !== undefined) void Promise.resolve(result).catch(() => undefined);
+  } catch {
+    // The original archive failure or abort remains authoritative.
+  }
+}
+
+function nextWithAbort<T>(iterator: AsyncIterator<T>, signal: AbortSignal): Promise<IteratorResult<T>> {
+  if (signal.aborted) return Promise.reject(abortReason(signal));
+  const pending = Promise.resolve().then(() => iterator.next());
+  // Promise.race below also observes this rejection, but this explicit handler
+  // documents and protects the late-settlement path after an abort wins.
+  void pending.catch(() => undefined);
+  return new Promise<IteratorResult<T>>((resolve, reject) => {
+    let settled = false;
+    const cleanup = (): void => signal.removeEventListener("abort", onAbort);
+    const onAbort = (): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(abortReason(signal));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    pending.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(value);
+      },
+      (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      },
+    );
+  });
+}
+
 class ByteQueue {
-  private readonly chunks: Uint8Array[] = [];
   private iterator: AsyncIterator<Uint8Array>;
   private current: Uint8Array | undefined;
   private offset = 0;
   private done = false;
+  private closed = false;
+  private readonly onAbort: () => void;
 
-  constructor(input: AsyncIterable<Uint8Array>) {
+  constructor(input: AsyncIterable<Uint8Array>, private readonly signal: AbortSignal) {
     this.iterator = input[Symbol.asyncIterator]();
+    this.onAbort = () => this.close();
+    signal.addEventListener("abort", this.onAbort, { once: true });
+    if (signal.aborted) this.close();
   }
 
   private async fill(): Promise<boolean> {
     if (this.current !== undefined && this.offset < this.current.byteLength) return true;
     while (!this.done) {
-      const next = await this.iterator.next();
+      const next = await nextWithAbort(this.iterator, this.signal);
       if (next.done) {
         this.done = true;
         this.current = undefined;
@@ -169,6 +221,15 @@ class ByteQueue {
       if (next.value.byteLength > 0) return true;
     }
     return false;
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.done = true;
+    this.current = undefined;
+    this.signal.removeEventListener("abort", this.onAbort);
+    returnIterator(this.iterator);
   }
 
   async take(count: number): Promise<Uint8Array> {
@@ -229,12 +290,21 @@ async function* countedInput(
   input: AsyncIterable<Uint8Array>,
   limits: MaterializationLimits,
   state: { archiveBytes: number; expandedBytes: number },
+  signal: AbortSignal,
 ): AsyncGenerator<Uint8Array> {
-  for await (const chunk of input) {
-    if (!(chunk instanceof Uint8Array)) throw policyError("archive stream yielded a non-byte value");
-    state.archiveBytes += chunk.byteLength;
-    if (state.archiveBytes > limits.maxArchiveBytes) throw policyError("archive byte limit exceeded");
-    yield chunk;
+  const iterator = input[Symbol.asyncIterator]();
+  try {
+    while (true) {
+      const next = await nextWithAbort(iterator, signal);
+      if (next.done) return;
+      const chunk = next.value;
+      if (!(chunk instanceof Uint8Array)) throw policyError("archive stream yielded a non-byte value");
+      state.archiveBytes += chunk.byteLength;
+      if (state.archiveBytes > limits.maxArchiveBytes) throw policyError("archive byte limit exceeded");
+      yield chunk;
+    }
+  } finally {
+    returnIterator(iterator);
   }
 }
 
@@ -242,10 +312,19 @@ async function* expandedInput(
   input: AsyncIterable<Uint8Array>,
   limits: MaterializationLimits,
   state: { archiveBytes: number; expandedBytes: number },
+  signal: AbortSignal,
 ): AsyncGenerator<Uint8Array> {
-  for await (const chunk of input) {
-    accountExpanded(chunk, limits, state);
-    yield chunk;
+  const iterator = input[Symbol.asyncIterator]();
+  try {
+    while (true) {
+      const next = await nextWithAbort(iterator, signal);
+      if (next.done) return;
+      const chunk = next.value;
+      accountExpanded(chunk, limits, state);
+      yield chunk;
+    }
+  } finally {
+    returnIterator(iterator);
   }
 }
 
@@ -255,10 +334,14 @@ async function* gunzipped(
   state: { archiveBytes: number; expandedBytes: number },
 ): AsyncGenerator<Uint8Array> {
   const stream = Readable.from(input).pipe(createGunzip());
-  for await (const chunk of stream) {
-    if (!(chunk instanceof Uint8Array)) throw policyError("gzip stream yielded a non-byte value");
-    accountExpanded(chunk, limits, state);
-    yield chunk;
+  try {
+    for await (const chunk of stream) {
+      if (!(chunk instanceof Uint8Array)) throw policyError("gzip stream yielded a non-byte value");
+      accountExpanded(chunk, limits, state);
+      yield chunk;
+    }
+  } finally {
+    stream.destroy();
   }
 }
 
@@ -277,11 +360,11 @@ export function createTarReader(defaultOptions: TarReaderOptions = {}): TarReade
       const requireRetainedEntries = callOptions.requireRetainedEntries ?? defaultOptions.requireRetainedEntries ?? false;
       const normalizedPrefix = stripPrefix === undefined ? undefined : safeArchiveName(stripPrefix);
       const state = { archiveBytes: 0, expandedBytes: 0, pathBytes: 0 };
-      const counted = countedInput(input, limits, state);
+      const counted = countedInput(input, limits, state, signal);
       const bytes = compression === "gzip"
         ? gunzipped(counted, limits, state)
-        : expandedInput(counted, limits, state);
-      const queue = new ByteQueue(bytes);
+        : expandedInput(counted, limits, state, signal);
+      const queue = new ByteQueue(bytes, signal);
       const seen = new Set<string>();
       let entries = 0;
       let retainedBytes = 0;
@@ -420,6 +503,8 @@ export function createTarReader(defaultOptions: TarReaderOptions = {}): TarReade
         if (signal.aborted) throw signal.reason ?? error;
         if (error instanceof SourceMaterializationError) throw error;
         throw policyError("archive extraction failed");
+      } finally {
+        queue.close();
       }
     },
   };

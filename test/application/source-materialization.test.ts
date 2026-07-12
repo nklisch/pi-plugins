@@ -31,6 +31,8 @@ function session(options: { failFinalize?: boolean; root?: string; failAbort?: b
   const content = createContentManifest([], sha256);
   const value = {
     aborts: 0,
+    workRoot: "/slot/.work",
+    contentRoot: options.root ?? "/slot/content",
     async add() {},
     async finalize() {
       if (options.failFinalize) throw new Error("finalize failed");
@@ -44,10 +46,17 @@ function session(options: { failFinalize?: boolean; root?: string; failAbort?: b
   return value;
 }
 
-function dependencies(overrides: Partial<SourceMaterializationDependencies> = {}): SourceMaterializationDependencies {
+type DependencyOverrides = Omit<Partial<SourceMaterializationDependencies>, "content"> & {
+  content?: Partial<SourceMaterializationDependencies["content"]>;
+};
+
+function dependencies(overrides: DependencyOverrides = {}): SourceMaterializationDependencies {
   const current = session();
+  const baseContent = {
+    canonicalize: vi.fn(async (slot: { root: string }) => ({ root: slot.root.startsWith("/") ? slot.root : "/slot" })),
+    open: vi.fn(async () => current),
+  };
   return {
-    content: { open: vi.fn(async () => current) },
     git: {
       materializeMarketplace: vi.fn(async () => marketplace),
       materializePlugin: vi.fn(async () => plugin),
@@ -55,6 +64,7 @@ function dependencies(overrides: Partial<SourceMaterializationDependencies> = {}
     npm: { materialize: vi.fn(async () => plugin) },
     sha256,
     ...overrides,
+    content: { ...baseContent, ...(overrides.content ?? {}) },
   };
 }
 
@@ -152,6 +162,58 @@ describe("source materialization application contract", () => {
       signal(),
     )).rejects.toMatchObject({ code: "ADAPTER_FAILED" });
     expect(current.aborts).toBe(1);
+  });
+
+  it("binds a SHA-shaped Git ref and canonicalizes relative slots before opening", async () => {
+    const current = session({ root: "/canonical-slot/content" });
+    const forged = createResolvedPluginSource({
+      kind: "git",
+      url: "https://example.test/plugin.git",
+      revision: "b".repeat(40),
+    }, sha256);
+    const deps = dependencies({
+      content: {
+        canonicalize: vi.fn(async () => ({ root: "/canonical-slot" })),
+        open: vi.fn(async () => current),
+      },
+      git: { materializeMarketplace: vi.fn(async () => marketplace), materializePlugin: vi.fn(async () => forged) },
+    });
+    await expect(createSourceMaterializers(deps).plugins.materialize(
+      { kind: "git", url: "https://example.test/plugin.git", ref: "a".repeat(40) },
+      { kind: "external" }, { root: "relative-slot" }, signal(),
+    )).rejects.toMatchObject({ code: "SOURCE_RESOLUTION_FAILED" });
+    expect(deps.content.open).toHaveBeenCalledWith({ root: "/canonical-slot" });
+  });
+
+  it("binds an exact npm selector at the application handoff too", async () => {
+    const npmPlugin = createResolvedPluginSource({
+      kind: "npm",
+      package: "fixture",
+      version: "2.0.0",
+      integrity: `sha512-${Buffer.alloc(64).toString("base64")}`,
+      registry: "https://registry.npmjs.org/",
+    }, sha256);
+    const deps = dependencies({
+      npm: { materialize: vi.fn(async () => npmPlugin) },
+    });
+    await expect(createSourceMaterializers(deps).plugins.materialize(
+      { kind: "npm", package: "fixture", selector: "1.0.0" },
+      { kind: "external" }, { root: "/slot" }, signal(),
+    )).rejects.toMatchObject({ code: "SOURCE_RESOLUTION_FAILED" });
+  });
+
+  it("rejects a session that does not prove the canonical content root", async () => {
+    const current = session({ root: "/forged/content" });
+    const deps = dependencies({
+      content: {
+        canonicalize: vi.fn(async () => ({ root: "/canonical-slot" })),
+        open: vi.fn(async () => current),
+      },
+    });
+    await expect(createSourceMaterializers(deps).plugins.materialize(
+      { kind: "git", url: "https://example.test/plugin.git" },
+      { kind: "external" }, { root: "relative-slot" }, signal(),
+    )).rejects.toMatchObject({ code: "ADAPTER_FAILED" });
   });
 
   it("exposes a classified boundary error without leaking adapter text", () => {

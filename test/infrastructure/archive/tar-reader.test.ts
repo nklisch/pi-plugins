@@ -106,6 +106,32 @@ describe("streaming tar policy", () => {
     await sink.abort();
   });
 
+  it("cancels a non-cooperative archive iterator and consumes no late rejection", async () => {
+    const { sink } = await openSink();
+    const controller = new AbortController();
+    const reason = new Error("archive cancelled while waiting for input");
+    let returned = false;
+    const input: AsyncIterable<Uint8Array> = {
+      [Symbol.asyncIterator]() {
+        return {
+          next: () => new Promise<IteratorResult<Uint8Array>>(() => {}),
+          return: () => {
+            returned = true;
+            return Promise.resolve({ done: true, value: undefined });
+          },
+        };
+      },
+    };
+    const read = createTarReader().read(input, sink, controller.signal);
+    setTimeout(() => controller.abort(reason), 10);
+    await expect(Promise.race([
+      read,
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("archive cancellation timed out")), 250)),
+    ])).rejects.toBe(reason);
+    expect(returned).toBe(true);
+    await sink.abort();
+  });
+
   it("rejects malformed numeric encodings", async () => {
     const { sink } = await openSink();
     await expect(createTarReader().read((async function* () {

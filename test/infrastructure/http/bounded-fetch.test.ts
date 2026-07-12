@@ -60,13 +60,22 @@ describe("bounded HTTPS fetch", () => {
     await expect(httpRedirect.request({ url: "https://registry.example.test/package", maxBytes: 100, signal: signal() })).rejects.toMatchObject({ kind: "redirect" });
   });
 
-  it("matches npm token scopes including ports and reports unreadable config", async () => {
+  it("matches npm token scopes including ports, longest paths, and reports unreadable config", async () => {
     const provider = createNpmCredentialProvider({
-      configText: "//registry.example.test:4873/:_authToken=port-secret\n",
+      configText: "//registry.example.test:4873/:_authToken=port-secret\n//registry.example.test/team/:_authToken=team-secret\n//registry.example.test/team/tools/:_authToken=tools-secret\n",
     });
     const portHeaders = new Headers();
     await provider.apply(new URL("https://registry.example.test:4873/package"), portHeaders, signal());
     expect(portHeaders.get("authorization")).toBe("Bearer port-secret");
+    const toolsHeaders = new Headers();
+    await provider.apply(new URL("https://registry.example.test/team/tools/package"), toolsHeaders, signal());
+    expect(toolsHeaders.get("authorization")).toBe("Bearer tools-secret");
+    const teamHeaders = new Headers();
+    await provider.apply(new URL("https://registry.example.test/team/other"), teamHeaders, signal());
+    expect(teamHeaders.get("authorization")).toBe("Bearer team-secret");
+    const unrelatedPathHeaders = new Headers();
+    await provider.apply(new URL("https://registry.example.test/teamwork/package"), unrelatedPathHeaders, signal());
+    expect(unrelatedPathHeaders.get("authorization")).toBeNull();
     const defaultHeaders = new Headers();
     await provider.apply(new URL("https://registry.example.test/package"), defaultHeaders, signal());
     expect(defaultHeaders.get("authorization")).toBeNull();

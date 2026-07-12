@@ -37,13 +37,15 @@ export interface SecureContentSession {
   add(entry: ContentEntry, signal: AbortSignal): Promise<void>;
   finalize(signal: AbortSignal): Promise<Readonly<{ root: string; content: ContentManifest }>>;
   abort(cause?: unknown): Promise<void>;
-  /** The only scratch root adapters may use. Legacy test ports may omit it. */
-  readonly workRoot?: string;
+  /** The only scratch root adapters may use. */
+  readonly workRoot: string;
   /** The writer's canonical content root, used to reject forged handoffs. */
-  readonly contentRoot?: string;
+  readonly contentRoot: string;
 }
 
 export interface SecureContentWriterFactory {
+  /** Canonicalize and validate the caller-owned slot before opening it. */
+  canonicalize(slot: StagingSlot): Promise<StagingSlot>;
   open(slot: StagingSlot, limits?: Partial<MaterializationLimits>): Promise<SecureContentSession>;
 }
 

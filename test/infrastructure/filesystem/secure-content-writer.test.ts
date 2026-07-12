@@ -82,6 +82,23 @@ describe("secure content writer", () => {
     await expect(stat(join(root, ".work"))).rejects.toThrow();
   });
 
+  it("rejects an oversized tree before hashing entries beyond its limit", async () => {
+    const root = await slot();
+    await mkdir(join(root, "content"), { recursive: true });
+    await writeFile(join(root, "content", "first"), "one", "utf8");
+    await writeFile(join(root, "content", "second"), "two", "utf8");
+    let updates = 0;
+    const stream = () => ({
+      update() { updates += 1; },
+      digest() { return new Uint8Array(32); },
+    });
+    await expect(inspectMaterializedContent(root + "/content", sha256, {
+      limits: { maxEntries: 1 },
+      sha256Stream: stream,
+    })).rejects.toMatchObject({ code: "PATH_CONTAINMENT_FAILED" });
+    expect(updates).toBe(0);
+  });
+
   it("copies a marketplace-relative directory through the same sink", async () => {
     const marketplace = await slot();
     await mkdir(join(marketplace, "content", "source", "nested"), { recursive: true });
@@ -108,8 +125,8 @@ describe("secure content writer", () => {
     );
     const result = await sink.finalize(signal());
     expect((await stat(join(result.root, "nested/plugin.json"))).isFile()).toBe(true);
-    await expect(verifyMaterializedContent(result.root, result.content, sha256)).resolves.toEqual(result.content);
+    await expect(verifyMaterializedContent(result.root, result.content)).resolves.toEqual(result.content);
     await writeFile(join(result.root, "nested/plugin.json"), "tampered", "utf8");
-    await expect(verifyMaterializedContent(result.root, result.content, sha256)).rejects.toMatchObject({ code: "PATH_CONTAINMENT_FAILED" });
+    await expect(verifyMaterializedContent(result.root, result.content)).rejects.toMatchObject({ code: "PATH_CONTAINMENT_FAILED" });
   });
 });

@@ -16,7 +16,11 @@ import {
 } from "../../application/ports/source-acquisition.js";
 import { SourceMaterializationError } from "../../application/source-materialization.js";
 import type { TarReader } from "../archive/tar-reader.js";
+import { createRequire } from "node:module";
 import type { NpmRegistryClient } from "./npm-registry-client.js";
+
+const require = createRequire(import.meta.url);
+const semver = require("semver") as Readonly<{ valid(version: string): string | null }>;
 
 export type NpmSourceAcquirerOptions = Readonly<{
   registry: NpmRegistryClient;
@@ -98,6 +102,12 @@ async function acquire(
   try {
     const resolved = await options.registry.resolve(source, signal);
     throwIfAborted(signal);
+    // The resolved source intentionally omits the mutable selector. Bind an
+    // exact selector at this adapter boundary before it can become a trusted
+    // immutable handoff; ranges and tags retain normal resolver semantics.
+    if (source.selector !== undefined && semver.valid(source.selector) !== null && resolved.selected.version !== source.selector) {
+      throw failure("SOURCE_RESOLUTION_FAILED", "permanent", "resolveNpmSource", "npm exact selector resolved to a different version");
+    }
     await options.registry.downloadVerified(resolved.selected, tarball, limits, signal);
     throwIfAborted(signal);
     await archiveTarball(options.archive, tarball, sink, limits, signal);

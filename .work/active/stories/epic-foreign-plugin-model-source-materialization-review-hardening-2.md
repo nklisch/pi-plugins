@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization-review-hardening-2
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra, tests]
 parent: epic-foreign-plugin-model-source-materialization
 depends_on: [epic-foreign-plugin-model-source-materialization-review-hardening]
@@ -30,10 +30,19 @@ Close residual source-materialization failures reproduced after the primary secu
 
 ## Acceptance criteria
 
-- [ ] Exact npm and SHA-shaped Git selectors cannot resolve to a different immutable revision.
-- [ ] Relative/absolute slots bind to one canonical exact content root and reject forged sessions.
-- [ ] Cancellation terminates a non-cooperative archive read promptly without late rejection leaks.
-- [ ] Verification limits stop traversal/allocation before work beyond the configured threshold.
-- [ ] Path-scoped npm tokens select the longest matching scope and never leak cross-origin.
-- [ ] Node composition exposes a lifecycle-ready verifier without exposing crypto/filesystem internals.
-- [ ] Full `npm test`, build, boundaries, and compiled package import pass.
+- [x] Exact npm and SHA-shaped Git selectors cannot resolve to a different immutable revision.
+- [x] Relative/absolute slots bind to one canonical exact content root and reject forged sessions.
+- [x] Cancellation terminates a non-cooperative archive read promptly without late rejection leaks.
+- [x] Verification limits stop traversal/allocation before work beyond the configured threshold.
+- [x] Path-scoped npm tokens select the longest matching scope and never leak cross-origin.
+- [x] Node composition exposes a lifecycle-ready verifier without exposing crypto/filesystem internals.
+- [x] Full `npm test`, build, boundaries, and compiled package import pass.
+
+## Implementation notes
+
+- Files changed: `src/application/ports/source-acquisition.ts`, `src/application/source-materialization.ts`, `src/domain/content-manifest.ts`, `src/infrastructure/archive/tar-reader.ts`, `src/infrastructure/filesystem/secure-content-writer.ts`, `src/infrastructure/http/bounded-fetch.ts`, `src/infrastructure/npm/npm-source-acquirer.ts`, `src/infrastructure/source/create-source-materializers.ts`, and the focused source-materialization tests.
+- Tests added: exact npm selector binding, SHA-shaped Git selector and canonical relative-slot binding, forged session root rejection, non-cooperative archive cancellation/iterator cleanup, pre-hash tree entry limits, longest-match npm credential paths with ports, and the composed lifecycle verifier.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+- Reproduced findings before implementation: exact npm/Git selector mismatch acceptance, relative-slot forged-root acceptance, archive cancellation hanging on a pending `next()`, path token non-matching/first-match behavior, and the public verifier declaration's unexported incremental hash option. The early tree-limit probe also confirmed hashing occurred before the final entry-count rejection.
+- Verification: `npm test` passed 26 files/229 tests, dependency boundaries (154 dependencies), build, and compiled package import; `npm run build && node test/compiled-package-import.mjs` passed independently. The public declaration now exposes only lifecycle verifier options and the Node composition returns a bound verifier.

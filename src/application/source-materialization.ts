@@ -258,6 +258,9 @@ function sourceMismatch(message: string): SourceMaterializationError {
   });
 }
 
+const FULL_GIT_SHA = /^[0-9a-f]{40}$/u;
+const EXACT_NPM_VERSION = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9A-Za-z-][0-9A-Za-z-]*))*)?(?:\+(?:0|[1-9A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9A-Za-z-][0-9A-Za-z-]*))*)?$/u;
+
 function assertPluginDeclarationBinding(
   declared: PluginSource,
   resolved: ResolvedPluginSource,
@@ -272,22 +275,54 @@ function assertPluginDeclarationBinding(
     if (resolved.package !== declared.package || serializePluginSource({ kind: "npm", package: resolved.package, registry: resolved.registry }) !== serializePluginSource({ kind: "npm", package: declared.package, registry: expectedRegistry })) {
       throw sourceMismatch("resolved npm source does not match its declaration");
     }
+    if (declared.selector !== undefined && EXACT_NPM_VERSION.test(declared.selector) && resolved.version !== declared.selector) {
+      throw sourceMismatch("resolved npm version does not match the exact selector");
+    }
     return;
   }
   if (declared.kind === "git") {
     if (resolved.kind !== "git") throw sourceMismatch("resolved plugin source kind does not match its declaration");
     if (canonicalPrefix(declared) !== canonicalPrefix({ kind: "git", url: resolved.url })) throw sourceMismatch("resolved Git source does not match its declaration");
     if (declared.sha !== undefined && resolved.revision !== declared.sha) throw sourceMismatch("resolved Git revision does not match the authoritative SHA");
+    // A SHA-shaped ref is itself authoritative when no separate sha pin is
+    // present. Preserve explicit sha precedence for declarations carrying both.
+    if (declared.sha === undefined && declared.ref !== undefined && FULL_GIT_SHA.test(declared.ref) && resolved.revision !== declared.ref) {
+      throw sourceMismatch("resolved Git revision does not match the SHA-shaped ref");
+    }
     return;
   }
   if (resolved.kind !== "git-subdir") throw sourceMismatch("resolved plugin source kind does not match its declaration");
   if (canonicalPrefix(declared) !== canonicalPrefix({ kind: "git-subdir", url: resolved.url, path: resolved.path })) throw sourceMismatch("resolved Git subdirectory does not match its declaration");
   if (declared.sha !== undefined && resolved.revision !== declared.sha) throw sourceMismatch("resolved Git revision does not match the authoritative SHA");
+    if (declared.sha === undefined && declared.ref !== undefined && FULL_GIT_SHA.test(declared.ref) && resolved.revision !== declared.ref) {
+      throw sourceMismatch("resolved Git revision does not match the SHA-shaped ref");
+    }
 }
 
 function expectedContentRoot(slotRoot: string): string {
   const trimmed = slotRoot.replace(/[\\/]+$/u, "");
   return slotRoot.includes("\\") ? `${trimmed}\\content` : `${trimmed}/content`;
+}
+
+async function canonicalizeDestination(
+  content: SourceMaterializationDependencies["content"],
+  destination: StagingSlot,
+  operation: string,
+): Promise<StagingSlot> {
+  try {
+    const canonical = await content.canonicalize(destination);
+    if (canonical === null || typeof canonical !== "object" || typeof canonical.root !== "string" || canonical.root.length === 0) {
+      throw new Error("content writer returned a malformed canonical staging slot");
+    }
+    // A canonical slot is an absolute filesystem identity. Passing a relative
+    // value through would recreate the forged-root ambiguity at finalization.
+    if (!/^[/\\]|^[A-Za-z]:[/\\]/u.test(canonical.root)) {
+      throw new Error("content writer returned a non-absolute staging slot");
+    }
+    return canonical;
+  } catch (error) {
+    throw asAdapterFailure(operation, error);
+  }
 }
 
 async function finalize(
@@ -302,10 +337,9 @@ async function finalize(
   abortIfRequested(signal);
   try {
     const expected = expectedContentRoot(destination.root);
-    const callerRootIsAbsolute = /^[/\\]|^[A-Za-z]:[/\\]/u.test(destination.root);
-    const exact = result.root === expected
-      || (!callerRootIsAbsolute && session.contentRoot !== undefined && result.root === session.contentRoot);
-    if (!exact) throw new Error("materializer returned a content root outside the staging slot");
+    if (session.contentRoot !== expected || result.root !== expected) {
+      throw new Error("materializer returned a content root outside the canonical staging slot");
+    }
     return { root: result.root, content: verifyContentManifest(result.content, sha256) };
   } catch (error) {
     throw asAdapterFailure(operation, error);
@@ -327,16 +361,18 @@ export function createSourceMaterializers(
       } catch (error) {
         throw asResolutionFailure("materializeMarketplace", error);
       }
+      const canonicalDestination = await canonicalizeDestination(dependencies.content, destination, "openContentWriter");
+      abortIfRequested(signal);
       let session: SecureContentSession | undefined;
       try {
-        session = await dependencies.content.open(destination);
+        session = await dependencies.content.open(canonicalDestination);
         abortIfRequested(signal);
         const resolved = verifyMarketplaceResult(
           await dependencies.git.materializeMarketplace(declaration, session, signal),
           dependencies.sha256,
         );
         assertMarketplaceDeclarationBinding(declaration, resolved);
-        const content = await finalize(session, destination, signal, dependencies.sha256, "finalizeContentManifest");
+        const content = await finalize(session, canonicalDestination, signal, dependencies.sha256, "finalizeContentManifest");
         abortIfRequested(signal);
         return {
           root: content.root,
@@ -361,6 +397,8 @@ export function createSourceMaterializers(
       } catch (error) {
         throw asResolutionFailure("materializePlugin", error);
       }
+      const canonicalDestination = await canonicalizeDestination(dependencies.content, destination, "openContentWriter");
+      abortIfRequested(signal);
       let session: SecureContentSession | undefined;
       try {
         if (declaration.kind === "marketplace-path") {
@@ -387,7 +425,7 @@ export function createSourceMaterializers(
               details: { operation: "copyMarketplacePath" },
             });
           }
-          session = await dependencies.content.open(destination);
+          session = await dependencies.content.open(canonicalDestination);
           abortIfRequested(signal);
           await copier.materialize(declaration, marketplace, session, signal);
           const resolved = createMarketplacePluginSource(declaration, marketplace, dependencies.sha256);
@@ -401,7 +439,7 @@ export function createSourceMaterializers(
               details: { operation: "materializePlugin" },
             });
           }
-          const content = await finalize(session, destination, signal, dependencies.sha256, "finalizeContentManifest");
+          const content = await finalize(session, canonicalDestination, signal, dependencies.sha256, "finalizeContentManifest");
           abortIfRequested(signal);
           return {
             root: content.root,
@@ -421,14 +459,14 @@ export function createSourceMaterializers(
           });
         }
 
-        session = await dependencies.content.open(destination);
+        session = await dependencies.content.open(canonicalDestination);
         abortIfRequested(signal);
         const resolved = declaration.kind === "npm"
           ? await dependencies.npm.materialize(declaration, session, signal)
           : await dependencies.git.materializePlugin(declaration, session, signal);
         const verified = verifyPluginResult(resolved, dependencies.sha256);
         assertPluginDeclarationBinding(declaration, verified);
-        const content = await finalize(session, destination, signal, dependencies.sha256, "finalizeContentManifest");
+        const content = await finalize(session, canonicalDestination, signal, dependencies.sha256, "finalizeContentManifest");
         abortIfRequested(signal);
         return {
           root: content.root,

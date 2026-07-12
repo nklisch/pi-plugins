@@ -142,6 +142,7 @@ describe("Node source materializer composition", () => {
       expect(result.root).toContain("/content");
       expect(await readdir(join(result.root, ".."))).toEqual(["content"]);
       expect(verifyContentManifest(result.content, sha256).rootDigest).toBe(result.content.rootDigest);
+      expect(await materializers.verifyMaterializedContent(result.root, result.content)).toEqual(result.content);
       expect(await readFile(join(result.root, "marketplace.json"), "utf8")).toContain("fixture");
     }
 

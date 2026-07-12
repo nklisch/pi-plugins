@@ -157,13 +157,40 @@ async function readDiskManifest(
   const canonicalRoot = await realpath(root);
   await assertDirectory(canonicalRoot, "verifyMaterializedContent");
   const entries: ContentManifestEntry[] = [];
+  const seenPaths = new Set<string>();
+  let totalPathBytes = 0;
   let totalBytes = 0;
+  const reservePath = (path: string): string => {
+    let normalized: string;
+    try { normalized = normalizeContentPath(path); }
+    catch (error) { throw policyError("verifyMaterializedContent", "content path is unsafe", path); }
+    const pathLength = encoder.encode(normalized).byteLength;
+    if (pathLength > effective.maxPathBytes) throw policyError("verifyMaterializedContent", "path length limit exceeded", normalized);
+    for (const segment of normalized.split("/")) {
+      if (encoder.encode(segment).byteLength > effective.maxSegmentBytes) throw policyError("verifyMaterializedContent", "path segment length limit exceeded", normalized);
+    }
+    totalPathBytes += pathLength;
+    if (totalPathBytes > effective.maxTotalPathBytes) throw policyError("verifyMaterializedContent", "aggregate path limit exceeded", normalized);
+    const key = normalized.normalize("NFC").toLowerCase();
+    if (seenPaths.has(key)) throw policyError("verifyMaterializedContent", "duplicate or colliding path", normalized);
+    seenPaths.add(key);
+    if (entries.length >= effective.maxEntries) throw policyError("verifyMaterializedContent", "entry count limit exceeded", normalized);
+    return normalized;
+  };
   const visit = async (directory: string, prefix: string, depth: number): Promise<void> => {
     if (depth > effective.maxEntries) throw policyError("verifyMaterializedContent", "content tree depth limit exceeded", prefix);
     const children = await readdir(directory, { withFileTypes: true });
-    for (const child of children) {
-      const path = prefix.length === 0 ? child.name : `${prefix}/${child.name}`;
-      const normalized = normalizeContentPath(path);
+    // A directory listing gives us a cheap upper bound. Reject the whole
+    // batch before lstat, realpath, or file hashing if it cannot fit.
+    if (entries.length + children.length > effective.maxEntries) {
+      throw policyError("verifyMaterializedContent", "entry count limit exceeded", prefix);
+    }
+    const pending = children.map((child) => reservePath(prefix.length === 0 ? child.name : `${prefix}/${child.name}`));
+    for (let childIndex = 0; childIndex < children.length; childIndex += 1) {
+      const child = children[childIndex];
+      const normalized = pending[childIndex];
+      if (child === undefined || normalized === undefined) throw adapterError("verifyMaterializedContent", "directory traversal became inconsistent");
+      const path = normalized;
       const absolute = join(directory, child.name);
       const stat = await lstat(absolute);
       if (stat.isDirectory() && !stat.isSymbolicLink()) {
@@ -210,7 +237,6 @@ async function readDiskManifest(
     }
   };
   await visit(canonicalRoot, "", 0);
-  if (entries.length > effective.maxEntries) throw policyError("verifyMaterializedContent", "entry count limit exceeded");
   return createContentManifest(entries, sha256, {
     maxEntries: effective.maxEntries,
     maxPathBytes: effective.maxPathBytes,
@@ -225,13 +251,21 @@ async function assertDirectory(path: string, operation: string): Promise<void> {
   if (!stat.isDirectory() || stat.isSymbolicLink()) throw policyError(operation, "path component is not a real directory", path);
 }
 
-async function assertEmptySlot(slot: string): Promise<string> {
+async function canonicalizeSlot(slot: StagingSlot): Promise<string> {
+  if (slot === null || typeof slot !== "object" || typeof slot.root !== "string" || slot.root.length === 0) {
+    throw adapterError("openContentWriter", "staging slot is malformed");
+  }
+  const resolved = resolve(slot.root);
   let stat;
-  try { stat = await lstat(slot); } catch (error) { throw adapterError("openContentWriter", "staging slot is unavailable", error); }
-  if (stat.isSymbolicLink() || !stat.isDirectory()) throw policyError("openContentWriter", "staging slot must be a real directory", slot);
+  try { stat = await lstat(resolved); } catch (error) { throw adapterError("openContentWriter", "staging slot is unavailable", error); }
+  if (stat.isSymbolicLink() || !stat.isDirectory()) throw policyError("openContentWriter", "staging slot must be a real directory", resolved);
+  try { return await realpath(resolved); }
+  catch (error) { throw adapterError("openContentWriter", "staging slot canonicalization failed", error); }
+}
+
+async function assertEmptySlot(slot: string): Promise<void> {
   const entries = await readdir(slot);
   if (entries.length !== 0) throw policyError("openContentWriter", "staging slot must be empty", slot);
-  return realpath(slot);
 }
 
 async function removeOwned(paths: readonly string[]): Promise<void> {
@@ -599,15 +633,16 @@ export async function inspectMaterializedContent(
   return readDiskManifest(root, sha256, options.sha256Stream ?? defaultSha256Stream, options.limits);
 }
 
-/** Rewalk and rehash a completed content root from disk before lifecycle handoff. */
-export async function verifyMaterializedContent(
+/** Rewalk and rehash a completed content root before lifecycle handoff. */
+async function verifyMaterializedContentWithSha(
   root: string,
   manifest: ContentManifest,
   sha256: Sha256,
   options: Readonly<{ limits?: Partial<MaterializationLimits>; sha256Stream?: IncrementalSha256Factory }> = {},
 ): Promise<ContentManifest> {
   if (typeof root !== "string" || root.length === 0) throw new TypeError("materialized content root is required");
-  const expected = verifyContentManifest(manifest, sha256);
+  if (basename(root) !== "content") throw policyError("verifyMaterializedContent", "materialized root must be exactly a content directory");
+  const expected = verifyContentManifest(manifest, sha256, options.limits);
   const actual = await readDiskManifest(root, sha256, options.sha256Stream ?? defaultSha256Stream, options.limits);
   if (actual.rootDigest !== expected.rootDigest || actual.entries.length !== expected.entries.length || actual.entries.some((entry, index) => !digestEqual(entry, expected.entries[index]!))) {
     throw policyError("verifyMaterializedContent", "on-disk content does not match its manifest");
@@ -615,15 +650,29 @@ export async function verifyMaterializedContent(
   return actual;
 }
 
+/**
+ * Public lifecycle verifier. SHA-256 and incremental hashing are deliberately
+ * bound inside the Node adapter; callers can request limits but cannot replace
+ * the crypto or filesystem implementation.
+ */
+export async function verifyMaterializedContent(
+  root: string,
+  manifest: ContentManifest,
+  options: Readonly<{ limits?: Partial<MaterializationLimits> }> = {},
+): Promise<ContentManifest> {
+  return verifyMaterializedContentWithSha(root, manifest, (bytes) => new Uint8Array(createHash("sha256").update(bytes).digest()), options);
+}
+
 export function createSecureContentWriterFactory(options: SecureContentWriterOptions): SecureContentWriterFactory {
   if (typeof options.sha256 !== "function") throw new TypeError("secure content writer requires SHA-256");
   const limits = limitsWithDefaults(options.limits);
   return {
+    async canonicalize(slot: StagingSlot): Promise<StagingSlot> {
+      return { root: await canonicalizeSlot(slot) };
+    },
     async open(slot: StagingSlot, overrides) {
-      if (slot === null || typeof slot !== "object" || typeof slot.root !== "string" || slot.root.length === 0) {
-        throw adapterError("openContentWriter", "staging slot is malformed");
-      }
-      const slotRoot = await assertEmptySlot(resolve(slot.root));
+      const slotRoot = await canonicalizeSlot(slot);
+      await assertEmptySlot(slotRoot);
       const effective = limitsWithDefaults({ ...limits, ...(overrides ?? {}) });
       const content = join(slotRoot, "content");
       const work = join(slotRoot, ".work");
@@ -674,7 +723,7 @@ export function createFilesystemMarketplacePathAcquirer(
       if (basename(sourceRoot) !== "content") throw policyError("copyMarketplacePath", "marketplace context root is not an exact content root");
       const contextSha256 = options.sha256 ?? ((bytes: Uint8Array) => new Uint8Array(createHash("sha256").update(bytes).digest()));
       try {
-        const verifiedContext = await verifyMaterializedContent(sourceRoot, context.content, contextSha256);
+        const verifiedContext = await verifyMaterializedContentWithSha(sourceRoot, context.content, contextSha256);
         if (verifiedContext.rootDigest !== context.contentRootDigest) {
           throw policyError("copyMarketplacePath", "marketplace context digest does not match on-disk content");
         }
