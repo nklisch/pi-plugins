@@ -26,6 +26,7 @@
     "test": "npm run typecheck && npm run boundaries && npm run test:unit && npm run test:package"
   },
   "dependencies": {
+    "semver": "7.8.1",
     "zod": "^4.0.0"
   },
   "devDependencies": {

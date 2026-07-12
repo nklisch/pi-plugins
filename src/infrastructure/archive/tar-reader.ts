@@ -23,6 +23,8 @@ export type TarReaderOptions = Readonly<{
   limits?: Partial<MaterializationLimits>;
   stripPrefix?: string;
   compression?: "none" | "gzip";
+  /** Require at least one entry after stripping an archive framing prefix. */
+  requireRetainedEntries?: boolean;
 }>;
 
 export interface TarReader {
@@ -239,6 +241,7 @@ export function createTarReader(defaultOptions: TarReaderOptions = {}): TarReade
       const limits = limitsWithDefaults({ ...defaultLimits, ...(callOptions.limits ?? {}) });
       const stripPrefix = callOptions.stripPrefix ?? defaultOptions.stripPrefix;
       const compression = callOptions.compression ?? defaultOptions.compression ?? "none";
+      const requireRetainedEntries = callOptions.requireRetainedEntries ?? defaultOptions.requireRetainedEntries ?? false;
       const normalizedPrefix = stripPrefix === undefined ? undefined : safeArchiveName(stripPrefix);
       const state = { archiveBytes: 0 };
       const counted = countedInput(input, limits, state);
@@ -247,6 +250,7 @@ export function createTarReader(defaultOptions: TarReaderOptions = {}): TarReade
       const seen = new Set<string>();
       let entries = 0;
       let expandedBytes = 0;
+      let retainedEntries = 0;
       let zeroBlock = false;
 
       try {
@@ -306,6 +310,7 @@ export function createTarReader(defaultOptions: TarReaderOptions = {}): TarReade
           if (type === "5") {
             if (size !== 0) throw policyError("tar directory has nonzero payload", archivePath);
             if (retained !== undefined) {
+              retainedEntries += 1;
               const key = retained.normalize("NFC").toLowerCase();
               if (seen.has(key)) throw policyError("archive contains duplicate or colliding paths", retained);
               seen.add(key);
@@ -314,6 +319,7 @@ export function createTarReader(defaultOptions: TarReaderOptions = {}): TarReade
           } else if (type === "2" || type === "1") {
             if (size !== 0) throw policyError("tar link has a payload", archivePath);
             if (retained !== undefined) {
+              retainedEntries += 1;
               const key = retained.normalize("NFC").toLowerCase();
               if (seen.has(key)) throw policyError("archive contains duplicate or colliding paths", retained);
               seen.add(key);
@@ -339,6 +345,7 @@ export function createTarReader(defaultOptions: TarReaderOptions = {}): TarReade
             expandedBytes += size;
             if (expandedBytes > limits.maxExpandedBytes) throw policyError("expanded content limit exceeded", archivePath);
             if (retained !== undefined) {
+              retainedEntries += 1;
               const key = retained.normalize("NFC").toLowerCase();
               if (seen.has(key)) throw policyError("archive contains duplicate or colliding paths", retained);
               seen.add(key);
@@ -367,6 +374,9 @@ export function createTarReader(defaultOptions: TarReaderOptions = {}): TarReade
           }
         }
         if (state.archiveBytes === 0) throw policyError("archive is empty");
+        if (requireRetainedEntries && retainedEntries === 0) {
+          throw policyError("archive contains no retained package entries", normalizedPrefix);
+        }
         if (expandedBytes > state.archiveBytes * limits.maxExpansionRatio) throw policyError("archive expansion ratio limit exceeded");
         throwIfAborted(signal);
       } catch (error) {

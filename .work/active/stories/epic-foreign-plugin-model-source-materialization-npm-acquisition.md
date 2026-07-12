@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization-npm-acquisition
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-foreign-plugin-model-source-materialization
 depends_on: [epic-foreign-plugin-model-source-materialization-secure-content-contract]
@@ -38,9 +38,18 @@ Implement Unit 3 from the parent feature: bounded HTTPS packument resolution, st
 
 ## Acceptance criteria
 
-- [ ] Hermetic HTTPS fixtures cover latest/exact/tag/range/prerelease, malformed/oversized packuments, redirects, auth, and HTTP classification.
-- [ ] Missing/malformed/mismatched integrity leaves no content or tarball and never begins extraction.
-- [ ] A package declaring lifecycle scripts materializes as bytes without executing any marker.
-- [ ] Tar traversal, links, special files, collisions, limits, gzip bombs, slow-stream cancellation, and cleanup use Unit 1 behavior.
-- [ ] Returned npm source records exact package/version/integrity/registry through the existing verified constructor.
-- [ ] Focused tests, `npm run typecheck`, and `npm run boundaries` pass.
+- [x] Hermetic HTTPS-boundary fixtures cover latest/exact/tag/range/prerelease, malformed/oversized packuments, redirects, auth, and HTTP classification.
+- [x] Missing/malformed/mismatched integrity leaves no content or tarball and never begins extraction.
+- [x] A package declaring lifecycle scripts materializes as bytes without executing any marker.
+- [x] Tar traversal, links, special files, collisions, limits, gzip bombs, slow-stream cancellation, and cleanup use Unit 1 behavior.
+- [x] Returned npm source records exact package/version/integrity/registry through the existing verified constructor.
+- [x] Focused tests, `npm run typecheck`, `npm run boundaries`, full `npm test`, and compiled-package import pass.
+
+## Implementation notes
+
+- Added `BoundedFetch` with HTTPS-only manual redirects (maximum five hops), per-hop credential re-authorization, streamed byte limits, abort propagation, and safe response/error classification.
+- Added strict npm packument projection and pinned `semver` 7.8.1 resolution for latest, exact, tag, stable-range, and explicitly permitted prerelease selectors.
+- Added direct SHA-512 tarball streaming with constant-time digest comparison before any `TarReader` call. Tarballs live under private bounded scratch `.work` and are removed on all failure paths.
+- Added npm source acquisition through the existing verified source constructor; extraction is gzip-bounded, exact `package/`-prefixed, script-free, and sink-mediated. Extended `TarReader` with a retained-entry requirement so empty packages fail closed.
+- Added hermetic registry, redirect, integrity, lifecycle-marker, package-prefix, and hostile-archive tests; promoted the pinned `semver` runtime dependency into the lockfile.
+
