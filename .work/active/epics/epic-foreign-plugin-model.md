@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model
 kind: epic
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: null
 depends_on: []
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-11
-updated: 2026-07-11
+updated: 2026-07-12
 ---
 
 # Foreign Plugin Model
@@ -53,3 +53,17 @@ Split by end-to-end capability rather than implementation layer or foreign host.
 
 - **Alignment status**: No unresolved high-level choices surfaced. The foundation documents already fix the standalone foreign-format boundary, dual-format conflict behavior, canonical identity, supported source forms, provenance, complete-bundle compatibility, and fail-closed treatment of unknown runtime declarations. Reader schemas, registries, and materializer interfaces remain feature-design decisions.
 - **Discovery posture**: Direct-read only — the repository is greenfield and the foundation documents fully describe this epic's boundaries, so exploratory agent fanout would not add evidence.
+
+## Children complete
+
+All five child features are done:
+
+- `epic-foreign-plugin-model-domain-contracts`
+- `epic-foreign-plugin-model-source-materialization`
+- `epic-foreign-plugin-model-marketplace-ingestion`
+- `epic-foreign-plugin-model-plugin-bundle-ingestion`
+- `epic-foreign-plugin-model-compatibility-reporting`
+
+The delivered package now reads dual foreign marketplaces, securely materializes every supported source, inspects complete plugin bundles without execution, preserves unsupported runtime inventory, and emits fail-closed compatibility reports with deterministic provenance and capability requirements. It remains independent of Claude Code and Codex runtimes and does not install or activate plugins.
+
+Integrated verification: `npm test` passes 352 tests plus clean typecheck and dependency boundaries, build, and exact 131-export package import. Each child feature reached two-model review convergence before this epic review.
