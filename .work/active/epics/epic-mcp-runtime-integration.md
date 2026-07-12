@@ -42,3 +42,8 @@ This epic does not install plugins or provide the plugin management interface. M
 - upstream adapter contribution or narrow maintained fork packaging
 
 <!-- The design pass on each child feature will fill in real specifics. -->
+
+## Design decisions
+
+- **Alignment status**: No unresolved high-level choices surfaced. The foundation documents already require a narrow plugin-scoped MCP runtime port, server namespacing, foreign tool aliases, late secret substitution, capability validation before activation, and an upstream-first integration with a maintained narrow fork only when necessary. The concrete adapter contract requires feature-level research against the then-current MCP runtime API.
+- **Discovery posture**: Direct-read only — no implementation exists to map, and the architecture isolates this epic cleanly behind `McpRuntimePort`.
