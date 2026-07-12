@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-domain-contracts-review-hardening
 kind: story
-stage: review
+stage: done
 tags: [compatibility, security, tests]
 parent: epic-foreign-plugin-model-domain-contracts
 depends_on: [epic-foreign-plugin-model-domain-contracts-package-schema-foundation, epic-foreign-plugin-model-domain-contracts-identity-source-contracts, epic-foreign-plugin-model-domain-contracts-plugin-inventory-contracts, epic-foreign-plugin-model-domain-contracts-compatibility-errors-api]
@@ -53,3 +53,13 @@ This is a cohesive contract-hardening pass, not a new acquisition feature. It mu
 ## Findings fixed/rejected
 
 All accepted findings were fixed. No required finding was rejected. The style-only review observations about redundant parsing, hex formatting, and readonly ergonomics remain intentionally out of scope.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane story review. Independently confirmed `npm test` (116 tests, typecheck, boundaries, build, and compiled 72-export allowlist) and `npm run build`. Verdict: Approve - story verified by implement; fast-lane advance.
