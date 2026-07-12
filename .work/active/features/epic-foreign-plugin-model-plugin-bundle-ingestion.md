@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-plugin-bundle-ingestion
 kind: feature
-stage: review
+stage: done
 tags: [compatibility]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-source-materialization, epic-foreign-plugin-model-marketplace-ingestion]
@@ -624,4 +624,14 @@ Integrated verification: `npm test` passes 300 tests plus typecheck, dependency 
 
 ## Review findings
 
-The first review-hardening story restores catalog inventory, fail-closed classification, UTF-8 result handling, hook IDs, limits, and focused coverage. Final certification then found pointer-derived foreign identities; `epic-foreign-plugin-model-plugin-bundle-ingestion-review-hardening-2` is done and replaces them with semantic declaration subkeys, merging equivalent catalog/manifest claims and rejecting contradictions. Independent integrated verification passes 320 tests plus clean typecheck and dependency boundaries, build, and exact 114-export package import. The feature returns to `stage: review` for final confirmation.
+The first review-hardening story restores catalog inventory, fail-closed classification, UTF-8 result handling, hook IDs, limits, and focused coverage. Final certification then found pointer-derived foreign identities; `epic-foreign-plugin-model-plugin-bundle-ingestion-review-hardening-2` replaces them with semantic declaration subkeys, merging equivalent catalog/manifest claims and rejecting contradictions. Independent integrated verification passes 320 tests plus clean typecheck and dependency boundaries, build, and exact 114-export package import.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Deep two-model convergence. GLM 5.2 completeness and GPT-5.6 Sol contract-quality reviews independently reproduced all prior findings and approved current HEAD. They confirmed semantic foreign identity, equivalent catalog/manifest provenance merging, contradictory `CLAIM_CONFLICT`, distinct semantic subkeys, stable hook foreign IDs, and all earlier hardening regressions. Full suite: 320 tests, 69 modules/322 dependency edges with no violations, build, exact 114-export package import.
