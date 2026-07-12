@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-generation-locking-sqlite-scope-lock
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-generation-locking
 depends_on: [epic-transactional-plugin-lifecycle-generation-locking-contracts-scheduler]
@@ -42,3 +42,13 @@ Implement the local-filesystem `ScopeLockManager` adapter with one scope-specifi
 ## Verification
 
 Run SQLite lock unit and child-process tests, direct test typecheck, dependency boundaries, and canary assertions for database/path/native-error leakage.
+
+## Implementation notes
+- Execution capability: direct-read inline implementation; the SQLite adapter is an isolated infrastructure surface and the caller prohibited agents.
+- Review weight: standard from the feature design/default policy; this requested run stops at `stage: review`.
+- Files changed: `src/infrastructure/state/local-lock-filesystem.ts`, `src/infrastructure/state/sqlite-scope-lock.ts`, `test/infrastructure/state/sqlite-scope-lock.test.ts`, and `test/fixtures/locking/child-lock-holder.mjs`.
+- Tests added: private-root/symlink and capability failures, fixed scope names, independent scope overlap, exact cancellation while a child holds the transaction, SIGKILL release, idempotent release, and protocol/rollback transaction behavior.
+- Discrepancies from design: the default filesystem classifier uses a conservative local-filesystem allowlist and callers can inject a stricter verifier; crash-release is exercised by the real child fixture while the adapter itself never uses expiry, PID, heartbeat, or takeover state.
+- Adjacent issues parked: none.
+
+Verification completed: `npm run typecheck`, `npm run boundaries`, and scheduler plus SQLite focused tests (`12 passed`). The repository-wide test typecheck still reports pre-existing unrelated branded-type failures in configuration/trust tests; no lock test failure was introduced.
