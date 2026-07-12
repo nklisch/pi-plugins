@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-plugin-bundle-ingestion-review-hardening-2
 kind: story
-stage: review
+stage: done
 tags: [compatibility, tests]
 parent: epic-foreign-plugin-model-plugin-bundle-ingestion
 depends_on: [epic-foreign-plugin-model-plugin-bundle-ingestion-review-hardening]
@@ -45,3 +45,13 @@ Close the remaining authority-contract failure in foreign component identity and
 - Discrepancies from design: the prior pointer-based `declarationKey` contract became explicit `declarationSubkey`; keyed maps and multi-item lists are split only where their shapes supply semantic members, while scalar/plain-object declarations use the default role.
 - Adjacent issues parked: none.
 - Verification: `npm test` passed (46 files, 320 tests, typecheck, dependency boundaries, build, and exact 114-export compiled package import). Independent `npm run build && node test/compiled-package-import.mjs` passed.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane foreign-reconciliation confirmation. Independently confirmed 320 tests, clean typecheck and dependency boundaries, build, and exact 114-export package import. Verdict: Approve - story verified by implement; fast-lane advance.
