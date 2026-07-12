@@ -29,6 +29,7 @@ import {
 } from "../domain/provenance.js";
 import { PluginKeySchema } from "../domain/identity.js";
 import { JsonValueSchema, type JsonValue } from "../domain/schema.js";
+import { splitForeignDeclaration } from "../domain/foreign-identity.js";
 import type { ContentIndex } from "./content-index.js";
 
 const OPERATION = "createDiscoveryPlan";
@@ -367,17 +368,17 @@ function catalogPathLocators(
 
 function catalogForeign(
   declaration: MarketplaceEntryDeclaration,
-): ForeignComponentDeclaration {
+): readonly ForeignComponentDeclaration[] {
   const nativeKind = declaration.field;
-  return {
+  return splitForeignDeclaration(nativeKind, declaration.declaration).map((item) => ({
     nativeHost: declaration.nativeHost,
     nativeKind: {
       value: nativeKind,
-      provenance: declaration.declaration.provenance,
+      provenance: item.declaration.provenance,
     },
-    declarationKey: declaration.declaration.provenance[0]?.location.pointer ?? `/${nativeKind}`,
-    declaration: declaration.declaration,
-  };
+    declarationSubkey: item.declarationSubkey,
+    declaration: item.declaration,
+  }));
 }
 
 function conventionalLocator(
@@ -521,7 +522,7 @@ export function createDiscoveryPlan(input: Readonly<{
             );
           }
         } else {
-          foreign.push(catalogForeign(declaration));
+          foreign.push(...catalogForeign(declaration));
         }
       }
 
@@ -540,8 +541,8 @@ export function createDiscoveryPlan(input: Readonly<{
         manifests: manifests.sort((left, right) => HOST_RANK[left.nativeHost] - HOST_RANK[right.nativeHost]),
         locators: deduplicateLocators(locators),
         catalogForeign: foreign.sort((left, right) => {
-          const a = `${HOST_RANK[left.nativeHost]}\u0000${left.declarationKey}`;
-          const b = `${HOST_RANK[right.nativeHost]}\u0000${right.declarationKey}`;
+          const a = `${HOST_RANK[left.nativeHost]}\u0000${left.nativeKind.value}\u0000${left.declarationSubkey}`;
+          const b = `${HOST_RANK[right.nativeHost]}\u0000${right.nativeKind.value}\u0000${right.declarationSubkey}`;
           return a < b ? -1 : a > b ? 1 : 0;
         }),
       },

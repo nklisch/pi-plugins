@@ -23,7 +23,7 @@ describe("foreign declaration construction", () => {
     const result = createForeignComponentDeclaration({
       nativeHost: "codex",
       nativeKind: "apps",
-      declarationKey: "/apps/remote",
+      declarationSubkey: "key:remote",
       declaration: { remote: true, capabilities: ["search"] },
       provenance: [provenance, { ...provenance, location: { ...provenance.location, host: "claude" } }],
     });
@@ -43,7 +43,7 @@ describe("foreign declaration construction", () => {
       kind: "foreign",
       nativeHost: "codex",
       nativeKind: "apps",
-      declarationKey: "/apps/remote",
+      declarationSubkey: "key:remote",
     }, sha256));
   });
 
@@ -51,21 +51,21 @@ describe("foreign declaration construction", () => {
     expect(createForeignComponentDeclaration({
       nativeHost: "codex",
       nativeKind: "",
-      declarationKey: "/apps/remote",
+      declarationSubkey: "key:remote",
       declaration: { remote: true },
       provenance,
     }).ok).toBe(false);
     expect(createForeignComponentDeclaration({
       nativeHost: "codex",
       nativeKind: "apps",
-      declarationKey: "/apps/remote",
+      declarationSubkey: "key:remote",
       declaration: undefined,
       provenance,
     }).ok).toBe(false);
     expect(createForeignComponentDeclaration({
       nativeHost: "codex",
       nativeKind: "apps",
-      declarationKey: "/apps/remote",
+      declarationSubkey: "key:remote",
       declaration: { remote: true },
       provenance: [],
     }).ok).toBe(false);

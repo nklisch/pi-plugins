@@ -404,6 +404,7 @@ function mergeMcp(left: McpServerComponent, right: McpServerComponent, plugin: s
 
 function mergeForeign(left: ForeignComponent, right: ForeignComponent, plugin: string): ReadResult<ForeignComponent> {
   if (left.nativeHost !== right.nativeHost || left.nativeKind.value !== right.nativeKind.value ||
+      left.declarationSubkey !== right.declarationSubkey ||
       stableJson(left.declaration.value) !== stableJson(right.declaration.value)) {
     return failure(ErrorCodeRegistry.claimConflict, "Conflicting foreign component claims", plugin, {
       left: snapshot(left),
@@ -431,18 +432,13 @@ function componentIdentity(component: Component): Parameters<typeof deriveCompon
       handler: component.handler.value,
     };
     case "mcp-server": return { kind: "mcp-server", nativeKey: component.nativeKey.value };
-    case "foreign": {
-      const declarationKey = component.declaration.provenance[0]?.location.pointer;
-      if (declarationKey === undefined || declarationKey.length === 0) {
-        throw new Error("foreign component declaration is missing its identity pointer");
-      }
+    case "foreign":
       return {
         kind: "foreign",
         nativeHost: component.nativeHost,
         nativeKind: component.nativeKind.value,
-        declarationKey,
+        declarationSubkey: component.declarationSubkey,
       };
-    }
   }
 }
 
@@ -471,13 +467,14 @@ function foreignDeclarationComponent(
     kind: "foreign" as const,
     nativeHost: valid.nativeHost,
     nativeKind: valid.nativeKind.value,
-    declarationKey: valid.declarationKey,
+    declarationSubkey: valid.declarationSubkey,
   };
   return ForeignComponentSchema.parse({
     kind: "foreign",
     id: deriveComponentId(PluginKeySchema.parse(plugin), identity, sha256),
     nativeHost: valid.nativeHost,
     nativeKind: valid.nativeKind,
+    declarationSubkey: valid.declarationSubkey,
     declaration: valid.declaration,
   });
 }

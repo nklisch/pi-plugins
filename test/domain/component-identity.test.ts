@@ -30,8 +30,8 @@ describe("component-id-v1", () => {
         "component-v1:mcp-server:2cf9cd5184d8b48679f23d9aebf6b34ba223193762bb6384de361394925c8e5e",
       ],
       [
-        { kind: "foreign", nativeHost: "codex", nativeKind: "apps", declarationKey: "/apps/remote" },
-        "component-v1:foreign:a2174b514507ff21f027ec77e5e8b40154eba1d2afee0ce2924389ddef0b92c0",
+        { kind: "foreign", nativeHost: "codex", nativeKind: "apps", declarationSubkey: "key:remote" },
+        "component-v1:foreign:4ca3ce9b65351ff20e67936758c905e0786f348d0ead488b384519bb0d997cf8",
       ],
     ];
 
@@ -71,7 +71,7 @@ describe("component-id-v1", () => {
       deriveComponentId(plugin, { kind: "skill", root: "./skills/demo" }, sha256),
     );
     expect(deriveComponentId(plugin, { kind: "skill", root: "./skills/demo" }, sha256)).not.toBe(
-      deriveComponentId(plugin, { kind: "foreign", nativeHost: "codex", nativeKind: "skill", declarationKey: "./skills/demo" }, sha256),
+      deriveComponentId(plugin, { kind: "foreign", nativeHost: "codex", nativeKind: "skill", declarationSubkey: "default" }, sha256),
     );
     expect(deriveComponentId(plugin, { kind: "skill", root: "./skills/demo" }, sha256)).not.toBe(
       deriveComponentId(plugin, { kind: "skill", root: "./skills/other" }, sha256),

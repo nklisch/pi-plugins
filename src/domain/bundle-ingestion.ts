@@ -121,7 +121,7 @@ export const ForeignComponentDeclarationSchema = z
   .object({
     nativeHost: NativeHostSchema,
     nativeKind: ClaimedSchema(z.string().min(1)),
-    declarationKey: z.string().min(1),
+    declarationSubkey: z.string().min(1),
     declaration: ClaimedSchema(JsonValueSchema),
   })
   .strict()

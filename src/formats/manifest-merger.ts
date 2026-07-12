@@ -226,7 +226,7 @@ function locatorOrder(locator: ComponentLocatorClaim): string {
 }
 
 function foreignKey(declaration: ForeignComponentDeclaration): string {
-  return `${declaration.nativeKind.value}\u0000${declaration.declarationKey}`;
+  return `${declaration.nativeKind.value}\u0000${declaration.declarationSubkey}`;
 }
 
 function mergeForeign(

@@ -74,6 +74,7 @@ const foreign = {
   id: "component-v1:foreign:3333333333333333333333333333333333333333333333333333333333333333",
   nativeHost: "codex" as const,
   nativeKind: claim("apps", codexManifest),
+  declarationSubkey: "key:remote-connector",
   declaration: claim(
     { name: "remote-connector", capabilities: ["search", "write"] },
     codexManifest,

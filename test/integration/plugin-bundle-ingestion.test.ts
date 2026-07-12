@@ -196,6 +196,55 @@ describe("plugin bundle inspection integration", () => {
     expect(result.value.components.hooks).toHaveLength(1);
   });
 
+  it("reconciles equivalent catalog and manifest foreign claims end to end", async () => {
+    const catalog = readClaudeMarketplace({
+      name: "fixture",
+      plugins: [{ name: "demo", source: "./plugin", strict: false, agents: "./agents" }],
+    });
+    const entry = catalog.marketplace.entries[0];
+    if (entry === undefined) throw new Error("foreign fixture entry was not parsed");
+    const files = new Map<string, Uint8Array>([
+      [".claude-plugin/plugin.json", text(JSON.stringify({ name: "demo", agents: "./agents" }))],
+    ]);
+    const service = createPluginInspectionService({
+      content: { readFile: async (file) => files.get(file.entry.path) ?? text("{}") },
+      readers: makeReaders(),
+      sha256,
+    });
+
+    const result = await service.inspect(makeInput(files, entry), new AbortController().signal);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.components.foreign).toHaveLength(1);
+    expect(result.value.components.foreign[0]?.declaration.provenance).toHaveLength(2);
+    expect(result.value.components.foreign[0]?.declaration.provenance.map((claim) => claim.location.documentKind))
+      .toEqual(expect.arrayContaining(["marketplace", "manifest"]));
+  });
+
+  it("rejects contradictory catalog and manifest foreign claims end to end", async () => {
+    const catalog = readClaudeMarketplace({
+      name: "fixture",
+      plugins: [{ name: "demo", source: "./plugin", strict: false, agents: "./agents" }],
+    });
+    const entry = catalog.marketplace.entries[0];
+    if (entry === undefined) throw new Error("foreign fixture entry was not parsed");
+    const files = new Map<string, Uint8Array>([
+      [".claude-plugin/plugin.json", text(JSON.stringify({ name: "demo", agents: "./other-agents" }))],
+    ]);
+    const service = createPluginInspectionService({
+      content: { readFile: async (file) => files.get(file.entry.path) ?? text("{}") },
+      readers: makeReaders(),
+      sha256,
+    });
+
+    const result = await service.inspect(makeInput(files, entry), new AbortController().signal);
+
+    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({ diagnostics: [{ code: "CLAIM_CONFLICT" }] });
+    expect(result).not.toHaveProperty("value");
+  });
+
   it("rejects dual manifest locator conflicts without returning a partial bundle", async () => {
     const entry = mergedEntry();
     const files = new Map<string, Uint8Array>([

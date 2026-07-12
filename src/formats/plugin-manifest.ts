@@ -23,6 +23,7 @@ import {
 import { PluginKeySchema, type PluginKey } from "../domain/identity.js";
 import { JsonValueSchema, type JsonValue } from "../domain/schema.js";
 import { RetainedMetadataSchema, type RetainedMetadata } from "../domain/components.js";
+import { splitForeignDeclaration } from "../domain/foreign-identity.js";
 
 export const CLAUDE_PLUGIN_MANIFEST_PATH = PluginManifestPathRegistry.claude;
 export const CODEX_PLUGIN_MANIFEST_PATH = PluginManifestPathRegistry.codex;
@@ -249,20 +250,21 @@ function readPathLocators(
   return [pathTarget(nativeHost, path, pointer, raw, componentKind, targetKind, raw)];
 }
 
-function foreignDeclaration(
+function foreignDeclarations(
   nativeHost: NativeHost,
   path: string,
   pointer: string,
   field: string,
   declaration: JsonValue,
-): ForeignComponentDeclaration {
+): readonly ForeignComponentDeclaration[] {
   const provenance = sourceProvenance(nativeHost, path, pointer, declaration);
-  return {
+  const claimValue = claim(declaration, provenance);
+  return splitForeignDeclaration(field, claimValue).map((item) => ({
     nativeHost,
-    nativeKind: claim(field, provenance),
-    declarationKey: pointer || `/${pointerSegment(field)}`,
-    declaration: claim(declaration, provenance),
-  };
+    nativeKind: claim(field, item.declaration.provenance[0]!),
+    declarationSubkey: item.declarationSubkey,
+    declaration: item.declaration,
+  }));
 }
 
 function validatePresentation(field: string, value: JsonValue, pointer: string): void {
@@ -392,7 +394,7 @@ function readRecord(
         // path. The host registry documents known runtime vocabulary, but a
         // field name alone is never evidence that an unknown value is safe to
         // retain as presentation metadata.
-        foreign.push(foreignDeclaration(nativeHost, context.path, pointer, field, raw));
+        foreign.push(...foreignDeclarations(nativeHost, context.path, pointer, field, raw));
       }
     }
 

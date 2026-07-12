@@ -49,7 +49,7 @@ function foreignFromEntry(entry: NormalizedMarketplaceEntry): ForeignComponentDe
     return {
       nativeHost: declaration.nativeHost,
       nativeKind: claim(declaration.field, provenance),
-      declarationKey: provenance.location.pointer ?? `/${declaration.field}`,
+      declarationSubkey: "default",
       declaration: declaration.declaration,
     };
   });
@@ -109,6 +109,87 @@ describe("complete plugin bundle reconciliation", () => {
       "agents",
       "commands",
     ]);
+  });
+
+  it("keeps genuinely different semantic subkeys distinct for one foreign kind", () => {
+    const entry = entryForClaude();
+    const remote = {
+      nativeHost: "claude" as const,
+      nativeKind: claim("agents", { ...entry.identity.provenance[0]!, location: { ...entry.identity.provenance[0]!.location, documentKind: "manifest", pointer: "/agents/remote" } }),
+      declarationSubkey: "key:remote",
+      declaration: claim("./remote-agents", { ...entry.identity.provenance[0]!, location: { ...entry.identity.provenance[0]!.location, documentKind: "manifest", pointer: "/agents/remote" } }),
+    };
+    const local = {
+      nativeHost: "claude" as const,
+      nativeKind: claim("agents", { ...remote.nativeKind.provenance[0]!, location: { ...remote.nativeKind.provenance[0]!.location, pointer: "/agents/local" } }),
+      declarationSubkey: "key:local",
+      declaration: claim("./local-agents", { ...remote.declaration.provenance[0]!, location: { ...remote.declaration.provenance[0]!.location, pointer: "/agents/local" } }),
+    };
+
+    const result = reconcile(entry, { foreignDeclarations: [remote, local] });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.components.foreign).toHaveLength(2);
+    expect(result.value.components.foreign.map((component) => component.declarationSubkey)).toEqual([
+      "key:local",
+      "key:remote",
+    ]);
+  });
+
+  it("merges equivalent catalog/manifest foreign claims despite different provenance pointers", () => {
+    const entry = entryForClaude({ agents: "./agents" });
+    const catalog = foreignFromEntry(entry)[0];
+    const manifestClaim = manifest("claude", { name: "demo", agents: "./agents" });
+    if (catalog === undefined || manifestClaim.foreign[0] === undefined) {
+      throw new Error("missing equivalent foreign claims");
+    }
+
+    const result = reconcile(entry, {
+      foreignDeclarations: [catalog],
+      manifestClaims: [manifestClaim],
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.components.foreign).toHaveLength(1);
+    expect(result.value.components.foreign[0]?.declaration.provenance).toHaveLength(2);
+  });
+
+  it("rejects contradictory catalog/manifest foreign claims at one semantic identity", () => {
+    const entry = entryForClaude({ agents: "./agents" });
+    const catalog = foreignFromEntry(entry)[0];
+    const manifestClaim = manifest("claude", { name: "demo", agents: "./other-agents" });
+    if (catalog === undefined || manifestClaim.foreign[0] === undefined) {
+      throw new Error("missing contradictory foreign claims");
+    }
+
+    const result = reconcile(entry, {
+      foreignDeclarations: [catalog],
+      manifestClaims: [manifestClaim],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({
+      diagnostics: [{
+        code: "CLAIM_CONFLICT",
+        details: {
+          left: {
+            declaration: {
+              value: "./agents",
+              provenance: [{ location: { pointer: "/plugins/0/agents" } }],
+            },
+          },
+          right: {
+            declaration: {
+              value: "./other-agents",
+              provenance: [{ location: { pointer: "/agents" } }],
+            },
+          },
+        },
+      }],
+    });
+    expect(result).not.toHaveProperty("value");
   });
 
   it("fails closed when a component kind and id disagree", () => {

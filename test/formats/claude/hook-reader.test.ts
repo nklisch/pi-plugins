@@ -101,6 +101,25 @@ describe("Claude hook reader", () => {
     expect(hook).not.toHaveProperty("verdict");
   });
 
+  it("verifies foreign identities from hook semantics rather than pointer spelling", () => {
+    const direct = readClaudeHooks({
+      hooks: { Event: [{ type: "prompt", prompt: "ask" }] },
+    }, context());
+    const grouped = readClaudeHooks({
+      hooks: { Event: [{ hooks: [{ type: "prompt", prompt: "ask" }] }] },
+    }, context());
+
+    expect(direct.ok).toBe(true);
+    expect(grouped.ok).toBe(true);
+    if (!direct.ok || !grouped.ok) return;
+    const directForeign = direct.value.find((component) => component.kind === "foreign");
+    const groupedForeign = grouped.value.find((component) => component.kind === "foreign");
+    expect(directForeign).toMatchObject({ declarationSubkey: groupedForeign?.declarationSubkey });
+    expect(directForeign?.id).toBe(groupedForeign?.id);
+    expect(directForeign?.declaration.provenance[0]?.location.pointer)
+      .not.toBe(groupedForeign?.declaration.provenance[0]?.location.pointer);
+  });
+
   it("deduplicates equivalent handlers and fails malformed known shapes", () => {
     const equivalent = readClaudeHooks({
       hooks: {

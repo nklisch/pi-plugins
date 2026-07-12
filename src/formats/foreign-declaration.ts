@@ -25,7 +25,7 @@ import { stableComponentId } from "./stable-component-id.js";
 export type ForeignComponentDeclarationContext = Readonly<{
   nativeHost: NativeHost;
   nativeKind: string;
-  declarationKey: string;
+  declarationSubkey: string;
   provenance: Provenance | readonly Provenance[];
 }>;
 
@@ -91,7 +91,7 @@ export function createForeignComponentDeclaration(
   try {
     const nativeHost = NativeHostSchema.parse(input.nativeHost);
     const nativeKind = z.string().min(1).parse(input.nativeKind);
-    const declarationKey = z.string().min(1).parse(input.declarationKey);
+    const declarationSubkey = z.string().min(1).parse(input.declarationSubkey);
     const declaration = JsonValueSchema.parse(input.declaration);
     const provenance = provenanceList(input.provenance);
     return {
@@ -99,7 +99,7 @@ export function createForeignComponentDeclaration(
       value: ForeignComponentDeclarationSchema.parse({
         nativeHost,
         nativeKind: { value: nativeKind, provenance },
-        declarationKey,
+        declarationSubkey,
         declaration: { value: declaration, provenance },
       }),
       diagnostics: [],
@@ -121,8 +121,8 @@ export function createForeignComponentDeclaration(
 
 /**
  * Materialize the declaration as the normalized foreign component shape. The
- * caller supplies the plugin key because host and declaration identity are
- * intentionally part of the persisted component id.
+ * caller supplies the plugin key because host and semantic declaration identity
+ * are intentionally part of the persisted component id.
  */
 export function createForeignComponent(
   declaration: ForeignComponentDeclaration,
@@ -136,7 +136,7 @@ export function createForeignComponent(
       kind: "foreign" as const,
       nativeHost: valid.nativeHost,
       nativeKind: valid.nativeKind.value,
-      declarationKey: valid.declarationKey,
+      declarationSubkey: valid.declarationSubkey,
     };
     return {
       ok: true,
@@ -148,6 +148,7 @@ export function createForeignComponent(
           value: valid.nativeKind.value,
           provenance,
         },
+        declarationSubkey: valid.declarationSubkey,
         declaration: {
           value: valid.declaration.value,
           provenance,

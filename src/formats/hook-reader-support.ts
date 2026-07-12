@@ -217,18 +217,15 @@ export function readHookDocument<T>(
 export function foreignFromHook(
   context: HookDocumentReaderContext,
   nativeKind: string,
-  declarationKey: string,
+  declarationSubkey: string,
   declaration: JsonValue,
   pointer: string,
 ): ForeignComponent {
-  if (declarationKey !== pointer) {
-    throw new HookReaderFailure(pointer, "foreign hook declaration identity must match its provenance pointer");
-  }
   const provenance = sourceAt(context, pointer, declaration);
   const result = createForeignComponentDeclaration({
     nativeHost: context.nativeHost,
     nativeKind,
-    declarationKey,
+    declarationSubkey,
     declaration,
     provenance,
   });
@@ -244,13 +241,14 @@ export function foreignFromHook(
     kind: "foreign" as const,
     nativeHost: context.nativeHost,
     nativeKind,
-    declarationKey,
+    declarationSubkey,
   };
   return ForeignComponentSchema.parse({
     kind: "foreign",
     id: stableComponentId(context.plugin, identity),
     nativeHost: context.nativeHost,
     nativeKind: claim(nativeKind, provenance),
+    declarationSubkey,
     declaration: claim(declaration, provenance),
   });
 }
@@ -328,6 +326,7 @@ export function mergeForeignComponents(
   if (
     left.nativeHost !== right.nativeHost ||
     left.nativeKind.value !== right.nativeKind.value ||
+    left.declarationSubkey !== right.declarationSubkey ||
     !sameJson(left.declaration.value, right.declaration.value)
   ) {
     throw new HookReaderFailure(
@@ -416,6 +415,10 @@ function requireStringArray(value: JsonValue, pointer: string, label: string): r
   return value as readonly string[];
 }
 
+function hookForeignSubkey(event: string, matcher: string | undefined, handlerIndex: number): string {
+  return `event:${stableJson(event)}\u0000matcher:${matcher === undefined ? "absent" : stableJson(matcher)}\u0000handler:${handlerIndex}`;
+}
+
 function normalizedTimeout(
   record: { readonly [key: string]: JsonValue },
   pointer: string,
@@ -477,6 +480,7 @@ function parseCommandHandler(
   value: JsonValue,
   context: HookDocumentReaderContext,
   pointer: string,
+  foreignSubkey: string,
 ): Readonly<{ handler?: HookHandler; metadata: readonly RetainedMetadata[]; foreign: readonly ForeignComponent[] }> {
   const record = requireRecord(value, pointer, "hook handler");
   const type = requireStringValue(record.type, childPointer(pointer, "type"), "handler type");
@@ -484,7 +488,7 @@ function parseCommandHandler(
   if (type !== "command" && type !== "shell" && type !== "exec") {
     return {
       metadata: [],
-      foreign: [foreignFromHook(context, "hook-handler", pointer, declaration, pointer)],
+      foreign: [foreignFromHook(context, "hook-handler", `${foreignSubkey}/handler-type`, declaration, pointer)],
     };
   }
 
@@ -516,7 +520,7 @@ function parseCommandHandler(
     // Retain unknown runtime-bearing keys as inventory instead of silently
     // treating them as part of the supported command contract.
     const declarationPointer = childPointer(pointer, key);
-    foreign.push(foreignFromHook(context, "hook-handler", declarationPointer, declaration, declarationPointer));
+    foreign.push(foreignFromHook(context, "hook-handler", `${foreignSubkey}/field:${key}`, declaration, declarationPointer));
   }
   return { handler, metadata, foreign };
 }
@@ -559,7 +563,12 @@ export function parseHookDocument(
         const handlerPointer = isGroup
           ? childPointer(childPointer(groupPointer, "hooks"), handlerIndex)
           : groupPointer;
-        const parsed = parseCommandHandler(handlerValue, context, handlerPointer);
+        const parsed = parseCommandHandler(
+          handlerValue,
+          context,
+          handlerPointer,
+          hookForeignSubkey(event, matcher, handlerIndex),
+        );
         components.push(...parsed.foreign);
         if (parsed.handler === undefined) continue;
         const component = makeHookComponent(

@@ -36,7 +36,8 @@ describe("Codex plugin manifest reader", () => {
     if (!result.ok) return;
     expect(result.value.foreign.map((item) => item.nativeKind.value)).toEqual(["apps", "connectors"]);
     expect(result.value.metadata[0]?.key).toBe("codex.interface");
-    expect(result.value.foreign[1]?.declaration.value).toEqual({ github: { enabled: true } });
+    expect(result.value.foreign[1]?.declaration.value).toEqual({ enabled: true });
+    expect(result.value.foreign[1]?.declarationSubkey).toBe("key:github");
   });
 
   it("rejects unsupported path forms before discovery can see them", () => {

@@ -37,7 +37,7 @@ describe("bundle-ingestion contracts", () => {
     const declaration: ForeignComponentDeclaration = {
       nativeHost: "codex",
       nativeKind: claim("apps", manifest),
-      declarationKey: "/apps/0",
+      declarationSubkey: "key:remote",
       declaration: claim({ name: "remote" }, manifest),
     };
     expect(ForeignComponentDeclarationSchema.parse(declaration)).toEqual(declaration);
@@ -77,7 +77,7 @@ describe("bundle-ingestion contracts", () => {
     expect(ForeignComponentDeclarationSchema.safeParse({
       nativeHost: "codex",
       nativeKind: claim("apps", manifest),
-      declarationKey: "",
+      declarationSubkey: "",
       declaration: claim({}, manifest),
     }).success).toBe(false);
   });

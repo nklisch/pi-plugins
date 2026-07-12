@@ -88,4 +88,21 @@ describe("dual plugin manifest merger", () => {
     expect(result.value).not.toHaveProperty("verdict");
     expect(result.value.foreign[0]?.declaration.provenance[0]?.location.host).toBe("claude");
   });
+
+  it("uses map keys as semantic subkeys without using their source pointers", () => {
+    const result = read("codex", {
+      name: "demo",
+      apps: {
+        remote: { command: "remote" },
+        local: { command: "local" },
+      },
+    });
+
+    expect(result.foreign).toHaveLength(2);
+    expect(result.foreign.map((item) => item.declarationSubkey)).toEqual(["key:local", "key:remote"]);
+    expect(result.foreign.map((item) => item.declaration.provenance[0]?.location.pointer)).toEqual([
+      "/apps/local",
+      "/apps/remote",
+    ]);
+  });
 });

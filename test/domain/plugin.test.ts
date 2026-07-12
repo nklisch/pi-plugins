@@ -92,6 +92,7 @@ const representativeBundle = {
         id: "component-v1:foreign:3333333333333333333333333333333333333333333333333333333333333333",
         nativeHost: "codex",
         nativeKind: claim("apps", manifest),
+        declarationSubkey: "key:remote",
         declaration: claim({ remote: true, capabilities: ["search"] }, manifest),
       },
     ],

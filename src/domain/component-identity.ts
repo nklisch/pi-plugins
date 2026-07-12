@@ -71,7 +71,7 @@ const ForeignLogicalIdentitySchema = z
     kind: z.literal(ComponentKindRegistry.foreign.tag),
     nativeHost: NativeHostSchema,
     nativeKind: nonEmptyIdentityString,
-    declarationKey: nonEmptyIdentityString,
+    declarationSubkey: nonEmptyIdentityString,
   })
   .strict()
   .readonly();
@@ -198,7 +198,7 @@ function identityPreimage(plugin: PluginKey, identity: ComponentLogicalIdentity)
         ...common,
         field(identity.nativeHost),
         field(identity.nativeKind),
-        field(identity.declarationKey),
+        field(identity.declarationSubkey),
       ]);
   }
 }
