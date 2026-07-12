@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-domain-contracts
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: epic-foreign-plugin-model
 depends_on: []
@@ -667,4 +667,6 @@ The foundation documents and this design now describe the hardened contract.
 
 ## Review findings
 
-The feature is bounced to `stage: implementing` for `epic-foreign-plugin-model-domain-contracts-review-hardening`. The review circuit-breaker count is one. The hardening story must restore canonical-source injectivity, source-security constraints, diagnostic consistency, committed regression checks, and rolling-foundation alignment before the feature returns to review.
+The feature was bounced once for `epic-foreign-plugin-model-domain-contracts-review-hardening`. That story is now done: canonical-source injectivity, source-security constraints, resolved-identity verification, diagnostic consistency, committed regression checks, and rolling-foundation alignment were corrected.
+
+Post-hardening verification: `npm test` passes 116 tests plus typecheck, dependency-boundary regressions, build, compiled package import, and an exact 72-export runtime allowlist. The feature is ready for its second deep review pass.
