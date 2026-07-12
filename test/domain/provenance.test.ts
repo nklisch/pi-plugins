@@ -47,11 +47,24 @@ describe("provenance schemas", () => {
   it.each([
     [{ location: { host: "claude", documentKind: "manifest", path: "" } }, "empty path"],
     [{ location: { host: "claude", documentKind: "manifest", path: "manifest", pointer: "name" } }, "pointer without slash"],
+    [{ location: { host: "claude", documentKind: "manifest", path: "manifest", pointer: "/name~2value" } }, "invalid escape"],
+    [{ location: { host: "claude", documentKind: "manifest", path: "manifest", pointer: "/name~" } }, "dangling escape"],
     [{ location: { host: "claude", documentKind: "manifest", path: "manifest", line: 0 } }, "non-positive line"],
     [{ location: { host: "other", documentKind: "manifest", path: "manifest" } }, "unknown host"],
     [{ location: { host: "claude", documentKind: "unknown", path: "manifest" } }, "unknown document kind"],
   ])("rejects malformed source locations (%s)", (value) => {
     expect(SourceLocationSchema.safeParse(value).success).toBe(false);
+  });
+
+  it("accepts the RFC 6901 root, empty tokens, and escaped reference tokens", () => {
+    for (const pointer of ["", "/", "/a~0b", "/a~1b", "/a//b", "/a~1b~0c"]) {
+      expect(SourceLocationSchema.safeParse({
+        host: "claude",
+        documentKind: "manifest",
+        path: "manifest",
+        pointer,
+      }).success).toBe(true);
+    }
   });
 
   it("rejects a claimed value with no usable provenance", () => {

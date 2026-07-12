@@ -408,6 +408,12 @@ export function mergeMarketplaceEntries(
   const [first, second] = normalizeEntryPair(left, right);
   const plugin = first.identity.value.key;
 
+  for (const [index, metadata] of first.metadata.entries()) {
+    assertMetadataHost(entryHost(first), metadata, `left.metadata[${index}]`);
+  }
+  for (const [index, metadata] of second.metadata.entries()) {
+    assertMetadataHost(entryHost(second), metadata, `right.metadata[${index}]`);
+  }
   assertIdentity(name, first, second);
 
   const sourceLeft = normalizePluginSource(first.source);
@@ -518,6 +524,18 @@ function assertProvenanceHost(
   }
 }
 
+function assertMetadataHost(
+  nativeHost: NativeHost,
+  metadata: RetainedMetadata,
+  subject: string,
+): void {
+  const expectedPrefix = `${nativeHost}.`;
+  if (!metadata.key.startsWith(expectedPrefix) || metadata.key.length === expectedPrefix.length) {
+    hostMismatch(nativeHost, `${subject}.key`, metadata.key);
+  }
+  assertProvenanceHost(nativeHost, metadata.claimed.provenance, `${subject}.claimed`);
+}
+
 function assertCatalogHost(
   nativeHost: NativeHost,
   result: MarketplaceReadResult,
@@ -538,7 +556,7 @@ function assertCatalogHost(
 
   assertProvenanceHost(nativeHost, result.marketplace.name.provenance, "name");
   for (const [index, metadata] of result.marketplace.metadata.entries()) {
-    assertProvenanceHost(nativeHost, metadata.claimed.provenance, `metadata[${index}]`);
+    assertMetadataHost(nativeHost, metadata, `metadata[${index}]`);
   }
   for (const [index, entry] of result.marketplace.entries.entries()) {
     const subject = `entries[${index}]`;
@@ -574,7 +592,7 @@ function assertCatalogHost(
       assertProvenanceHost(nativeHost, declaration.declaration.provenance, `${subject}.declarations[${declarationIndex}]`);
     }
     for (const [metadataIndex, metadata] of entry.metadata.entries()) {
-      assertProvenanceHost(nativeHost, metadata.claimed.provenance, `${subject}.metadata[${metadataIndex}]`);
+      assertMetadataHost(nativeHost, metadata, `${subject}.metadata[${metadataIndex}]`);
     }
     assertProvenanceHost(nativeHost, entry.rawDeclaration.provenance, `${subject}.rawDeclaration`);
   }

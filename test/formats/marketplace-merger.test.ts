@@ -81,6 +81,52 @@ describe("dual marketplace merger", () => {
     expect(() => mergeMarketplaces([{ nativeHost: "claude", result: mixed }])).toThrowError(BoundaryError);
   });
 
+  it("rejects host-forged metadata keys even when their claims look local", () => {
+    const claude = claudeCatalog([{ name: "only", source: "./only" }]);
+    const forged = {
+      ...claude,
+      marketplace: {
+        ...claude.marketplace,
+        metadata: [{
+          key: "codex.displayName",
+          claimed: {
+            ...claude.marketplace.name,
+            value: "forged",
+            provenance: [{
+              location: {
+                ...claude.marketplace.name.provenance[0]!.location,
+                pointer: "/forged",
+              },
+              declaration: "forged",
+            }],
+          },
+        }],
+      },
+    };
+
+    expect(() => mergeMarketplaces([{ nativeHost: "claude", result: forged }])).toThrowError(BoundaryError);
+
+    const originalEntry = claude.marketplace.entries[0]!;
+    const forgedEntryResult = {
+      ...claude,
+      marketplace: {
+        ...claude.marketplace,
+        metadata: [],
+        entries: [{
+          ...originalEntry,
+          metadata: [{
+            key: "codex.entryLabel",
+            claimed: {
+              value: "forged",
+              provenance: originalEntry.rawDeclaration.provenance,
+            },
+          }],
+        }],
+      },
+    };
+    expect(() => mergeMarketplaces([{ nativeHost: "claude", result: forgedEntryResult }])).toThrowError(BoundaryError);
+  });
+
   it("merges direct entry API inputs when only subdirectory spelling differs", () => {
     const left = readClaudeMarketplace({
       name: "shared-catalog",

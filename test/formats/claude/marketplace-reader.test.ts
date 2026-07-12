@@ -179,4 +179,91 @@ describe("Claude marketplace reader", () => {
       expect((error as BoundaryError).toDiagnostic()).not.toHaveProperty("cause");
     }
   });
+
+  it("rejects empty and unknown-only nested records while preserving raw valid declarations", () => {
+    const result = readClaudeMarketplace({
+      name: "declaration-shapes",
+      plugins: [
+        { name: "empty-hooks", source: "./empty-hooks", hooks: { SessionStart: [] } },
+        { name: "unknown-hook", source: "./unknown-hook", hooks: { SessionStart: { mystery: true } } },
+        { name: "empty-servers", source: "./empty-servers", mcpServers: {} },
+        { name: "unknown-server", source: "./unknown-server", mcpServers: { main: { mystery: true } } },
+        { name: "bad-settings", source: "./bad-settings", settings: {} },
+        { name: "bad-dependency", source: "./bad-dependency", dependencies: [{ mystery: true }] },
+        { name: "bad-plugin", source: "./bad-plugin", plugins: { main: { mystery: true } } },
+        {
+          name: "valid",
+          source: "./valid",
+          hooks: {
+            SessionStart: [{ matcher: "startup", hooks: [{ type: "command", command: "echo ready" }] }],
+          },
+          mcpServers: {
+            main: { command: "node", args: ["server.js"], env: { TOKEN: "secret" } },
+          },
+          settings: { path: "./settings.json", enabled: true },
+          dependencies: [{ name: "runtime-helper", version: "^1.0.0" }],
+          plugins: [{ name: "nested-plugin", source: "./nested-plugin" }],
+        },
+        { name: "sibling", source: "./sibling" },
+      ],
+    });
+
+    expect(result.marketplace.entries.map((entry) => entry.identity.value.marketplaceEntryName)).toEqual([
+      "valid",
+      "sibling",
+    ]);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.location?.pointer)).toEqual([
+      "/plugins/0/hooks/SessionStart",
+      "/plugins/1/hooks/SessionStart",
+      "/plugins/2/mcpServers",
+      "/plugins/3/mcpServers/main",
+      "/plugins/4/settings",
+      "/plugins/5/dependencies/0",
+      "/plugins/6/plugins/main",
+    ]);
+
+    const valid = result.marketplace.entries[0]!;
+    expect(valid.declarations.map((declaration) => declaration.field)).toEqual([
+      "hooks",
+      "mcpServers",
+      "settings",
+      "dependencies",
+      "plugins",
+    ]);
+    expect(valid.declarations[0]?.declaration.value).toEqual({
+      SessionStart: [{ matcher: "startup", hooks: [{ type: "command", command: "echo ready" }] }],
+    });
+    expect(valid.declarations[0]?.declaration.provenance[0]).toMatchObject({
+      location: { pointer: "/plugins/7/hooks" },
+      declaration: { SessionStart: [{ matcher: "startup", hooks: [{ type: "command", command: "echo ready" }] }] },
+    });
+    expect(valid.rawDeclaration.provenance[0]?.location.pointer).toBe("/plugins/7");
+    expect(valid.rawDeclaration.provenance[0]?.declaration).toMatchObject({ name: "valid", source: "./valid" });
+  });
+
+  it.each([
+    "owner/repository.git",
+    "owner/repository.GIT",
+    "owner/repository.GiT",
+    "owner_name/repository",
+    "-owner/repository",
+    "owner-/repository",
+    "owner--name/repository",
+    "owner/repo/name",
+    "owner/repository#fragment",
+    "owner/repository?query",
+    "owner/.repository",
+    "owner/repository.",
+  ])("rejects host-invalid GitHub shorthand %s", (repo) => {
+    const result = readClaudeMarketplace({
+      name: "github-shorthand",
+      plugins: [{ name: "bad", source: { source: "github", repo } }, { name: "sibling", source: "./sibling" }],
+    });
+
+    expect(result.marketplace.entries.map((entry) => entry.identity.value.marketplaceEntryName)).toEqual(["sibling"]);
+    expect(result.diagnostics[0]).toMatchObject({
+      code: "SOURCE_INVALID",
+      location: { pointer: "/plugins/0/source/repo" },
+    });
+  });
 });

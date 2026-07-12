@@ -497,124 +497,476 @@ function invalidDeclaration(pointer: string, message: string): never {
   throw entryError("ENTRY_INVALID", pointer, message);
 }
 
+type DeclarationShape = Readonly<{
+  hookKeys: ReadonlySet<string>;
+  serverKeys: ReadonlySet<string>;
+  settingsKeys: ReadonlySet<string>;
+  dependencyKeys: ReadonlySet<string>;
+  pluginKeys: ReadonlySet<string>;
+}>;
+
+const declarationShapes: Readonly<Record<NativeHost, DeclarationShape>> = {
+  claude: {
+    hookKeys: new Set([
+      "hooks", "matcher", "description", "type", "command", "args", "timeout",
+      "timeoutMs", "async", "asyncRewake", "statusMessage", "shell", "url",
+      "prompt", "agent", "mcp_tool",
+    ]),
+    serverKeys: new Set([
+      "type", "transport", "command", "args", "env", "cwd", "workingDirectory",
+      "url", "httpUrl", "headers", "oauth", "timeout", "startupTimeout",
+      "toolTimeout", "enabledTools", "disabledTools", "required", "path",
+    ]),
+    settingsKeys: new Set([
+      "path", "scope", "enabled", "defaults", "env", "configuration", "settings",
+      "userConfig", "user_config",
+    ]),
+    dependencyKeys: new Set([
+      "name", "id", "package", "plugin", "source", "url", "path", "repo",
+      "repository", "registry", "version", "selector", "constraint", "range",
+      "ref", "sha", "optional", "platform",
+    ]),
+    pluginKeys: new Set([
+      "name", "id", "source", "url", "path", "repo", "repository", "version",
+      "selector", "ref", "sha", "strict", "dependencies", "policy",
+    ]),
+  },
+  codex: {
+    hookKeys: new Set([
+      "hooks", "matcher", "description", "type", "command", "args", "timeout",
+      "timeout_ms", "async", "shell", "url", "prompt", "agent", "mcp_tool",
+    ]),
+    serverKeys: new Set([
+      "type", "transport", "command", "args", "env", "cwd", "working_directory",
+      "url", "http_url", "http_headers", "headers", "bearer_token_env_var",
+      "oauth", "startup_timeout_sec", "tool_timeout_sec", "enabled_tools",
+      "disabled_tools", "required", "path",
+    ]),
+    settingsKeys: new Set([
+      "path", "scope", "enabled", "defaults", "env", "configuration", "settings",
+      "user_config", "userConfig",
+    ]),
+    dependencyKeys: new Set([
+      "name", "id", "package", "plugin", "source", "url", "path", "repo",
+      "repository", "registry", "version", "selector", "constraint", "range",
+      "ref", "sha", "optional", "platform",
+    ]),
+    pluginKeys: new Set([
+      "name", "id", "source", "url", "path", "repo", "repository", "version",
+      "selector", "ref", "sha", "dependencies", "policy",
+    ]),
+  },
+};
+
+function shapeFor(nativeHost: NativeHost): DeclarationShape {
+  return declarationShapes[nativeHost];
+}
+
 function validateNonEmptyString(value: JsonValue, pointer: string, field: string): void {
   if (typeof value !== "string" || value.length === 0) {
     invalidDeclaration(pointer, `${field} must be a non-empty string`);
   }
 }
 
-function validateStringList(value: JsonValue, pointer: string, field: string): void {
+function validateStringList(
+  value: JsonValue,
+  pointer: string,
+  field: string,
+  allowEmpty = false,
+): void {
   if (typeof value === "string") {
     validateNonEmptyString(value, pointer, field);
     return;
   }
-  if (!Array.isArray(value)) {
-    invalidDeclaration(pointer, `${field} must be a string or an array of strings`);
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0)) {
+    invalidDeclaration(pointer, `${field} must be a${allowEmpty ? "" : " non-empty"} string array or path string`);
   }
   for (const [index, item] of value.entries()) {
     validateNonEmptyString(item, declarationPointer(pointer, index), `${field} item`);
   }
 }
 
-function validateNestedJson(
+function nonEmptyRecord(
   value: JsonValue,
   pointer: string,
   field: string,
-  allowNull: boolean,
+): { readonly [key: string]: JsonValue } {
+  if (!isJsonRecord(value) || Object.keys(value).length === 0) {
+    invalidDeclaration(pointer, `${field} must be a non-empty object`);
+  }
+  return value;
+}
+
+function validateBoolean(value: JsonValue, pointer: string, field: string): void {
+  if (typeof value !== "boolean") {
+    invalidDeclaration(pointer, `${field} must be a boolean`);
+  }
+}
+
+function validatePositiveNumber(value: JsonValue, pointer: string, field: string): void {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    invalidDeclaration(pointer, `${field} must be a positive number`);
+  }
+}
+
+function validateStringArray(value: JsonValue, pointer: string, field: string, allowEmpty = true): void {
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0)) {
+    invalidDeclaration(pointer, `${field} must be an${allowEmpty ? "" : " non-empty"} array of strings`);
+  }
+  for (const [index, item] of value.entries()) {
+    validateNonEmptyString(item, declarationPointer(pointer, index), `${field} item`);
+  }
+}
+
+function validateStringMap(value: JsonValue, pointer: string, field: string): void {
+  if (!isJsonRecord(value)) {
+    invalidDeclaration(pointer, `${field} must be an object map`);
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (key.length === 0) {
+      invalidDeclaration(declarationPointer(pointer, key), `${field} contains an empty key`);
+    }
+    if (typeof item !== "string") {
+      invalidDeclaration(declarationPointer(pointer, key), `${field} value must be a string`);
+    }
+  }
+}
+
+function hasKnownKey(
+  record: { readonly [key: string]: JsonValue },
+  knownKeys: ReadonlySet<string>,
+): boolean {
+  return Object.keys(record).some((key) => knownKeys.has(key));
+}
+
+function requireKnownKey(
+  record: { readonly [key: string]: JsonValue },
+  knownKeys: ReadonlySet<string>,
+  pointer: string,
+  field: string,
 ): void {
-  if (value === null) {
-    if (allowNull) {
-      return;
-    }
-    invalidDeclaration(pointer, `${field} cannot contain null`);
-  }
-  if (typeof value === "string") {
-    validateNonEmptyString(value, pointer, field);
-    return;
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const [index, item] of value.entries()) {
-      validateNestedJson(item, declarationPointer(pointer, index), field, allowNull);
-    }
-    return;
-  }
-  if (!isJsonRecord(value)) {
-    invalidDeclaration(pointer, `${field} must be valid JSON`);
-  }
-  for (const [key, item] of Object.entries(value)) {
-    validateNestedJson(item, declarationPointer(pointer, key), field, allowNull);
+  if (!hasKnownKey(record, knownKeys)) {
+    invalidDeclaration(pointer, `${field} object has no recognized declaration fields`);
   }
 }
 
-function validateRuntimeMap(value: JsonValue, pointer: string, field: string): void {
-  if (typeof value === "string") {
-    validateNonEmptyString(value, pointer, field);
-    return;
+function validateHookHandler(
+  value: JsonValue,
+  pointer: string,
+  field: string,
+  nativeHost: NativeHost,
+): void {
+  const record = nonEmptyRecord(value, pointer, field);
+  const shape = shapeFor(nativeHost);
+  requireKnownKey(record, shape.hookKeys, pointer, field);
+
+  if (record.type !== undefined) {
+    validateNonEmptyString(record.type, declarationPointer(pointer, "type"), `${field}.type`);
   }
-  if (!isJsonRecord(value)) {
-    invalidDeclaration(pointer, `${field} must be a path string or an object map`);
+  if (record.command !== undefined) {
+    validateNonEmptyString(record.command, declarationPointer(pointer, "command"), `${field}.command`);
   }
-  for (const [key, item] of Object.entries(value)) {
-    if (key.length === 0) {
-      invalidDeclaration(declarationPointer(pointer, key), `${field} contains an empty key`);
+  if (record.url !== undefined) {
+    validateNonEmptyString(record.url, declarationPointer(pointer, "url"), `${field}.url`);
+  }
+  for (const key of ["prompt", "agent", "mcp_tool", "shell", "statusMessage"] as const) {
+    if (record[key] !== undefined) {
+      validateNonEmptyString(record[key], declarationPointer(pointer, key), `${field}.${key}`);
     }
-    // Runtime maps may contain host-specific nested objects, but a null or
-    // scalar event/server declaration is never a structurally valid entry.
-    if (item === null || typeof item === "boolean" || typeof item === "number") {
-      invalidDeclaration(declarationPointer(pointer, key), `${field} declaration must be an object, array, or path string`);
+  }
+  if (record.matcher !== undefined || record.description !== undefined) {
+    for (const key of ["matcher", "description"] as const) {
+      if (record[key] !== undefined) {
+        validateNonEmptyString(record[key], declarationPointer(pointer, key), `${field}.${key}`);
+      }
     }
-    validateNestedJson(item, declarationPointer(pointer, key), field, false);
+  }
+  for (const key of ["timeout", "timeoutMs", "timeout_ms"] as const) {
+    if (record[key] !== undefined) {
+      validatePositiveNumber(record[key], declarationPointer(pointer, key), `${field}.${key}`);
+    }
+  }
+  if (record.async !== undefined) {
+    validateBoolean(record.async, declarationPointer(pointer, "async"), `${field}.async`);
+  }
+  if (record.asyncRewake !== undefined) {
+    validateBoolean(record.asyncRewake, declarationPointer(pointer, "asyncRewake"), `${field}.asyncRewake`);
+  }
+  if (record.args !== undefined) {
+    validateStringArray(record.args, declarationPointer(pointer, "args"), `${field}.args`);
+  }
+  if (record.hooks !== undefined) {
+    validateHookHandlers(record.hooks, declarationPointer(pointer, "hooks"), field, nativeHost);
+  }
+
+  const hasExecutableDeclaration = ["command", "url", "prompt", "agent", "mcp_tool"].some(
+    (key) => record[key] !== undefined,
+  );
+  if (!hasExecutableDeclaration && record.hooks === undefined) {
+    invalidDeclaration(pointer, `${field} handler must declare a command, URL, or nested hook list`);
   }
 }
 
-function validateServerMap(value: JsonValue, pointer: string, field: string): void {
-  if (typeof value === "string") {
-    validateNonEmptyString(value, pointer, field);
-    return;
-  }
-  if (!isJsonRecord(value)) {
-    invalidDeclaration(pointer, `${field} must be a path string or an object map`);
-  }
-  for (const [key, item] of Object.entries(value)) {
-    if (key.length === 0) {
-      invalidDeclaration(declarationPointer(pointer, key), `${field} contains an empty key`);
-    }
-    if (!(typeof item === "string" || isJsonRecord(item))) {
-      invalidDeclaration(declarationPointer(pointer, key), `${field} server must be an object or path string`);
-    }
-    validateNestedJson(item, declarationPointer(pointer, key), field, false);
-  }
-}
-
-function validateDependencyList(value: JsonValue, pointer: string, field: string): void {
-  if (typeof value === "string") {
-    validateNonEmptyString(value, pointer, field);
-    return;
-  }
-  if (!Array.isArray(value)) {
-    invalidDeclaration(pointer, `${field} must be a dependency string or an array`);
+function validateHookHandlers(
+  value: JsonValue,
+  pointer: string,
+  field: string,
+  nativeHost: NativeHost,
+): void {
+  if (!Array.isArray(value) || value.length === 0) {
+    invalidDeclaration(pointer, `${field} event must contain a non-empty hook list`);
   }
   for (const [index, item] of value.entries()) {
     const itemPointer = declarationPointer(pointer, index);
     if (typeof item === "string") {
-      validateNonEmptyString(item, itemPointer, `${field} item`);
-    } else if (isJsonRecord(item)) {
-      validateNestedJson(item, itemPointer, field, false);
+      validateNonEmptyString(item, itemPointer, `${field} hook path`);
     } else {
-      invalidDeclaration(itemPointer, `${field} item must be a string or object`);
+      validateHookHandler(item, itemPointer, field, nativeHost);
     }
   }
 }
 
+function validateHookEvent(value: JsonValue, pointer: string, field: string, nativeHost: NativeHost): void {
+  if (typeof value === "string") {
+    validateNonEmptyString(value, pointer, field);
+    return;
+  }
+  if (Array.isArray(value)) {
+    validateHookHandlers(value, pointer, field, nativeHost);
+    return;
+  }
+  validateHookHandler(value, pointer, field, nativeHost);
+}
+
+function validateHooks(value: JsonValue, pointer: string, field: string, nativeHost: NativeHost): void {
+  if (typeof value === "string") {
+    validateNonEmptyString(value, pointer, field);
+    return;
+  }
+  const events = nonEmptyRecord(value, pointer, field);
+  for (const [event, declaration] of Object.entries(events)) {
+    if (event.length === 0) {
+      invalidDeclaration(declarationPointer(pointer, event), `${field} contains an empty event name`);
+    }
+    validateHookEvent(declaration, declarationPointer(pointer, event), `${field}.${event}`, nativeHost);
+  }
+}
+
+const serverEndpointKeys = new Set(["command", "url", "httpUrl", "http_url", "path"]);
+const dependencyIdentityKeys = new Set([
+  "name", "id", "package", "plugin", "source", "url", "path", "repo", "repository",
+]);
+const pluginIdentityKeys = new Set([
+  "name", "id", "source", "url", "path", "repo", "repository",
+]);
+
+function validateServerRecord(
+  value: JsonValue,
+  pointer: string,
+  field: string,
+  nativeHost: NativeHost,
+): void {
+  const record = nonEmptyRecord(value, pointer, field);
+  requireKnownKey(record, shapeFor(nativeHost).serverKeys, pointer, field);
+  if (record.command !== undefined) {
+    validateNonEmptyString(record.command, declarationPointer(pointer, "command"), `${field}.command`);
+  }
+  for (const key of ["url", "httpUrl", "http_url", "path", "cwd", "workingDirectory", "working_directory", "type", "transport", "bearer_token_env_var"] as const) {
+    if (record[key] !== undefined) {
+      validateNonEmptyString(record[key], declarationPointer(pointer, key), `${field}.${key}`);
+    }
+  }
+  if (record.args !== undefined) {
+    validateStringArray(record.args, declarationPointer(pointer, "args"), `${field}.args`);
+  }
+  for (const key of ["env", "headers", "http_headers"] as const) {
+    if (record[key] !== undefined) {
+      validateStringMap(record[key], declarationPointer(pointer, key), `${field}.${key}`);
+    }
+  }
+  for (const key of ["enabledTools", "disabledTools", "enabled_tools", "disabled_tools"] as const) {
+    if (record[key] !== undefined) {
+      validateStringArray(record[key], declarationPointer(pointer, key), `${field}.${key}`);
+    }
+  }
+  for (const key of ["timeout", "startupTimeout", "toolTimeout", "startup_timeout_sec", "tool_timeout_sec"] as const) {
+    if (record[key] !== undefined) {
+      validatePositiveNumber(record[key], declarationPointer(pointer, key), `${field}.${key}`);
+    }
+  }
+  if (record.required !== undefined) {
+    validateBoolean(record.required, declarationPointer(pointer, "required"), `${field}.required`);
+  }
+  if (record.oauth !== undefined) {
+    const oauth = nonEmptyRecord(record.oauth, declarationPointer(pointer, "oauth"), `${field}.oauth`);
+    requireKnownKey(oauth, new Set(["clientId", "clientSecret", "authorizationUrl", "tokenUrl", "scopes", "accessTokenEnvVar"]), declarationPointer(pointer, "oauth"), `${field}.oauth`);
+    if (oauth.scopes !== undefined) {
+      validateStringArray(oauth.scopes, declarationPointer(declarationPointer(pointer, "oauth"), "scopes"), `${field}.oauth.scopes`);
+    }
+  }
+  if (!Object.keys(record).some((key) => serverEndpointKeys.has(key))) {
+    invalidDeclaration(pointer, `${field} server must declare a command, URL, path, or HTTP endpoint`);
+  }
+}
+
+function validateServerMap(
+  value: JsonValue,
+  pointer: string,
+  field: string,
+  nativeHost: NativeHost,
+): void {
+  if (typeof value === "string") {
+    validateNonEmptyString(value, pointer, field);
+    return;
+  }
+  const servers = nonEmptyRecord(value, pointer, field);
+  for (const [key, item] of Object.entries(servers)) {
+    const itemPointer = declarationPointer(pointer, key);
+    if (key.length === 0) {
+      invalidDeclaration(itemPointer, `${field} contains an empty server key`);
+    }
+    if (typeof item === "string") {
+      validateNonEmptyString(item, itemPointer, `${field} server path`);
+    } else {
+      validateServerRecord(item, itemPointer, field, nativeHost);
+    }
+  }
+}
+
+function validateSettingObject(
+  value: JsonValue,
+  pointer: string,
+  field: string,
+  nativeHost: NativeHost,
+): void {
+  if (typeof value === "string") {
+    validateNonEmptyString(value, pointer, field);
+    return;
+  }
+  const settings = nonEmptyRecord(value, pointer, field);
+  requireKnownKey(settings, shapeFor(nativeHost).settingsKeys, pointer, field);
+  for (const key of ["path", "scope"] as const) {
+    if (settings[key] !== undefined) {
+      validateNonEmptyString(settings[key], declarationPointer(pointer, key), `${field}.${key}`);
+    }
+  }
+  if (settings.enabled !== undefined) {
+    validateBoolean(settings.enabled, declarationPointer(pointer, "enabled"), `${field}.enabled`);
+  }
+  for (const key of ["env", "defaults", "configuration", "settings", "userConfig", "user_config"] as const) {
+    if (settings[key] !== undefined && !isJsonRecord(settings[key])) {
+      invalidDeclaration(declarationPointer(pointer, key), `${field}.${key} must be an object`);
+    }
+  }
+}
+
+function validateDependencyRecord(
+  value: JsonValue,
+  pointer: string,
+  field: string,
+  nativeHost: NativeHost,
+  identityProvidedByKey = false,
+): void {
+  const record = nonEmptyRecord(value, pointer, field);
+  const knownKeys = field === "plugins" ? shapeFor(nativeHost).pluginKeys : shapeFor(nativeHost).dependencyKeys;
+  requireKnownKey(record, knownKeys, pointer, field);
+  const identityKeys = field === "plugins" ? pluginIdentityKeys : dependencyIdentityKeys;
+  if (!identityProvidedByKey && !hasKnownKey(record, identityKeys)) {
+    invalidDeclaration(pointer, `${field} record must identify its dependency or plugin`);
+  }
+  for (const key of [
+    "name", "id", "package", "plugin", "source", "url", "path", "repo", "repository",
+    "registry", "version", "selector", "constraint", "range", "ref", "sha",
+  ] as const) {
+    if (record[key] !== undefined) {
+      validateNonEmptyString(record[key], declarationPointer(pointer, key), `${field}.${key}`);
+    }
+  }
+  for (const key of ["optional", "strict"] as const) {
+    if (record[key] !== undefined) {
+      validateBoolean(record[key], declarationPointer(pointer, key), `${field}.${key}`);
+    }
+  }
+  if (record.platform !== undefined) {
+    const platformPointer = declarationPointer(pointer, "platform");
+    if (typeof record.platform === "string") {
+      validateNonEmptyString(record.platform, platformPointer, `${field}.platform`);
+    } else {
+      validateStringArray(record.platform, platformPointer, `${field}.platform`, false);
+    }
+  }
+  if (record.dependencies !== undefined) {
+    validateDependencyDeclaration(record.dependencies, declarationPointer(pointer, "dependencies"), "dependencies", nativeHost);
+  }
+  if (record.policy !== undefined) {
+    const policy = nonEmptyRecord(record.policy, declarationPointer(pointer, "policy"), `${field}.policy`);
+    requireKnownKey(policy, new Set(["installation", "authentication"]), declarationPointer(pointer, "policy"), `${field}.policy`);
+  }
+}
+
+function validateDependencyItem(
+  value: JsonValue,
+  pointer: string,
+  field: string,
+  nativeHost: NativeHost,
+  identityProvidedByKey = false,
+): void {
+  if (typeof value === "string") {
+    validateNonEmptyString(value, pointer, field);
+    return;
+  }
+  if (isJsonRecord(value)) {
+    validateDependencyRecord(value, pointer, field, nativeHost, identityProvidedByKey);
+    return;
+  }
+  invalidDeclaration(pointer, `${field} item must be a non-empty string or recognized object record`);
+}
+
+function validateDependencyDeclaration(
+  value: JsonValue,
+  pointer: string,
+  field: string,
+  nativeHost: NativeHost,
+): void {
+  if (typeof value === "string") {
+    validateNonEmptyString(value, pointer, field);
+    return;
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      invalidDeclaration(pointer, `${field} must not be empty`);
+    }
+    for (const [index, item] of value.entries()) {
+      validateDependencyItem(item, declarationPointer(pointer, index), field, nativeHost);
+    }
+    return;
+  }
+  const record = nonEmptyRecord(value, pointer, field);
+  const knownKeys = field === "plugins" ? shapeFor(nativeHost).pluginKeys : shapeFor(nativeHost).dependencyKeys;
+  if (hasKnownKey(record, knownKeys)) {
+    validateDependencyRecord(record, pointer, field, nativeHost);
+    return;
+  }
+  // A map keyed by package/plugin name is a supported foreign shorthand. Its
+  // keys are dynamic, but every value still has a concrete string or record
+  // shape; `{name: {mystery: true}}` therefore fails at the nested record.
+  for (const [key, item] of Object.entries(record)) {
+    const itemPointer = declarationPointer(pointer, key);
+    if (key.length === 0) {
+      invalidDeclaration(itemPointer, `${field} contains an empty dependency key`);
+    }
+    validateDependencyItem(item, itemPointer, field, nativeHost, true);
+  }
+}
+
 /**
- * Validate the structural shape of known declarations without interpreting
- * their host-specific meaning. A declaration is retained verbatim only after
- * its complete nested value has passed the field-specific boundary check.
+ * Validate known declarations at the format boundary. The host-specific shape
+ * registries deliberately recognize documented fields while allowing extra
+ * fields on an otherwise anchored record, so forward-compatible foreign data
+ * is retained without allowing empty or unknown-only runtime records through.
  */
 export function validateKnownDeclaration(
+  nativeHost: NativeHost,
   field: MarketplaceEntryDeclarationField,
   value: JsonValue,
   pointer: string,
@@ -628,21 +980,18 @@ export function validateKnownDeclaration(
       validateStringList(value, pointer, field);
       return;
     case "hooks":
-      validateRuntimeMap(value, pointer, field);
+      validateHooks(value, pointer, field, nativeHost);
       return;
     case "mcpServers":
     case "lspServers":
-      validateServerMap(value, pointer, field);
+      validateServerMap(value, pointer, field, nativeHost);
       return;
     case "settings":
-      if (!isJsonRecord(value)) {
-        invalidDeclaration(pointer, `${field} must be an object`);
-      }
-      validateNestedJson(value, pointer, field, true);
+      validateSettingObject(value, pointer, field, nativeHost);
       return;
     case "dependencies":
     case "plugins":
-      validateDependencyList(value, pointer, field);
+      validateDependencyDeclaration(value, pointer, field, nativeHost);
       return;
     default:
       throw new Error(`Unhandled marketplace declaration field: ${field}`);
@@ -675,7 +1024,7 @@ export function collectEntryDeclarations(
       throw entryError("ENTRY_INVALID", `${entryPointer}/${jsonPointer(field).slice(1)}`, `${field} is invalid`);
     }
     const pointer = `${entryPointer}/${jsonPointer(field).slice(1)}`;
-    validateKnownDeclaration(field, value, pointer);
+    validateKnownDeclaration(nativeHost, field, value, pointer);
     declarations.push({
       nativeHost,
       category: MarketplaceEntryDeclarationRegistry[field].category,

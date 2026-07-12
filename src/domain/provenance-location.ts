@@ -13,17 +13,22 @@ export const SourceDocumentKindSchema = z.enum([
 ]);
 export type SourceDocumentKind = z.infer<typeof SourceDocumentKindSchema>;
 
+const JsonPointerSchema = z.string().refine(
+  (value) =>
+    value === "" ||
+    /^\/(?:[^~/]|~[01])*(?:\/(?:[^~/]|~[01])*)*$/.test(value),
+  "JSON Pointer must use RFC 6901 reference-token escaping",
+);
+
 export const SourceLocationSchema = z
   .object({
     host: NativeHostSchema,
     documentKind: SourceDocumentKindSchema,
     path: z.string().min(1),
-    // RFC 6901 uses the empty string for the document root. A non-root
-    // pointer must begin with `/`; `/` addresses an empty property name.
-    pointer: z.string().refine(
-      (value) => value === "" || value.startsWith("/"),
-      "JSON Pointer must be empty for the document root or begin with `/`",
-    ).optional(),
+    // RFC 6901 uses the empty string for the document root. In non-root
+    // pointers every `~` must begin a `~0` or `~1` escape; `/` separates
+    // reference tokens and an empty token is valid (`/`).
+    pointer: JsonPointerSchema.optional(),
     line: z.number().int().positive().optional(),
     column: z.number().int().positive().optional(),
   })

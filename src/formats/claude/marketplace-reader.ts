@@ -168,13 +168,26 @@ function requireSourceString(value: JsonValue | undefined, field: string, pointe
   return value;
 }
 
-const GitHubRepositoryShorthand = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
+// GitHub's documented shorthand grammar is intentionally lexical: owner
+// names are usernames/org slugs (ASCII alphanumerics and single hyphens),
+// while repository names additionally permit `_` and `.`. This validates the
+// host's name grammar without turning catalog ingestion into a network lookup.
+const GitHubOwner = /^(?=.{1,39}$)(?!-)(?!.*--)[A-Za-z0-9-]+(?<!-)$/;
+const GitHubRepositoryName = /^(?=.{1,100}$)(?!\.)(?!.*\.$)[A-Za-z0-9._-]+$/;
 
 function requireGithubRepository(value: JsonValue | undefined, pointer: string): string {
   const repository = requireSourceString(value, "repo", pointer);
-  const repositoryName = repository.slice(repository.indexOf("/") + 1);
-  if (!GitHubRepositoryShorthand.test(repository) || repositoryName.endsWith(".git")) {
-    throw sourceFailure(pointer, "repo must be exactly owner/repository without .git, extra segments, or URL syntax");
+  const slash = repository.indexOf("/");
+  const owner = slash < 0 ? "" : repository.slice(0, slash);
+  const repositoryName = slash < 0 ? "" : repository.slice(slash + 1);
+  if (
+    slash <= 0 ||
+    repository.indexOf("/", slash + 1) !== -1 ||
+    !GitHubOwner.test(owner) ||
+    !GitHubRepositoryName.test(repositoryName) ||
+    repositoryName.toLowerCase().endsWith(".git")
+  ) {
+    throw sourceFailure(pointer, "repo must be exactly owner/repository with GitHub owner and repository names, without .git or URL syntax");
   }
   return repository;
 }

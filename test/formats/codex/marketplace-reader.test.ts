@@ -83,6 +83,58 @@ describe("Codex marketplace reader", () => {
     ]);
   });
 
+  it("validates Codex nested runtime and dependency records without losing supported shapes", () => {
+    const result = readCodexMarketplace({
+      name: "codex-declaration-shapes",
+      plugins: [
+        { name: "empty-hooks", source: "./empty-hooks", policy: { installation: "AVAILABLE" }, hooks: { SessionStart: [] } },
+        { name: "unknown-server", source: "./unknown-server", policy: { installation: "AVAILABLE" }, mcpServers: { main: { mystery: true } } },
+        { name: "bad-dependency", source: "./bad-dependency", policy: { installation: "AVAILABLE" }, dependencies: { runtime: {} } },
+        {
+          name: "valid",
+          source: "./valid",
+          policy: { installation: "AVAILABLE" },
+          hooks: { SessionStart: [{ type: "command", command: "echo ready" }] },
+          mcpServers: {
+            main: {
+              command: "node",
+              args: ["server.js"],
+              http_headers: { Authorization: "Bearer token" },
+              startup_timeout_sec: 5,
+            },
+          },
+          dependencies: { "runtime-helper": "^1.0.0" },
+          plugins: [{ name: "nested-plugin", source: "./nested-plugin" }],
+        },
+        { name: "sibling", source: "./sibling", policy: { installation: "NOT_AVAILABLE" } },
+      ],
+    });
+
+    expect(result.marketplace.entries.map((entry) => entry.identity.value.marketplaceEntryName)).toEqual([
+      "valid",
+      "sibling",
+    ]);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.location?.pointer)).toEqual([
+      "/plugins/0/hooks/SessionStart",
+      "/plugins/1/mcpServers/main",
+      "/plugins/2/dependencies/runtime",
+    ]);
+    const valid = result.marketplace.entries[0]!;
+    expect(valid.declarations.map((declaration) => declaration.field)).toEqual([
+      "hooks",
+      "mcpServers",
+      "dependencies",
+      "plugins",
+    ]);
+    expect(valid.declarations[1]?.declaration.value).toMatchObject({
+      main: { command: "node", http_headers: { Authorization: "Bearer token" } },
+    });
+    expect(valid.declarations[1]?.declaration.provenance[0]).toMatchObject({
+      location: { pointer: "/plugins/3/mcpServers" },
+      declaration: { main: { command: "node", args: ["server.js"], http_headers: { Authorization: "Bearer token" }, startup_timeout_sec: 5 } },
+    });
+  });
+
   it("normalizes repository subdirectory aliases while retaining raw spelling", () => {
     const result = readCodexMarketplace({
       name: "codex-catalog",
