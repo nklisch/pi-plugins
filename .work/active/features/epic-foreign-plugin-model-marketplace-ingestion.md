@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-domain-contracts]
@@ -417,4 +417,4 @@ Integrated verification: `npm test` passes 174 tests plus typecheck, dependency 
 
 ## Review findings
 
-The first four hardening stories close reader, declaration, RFC 6901, host, grammar, pointer-identity, and direct-merge findings. Certification then reproduced incomplete provenance for paths derived from `metadata.pluginRoot` and silent loss of conflicting declarations at one location. They are tracked by `epic-foreign-plugin-model-marketplace-ingestion-review-hardening-5`; the feature remains at `stage: implementing` until both close.
+The first four hardening stories close reader, declaration, RFC 6901, host, grammar, pointer-identity, and direct-merge findings. Certification then found incomplete derived-path provenance and silent conflicting-declaration loss; `epic-foreign-plugin-model-marketplace-ingestion-review-hardening-5` is now done and closes both with complete root-plus-entry provenance and typed same-location conflicts. Independent integrated verification passes 234 tests plus typecheck, 156 dependency edges with no violations, build, and the exact 94-export package allowlist. The feature returns to `stage: review` for final confirmation.
