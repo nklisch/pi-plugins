@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores-installed-project
 kind: story
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-state-schemas-stores
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores-scope-versioning]
@@ -54,3 +54,13 @@ Authoritative revision evidence directly reuses `Resolved*Source`, `NormalizedPl
 - Tests added: canonical evidence/binding/reference integrity, user/project isolation, project context binding, strict state envelopes, corruption isolation, duplicate quarantine, and lifecycle-payload exclusion tests.
 - Discrepancies from design: none; constructor-only scope metadata is stripped from persisted records and is used solely to derive scope-bound logical references.
 - Adjacent issues parked: none.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane installed/project-state review. Independently confirmed 396 tests, clean typecheck and dependency boundaries, build, and exact 131-export package import. Verdict: Approve - story verified by implement; fast-lane advance.
