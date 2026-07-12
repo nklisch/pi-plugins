@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model
 kind: epic
-stage: review
+stage: done
 tags: [compatibility, infra]
 parent: null
 depends_on: []
@@ -76,4 +76,14 @@ Integrated verification: `npm test` passes 352 tests plus clean typecheck and de
 
 ## Review findings
 
-The epic review-hardening story is done. Inspection now applies materialization's exact selector precedence for Git and Git-subdirectory sources: explicit SHA, otherwise SHA-shaped ref, otherwise immutable named-ref resolution. End-to-end regressions cover both bypass forms and valid cases. Independent integrated verification passes 354 tests plus clean typecheck and dependency boundaries, build, and exact 131-export package import. The epic returns to `stage: review` for final certification.
+The epic review-hardening story is done. Inspection now applies materialization's exact selector precedence for Git and Git-subdirectory sources: explicit SHA, otherwise SHA-shaped ref, otherwise immutable named-ref resolution. End-to-end regressions cover both bypass forms and valid cases. Independent integrated verification passes 354 tests plus clean typecheck and dependency boundaries, build, and exact 131-export package import.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Full epic two-model convergence. GLM 5.2 completeness and GPT-5.6 Sol contract-quality certifications independently reproduced the pinned-revision bypasses and approved current HEAD. Both Git source kinds reject wrong explicit-SHA and SHA-ref revisions, accept valid exact/named-ref resolutions, and preserve the aggregate catalog→materialization→inspection→compatibility contracts. Full suite: 354 tests, clean typecheck and dependency boundaries, build, exact 131-export package import.
