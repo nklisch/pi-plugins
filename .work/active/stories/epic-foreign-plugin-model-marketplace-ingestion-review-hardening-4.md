@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion-review-hardening-4
 kind: story
-stage: implementing
+stage: review
 tags: [compatibility, security, tests]
 parent: epic-foreign-plugin-model-marketplace-ingestion
 depends_on: [epic-foreign-plugin-model-marketplace-ingestion-review-hardening-3]
@@ -27,7 +27,17 @@ Close two residual merger-boundary failures reproduced after nested-policy harde
 
 ## Acceptance criteria
 
-- [ ] Missing pointer, root pointer `""`, and empty-property pointer `/` remain distinct provenance claims.
-- [ ] Direct entry merging rejects every host-mismatched claim surface and forged metadata key.
-- [ ] Valid direct entry merges remain deterministic and schema-valid.
-- [ ] Full `npm test`, build, boundaries, and compiled package import pass.
+- [x] Missing pointer, root pointer `""`, and empty-property pointer `/` remain distinct provenance claims.
+- [x] Direct entry merging rejects every host-mismatched claim surface and forged metadata key.
+- [x] Valid direct entry merges remain deterministic and schema-valid.
+- [x] Full `npm test`, build, boundaries, and compiled package import pass.
+
+## Implementation notes
+
+- Reproduced the omitted-pointer/`/` collision and direct source-provenance forgery with regression tests before applying fixes.
+- Made location keys injective with explicit JSON encoding for optional pointer, line, and column fields.
+- Centralized complete entry host binding for catalog and public direct-entry merges, covering nested claims, authority/declaration host labels, metadata keys, and catalog diagnostics.
+- Added exhaustive direct claim-surface and pointer-distinction tests in `test/formats/marketplace-merger.test.ts`.
+- Files changed: `src/formats/marketplace-merger.ts`, `test/formats/marketplace-merger.test.ts`, this story.
+- Verification: `npm test` passed 223 tests, typecheck, dependency boundaries, build, and compiled package import; independent build/import verification also passed.
+- Deviations: none. No source materialization or later ingestion surfaces were changed.

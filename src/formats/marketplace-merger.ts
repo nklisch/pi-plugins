@@ -103,14 +103,18 @@ function hostRank(host: NativeHost): number {
 }
 
 function locationKey(location: SourceLocation): string {
-  return [
-    String(hostRank(location.host)).padStart(2, "0"),
+  // Encode optional fields explicitly. In particular, an omitted pointer is
+  // not the same location as the RFC 6901 root ("") or an empty-property
+  // pointer ("/"). JSON array encoding keeps the key injective even when a
+  // path or pointer contains the old delimiter character.
+  return stableJson([
+    location.host,
     location.documentKind,
     location.path,
-    location.pointer ?? "/",
-    String(location.line ?? 0).padStart(10, "0"),
-    String(location.column ?? 0).padStart(10, "0"),
-  ].join("\u0000");
+    location.pointer === undefined ? null : location.pointer,
+    location.line === undefined ? null : location.line,
+    location.column === undefined ? null : location.column,
+  ]);
 }
 
 function provenanceKey(provenance: Provenance): string {
@@ -405,15 +409,14 @@ export function mergeMarketplaceEntries(
   const name = MarketplaceNameSchema.parse(marketplaceName) as MarketplaceName;
   const left = NormalizedMarketplaceEntrySchema.parse(leftInput) as NormalizedMarketplaceEntry;
   const right = NormalizedMarketplaceEntrySchema.parse(rightInput) as NormalizedMarketplaceEntry;
+  // Unlike mergeMarketplaces, this public entry-level API has no catalog
+  // label to trust. Bind each input to the host declared by its identity and
+  // reject any cross-host claim before ordering or merging it.
+  assertEntryHost(entryHost(left), left, "left", ENTRY_OPERATION);
+  assertEntryHost(entryHost(right), right, "right", ENTRY_OPERATION);
   const [first, second] = normalizeEntryPair(left, right);
   const plugin = first.identity.value.key;
 
-  for (const [index, metadata] of first.metadata.entries()) {
-    assertMetadataHost(entryHost(first), metadata, `left.metadata[${index}]`);
-  }
-  for (const [index, metadata] of second.metadata.entries()) {
-    assertMetadataHost(entryHost(second), metadata, `right.metadata[${index}]`);
-  }
   assertIdentity(name, first, second);
 
   const sourceLeft = normalizePluginSource(first.source);
@@ -499,11 +502,12 @@ function hostMismatch(
   nativeHost: NativeHost,
   subject: string,
   actualHost: unknown,
+  operation = OPERATION,
 ): never {
   throw new BoundaryError({
     code: ErrorCodeRegistry.marketplaceRootInvalid,
-    operation: OPERATION,
-    message: `Marketplace catalog input host does not match ${subject}`,
+    operation,
+    message: `Marketplace input host does not match ${subject}`,
     details: {
       expectedHost: nativeHost,
       actualHost: actualHost === undefined ? null : String(actualHost),
@@ -516,10 +520,11 @@ function assertProvenanceHost(
   nativeHost: NativeHost,
   provenance: readonly Provenance[],
   subject: string,
+  operation = OPERATION,
 ): void {
   for (const [index, claim] of provenance.entries()) {
     if (claim.location.host !== nativeHost) {
-      hostMismatch(nativeHost, `${subject}.provenance[${index}]`, claim.location.host);
+      hostMismatch(nativeHost, `${subject}.provenance[${index}]`, claim.location.host, operation);
     }
   }
 }
@@ -528,12 +533,62 @@ function assertMetadataHost(
   nativeHost: NativeHost,
   metadata: RetainedMetadata,
   subject: string,
+  operation = OPERATION,
 ): void {
   const expectedPrefix = `${nativeHost}.`;
   if (!metadata.key.startsWith(expectedPrefix) || metadata.key.length === expectedPrefix.length) {
-    hostMismatch(nativeHost, `${subject}.key`, metadata.key);
+    hostMismatch(nativeHost, `${subject}.key`, metadata.key, operation);
   }
-  assertProvenanceHost(nativeHost, metadata.claimed.provenance, `${subject}.claimed`);
+  assertProvenanceHost(nativeHost, metadata.claimed.provenance, `${subject}.claimed`, operation);
+}
+
+/**
+ * Bind every claim on a normalized entry to one native host. Catalog inputs
+ * supply the expected host externally; direct entry callers do not, so their
+ * identity provenance supplies it and every other claim is checked against
+ * that binding before any reconciliation occurs.
+ */
+function assertEntryHost(
+  nativeHost: NativeHost,
+  entry: NormalizedMarketplaceEntry,
+  subject: string,
+  operation = OPERATION,
+): void {
+  assertProvenanceHost(nativeHost, entry.identity.provenance, `${subject}.identity`, operation);
+  assertProvenanceHost(nativeHost, entry.source.provenance, `${subject}.source`, operation);
+  if (entry.version !== undefined) {
+    assertProvenanceHost(nativeHost, entry.version.provenance, `${subject}.version`, operation);
+  }
+  if (entry.description !== undefined) {
+    assertProvenanceHost(nativeHost, entry.description.provenance, `${subject}.description`, operation);
+  }
+  if (entry.policy !== undefined) {
+    assertProvenanceHost(nativeHost, entry.policy.availability.provenance, `${subject}.policy.availability`, operation);
+    if (entry.policy.authentication !== undefined) {
+      assertProvenanceHost(nativeHost, entry.policy.authentication.provenance, `${subject}.policy.authentication`, operation);
+    }
+    assertProvenanceHost(nativeHost, entry.policy.declaration.provenance, `${subject}.policy.declaration`, operation);
+  }
+  for (const [index, authority] of entry.authorities.entries()) {
+    if (authority.nativeHost !== nativeHost) {
+      hostMismatch(nativeHost, `${subject}.authorities[${index}].nativeHost`, authority.nativeHost, operation);
+    }
+    if (authority.strict !== undefined) {
+      assertProvenanceHost(nativeHost, authority.strict.provenance, `${subject}.authorities[${index}].strict`, operation);
+    }
+    assertProvenanceHost(nativeHost, authority.manifest.provenance, `${subject}.authorities[${index}].manifest`, operation);
+    assertProvenanceHost(nativeHost, authority.catalogRuntime.provenance, `${subject}.authorities[${index}].catalogRuntime`, operation);
+  }
+  for (const [index, declaration] of entry.declarations.entries()) {
+    if (declaration.nativeHost !== nativeHost) {
+      hostMismatch(nativeHost, `${subject}.declarations[${index}].nativeHost`, declaration.nativeHost, operation);
+    }
+    assertProvenanceHost(nativeHost, declaration.declaration.provenance, `${subject}.declarations[${index}].declaration`, operation);
+  }
+  for (const [index, metadata] of entry.metadata.entries()) {
+    assertMetadataHost(nativeHost, metadata, `${subject}.metadata[${index}]`, operation);
+  }
+  assertProvenanceHost(nativeHost, entry.rawDeclaration.provenance, `${subject}.rawDeclaration`, operation);
 }
 
 function assertCatalogHost(
@@ -559,42 +614,7 @@ function assertCatalogHost(
     assertMetadataHost(nativeHost, metadata, `metadata[${index}]`);
   }
   for (const [index, entry] of result.marketplace.entries.entries()) {
-    const subject = `entries[${index}]`;
-    for (const authority of entry.authorities) {
-      if (authority.nativeHost !== nativeHost) {
-        hostMismatch(nativeHost, `${subject}.authorities`, authority.nativeHost);
-      }
-      if (authority.strict !== undefined) {
-        assertProvenanceHost(nativeHost, authority.strict.provenance, `${subject}.authority.strict`);
-      }
-      assertProvenanceHost(nativeHost, authority.manifest.provenance, `${subject}.authority.manifest`);
-      assertProvenanceHost(nativeHost, authority.catalogRuntime.provenance, `${subject}.authority.catalogRuntime`);
-    }
-    assertProvenanceHost(nativeHost, entry.identity.provenance, `${subject}.identity`);
-    assertProvenanceHost(nativeHost, entry.source.provenance, `${subject}.source`);
-    if (entry.version !== undefined) {
-      assertProvenanceHost(nativeHost, entry.version.provenance, `${subject}.version`);
-    }
-    if (entry.description !== undefined) {
-      assertProvenanceHost(nativeHost, entry.description.provenance, `${subject}.description`);
-    }
-    if (entry.policy !== undefined) {
-      assertProvenanceHost(nativeHost, entry.policy.availability.provenance, `${subject}.policy.availability`);
-      if (entry.policy.authentication !== undefined) {
-        assertProvenanceHost(nativeHost, entry.policy.authentication.provenance, `${subject}.policy.authentication`);
-      }
-      assertProvenanceHost(nativeHost, entry.policy.declaration.provenance, `${subject}.policy.declaration`);
-    }
-    for (const [declarationIndex, declaration] of entry.declarations.entries()) {
-      if (declaration.nativeHost !== nativeHost) {
-        hostMismatch(nativeHost, `${subject}.declarations[${declarationIndex}]`, declaration.nativeHost);
-      }
-      assertProvenanceHost(nativeHost, declaration.declaration.provenance, `${subject}.declarations[${declarationIndex}]`);
-    }
-    for (const [metadataIndex, metadata] of entry.metadata.entries()) {
-      assertMetadataHost(nativeHost, metadata, `${subject}.metadata[${metadataIndex}]`);
-    }
-    assertProvenanceHost(nativeHost, entry.rawDeclaration.provenance, `${subject}.rawDeclaration`);
+    assertEntryHost(nativeHost, entry, `entries[${index}]`);
   }
 }
 

@@ -143,6 +143,142 @@ describe("dual marketplace merger", () => {
       path: "plugin",
     });
     expect(merged.source.provenance.map((claim) => claim.location.host)).toEqual(["claude", "codex"]);
+    expect(mergeMarketplaceEntries("shared-catalog", right, left)).toEqual(merged);
+  });
+
+  it.each([
+    [undefined, ""],
+    [undefined, "/"],
+    ["", "/"],
+  ] as const)("keeps provenance pointers distinct: %s vs %s", (leftPointer, rightPointer) => {
+    const base = readClaudeMarketplace({
+      name: "shared-catalog",
+      plugins: [{ name: "shared", source: "./shared" }],
+    }).marketplace.entries[0]!;
+    const withSourcePointer = (pointer: string | undefined) => {
+      const sourceProvenance = base.source.provenance[0]!;
+      const { pointer: _pointer, ...locationWithoutPointer } = sourceProvenance.location;
+      return {
+        ...base,
+        source: {
+          ...base.source,
+          provenance: [{
+            ...sourceProvenance,
+            location: pointer === undefined
+              ? locationWithoutPointer
+              : { ...locationWithoutPointer, pointer },
+          }],
+        },
+      };
+    };
+
+    const merged = mergeMarketplaceEntries(
+      "shared-catalog",
+      withSourcePointer(leftPointer),
+      withSourcePointer(rightPointer),
+    );
+    expect(merged.source.provenance).toHaveLength(2);
+    expect(merged.source.provenance.map((claim) => claim.location.pointer)).toEqual(
+      expect.arrayContaining([leftPointer, rightPointer]),
+    );
+  });
+
+  it("rejects every direct-entry host-forged claim surface", () => {
+    const left = readClaudeMarketplace({
+      name: "shared-catalog",
+      plugins: [{
+        name: "shared",
+        source: "./shared",
+        version: "1.2.3",
+        description: "Shared plugin",
+        policy: { installation: "AVAILABLE", authentication: "oauth" },
+        strict: false,
+        skills: ["./skills"],
+        dependencies: ["runtime-helper"],
+        displayName: "Shared",
+      }],
+    }).marketplace.entries[0]!;
+    const right = readCodexMarketplace({
+      name: "shared-catalog",
+      plugins: [{
+        name: "shared",
+        source: { source: "local", path: "./shared" },
+        version: "1.2.3",
+        description: "Shared plugin",
+        policy: { installation: "AVAILABLE", authentication: "oauth" },
+        dependencies: ["runtime-helper"],
+      }],
+    }).marketplace.entries[0]!;
+
+    const forgeClaim = <T extends { readonly provenance: readonly { readonly location: { readonly host: string } }[] }>(claim: T): T => ({
+      ...claim,
+      provenance: claim.provenance.map((provenance) => ({
+        ...provenance,
+        location: { ...provenance.location, host: "codex" as const },
+      })),
+    }) as T;
+    const replaceAuthority = (
+      entry: typeof left,
+      replace: (authority: typeof left.authorities[number]) => typeof left.authorities[number],
+    ) => ({
+      ...entry,
+      authorities: [replace(entry.authorities[0]!)],
+    });
+    const replacePolicy = (
+      entry: typeof left,
+      replace: (policy: NonNullable<typeof left.policy>) => NonNullable<typeof left.policy>,
+    ) => ({ ...entry, policy: replace(entry.policy!) });
+    const replaceDeclaration = (
+      entry: typeof left,
+      replace: (declaration: typeof left.declarations[number]) => typeof left.declarations[number],
+    ) => ({
+      ...entry,
+      declarations: [replace(entry.declarations[0]!)],
+    });
+    const cases: readonly [string, (entry: typeof left) => typeof left][] = [
+      ["identity provenance", (entry) => ({ ...entry, identity: forgeClaim(entry.identity) })],
+      ["source provenance", (entry) => ({ ...entry, source: forgeClaim(entry.source) })],
+      ["version provenance", (entry) => ({ ...entry, version: forgeClaim(entry.version!) })],
+      ["description provenance", (entry) => ({ ...entry, description: forgeClaim(entry.description!) })],
+      ["policy availability provenance", (entry) => replacePolicy(entry, (policy) => ({ ...policy, availability: forgeClaim(policy.availability) }))],
+      ["policy authentication provenance", (entry) => replacePolicy(entry, (policy) => ({ ...policy, authentication: forgeClaim(policy.authentication!) }))],
+      ["policy declaration provenance", (entry) => replacePolicy(entry, (policy) => ({ ...policy, declaration: forgeClaim(policy.declaration) }))],
+      ["authority strict provenance", (entry) => replaceAuthority(entry, (authority) => ({ ...authority, strict: forgeClaim(authority.strict!) }))],
+      ["authority manifest provenance", (entry) => replaceAuthority(entry, (authority) => ({ ...authority, manifest: forgeClaim(authority.manifest) }))],
+      ["authority runtime provenance", (entry) => replaceAuthority(entry, (authority) => ({ ...authority, catalogRuntime: forgeClaim(authority.catalogRuntime) }))],
+      ["authority host", (entry) => replaceAuthority(entry, (authority) => {
+        const { strict: _strict, ...withoutStrict } = authority;
+        return {
+          ...withoutStrict,
+          nativeHost: "codex" as const,
+          manifest: { ...authority.manifest, value: "required" as const },
+          catalogRuntime: { ...authority.catalogRuntime, value: "supplemental" as const },
+        };
+      })],
+      ["declaration provenance", (entry) => replaceDeclaration(entry, (declaration) => ({ ...declaration, declaration: forgeClaim(declaration.declaration) }))],
+      ["declaration host", (entry) => replaceDeclaration(entry, (declaration) => ({ ...declaration, nativeHost: "codex" as const }))],
+      ["raw declaration provenance", (entry) => ({ ...entry, rawDeclaration: forgeClaim(entry.rawDeclaration) })],
+      ["metadata provenance", (entry) => ({ ...entry, metadata: [{ ...entry.metadata[0]!, claimed: forgeClaim(entry.metadata[0]!.claimed) }] })],
+      ["metadata key", (entry) => ({ ...entry, metadata: [{ ...entry.metadata[0]!, key: "codex.displayName" }] })],
+    ];
+
+    for (const [surface, forge] of cases) {
+      expect(() => mergeMarketplaceEntries("shared-catalog", forge(left), right), surface)
+        .toThrowError(BoundaryError);
+    }
+  });
+
+  it("binds catalog diagnostics to their native host before merging", () => {
+    const invalid = claudeCatalog([{ name: "invalid", source: { source: "unsupported" } }]);
+    const diagnostic = invalid.diagnostics[0]!;
+    const forged = {
+      ...invalid,
+      diagnostics: [{
+        ...diagnostic,
+        location: { ...diagnostic.location!, host: "codex" as const },
+      }],
+    };
+    expect(() => mergeMarketplaces([{ nativeHost: "claude", result: forged }])).toThrowError(BoundaryError);
   });
 
   it("drops only conflicting overlaps and keeps valid siblings", () => {
