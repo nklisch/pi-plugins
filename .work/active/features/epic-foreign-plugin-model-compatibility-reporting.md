@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-compatibility-reporting
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-plugin-bundle-ingestion]
@@ -411,3 +411,15 @@ The first story stabilizes the registry and pure decision contract. The second o
 This design fails if one normalized component disappears from the report, a runtime outage changes a component verdict, unknown hook/MCP behavior is accepted, a probe error becomes a false incompatibility report, or diagnostics echo raw secrets. The countermeasures are the one-assessment-per-flattened-component assertion, separate complete capability snapshot, registry default-deny rules, a thrown adapter boundary, and safe detail builders tested with canary secrets.
 
 The least recoverable error would be duplicating activatability logic outside `deriveActivatable` and allowing it to drift. The evaluator therefore derives once and immediately validates through `createCompatibilityReport`. If any policy shape cannot be grounded in the normalized bundle, the safe fallback is an explicit incompatible verdict plus a separately tracked ingestion-contract change—not optimistic support and not lifecycle probing.
+
+## Implementation summary
+
+All three child stories are done:
+
+- `epic-foreign-plugin-model-compatibility-reporting-policy-evaluator`
+- `epic-foreign-plugin-model-compatibility-reporting-capability-service`
+- `epic-foreign-plugin-model-compatibility-reporting-contract-hardening`
+
+The implementation delivers registry-driven capability and policy semantics, exhaustive one-assessment-per-component evaluation, fail-closed hook/MCP/foreign handling, deterministic requirement availability and safe diagnostics, a narrow capability probe/service boundary, and executable fixtures for every documented compatibility row. It does not own trust, activation, runtime adapters, lifecycle, configuration collection, or UI.
+
+Integrated verification: `npm test` passes 347 tests plus clean typecheck and dependency boundaries, build, and exact 131-export package import.
