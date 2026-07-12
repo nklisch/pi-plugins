@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-domain-contracts]
@@ -527,3 +527,16 @@ Operations are stable strings: `materializeMarketplace`, `materializePlugin`, `c
 ## Pre-mortem
 
 This feature fails catastrophically if an archive writes outside staging, a moving/ambiguous Git name is recorded as immutable identity, npm bytes are extracted before their required integrity passes, or lifecycle promotes bytes that differ from the inspected tree. The design makes one sink own every write, treats resolved Git SHA and npm version+SHA-512 as identity, verifies npm before extraction, and returns a deterministic tree digest for promotion-time verification. It also fails operationally if cancellation leaves attacker-controlled partial content that recovery mistakes for complete; therefore success is the only path that removes scratch and returns a manifest, while every other path cleans the slot and returns no handoff.
+
+## Implementation summary
+
+All four child stories are done:
+
+- `epic-foreign-plugin-model-source-materialization-secure-content-contract`
+- `epic-foreign-plugin-model-source-materialization-git-acquisition`
+- `epic-foreign-plugin-model-source-materialization-npm-acquisition`
+- `epic-foreign-plugin-model-source-materialization-integration-hardening`
+
+The implementation delivers the deterministic content-manifest and lifecycle handoff, one hardened write/extraction policy, deterministic archive-only Git acquisition, direct integrity-verified npm acquisition with no scripts, and a Node composition root covering every source form. Lifecycle cache, state, promotion, locking, journaling, rollback, recovery, and collection remain outside this feature.
+
+Integrated verification: `npm test` passes 176 tests plus typecheck, 152 dependency edges with no violations, build, and exact 91-export compiled package import.
