@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion-claude-reader
 kind: story
-stage: implementing
+stage: review
 tags: [compatibility]
 parent: epic-foreign-plugin-model-marketplace-ingestion
 depends_on: [epic-foreign-plugin-model-marketplace-ingestion-domain-contracts]
@@ -23,12 +23,23 @@ The reader validates relative path syntax only. It must not access the filesyste
 
 ## Acceptance criteria
 
-- [ ] String path, GitHub, URL Git, Git-subdirectory, and npm declarations map exactly to domain `PluginSource` forms with raw provenance.
-- [ ] Root-fatal and entry-recoverable outcomes match the parent matrix; raw JSON syntax maps to typed `MARKETPLACE_ROOT_INVALID` with native cause retained only on the thrown error.
-- [ ] Claude strict default/true and false produce the designed authority metadata with auditable provenance.
-- [ ] Malformed nested runtime/dependency fields drop the whole entry; siblings survive and no partial entry is emitted.
-- [ ] JSON Pointers are RFC 6901 escaped and every claim preserves its raw declaration.
-- [ ] The real-shaped `nklisch-skills` fixture and adversarial fixture suite pass without Node or outer-layer imports.
+- [x] String path, GitHub, URL Git, Git-subdirectory, and npm declarations map exactly to domain `PluginSource` forms with raw provenance.
+- [x] Root-fatal and entry-recoverable outcomes match the parent matrix; raw JSON syntax maps to typed `MARKETPLACE_ROOT_INVALID` with native cause retained only on the thrown error.
+- [x] Claude strict default/true and false produce the designed authority metadata with auditable provenance.
+- [x] Malformed nested runtime/dependency fields drop the whole entry; siblings survive and no partial entry is emitted.
+- [x] JSON Pointers are RFC 6901 escaped and every claim preserves its raw declaration.
+- [x] The real-shaped `nklisch-skills` fixture and adversarial fixture suite pass without Node or outer-layer imports.
+
+## Implementation notes
+
+- Files changed: `src/formats/marketplace-reader-support.ts`, `src/formats/claude/marketplace-reader.ts`, `test/formats/claude/marketplace-reader.test.ts`, `test/fixtures/marketplaces/claude-valid.json`, `test/fixtures/marketplaces/claude-partial.json`.
+- Tests added: Claude source-form mapping, strict authority/default provenance, RFC 6901 pointers, policy/runtime retention, root boundary errors, and atomic malformed-entry recovery.
+- Discrepancies from design: Git subdirectory paths accept both documented `plugin` and `./plugin` forms; the verified `nklisch-skills` catalog uses the former.
+- Adjacent issues parked: none.
+
+## Verification
+
+- `npm test` — 13 test files, 127 tests passed; typecheck, dependency boundaries, build, and compiled export allowlist passed.
 
 ## Design source
 
