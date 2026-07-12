@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets-secret-custody
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-trust-config-secrets
 depends_on: [epic-transactional-plugin-lifecycle-trust-config-secrets-value-validation]
@@ -44,4 +44,13 @@ Implement Unit 3 of the parent feature: redacted native-private sensitive values
 - [ ] A stale writer cannot mutate active config or old secrets.
 - [ ] All failure/results/log spies remain secret-free; wrappers always redact.
 - [ ] Port conformance proves missing versus adapter failure and abort propagation.
-- [ ] No credential backend, state mutation, prompt, runtime activation, or journal is implemented.
+- [x] No credential backend, state mutation, prompt, runtime activation, or journal is implemented.
+
+## Implementation notes
+- Execution capability: direct host implementation; the cross-store replacement state machine owns one coherent write/CAS/cleanup sequence.
+- Review weight: standard, caller requested the implementing-to-review boundary.
+- Files changed: `src/application/sensitive-value.ts`, `src/application/configuration-service.ts`, `src/application/ports/plugin-configuration-store.ts`, `src/application/ports/secret-store.ts`, `src/application/ports/configuration-write-id.ts`, shared secret-store contract tests, and service tests.
+- Tests added: fresh-locator write-before-CAS, stale cleanup, superseded cleanup, post-CAS cleanup-required result, explicit deletion confirmation, partial removal, redaction, and missing/found/removal port conformance.
+- Discrepancies from design: adapter failures are represented as safe `BoundaryError` values for save-side adapter calls and locator-only partial results for removal cleanup; neither retains native causes.
+- Adjacent issues parked: none.
+- Verification: `npm run typecheck`; `npm run boundaries`; targeted sensitive-value, configuration-service, and secret-store contract tests.
