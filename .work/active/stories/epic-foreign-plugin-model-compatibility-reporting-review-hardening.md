@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-compatibility-reporting-review-hardening
 kind: story
-stage: review
+stage: done
 tags: [compatibility, tests]
 parent: epic-foreign-plugin-model-compatibility-reporting
 depends_on: [epic-foreign-plugin-model-compatibility-reporting-contract-hardening]
@@ -45,3 +45,13 @@ Resolve all accepted blocker and important findings from the compatibility-repor
 - Verification: `npm test` passed (51 files, 348 tests, typecheck, dependency boundaries, build, and compiled package import); independent `npm run build && node test/compiled-package-import.mjs` passed (131 exports).
 - Discrepancies from design: the existing evaluator implementation was completed in place; nested MCP diagnostics now identify the exact JSON-pointer field, and false async flags remain valid while true/non-boolean ordering declarations fail closed.
 - Adjacent issues parked: none.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane semantic-hardening review. Independently confirmed 348 tests, clean typecheck and dependency boundaries, build, and exact 131-export package import. Verdict: Approve - story verified by implement; fast-lane advance.
