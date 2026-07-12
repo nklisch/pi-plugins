@@ -26,11 +26,20 @@ import {
   HookHandlerSchema,
   HookHandlerVariantRegistry,
   JsonValueSchema,
+  MarketplaceAvailabilityRegistry,
+  MarketplaceAvailabilitySchema,
+  MarketplaceAuthoritySchema,
+  MarketplaceDeclarationCategoryRegistry,
+  MarketplaceEntryDeclarationSchema,
+  MarketplaceInstallationPolicySchema,
   MarketplaceNameSchema,
+  MarketplaceReadResultSchema,
   MarketplaceSourceSchema,
   MarketplaceSourceVariantRegistry,
   McpServerComponentSchema,
   NativeHostSchema,
+  NormalizedMarketplaceEntrySchema,
+  NormalizedMarketplaceSchema,
   NormalizedPluginSchema,
   NpmIntegritySchema,
   PluginComponentsSchema,
@@ -89,10 +98,17 @@ import {
   type HookComponent,
   type HookHandler,
   type JsonValue,
+  type MarketplaceAuthority,
+  type MarketplaceAvailability,
+  type MarketplaceEntryDeclaration,
+  type MarketplaceInstallationPolicy,
   type MarketplaceName,
+  type MarketplaceReadResult,
   type MarketplaceSource,
   type McpServerComponent,
   type NativeHost,
+  type NormalizedMarketplace,
+  type NormalizedMarketplaceEntry,
   type NormalizedPlugin,
   type NpmIntegrity,
   type PluginComponents,
@@ -146,11 +162,20 @@ describe("explicit package API", () => {
       HookComponentSchema,
       HookHandlerSchema,
       HookHandlerVariantRegistry,
+      MarketplaceAvailabilityRegistry,
+      MarketplaceAvailabilitySchema,
+      MarketplaceAuthoritySchema,
+      MarketplaceDeclarationCategoryRegistry,
+      MarketplaceEntryDeclarationSchema,
+      MarketplaceInstallationPolicySchema,
       MarketplaceNameSchema,
+      MarketplaceReadResultSchema,
       MarketplaceSourceSchema,
       MarketplaceSourceVariantRegistry,
       McpServerComponentSchema,
       NativeHostSchema,
+      NormalizedMarketplaceEntrySchema,
+      NormalizedMarketplaceSchema,
       NormalizedPluginSchema,
       NpmIntegritySchema,
       PluginComponentsSchema,
@@ -215,10 +240,17 @@ describe("explicit package API", () => {
     expectTypeOf<HookComponent>().toEqualTypeOf<z.infer<typeof HookComponentSchema>>();
     expectTypeOf<HookHandler>().toEqualTypeOf<z.infer<typeof HookHandlerSchema>>();
     expectTypeOf<JsonValue>().toEqualTypeOf<z.infer<typeof JsonValueSchema>>();
+    expectTypeOf<MarketplaceAuthority>().toEqualTypeOf<z.infer<typeof MarketplaceAuthoritySchema>>();
+    expectTypeOf<MarketplaceAvailability>().toEqualTypeOf<z.infer<typeof MarketplaceAvailabilitySchema>>();
+    expectTypeOf<MarketplaceEntryDeclaration>().toEqualTypeOf<z.infer<typeof MarketplaceEntryDeclarationSchema>>();
+    expectTypeOf<MarketplaceInstallationPolicy>().toEqualTypeOf<z.infer<typeof MarketplaceInstallationPolicySchema>>();
     expectTypeOf<MarketplaceName>().toEqualTypeOf<z.infer<typeof MarketplaceNameSchema>>();
+    expectTypeOf<MarketplaceReadResult>().toEqualTypeOf<z.infer<typeof MarketplaceReadResultSchema>>();
     expectTypeOf<MarketplaceSource>().toEqualTypeOf<z.infer<typeof MarketplaceSourceSchema>>();
     expectTypeOf<McpServerComponent>().toEqualTypeOf<z.infer<typeof McpServerComponentSchema>>();
     expectTypeOf<NativeHost>().toEqualTypeOf<z.infer<typeof NativeHostSchema>>();
+    expectTypeOf<NormalizedMarketplace>().toEqualTypeOf<z.infer<typeof NormalizedMarketplaceSchema>>();
+    expectTypeOf<NormalizedMarketplaceEntry>().toEqualTypeOf<z.infer<typeof NormalizedMarketplaceEntrySchema>>();
     expectTypeOf<NormalizedPlugin>().toEqualTypeOf<z.infer<typeof NormalizedPluginSchema>>();
     expectTypeOf<NpmIntegrity>().toEqualTypeOf<z.infer<typeof NpmIntegritySchema>>();
     expectTypeOf<PluginComponents>().toEqualTypeOf<z.infer<typeof PluginComponentsSchema>>();

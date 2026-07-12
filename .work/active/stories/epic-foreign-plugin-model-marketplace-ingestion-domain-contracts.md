@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion-domain-contracts
 kind: story
-stage: implementing
+stage: review
 tags: [compatibility]
 parent: epic-foreign-plugin-model-marketplace-ingestion
 depends_on: []
@@ -32,3 +32,15 @@ Update `src/index.ts`, `test/public-api.test.ts`, and `test/compiled-package-imp
 ## Design source
 
 Implement Parent Feature Units 1 and the exact contracts under `## Implementation units`. If an implementation detail must change, preserve schema-first SSOT, unresolved/resolved separation, per-claim provenance, and the public allowlist, then record the deviation here.
+
+## Implementation notes
+
+- Added `src/domain/marketplace.ts` with schema-derived unresolved marketplace, entry, policy, authority, declaration, and read-result contracts.
+- Authority refinement enforces Claude strict/default semantics, Claude `strict: false`, and Codex required/supplemental semantics while rejecting Codex strictness.
+- Marketplace and entry refinements enforce root identity agreement, duplicate entry keys, duplicate authority hosts, and duplicate retained metadata keys. Declared `PluginSource` remains distinct from resolved plugin sources.
+- Added explicit source and compiled-package exports plus focused domain contract coverage. No format, infrastructure, application, runtime, Pi, or Node imports were added.
+
+## Verification
+
+- `npm test` — 12 test files, 123 tests passed; typecheck, dependency boundaries, build, and compiled export allowlist passed.
+- Compiled package allowlist contains 81 intended runtime exports.

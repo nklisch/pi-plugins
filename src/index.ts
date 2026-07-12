@@ -115,6 +115,27 @@ export { NormalizedPluginSchema } from "./domain/plugin.js";
 export type { NormalizedPlugin } from "./domain/plugin.js";
 
 export {
+  MarketplaceAvailabilityRegistry,
+  MarketplaceAvailabilitySchema,
+  MarketplaceInstallationPolicySchema,
+  MarketplaceAuthoritySchema,
+  MarketplaceDeclarationCategoryRegistry,
+  MarketplaceEntryDeclarationSchema,
+  NormalizedMarketplaceEntrySchema,
+  NormalizedMarketplaceSchema,
+  MarketplaceReadResultSchema,
+} from "./domain/marketplace.js";
+export type {
+  MarketplaceAvailability,
+  MarketplaceInstallationPolicy,
+  MarketplaceAuthority,
+  MarketplaceEntryDeclaration,
+  NormalizedMarketplaceEntry,
+  NormalizedMarketplace,
+  MarketplaceReadResult,
+} from "./domain/marketplace.js";
+
+export {
   ComponentVerdictRegistry,
   RuntimeRequirementStatusRegistry,
   RuntimeRequirementIdSchema,
