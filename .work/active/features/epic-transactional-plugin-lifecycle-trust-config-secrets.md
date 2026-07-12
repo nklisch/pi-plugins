@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets
 kind: feature
-stage: review
+stage: implementing
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -523,6 +523,10 @@ Implementation remained host-local as requested; no agents or worktree isolation
 - `eb328af` — contract hardening
 
 Verification is green: full `npm test` completed strict production/test typechecking, dependency-cruiser, 76 Vitest files with 457 passing tests, a clean build, and the compiled ESM 293-export allowlist/import check. `.work/bin/work-view` was preserved and its pre-existing working-tree modification was not staged.
+
+## Review findings
+
+Deep GLM 5.2 and GPT-5.6 Sol review accepted seven required fixes: stale removal could delete an actively referenced credential; resolver callbacks could return plaintext; project scope/root provenance was forgeable; cancellation could orphan new credentials; adapter output was not runtime validated; unknown keys leaked through serialized errors; and untrusted regexes allowed catastrophic backtracking. These are tracked by `epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening`; the feature remains at `stage: implementing` until all close.
 
 ## Testing
 
