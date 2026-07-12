@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-compatibility-reporting-review-hardening-2
 kind: story
-stage: review
+stage: done
 tags: [compatibility, tests]
 parent: epic-foreign-plugin-model-compatibility-reporting
 depends_on: [epic-foreign-plugin-model-compatibility-reporting-review-hardening]
@@ -43,3 +43,13 @@ Close two residual MCP default-deny failures reproduced by final compatibility c
 - Verification: `npm test` passed (51 files, 350 tests, typecheck, dependency boundaries, build, and compiled package import); independent `npm run build && node test/compiled-package-import.mjs` passed (131 exports).
 - Files changed: `src/domain/compatibility-evaluator.ts`, `src/domain/compatibility-policy.ts`, `test/domain/compatibility-evaluator.test.ts`, `test/domain/compatibility-table-contract.test.ts`, and `test/fixtures/compatibility/mcp.ts`.
 - `.work/bin/work-view` was intentionally excluded from this story commit.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane MCP credential-semantics review. Independently confirmed 350 tests, clean typecheck and dependency boundaries, build, and exact 131-export package import. Verdict: Approve - story verified by implement; fast-lane advance.
