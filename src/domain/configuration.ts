@@ -67,7 +67,7 @@ const ConfigurationValueUnionSchema = z.discriminatedUnion(
 );
 type ConfigurationValueDescriptor = z.infer<typeof ConfigurationValueUnionSchema>;
 
-const ConfigurationKeySchema = z
+export const ConfigurationKeySchema = z
   .string()
   .regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
 
