@@ -469,7 +469,11 @@ interface LifecycleStateStore {
 }
 ```
 
-Reads and writes are schema-validated. Mutations replace one or more documents
+Reads and writes are schema-validated. Structural mutation schemas are
+unverified input contracts; `parseStateMutation(input, sha256)` is the only
+verifier factory and returns an opaque mutation accepted by the store port. It
+recomputes canonical evidence, logical references, scope, and generation
+bindings before branding that value. Mutations replace one or more documents
 against an expected generation and return a typed stale-generation result
 rather than overwriting newer state. The port does not prescribe storage,
 paths, locks, transaction callbacks, fsync/rename, secret storage, trust

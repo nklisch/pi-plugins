@@ -579,11 +579,17 @@ export type {
 } from "./domain/state/codec.js";
 
 export {
+  UserStateMutationInputSchema,
+  ProjectStateMutationInputSchema,
+  StateMutationInputSchema,
+  // These compatibility names are structural input schemas, not verified
+  // mutation constructors.
   UserStateMutationSchema,
   ProjectStateMutationSchema,
   StateMutationSchema,
   parseStateMutation,
   validateStateMutation,
+  isVerifiedStateMutation,
   StateLoadFailureSchema,
 } from "./application/state-contract.js";
 export type {
@@ -592,6 +598,11 @@ export type {
   UserGenerationSnapshot,
   ProjectGenerationSnapshot,
   GenerationSnapshot,
+  UserStateMutationInput,
+  ProjectStateMutationInput,
+  StateMutationInput,
+  UnverifiedStateMutation,
+  VerifiedStateMutation,
   StateMutation,
   StateCommitResult,
   StateLoadResult,

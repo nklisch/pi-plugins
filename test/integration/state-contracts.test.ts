@@ -13,7 +13,7 @@ import {
   PortableProjectDeclarationSchemaV1,
   ProjectLocalStateDocumentSchemaV1,
   StatePointersDocumentSchemaV1,
-  StateMutationSchema,
+  StateMutationInputSchema,
   StateCodecError,
   TrustStateDocumentSchemaV1,
   createContentManifest,
@@ -27,6 +27,7 @@ import {
   encodeStateDocument,
   hashContent,
   parsePortableProjectDeclaration,
+  isVerifiedStateMutation,
   parseStateMutation,
   type Generation,
   type LifecycleStateStore,
@@ -37,7 +38,7 @@ import {
   type Sha256,
   type StateCommitResult,
   type StateLoadResult,
-  type StateMutation as StateMutationType,
+  type VerifiedStateMutation as VerifiedStateMutationType,
   type UserGenerationSnapshot,
 } from "../../src/index.js";
 import { NormalizedPluginSchema } from "../../src/domain/plugin.js";
@@ -225,9 +226,12 @@ class FakeLifecycleStateStore implements LifecycleStateStore {
     return { ok: true, snapshot: this.project };
   }
 
-  async commit(mutation: StateMutationType, signal: AbortSignal): Promise<StateCommitResult> {
+  async commit(mutation: VerifiedStateMutationType, signal: AbortSignal): Promise<StateCommitResult> {
     if (signal.aborted) throw signal.reason;
-    const validated = parseStateMutation(StateMutationSchema.parse(mutation), sha256);
+    if (!isVerifiedStateMutation(mutation)) {
+      throw new TypeError("lifecycle state store requires a verified mutation");
+    }
+    const validated = mutation;
     if (validated.scope.kind === "user") {
       if (validated.expectedGeneration !== this.user.generation) {
         return { kind: "stale-generation", expected: validated.expectedGeneration, actual: this.user.generation };
@@ -384,29 +388,44 @@ describe("state contract integration", () => {
       .not.toBe(project.snapshot.project.plugins[0]!.revisions[0]!.dataRef);
 
     const nextConfig = { ...user.snapshot.config, records: user.snapshot.config.records.map((record) => ({ ...record, updateApplication: "automatic" as const })) };
-    const committed = await store.commit({
+    const committed = await store.commit(parseStateMutation({
       scope: userScope,
       expectedGeneration: user.snapshot.generation,
       replace: { config: nextConfig },
-    }, controller.signal);
+    }, sha256), controller.signal);
     expect(committed.kind).toBe("committed");
     if (committed.kind !== "committed" || committed.snapshot.scope.kind !== "user") throw new Error("user commit failed");
     expect(committed.snapshot.generation).toBe(1);
     expect(committed.snapshot.installed.plugins).toHaveLength(1);
-    expect((await store.commit({
+    expect((await store.commit(parseStateMutation({
       scope: userScope,
       expectedGeneration: 0,
       replace: { config: nextConfig },
-    }, controller.signal)).kind).toBe("stale-generation");
+    }, sha256), controller.signal)).kind).toBe("stale-generation");
 
-    const projectMutation: StateMutationType = {
+    const projectMutation = parseStateMutation({
       scope: projectScope,
       expectedGeneration: project.snapshot.generation,
       replace: { project: project.snapshot.project },
-    };
+    }, sha256);
     const projectCommit = await store.commit(projectMutation, controller.signal);
     expect(projectCommit.kind).toBe("committed");
     expect((await store.read(userScope, controller.signal)).ok).toBe(true);
+  });
+
+  it("rejects a structurally valid but unverified mutation at the store boundary", async () => {
+    const store = new FakeLifecycleStateStore();
+    const controller = new AbortController();
+    const structural = StateMutationInputSchema.parse({
+      scope: userScope,
+      expectedGeneration: 0,
+      replace: { config: makeUserSnapshot(0).config },
+    });
+    expect(isVerifiedStateMutation(structural)).toBe(false);
+    await expect(store.commit(
+      structural as unknown as VerifiedStateMutationType,
+      controller.signal,
+    )).rejects.toThrow("verified mutation");
   });
 
   it("propagates cancellation from the port without converting it to state corruption", async () => {
@@ -415,11 +434,11 @@ describe("state contract integration", () => {
     const reason = new Error("cancelled by caller");
     controller.abort(reason);
     await expect(store.read(userScope, controller.signal)).rejects.toBe(reason);
-    await expect(store.commit({
+    await expect(store.commit(parseStateMutation({
       scope: userScope,
       expectedGeneration: 0,
       replace: { config: makeUserSnapshot(0).config },
-    }, controller.signal)).rejects.toBe(reason);
+    }, sha256), controller.signal)).rejects.toBe(reason);
   });
 
   it("keeps fixture migration inputs and state serialization free of operational canaries", async () => {

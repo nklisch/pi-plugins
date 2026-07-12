@@ -26,6 +26,7 @@ import {
   ProjectIdentitySchema,
   ProjectKeySchema,
   ScopeContextSchema,
+  createScopeContext,
   type ScopeContext,
 } from "../domain/state/scope.js";
 import {
@@ -77,7 +78,12 @@ const ProjectReplacementSchema = z
   })
   .strict();
 
-export const UserStateMutationSchema = z
+/**
+ * Untrusted structural input for a user mutation. Parsing this schema only
+ * checks shape; it does not verify canonical evidence or produce a value that
+ * a LifecycleStateStore may accept.
+ */
+export const UserStateMutationInputSchema = z
   .object({
     scope: z.object({ kind: z.literal("user") }).strict().readonly(),
     expectedGeneration: GenerationSchema,
@@ -104,8 +110,10 @@ export const UserStateMutationSchema = z
       }
     }
   });
+export type UserStateMutationInput = z.infer<typeof UserStateMutationInputSchema>;
 
-export const ProjectStateMutationSchema = z
+/** Untrusted structural input for a project mutation. */
+export const ProjectStateMutationInputSchema = z
   .object({
     scope: z
       .object({
@@ -143,10 +151,62 @@ export const ProjectStateMutationSchema = z
       });
     }
   });
+export type ProjectStateMutationInput = z.infer<typeof ProjectStateMutationInputSchema>;
 
-/** Schema-derived replacement contract. No next generation or pointer is accepted. */
-export const StateMutationSchema = z.union([UserStateMutationSchema, ProjectStateMutationSchema]);
-export type StateMutation = z.infer<typeof StateMutationSchema>;
+/** The complete untrusted structural mutation contract. */
+export const StateMutationInputSchema = z.union([
+  UserStateMutationInputSchema,
+  ProjectStateMutationInputSchema,
+]);
+export type StateMutationInput = z.infer<typeof StateMutationInputSchema>;
+export type UnverifiedStateMutation = StateMutationInput;
+
+/**
+ * Compatibility names for the structural schemas. Their inferred output is
+ * intentionally UnverifiedStateMutation, never the store-facing type.
+ */
+export const UserStateMutationSchema = UserStateMutationInputSchema;
+export const ProjectStateMutationSchema = ProjectStateMutationInputSchema;
+export const StateMutationSchema = StateMutationInputSchema;
+
+/**
+ * This compile-time symbol is deliberately module-private. TypeScript callers
+ * cannot manufacture the store-facing type by parsing a public structural
+ * schema. Runtime membership is held separately in a private WeakSet so an
+ * ordinary caller cannot discover and copy a brand property.
+ */
+declare const verifiedStateMutationBrand: unique symbol;
+const verifiedStateMutations = new WeakSet<object>();
+
+export type VerifiedStateMutation = UnverifiedStateMutation & {
+  readonly [verifiedStateMutationBrand]: true;
+};
+
+/** The mutation type accepted by the lifecycle state port. */
+export type StateMutation = VerifiedStateMutation;
+
+function deepFreeze(value: unknown, seen = new WeakSet<object>()): void {
+  if ((typeof value !== "object" && typeof value !== "function") || value === null) return;
+  const object = value as object;
+  if (seen.has(object)) return;
+  seen.add(object);
+  for (const key of Reflect.ownKeys(object)) {
+    const descriptor = Object.getOwnPropertyDescriptor(object, key);
+    if (descriptor?.value !== undefined) deepFreeze(descriptor.value, seen);
+  }
+  Object.freeze(object);
+}
+
+function brandVerifiedStateMutation(mutation: UnverifiedStateMutation): StateMutation {
+  deepFreeze(mutation);
+  verifiedStateMutations.add(mutation);
+  return mutation as StateMutation;
+}
+
+/** Runtime guard for adapters and fakes at the untyped boundary. */
+export function isVerifiedStateMutation(input: unknown): input is StateMutation {
+  return typeof input === "object" && input !== null && verifiedStateMutations.has(input);
+}
 
 export type StateCommitResult =
   | Readonly<{ kind: "committed"; snapshot: GenerationSnapshot }>
@@ -181,26 +241,33 @@ function sameJson(left: unknown, right: unknown): boolean {
 }
 
 /**
- * Parse a mutation only with an injected verifier. The schema is the shape
- * gate; constructors are the cross-field and canonical-evidence gate. There is
- * deliberately no unverified overload for adapter callers to accidentally use.
+ * The only constructor for a store-facing mutation. Structural parsing is
+ * deliberately performed first, then every evidence-bearing replacement is
+ * rebuilt through its SHA-256-aware constructor before the opaque brand is
+ * attached.
  */
 export function parseStateMutation(input: unknown, sha256: Sha256): StateMutation {
   if (typeof sha256 !== "function") throw new TypeError("state mutation parsing requires a SHA-256 verifier");
-  const mutation = StateMutationSchema.parse(input);
-  const scope = ScopeContextSchema.parse(mutation.scope);
-  if ("project" in mutation.replace) {
+  const mutation = StateMutationInputSchema.parse(input);
+  if (mutation.scope.kind === "project") {
+    const scope = createScopeContext(mutation.scope, sha256);
     if (scope.kind !== "project") throw new Error("project replacement requires project scope");
-    return {
+    if (!("project" in mutation.replace)) throw new Error("project scope requires a project replacement");
+    return brandVerifiedStateMutation({
       ...mutation,
+      scope,
       replace: {
         project: createProjectLocalStateDocument(mutation.replace.project, scope, sha256),
       },
-    } as StateMutation;
+    });
   }
+  const scope = createScopeContext(mutation.scope, sha256);
+  if (scope.kind !== "user") throw new Error("user mutation requires user scope");
+  if ("project" in mutation.replace) throw new Error("project replacement requires project scope");
   const replace = mutation.replace;
-  return {
+  return brandVerifiedStateMutation({
     ...mutation,
+    scope,
     replace: {
       ...(replace.config === undefined ? {} : { config: HostConfigDocumentSchemaV1.parse(replace.config) }),
       ...(replace.installed === undefined ? {} : { installed: createInstalledUserStateDocument(replace.installed, sha256) }),
@@ -211,10 +278,10 @@ export function parseStateMutation(input: unknown, sha256: Sha256): StateMutatio
         }),
       }),
     },
-  } as StateMutation;
+  });
 }
 
-/** Explicit validation spelling for adapter implementations. */
+/** Explicit verifier spelling retained for adapter code; SHA-256 is mandatory. */
 export const validateStateMutation = parseStateMutation;
 
 /** Validate a failed load result without accepting an empty corruption list. */

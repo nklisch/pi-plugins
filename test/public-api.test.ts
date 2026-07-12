@@ -166,6 +166,7 @@ import {
   ProjectLocalStateDocumentSchema,
   ProjectLocalStateDocumentSchemaV1,
   ProjectLocalStateSchemaFamily,
+  ProjectStateMutationInputSchema,
   ProjectStateMutationSchema,
   ReferenceIdentitySchema,
   ScopeContextSchema,
@@ -179,6 +180,7 @@ import {
   StateDocumentPointerSchema,
   StateDocumentRegistry,
   StateLoadFailureSchema,
+  StateMutationInputSchema,
   StateMutationSchema,
   StatePointersDocumentSchema,
   StatePointersDocumentSchemaV1,
@@ -194,6 +196,7 @@ import {
   TrustSubjectEvidenceSchema,
   TrustSubjectRefSchema,
   UpdateApplicationPreferenceSchema,
+  UserStateMutationInputSchema,
   UserStateMutationSchema,
   assertPortableProjectDeclarationSafe,
   createInstalledPluginRecord,
@@ -226,6 +229,7 @@ import {
   isSafePortableRelativePath,
   migrateVersionedDocument,
   parsePortableProjectDeclaration,
+  isVerifiedStateMutation,
   parseStateMutation,
   stateDocumentKinds,
   toScopeReference,
@@ -247,6 +251,11 @@ import {
   type ProjectLocalStateDocumentV1,
   type PortableProjectDeclarationV1,
   type StateDocumentByKind,
+  type UserStateMutationInput,
+  type ProjectStateMutationInput,
+  type StateMutationInput,
+  type UnverifiedStateMutation,
+  type VerifiedStateMutation,
   type StateMutation,
   type StateCommitResult,
   type StateLoadResult,
@@ -514,6 +523,7 @@ describe("explicit package API", () => {
       ProjectLocalStateDocumentSchema,
       ProjectLocalStateDocumentSchemaV1,
       ProjectLocalStateSchemaFamily,
+      ProjectStateMutationInputSchema,
       ProjectStateMutationSchema,
       ReferenceIdentitySchema,
       ScopeContextSchema,
@@ -527,6 +537,7 @@ describe("explicit package API", () => {
       StateDocumentPointerSchema,
       StateDocumentRegistry,
       StateLoadFailureSchema,
+      StateMutationInputSchema,
       StateMutationSchema,
       StatePointersDocumentSchema,
       StatePointersDocumentSchemaV1,
@@ -542,6 +553,7 @@ describe("explicit package API", () => {
       TrustSubjectEvidenceSchema,
       TrustSubjectRefSchema,
       UpdateApplicationPreferenceSchema,
+      UserStateMutationInputSchema,
       UserStateMutationSchema,
       assertPortableProjectDeclarationSafe,
       createInstalledPluginRecord,
@@ -574,6 +586,7 @@ describe("explicit package API", () => {
       isSafePortableRelativePath,
       migrateVersionedDocument,
       parsePortableProjectDeclaration,
+      isVerifiedStateMutation,
       parseStateMutation,
       stateDocumentKinds,
       toScopeReference,
@@ -677,7 +690,10 @@ describe("explicit package API", () => {
     expectTypeOf<StatePointersDocumentV1>().toEqualTypeOf<z.infer<typeof StatePointersDocumentSchemaV1>>();
     expectTypeOf<TrustStateDocumentV1>().toEqualTypeOf<z.infer<typeof TrustStateDocumentSchemaV1>>();
     expectTypeOf<StateDocumentByKind<"hostConfig">>().toEqualTypeOf<HostConfigDocumentV1>();
-    expectTypeOf<StateMutation>().toEqualTypeOf<z.infer<typeof StateMutationSchema>>();
+    expectTypeOf<UnverifiedStateMutation>().toEqualTypeOf<z.infer<typeof StateMutationInputSchema>>();
+    expectTypeOf<StateMutationInput>().toEqualTypeOf<UnverifiedStateMutation>();
+    expectTypeOf<StateMutation>().toEqualTypeOf<VerifiedStateMutation>();
+    expectTypeOf<UnverifiedStateMutation>().not.toMatchTypeOf<StateMutation>();
     expectTypeOf<StateCommitResult>().toMatchTypeOf<{ kind: "committed" | "stale-generation" }>();
     expectTypeOf<StateLoadResult>().toMatchTypeOf<{ ok: boolean }>();
     expectTypeOf<UserGenerationSnapshot>().toMatchTypeOf<{ generation: Generation }>();

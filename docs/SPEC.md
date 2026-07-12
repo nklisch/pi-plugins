@@ -361,11 +361,15 @@ filesystem path. Project keys bind the canonical project root and repository
 identity when available, while path-only identity is explicit and limited.
 
 The `LifecycleStateStore` port accepts validated reads and expected-generation
-replacements. It exposes no storage technology, path layout, lock primitive,
-transaction callback, trust policy, secret store, promotion operation,
-projection content, journal, or recovery payload. Those concerns remain
-late-bound to their owning lifecycle features. Adapters may choose a durable
-representation without changing this contract.
+replacements only as opaque mutations produced by `parseStateMutation(input,
+sha256)`. Structural mutation schemas are unverified input contracts and cannot
+satisfy the store port; the verifier recomputes canonical evidence, logical
+references, scope, and generation bindings before the mutation is accepted. The
+port exposes no storage technology, path layout, lock primitive, transaction
+callback, trust policy, secret store, promotion operation, projection content,
+journal, or recovery payload. Those concerns remain late-bound to their owning
+lifecycle features. Adapters may choose a durable representation without
+changing this contract.
 
 Portable `.pi/plugins.json` remains an all-or-nothing declaration containing
 only marketplace sources, requested plugin identities, constraints, and enabled
