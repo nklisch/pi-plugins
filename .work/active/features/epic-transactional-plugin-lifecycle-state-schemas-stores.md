@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores
 kind: feature
-stage: review
+stage: implementing
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: []
@@ -640,4 +640,4 @@ Integrated verification: `npm test` passes 425 tests plus clean typecheck and de
 
 ## Review findings
 
-Both review-hardening stories are done. Structural mutation input can no longer satisfy the store port, no public schema can mint the verified brand, and `parseStateMutation(input, sha256)` is the mandatory canonical-evidence boundary. The feature returns to `stage: review` for final confirmation.
+The first two review-hardening stories close the state and verified-mutation boundaries. Final completeness confirmation found `tsconfig.test.json` inherited `rootDir: "src"`, causing Vitest to skip real test-file typechecking while reporting no type errors. `epic-transactional-plugin-lifecycle-state-schemas-stores-review-hardening-3` tracks restoration of the verification pipeline and all surfaced strict test errors; the feature remains at `stage: implementing` until it closes.
