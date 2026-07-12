@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-generation-locking-guarded-window
 kind: story
-stage: review
+stage: done
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-generation-locking
 depends_on: [epic-transactional-plugin-lifecycle-generation-locking-contracts-scheduler]
@@ -51,3 +51,13 @@ Use deterministic fakes to assert exact call order and held ownership, then run 
 - Adjacent issues parked: none.
 
 Verification completed: `npm run typecheck`, `npm run boundaries`, and scheduler/SQLite/coordinator focused tests (`19 passed`). The repository-wide test typecheck still reports pre-existing unrelated branded-type failures in configuration/trust tests; no coordinator test failure was introduced.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane independent verification confirmed 478 tests, real production/test typechecking, clean dependency boundaries, build, and exact 298-export package import. Verdict: Approve - story verified by implement; fast-lane advance.

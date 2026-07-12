@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-generation-locking-contract-hardening
 kind: story
-stage: review
+stage: done
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-generation-locking
 depends_on: [epic-transactional-plugin-lifecycle-generation-locking-sqlite-scope-lock, epic-transactional-plugin-lifecycle-generation-locking-guarded-window]
@@ -50,3 +50,13 @@ Run the full global suite plus direct test typecheck and repeat the race-focused
 - Adjacent issues parked: none.
 
 Verification completed: full `npm test` passed: strict production typecheck, dependency boundaries, 80 Vitest files / 478 tests with no type errors, build, and compiled package import (298 exports). Focused coordination/integration checks also passed.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane independent verification confirmed 478 tests, real production/test typechecking, clean dependency boundaries, build, and exact 298-export package import. Verdict: Approve - story verified by implement; fast-lane advance.
