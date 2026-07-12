@@ -42,3 +42,26 @@ This epic does not add new foreign component types or weaken compatibility valid
 - diagnostics, non-interactive behavior, packaging, and clean-environment end-to-end acceptance
 
 <!-- The design pass on each child feature will fill in real specifics. -->
+
+## Design decisions
+
+- **Default manager entry**: `/plugin` opens on the installed-plugin overview. Marketplace browsing remains an adjacent manager view rather than the default landing surface.
+- **Manager composition**: Use the split-inspector direction: a persistent plugin list beside detailed health, revision, component, and lifecycle information. This preserves context while supporting fast keyboard navigation.
+- **Installation journey**: Use a three-step sequence — choose and inspect, combined configuration and trust, then activation result. This favors a shorter committed path over a five-step wizard.
+- **Trust disclosure**: Lead with a concise risk summary and keep exact skill paths, hook commands, MCP processes, endpoints, and revision changes expandable one level beneath it.
+- **Update visibility**: Emit one calm Pi notification for each newly discovered revision and retain an update-count badge in the manager until the update is resolved.
+- **Visual integration**: The production manager owns no palette or font. It consumes Pi's active semantic theme and terminal typography. The static mocks use the operator's current Catppuccin Mocha setup, with Latte as the light reference, solely to approximate Pi outside the TUI.
+- **Discovery posture**: Direct-read only — this is a greenfield presentation surface with behavior already constrained by the foundation documents; interactive mockups provide the needed alignment signal.
+
+## Mockups
+
+- Design system: `.mockups/design-system/`
+  - Palette: active Pi semantic theme; Catppuccin Latte/Mocha static reference
+  - Typography: inherited Pi terminal monospace
+  - Tokens locked: 2026-07-11
+- Manager screens: `.mockups/screens/epic-native-plugin-management-manager/index.html`
+  - Selected: option 1, Split inspector — 2026-07-11
+- Install flow: `.mockups/flows/plugin-install/index.html`
+  - Steps: `01-choose-inspect` → `02-configure-trust` → `03-activation-result`
+  - Topology: sequential
+  - Signed off: 2026-07-11
