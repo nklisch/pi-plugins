@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion-codex-reader
 kind: story
-stage: review
+stage: done
 tags: [compatibility]
 parent: epic-foreign-plugin-model-marketplace-ingestion
 depends_on: [epic-foreign-plugin-model-marketplace-ingestion-domain-contracts]
@@ -41,6 +41,16 @@ Share pure path and JSON Pointer support with the Claude reader; do not import t
 
 - Focused Codex reader tests — 4 tests passed.
 - `npm test` before final bundle verification — 14 test files, 131 tests passed; typecheck, dependency boundaries, build, and compiled export allowlist passed.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane story review. Integrated verification with both readers independently passed `npm test`: 131 tests, typecheck, dependency boundaries, build, and exact 81-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
 
 ## Design source
 
