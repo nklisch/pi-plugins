@@ -126,6 +126,7 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     id: "mcp-features-core",
     ruleId: "mcp.features.core",
     positive: () => directPlugin({ components: { mcpServers: [
+      // Stdio keeps only process and transport-independent MCP fields.
       mcp({
         transport: "stdio",
         command: "server",
@@ -137,18 +138,22 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
         denyTools: ["delete"],
         instructions: "Use read-only tools",
         resources: ["docs"],
-        headers: { Authorization: "CANARY_HEADER_VALUE" },
-        auth: { type: "bearer", env: "TOKEN" },
       }, "b"),
-      // A deliberately minimal bearer-only declaration keeps this positive
-      // fixture independent from the core feature fields above.
+      // HTTP headers and bearer authentication remain supported on the
+      // Streamable HTTP transport, while values stay outside reports.
       mcp({
         transport: "streamable-http",
         url: "https://example.invalid/bearer-only",
+        headers: { Authorization: "CANARY_HEADER_VALUE" },
         auth: { type: "bearer", env: "MCP_BEARER_TOKEN" },
       }, "b2"),
     ] } }),
-    negative: baseline,
+    negative: () => directPlugin({ components: { mcpServers: [
+      mcp({ transport: "stdio", command: "server", url: "https://example.invalid/mcp" }, "burl"),
+      mcp({ transport: "stdio", command: "server", headers: { Authorization: "CANARY_HEADER_VALUE" } }, "bheaders"),
+      mcp({ transport: "stdio", command: "server", auth: { type: "bearer", env: "CANARY_BEARER_ENV" } }, "bauth"),
+      mcp({ transport: "stdio", command: "server", oauth: { grantType: "authorization-code", clientId: "client" } }, "boauth"),
+    ] } }),
     positiveVerdict: "supported",
     positiveExpected: expectedOutcome(["supported", "supported"], true, {
       requirements: [
@@ -156,8 +161,15 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
         expectedRequirement("mcp-server", "b2", "pi.mcp.runtime"),
       ],
     }),
-    negativeExpected: expectedOutcome(["supported"], true, {
-      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+    negativeExpected: expectedOutcome(["incompatible", "incompatible", "incompatible", "incompatible"], false, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["mcp.default-deny", "mcp.default-deny", "mcp.default-deny", "mcp.default-deny"],
+      diagnosticSourcePointers: [
+        "/mcpServers/server-burl/url",
+        "/mcpServers/server-bheaders/headers",
+        "/mcpServers/server-bauth/auth",
+        "/mcpServers/server-boauth/oauth",
+      ],
     }),
   },
   {
@@ -227,7 +239,7 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
   {
     id: "mcp-headers-helper",
     ruleId: "mcp.headers-helper",
-    positive: () => directPlugin({ components: { mcpServers: [mcp({ transport: "stdio", command: "server", headersHelper: "CANARY_HELPER" }, "10")] } }),
+    positive: () => directPlugin({ components: { mcpServers: [mcp({ transport: "streamable-http", url: "https://example.invalid/mcp", headersHelper: "CANARY_HELPER" }, "10")] } }),
     negative: baseline,
     positiveVerdict: "incompatible",
     diagnosticRuleId: "mcp.headers-helper",
@@ -243,7 +255,7 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
   {
     id: "mcp-channels",
     ruleId: "mcp.channels",
-    positive: () => directPlugin({ components: { mcpServers: [mcp({ transport: "stdio", command: "server", channels: ["CANARY_CHANNEL"] }, "11")] } }),
+    positive: () => directPlugin({ components: { mcpServers: [mcp({ transport: "streamable-http", url: "https://example.invalid/mcp", channels: ["CANARY_CHANNEL"] }, "11")] } }),
     negative: baseline,
     positiveVerdict: "incompatible",
     diagnosticRuleId: "mcp.channels",
@@ -311,18 +323,22 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
         "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION",
         "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION",
         "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION",
-        "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION",
+        "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION",
+        "UNSUPPORTED_DECLARATION",
       ],
       diagnosticRuleIds: [
         "mcp.default-deny", "mcp.default-deny", "mcp.default-deny", "mcp.default-deny",
         "mcp.default-deny", "mcp.default-deny", "mcp.default-deny", "mcp.default-deny",
-        "mcp.default-deny", "mcp.default-deny", "mcp.transport.sse",
+        "mcp.default-deny", "mcp.default-deny", "mcp.default-deny", "mcp.default-deny",
+        "mcp.transport.sse",
       ],
       diagnosticSourcePointers: [
         "/mcpServers/server-12/unknownBehavior",
         "/mcpServers/server-13/oauth",
         "/mcpServers/server-14/features/sampling/enabled",
+        "/mcpServers/server-15/transport",
         "/mcpServers/server-15/type",
+        "/mcpServers/server-15/url",
         "/mcpServers/server-16/features/sampling/futureFlag",
         "/mcpServers/server-17/auth",
         "/mcpServers/server-17/url",
@@ -345,11 +361,15 @@ export const mcpIngestionFixtures = {
       args: ["server.js"],
       env: { TOKEN: "CANARY_ENV_VALUE" },
       cwd: "/CANARY_RUNTIME_PATH",
-      headers: { Authorization: "CANARY_HEADER_VALUE" },
     },
   },
   streamableHttp: {
-    remote: { type: "http", url: "https://example.invalid/mcp", headers: { Authorization: "Bearer ${TOKEN}" } },
+    remote: {
+      type: "http",
+      url: "https://example.invalid/mcp",
+      headers: { Authorization: "CANARY_HEADER_VALUE" },
+      auth: { type: "bearer", env: "CANARY_BEARER_ENV" },
+    },
   },
   features: {
     featureful: {

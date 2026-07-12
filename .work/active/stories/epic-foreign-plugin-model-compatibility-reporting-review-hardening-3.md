@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-compatibility-reporting-review-hardening-3
 kind: story
-stage: implementing
+stage: review
 tags: [compatibility, tests]
 parent: epic-foreign-plugin-model-compatibility-reporting
 depends_on: [epic-foreign-plugin-model-compatibility-reporting-review-hardening-2]
@@ -28,8 +28,18 @@ Close the remaining MCP transport-coherence fail-open case.
 
 ## Acceptance criteria
 
-- [ ] Stdio with HTTP headers, bearer auth, OAuth, or URL fields is incompatible and source-located.
-- [ ] Valid stdio command declarations remain supported with no HTTP capability requirements.
-- [ ] Valid Streamable HTTP header/bearer declarations remain supported and redacted.
-- [ ] Transport-specific fixtures assert full positive/negative outcomes.
-- [ ] Full `npm test`, build, boundaries, and exact compiled package import pass.
+- [x] Stdio with HTTP headers, bearer auth, OAuth, or URL fields is incompatible and source-located.
+- [x] Valid stdio command declarations remain supported with no HTTP capability requirements.
+- [x] Valid Streamable HTTP header/bearer declarations remain supported and redacted.
+- [x] Transport-specific fixtures assert full positive/negative outcomes.
+- [x] Full `npm test`, build, boundaries, and exact compiled package import pass.
+
+## Implementation notes
+
+- Execution capability: direct-read inline implementation; the caller explicitly prohibited agents and the existing unstaged evaluator/policy/fixture work provided the implementation surface.
+- Transport coherence is registry-driven: canonical stdio, Streamable HTTP, SSE, WebSocket, and unknown declarations are checked against transport-specific field sets before transport requirements are emitted. Unsupported HTTP/auth/url fields on stdio therefore fail closed without inheriting stdio runtime requirements.
+- Valid stdio-only and Streamable HTTP header/bearer fixtures now assert complete verdict, activatability, requirement, diagnostic, source-pointer, and serialized-canary outcomes. Diagnostic construction continues to omit opaque credential/header values.
+- Verification: `npm test` passed (51 files, 352 tests, typecheck, dependency boundaries, build, and compiled package import); independent `npm run build && node test/compiled-package-import.mjs` passed (131 exports).
+- Files changed: `src/domain/compatibility-evaluator.ts`, `src/domain/compatibility-policy.ts`, `test/domain/compatibility-policy.test.ts`, `test/fixtures/compatibility/mcp.ts`, and `test/integration/compatibility-reporting.test.ts`.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.

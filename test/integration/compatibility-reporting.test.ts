@@ -69,6 +69,71 @@ describe("compatibility reporting integration", () => {
       item.details && JSON.stringify(item.details).includes("skill.presentation")))).toBe(true);
   });
 
+  it("keeps MCP transport fields coherent through real ingestion and redacts HTTP credentials", async () => {
+    const validPlugin = await inspectNormalizedBundle({
+      mcpServers: {
+        local: {
+          command: "node",
+          args: ["stdio-server.js"],
+          env: { TOKEN: "CANARY_STDIO_ENV" },
+          cwd: "/CANARY_STDIO_PATH",
+        },
+        remote: {
+          type: "http",
+          url: "https://example.invalid/mcp",
+          headers: { Authorization: "CANARY_HEADER_VALUE" },
+          auth: { type: "bearer", env: "CANARY_BEARER_ENV" },
+        },
+      },
+    });
+    const validReport = await serviceFor(capabilities()).service.assess(
+      { plugin: validPlugin },
+      new AbortController().signal,
+    );
+    expect(validReport.components.map((assessment) => assessment.verdict.kind)).toEqual([
+      "supported",
+      "supported",
+    ]);
+    expect(validReport.requirements.map((assessment) => assessment.requirement.capability)).toEqual([
+      "pi.mcp.runtime",
+      "pi.mcp.runtime",
+    ]);
+    expect(validReport.activatable).toBe(true);
+    expect(JSON.stringify(validReport)).not.toContain("CANARY_HEADER_VALUE");
+    expect(JSON.stringify(validReport)).not.toContain("CANARY_BEARER_ENV");
+
+    const invalidPlugin = await inspectNormalizedBundle({
+      mcpServers: {
+        local: {
+          transport: "stdio",
+          command: "node",
+          url: "https://example.invalid/mcp",
+          headers: { Authorization: "CANARY_HEADER_VALUE" },
+          auth: { type: "bearer", env: "CANARY_BEARER_ENV" },
+          oauth: { grantType: "authorization-code", clientId: "CANARY_CLIENT" },
+        },
+      },
+    });
+    const invalidReport = await serviceFor(capabilities()).service.assess(
+      { plugin: invalidPlugin },
+      new AbortController().signal,
+    );
+    expect(invalidReport.components).toHaveLength(1);
+    expect(invalidReport.components[0]?.verdict.kind).toBe("incompatible");
+    expect(invalidReport.activatable).toBe(false);
+    expect(invalidReport.requirements).toEqual([]);
+    expect(invalidReport.components[0]?.diagnostics.map((diagnostic) => diagnostic.location?.pointer)).toEqual([
+      "/local/auth",
+      "/local/headers",
+      "/local/oauth",
+      "/local/url",
+    ]);
+    const serialized = JSON.stringify(invalidReport);
+    expect(serialized).not.toContain("CANARY_HEADER_VALUE");
+    expect(serialized).not.toContain("CANARY_BEARER_ENV");
+    expect(serialized).not.toContain("CANARY_CLIENT");
+  });
+
   it("reports the complete mixed normalized bundle with all-or-nothing activation", async () => {
     const plugin = await mixedBundle();
     const { service } = serviceFor(capabilities({}, {

@@ -25,6 +25,29 @@ describe("compatibility policy registry", () => {
     expect(CompatibilityPolicyRegistry.mcp.keys.transport).toBe("transport");
   });
 
+  it("keeps transport-specific MCP field sets explicit", () => {
+    const fields = CompatibilityPolicyRegistry.mcp.keys.transportAllowedFields;
+    expect(fields.stdio).toEqual(expect.arrayContaining(["command", "args", "env", "cwd"]));
+    expect(fields.stdio).not.toEqual(expect.arrayContaining([
+      "url",
+      "headers",
+      "bearerTokenEnv",
+      "auth",
+      "oauth",
+      "authentication",
+    ]));
+    expect(fields["streamable-http"]).toEqual(expect.arrayContaining([
+      "url",
+      "headers",
+      "bearerTokenEnv",
+      "auth",
+      "oauth",
+      "authentication",
+    ]));
+    expect(fields.sse).not.toEqual(expect.arrayContaining(["command", "args", "env", "cwd"]));
+    expect(fields.websocket).not.toEqual(expect.arrayContaining(["command", "args", "env", "cwd"]));
+  });
+
   it("derives capability status validation from the requirement status registry", () => {
     for (const status of Object.values(RuntimeRequirementStatusRegistry)) {
       expect(RuntimeCapabilityAvailabilitySchema.safeParse({

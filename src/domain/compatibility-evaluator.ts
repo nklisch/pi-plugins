@@ -983,6 +983,7 @@ function evaluateMcp(
     }
   }
   let transport: ReturnType<typeof canonicalTransport> = undefined;
+  let invalidTransportSelection = false;
   const command = declaration.command;
   const url = declaration.url;
   const inferred = command !== undefined ? "stdio" : url !== undefined ? "streamable-http" : undefined;
@@ -990,35 +991,51 @@ function evaluateMcp(
     const value = canonicalTransport(selector.value);
     if (value === undefined) {
       incompatible = true;
+      invalidTransportSelection = true;
       diagnostics.push(mcpIssue(pluginKey, component, selector.field, selector.value));
       continue;
     }
     if (transport !== undefined && transport !== value) {
       incompatible = true;
+      invalidTransportSelection = true;
       diagnostics.push(mcpIssue(pluginKey, component, selector.field, selector.value));
+      continue;
     }
     transport = value;
   }
-  if (transport === undefined) transport = inferred;
+  // An unknown or conflicting explicit selector cannot fall back to a shape
+  // inference. Without this guard, `{ transport: "future", command: ... }`
+  // would silently acquire stdio semantics and requirements.
+  if (invalidTransportSelection) transport = undefined;
+  else if (transport === undefined) transport = inferred;
   if (transport === undefined) {
     incompatible = true;
     diagnostics.push(mcpIssue(pluginKey, component, "transport"));
   }
-  if (command !== undefined && url !== undefined) {
-    incompatible = true;
-    diagnostics.push(mcpIssue(pluginKey, component, "transport"));
+
+  const allowedFields = transport === undefined
+    ? []
+    : CompatibilityPolicyRegistry.mcp.keys.transportAllowedFields[transport];
+  for (const field of Object.keys(declaration)) {
+    if (field === "transport" || field === "type" || !knownKeys.has(field)) continue;
+    if (!(allowedFields as readonly string[]).includes(field)) {
+      incompatible = true;
+      diagnostics.push(mcpIssue(pluginKey, component, field));
+    }
   }
-  const isRemoteHttpTransport = transport === "streamable-http" || transport === "sse";
-  if (isRemoteHttpTransport) {
+
+  const isRemoteTransport = transport === "streamable-http" || transport === "sse" || transport === "websocket";
+  if (isRemoteTransport) {
     if (typeof url !== "string" || url.length === 0) {
       incompatible = true;
       diagnostics.push(mcpIssue(pluginKey, component, "url"));
     } else {
       try {
         const parsed = new URL(url);
-        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-          throw new Error("unsupported URL protocol");
-        }
+        const protocols = transport === "websocket"
+          ? ["ws:", "wss:"]
+          : ["http:", "https:"];
+        if (!protocols.includes(parsed.protocol)) throw new Error("unsupported URL protocol");
         // URL syntax accepts userinfo, but MCP declarations must use the
         // configured credential boundary instead of embedding credentials.
         if (parsed.username.length > 0 || parsed.password.length > 0) {
@@ -1034,15 +1051,6 @@ function evaluateMcp(
   }
   if (transport === "stdio") {
     if (typeof command !== "string" || command.length === 0) {
-      incompatible = true;
-      diagnostics.push(mcpIssue(pluginKey, component, "command"));
-    }
-    if (url !== undefined) {
-      incompatible = true;
-      diagnostics.push(mcpIssue(pluginKey, component, "url"));
-    }
-  } else if (transport === "streamable-http") {
-    if (command !== undefined) {
       incompatible = true;
       diagnostics.push(mcpIssue(pluginKey, component, "command"));
     }
@@ -1119,7 +1127,13 @@ function evaluateMcp(
   }
   if (authValues.length > 1) {
     incompatible = true;
-    diagnostics.push(mcpIssue(pluginKey, component, "auth"));
+    // On stdio/unknown transports the field-coherence pass already reports
+    // every remote-only selector. Keep the ambiguity diagnostic only when the
+    // selected transport actually permits those selectors and the conflict is
+    // therefore the remaining failure.
+    if ((allowedFields as readonly string[]).includes("auth")) {
+      diagnostics.push(mcpIssue(pluginKey, component, "auth"));
+    }
   } else if (authValues[0] !== undefined) {
     const { field, value } = authValues[0];
     const parsedAuth = mcpAuth(value, externalBearerEnvironment);
@@ -1129,16 +1143,22 @@ function evaluateMcp(
       // environment name or another credential-bearing selector.
       diagnostics.push(mcpIssue(pluginKey, component, field));
     } else if (parsedAuth.mode === "oauth") {
-      if (parsedAuth.flow === undefined || parsedAuth.ruleId === undefined || transport !== "streamable-http") {
+      if (parsedAuth.flow === undefined || parsedAuth.ruleId === undefined) {
         incompatible = true;
         diagnostics.push(mcpIssue(pluginKey, component, field));
+      } else if (transport !== "streamable-http") {
+        incompatible = true;
+        // Transport coherence already diagnosed a remote-only auth field on
+        // stdio/unknown transports. Add the auth-shape failure only when the
+        // field itself is valid for the selected transport but that transport
+        // cannot preserve OAuth.
+        if ((allowedFields as readonly string[]).includes(field)) {
+          diagnostics.push(mcpIssue(pluginKey, component, field));
+        }
       } else {
         requirements.push(...requirementUse(parsedAuth.ruleId, component.declaration.provenance));
       }
     }
-  } else if (declaration.bearerTokenEnv !== undefined && externalBearerEnvironment !== undefined) {
-    incompatible = true;
-    diagnostics.push(mcpIssue(pluginKey, component, "bearerTokenEnv"));
   }
 
   if (declaration.headersHelper !== undefined) {
@@ -1170,7 +1190,11 @@ function evaluateMcp(
       requirements.push(...result.requirements);
       diagnostics.push(...result.diagnostics);
       incompatible ||= result.incompatible;
-      if (definition.shape === "oauth" && transport !== "streamable-http") {
+      if ((definition.shape === "oauth" || definition.shape === "headers") && transport !== "streamable-http") {
+        // OAuth and HTTP headers are transport semantics, not generic MCP
+        // feature flags. Reject them even when nested under `features` so a
+        // stdio declaration cannot smuggle remote behavior through an opaque
+        // object.
         incompatible = true;
         diagnostics.push(mcpIssue(pluginKey, component, fieldPath));
       }

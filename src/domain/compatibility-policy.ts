@@ -609,11 +609,89 @@ const mcpAuthKeys = [
   ...mcpAuthSelectorDefinitions.oauthBooleanFlowKeys,
 ] as const;
 
+const mcpCommonTransportFields = [
+  "timeout",
+  "startupTimeout",
+  "toolTimeout",
+  "timeoutMs",
+  "allowTools",
+  "allowedTools",
+  "denyTools",
+  "disabledTools",
+  "tools",
+  "instructions",
+  "resources",
+  "toolApproval",
+  "tool_approval",
+  "sampling",
+  "elicitation",
+  "features",
+] as const;
+
+/**
+ * Transport coherence is part of the policy contract, not an inference from
+ * whichever fields happen to be present.  In particular, a command-shaped
+ * declaration must not inherit HTTP semantics merely because the opaque JSON
+ * contains a recognized header or authentication key.
+ */
+const mcpTransportAllowedFields = {
+  stdio: [
+    "transport",
+    "type",
+    "command",
+    "args",
+    "env",
+    "cwd",
+    "workingDirectory",
+    ...mcpCommonTransportFields,
+  ],
+  "streamable-http": [
+    "transport",
+    "type",
+    "url",
+    "headers",
+    "bearerTokenEnv",
+    "auth",
+    "oauth",
+    "authentication",
+    "headersHelper",
+    "channels",
+    ...mcpCommonTransportFields,
+  ],
+  sse: [
+    "transport",
+    "type",
+    "url",
+    "headers",
+    "bearerTokenEnv",
+    "auth",
+    "oauth",
+    "authentication",
+    "headersHelper",
+    "channels",
+    ...mcpCommonTransportFields,
+  ],
+  websocket: [
+    "transport",
+    "type",
+    "url",
+    "headers",
+    "bearerTokenEnv",
+    "auth",
+    "oauth",
+    "authentication",
+    "headersHelper",
+    "channels",
+    ...mcpCommonTransportFields,
+  ],
+} as const;
+
 const mcpKeyDefinitions = {
   transport: "transport",
   transportValues: ["stdio", "streamable-http", "sse", "websocket"] as const,
   typeValues: ["stdio", "streamable-http", "http", "sse", "websocket"] as const,
   transportAliases: { http: "streamable-http" } as const,
+  transportAllowedFields: mcpTransportAllowedFields,
   type: "type",
   command: "command",
   args: "args",
