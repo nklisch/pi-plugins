@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization-npm-acquisition
 kind: story
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-foreign-plugin-model-source-materialization
 depends_on: [epic-foreign-plugin-model-source-materialization-secure-content-contract]
@@ -52,4 +52,14 @@ Implement Unit 3 from the parent feature: bounded HTTPS packument resolution, st
 - Added direct SHA-512 tarball streaming with constant-time digest comparison before any `TarReader` call. Tarballs live under private bounded scratch `.work` and are removed on all failure paths.
 - Added npm source acquisition through the existing verified source constructor; extraction is gzip-bounded, exact `package/`-prefixed, script-free, and sink-mediated. Extended `TarReader` with a retained-entry requirement so empty packages fail closed.
 - Added hermetic registry, redirect, integrity, lifecycle-marker, package-prefix, and hostile-archive tests; promoted the pinned `semver` runtime dependency into the lockfile.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane story review. Independently confirmed `npm test`: 170 tests, typecheck, 134 dependency edges with no violations, build, and exact 90-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
 
