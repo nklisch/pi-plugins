@@ -505,7 +505,6 @@ export function createDiscoveryPlan(input: Readonly<{
           return failure(ErrorCodeRegistry.manifestRootInvalid, `${host} manifest claim has an unexpected path`, plugin, manifest.document);
         }
         locators.push(...manifest.locators);
-        foreign.push(...manifest.foreign);
       }
 
       const catalogAuthority = authority.catalogRuntime.value;

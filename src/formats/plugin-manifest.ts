@@ -46,6 +46,11 @@ export type ManifestHostReaderOptions = Readonly<{
 const supportedFields = ["skills", "hooks", "mcpServers"] as const;
 type SupportedField = (typeof supportedFields)[number];
 
+/**
+ * Only these fields are proven behavior-neutral presentation metadata. The
+ * allowlist is intentionally explicit: a new manifest field must remain in
+ * foreign inventory until its host semantics are understood.
+ */
 const presentationFields = new Set([
   "author",
   "homepage",
@@ -59,26 +64,6 @@ const presentationFields = new Set([
   "shortDescription",
   "longDescription",
 ]);
-
-const runtimeNameFragments = [
-  "agent",
-  "app",
-  "channel",
-  "command",
-  "connect",
-  "dependency",
-  "hook",
-  "lsp",
-  "mcp",
-  "output",
-  "server",
-  "setting",
-  "skill",
-  "theme",
-  "tool",
-  "userconfig",
-  "runtime",
-];
 
 class ManifestReaderFailure extends Error {
   readonly code: "MANIFEST_ROOT_INVALID" | "SCHEMA_INVALID";
@@ -304,12 +289,6 @@ function validatePresentation(field: string, value: JsonValue, pointer: string):
   }
 }
 
-function isRuntimeField(field: string, runtimeFields: ReadonlySet<string>): boolean {
-  if (runtimeFields.has(field)) return true;
-  const normalized = field.replaceAll("_", "").toLowerCase();
-  return runtimeNameFragments.some((fragment) => normalized.includes(fragment));
-}
-
 function metadata(
   nativeHost: NativeHost,
   path: string,
@@ -408,13 +387,12 @@ function readRecord(
       if (presentationFields.has(field)) {
         validatePresentation(field, raw, pointer);
         retainedMetadata.push(metadata(nativeHost, context.path, pointer, field, raw));
-      } else if (isRuntimeField(field, options.runtimeFields)) {
-        foreign.push(foreignDeclaration(nativeHost, context.path, pointer, field, raw));
       } else {
-        // Unknown root metadata is retained for presentation only when its
-        // name does not describe a runtime-bearing surface. Runtime-looking
-        // fields fail closed into foreign inventory above.
-        retainedMetadata.push(metadata(nativeHost, context.path, pointer, field, raw));
+        // Known runtime fields and unknown fields follow the same fail-closed
+        // path. The host registry documents known runtime vocabulary, but a
+        // field name alone is never evidence that an unknown value is safe to
+        // retain as presentation metadata.
+        foreign.push(foreignDeclaration(nativeHost, context.path, pointer, field, raw));
       }
     }
 

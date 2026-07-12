@@ -49,17 +49,19 @@ describe("Claude plugin manifest reader", () => {
     expect(result.value).not.toHaveProperty("configured");
   });
 
-  it("keeps unsupported runtime declarations as foreign data", () => {
+  it("keeps unsupported runtime declarations and unknown fields as foreign data", () => {
     const result = readClaudePluginManifest({
       name: "demo",
       agents: "./agents",
       lspServers: { languageServer: { command: "server" } },
+      futureShape: { command: "server" },
       interface: { displayName: "Demo" },
     }, context);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.foreign.map((item) => item.nativeKind.value)).toEqual([
       "agents",
+      "futureShape",
       "lspServers",
     ]);
     expect(result.value.foreign[0]?.declaration.provenance[0]?.location.pointer).toBe("/agents");

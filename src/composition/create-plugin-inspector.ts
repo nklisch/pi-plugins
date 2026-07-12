@@ -54,5 +54,6 @@ export function createNodePluginInspector(options: NodePluginInspectorOptions = 
     content: createManifestContentReader(hash),
     readers,
     sha256: hash,
+    limits,
   });
 }

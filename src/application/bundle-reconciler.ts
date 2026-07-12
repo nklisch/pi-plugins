@@ -65,6 +65,8 @@ type ReconcileInput = Readonly<{
   entry: NormalizedMarketplaceEntry;
   source: ResolvedPluginSource;
   manifestClaims: readonly PluginManifestClaims[];
+  /** Foreign declarations discovered outside host manifests (for example catalogs). */
+  foreignDeclarations?: readonly ForeignComponentDeclaration[];
   configuration: readonly PluginConfiguration[];
   components: readonly Component[];
   metadata: readonly RetainedMetadata[];
@@ -400,11 +402,6 @@ function mergeMcp(left: McpServerComponent, right: McpServerComponent, plugin: s
   };
 }
 
-function foreignIdentityKey(component: ForeignComponent): string {
-  const pointer = component.declaration.provenance[0]?.location.pointer ?? "";
-  return `${component.nativeHost}\u0000${component.nativeKind.value}\u0000${pointer}`;
-}
-
 function mergeForeign(left: ForeignComponent, right: ForeignComponent, plugin: string): ReadResult<ForeignComponent> {
   if (left.nativeHost !== right.nativeHost || left.nativeKind.value !== right.nativeKind.value ||
       stableJson(left.declaration.value) !== stableJson(right.declaration.value)) {
@@ -543,7 +540,7 @@ function locatorTargetKey(locator: PluginManifestClaims["locators"][number]): st
 
 function locatorFieldKey(locator: PluginManifestClaims["locators"][number]): string {
   const pointer = [...locator.provenance].sort(compareProvenance)[0]?.location.pointer ?? "";
-  return `${locator.componentKind}\\u0000${pointer.split("/")[1] ?? pointer}`;
+  return `${locator.componentKind}\u0000${pointer.split("/")[1] ?? pointer}`;
 }
 
 function validateManifestLocatorClaims(
@@ -558,7 +555,7 @@ function validateManifestLocatorClaims(
       if (left.nativeHost === right.nativeHost || locatorFieldKey(left) !== locatorFieldKey(right)) continue;
       if (locatorTargetKey(left) === locatorTargetKey(right)) continue;
       return failure(ErrorCodeRegistry.claimConflict, "Conflicting dual-manifest component locators", plugin, {
-        field: locatorFieldKey(left),
+        field: `locator.${locatorFieldKey(left)}`,
         left: snapshot(left),
         right: snapshot(right),
         locations: [firstProvenance(left), firstProvenance(right)] as unknown as JsonValue,
@@ -614,8 +611,10 @@ export function reconcilePluginBundle(input: ReconcileInput): ReadResult<z.infer
     const configuration = mergeConfiguration([...manifestConfiguration, ...externalConfiguration], plugin);
     if (!configuration.ok) return configuration;
 
-    const foreign = claims.flatMap((claim) => claim.foreign).map((declaration) =>
-      foreignDeclarationComponent(declaration, plugin, input.sha256));
+    const foreign = [
+      ...(input.foreignDeclarations ?? []),
+      ...claims.flatMap((claim) => claim.foreign),
+    ].map((declaration) => foreignDeclarationComponent(declaration, plugin, input.sha256));
     const components = realizeComponents([...externalComponents, ...foreign], plugin, input.sha256);
     if (!components.ok) return components;
 

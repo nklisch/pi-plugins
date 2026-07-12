@@ -4,6 +4,7 @@ import {
   BundleDocumentLimitsSchema,
   type BundleInspectionInput,
   type BundleInspectionResult,
+  type BundleDocumentLimitsContract,
 } from "./inspection-contract.js";
 import { createContentIndex, type ContentIndex, type ManifestFileEntry } from "./content-index.js";
 import { createDiscoveryPlan, type DiscoveryPlan } from "./discovery-plan.js";
@@ -69,6 +70,7 @@ type InspectionDependencies = Readonly<{
   content: ContentReadPort;
   readers: BundleReaderSet;
   sha256: Sha256;
+  limits?: Partial<BundleDocumentLimitsContract>;
 }>;
 
 export interface PluginInspectionService {
@@ -345,13 +347,30 @@ function firstLocatorProvenance(locator: ComponentLocatorClaim): Provenance {
   return value;
 }
 
-function utf8(bytes: Uint8Array): string {
-  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+function decodeUtf8(
+  bytes: Uint8Array,
+  plugin: string,
+  provenance: Provenance,
+): ReadResult<string> {
+  try {
+    return {
+      ok: true,
+      value: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+      diagnostics: [],
+    };
+  } catch (error) {
+    return failure(
+      ErrorCodeRegistry.schemaInvalid,
+      error instanceof Error ? error.message : "document is not valid UTF-8",
+      plugin,
+      provenance,
+    );
+  }
 }
 
 function parseJson(bytes: Uint8Array, limit: number): unknown {
   if (bytes.byteLength > limit) throw new StrictJsonFailure("JSON document byte limit exceeded");
-  const source = utf8(bytes);
+  const source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   return new StrictJsonParser(source).parse();
 }
 
@@ -450,7 +469,10 @@ function duplicateSkillName(components: readonly Component[]): string | undefine
 }
 
 function createService(dependencies: InspectionDependencies): PluginInspectionService {
-  const limits = BundleDocumentLimitsSchema.parse(BundleDocumentLimits);
+  const limits = BundleDocumentLimitsSchema.parse({
+    ...BundleDocumentLimits,
+    ...(dependencies.limits ?? {}),
+  });
 
   async function inspect(input: BundleInspectionInput, signal: AbortSignal): Promise<BundleInspectionResult> {
     abortIfRequested(signal);
@@ -603,7 +625,11 @@ function createService(dependencies: InspectionDependencies): PluginInspectionSe
     if (nested !== undefined) return failure(ErrorCodeRegistry.claimConflict, `nested Agent Skill roots are ambiguous: ${nested}`, entry.identity.value.key);
 
     for (const [path, document] of [...skillDocuments.entries()].sort(([left], [right]) => left.localeCompare(right))) {
-      const markdown = await readBytes(document.entry, limits.skillBytes);
+      const skillProvenance = documentProvenance(document.locators[0]!, path, "skill");
+      const markdownBytes = await readBytes(document.entry, limits.skillBytes);
+      const markdownText = decodeUtf8(markdownBytes, entry.identity.value.key, skillProvenance);
+      if (!markdownText.ok) return markdownText;
+      const markdown = markdownText.value;
       let presentation: JsonValue | undefined;
       const root = skillRoot(path);
       const presentationEntry = content.get(skillPresentationPath(root));
@@ -614,10 +640,13 @@ function createService(dependencies: InspectionDependencies): PluginInspectionSe
         if (dependencies.readers.skillPresentation === undefined) {
           return failure(ErrorCodeRegistry.schemaInvalid, "Codex skill presentation reader is not configured", entry.identity.value.key);
         }
+        const presentationProvenance = documentProvenance(document.locators[0]!, skillPresentationPath(root), "convention");
         const presentationBytes = await readBytes(presentationEntry, limits.skillBytes);
+        const presentationText = decodeUtf8(presentationBytes, entry.identity.value.key, presentationProvenance);
+        if (!presentationText.ok) return presentationText;
         const presentationResult = dependencies.readers.skillPresentation(
-          utf8(presentationBytes),
-          documentProvenance(document.locators[0]!, skillPresentationPath(root), "convention"),
+          presentationText.value,
+          presentationProvenance,
           {
             maxDocumentBytes: limits.skillBytes,
             maxFrontmatterBytes: limits.frontmatterBytes,
@@ -647,7 +676,7 @@ function createService(dependencies: InspectionDependencies): PluginInspectionSe
               maxScalarBytes: limits.frontmatterScalarBytes,
             },
           };
-          const result = dependencies.readers.agentSkill(utf8(markdown), context);
+          const result = dependencies.readers.agentSkill(markdown, context);
           if (!result.ok) return result;
           components.push(result.value);
         }
@@ -688,6 +717,7 @@ function createService(dependencies: InspectionDependencies): PluginInspectionSe
       entry,
       source,
       manifestClaims,
+      foreignDeclarations: plan.catalogForeign,
       configuration: [],
       components,
       metadata: entry.metadata,

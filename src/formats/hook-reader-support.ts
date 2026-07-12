@@ -221,6 +221,9 @@ export function foreignFromHook(
   declaration: JsonValue,
   pointer: string,
 ): ForeignComponent {
+  if (declarationKey !== pointer) {
+    throw new HookReaderFailure(pointer, "foreign hook declaration identity must match its provenance pointer");
+  }
   const provenance = sourceAt(context, pointer, declaration);
   const result = createForeignComponentDeclaration({
     nativeHost: context.nativeHost,
@@ -512,7 +515,8 @@ function parseCommandHandler(
     if (structuralHandlerFields.has(key) || retainedHandlerFields.has(key)) continue;
     // Retain unknown runtime-bearing keys as inventory instead of silently
     // treating them as part of the supported command contract.
-    foreign.push(foreignFromHook(context, "hook-handler", childPointer(pointer, key), declaration, pointer));
+    const declarationPointer = childPointer(pointer, key);
+    foreign.push(foreignFromHook(context, "hook-handler", declarationPointer, declaration, declarationPointer));
   }
   return { handler, metadata, foreign };
 }

@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-plugin-bundle-ingestion-review-hardening
 kind: story
-stage: implementing
+stage: review
 tags: [compatibility, tests]
 parent: epic-foreign-plugin-model-plugin-bundle-ingestion
 depends_on: [epic-foreign-plugin-model-plugin-bundle-ingestion-service-hardening]
@@ -31,10 +31,19 @@ Resolve all accepted blocker and important findings from the feature's two-model
 
 ## Acceptance criteria
 
-- [ ] Catalog-only unsupported declarations appear in final foreign inventory with exact provenance.
-- [ ] Unknown manifest fields are metadata only when explicitly allowlisted as presentation; all other valid JSON is foreign inventory.
-- [ ] Invalid UTF-8 skill and presentation YAML returns a failed result without throwing or partial value.
-- [ ] Unknown hook fields produce valid, verifiable, deterministic foreign component IDs.
-- [ ] Custom manifest/hooks/MCP byte limits reject oversized documents.
-- [ ] Focused service and reconciler unit suites cover every branch named above and all adversarial fixtures are exercised.
-- [ ] Full `npm test`, build, boundaries, and exact compiled package import pass.
+- [x] Catalog-only unsupported declarations appear in final foreign inventory with exact provenance.
+- [x] Unknown manifest fields are metadata only when explicitly allowlisted as presentation; all other valid JSON is foreign inventory.
+- [x] Invalid UTF-8 skill and presentation YAML returns a failed result without throwing or partial value.
+- [x] Unknown hook fields produce valid, verifiable, deterministic foreign component IDs.
+- [x] Custom manifest/hooks/MCP byte limits reject oversized documents.
+- [x] Focused service and reconciler unit suites cover every branch named above and all adversarial fixtures are exercised.
+- [x] Full `npm test`, build, boundaries, and exact compiled package import pass.
+
+## Implementation notes
+- Execution capability: inline single-owner implementation; the changes converge in the inspection/reconciliation composition path, and the caller prohibited nested agents and peeragent.
+- Review weight: standard (default); implementation stops at the requested `stage: review` boundary.
+- Files changed: `src/application/discovery-plan.ts`, `src/application/inspection-service.ts`, `src/application/bundle-reconciler.ts`, `src/composition/create-plugin-inspector.ts`, `src/formats/plugin-manifest.ts`, `src/formats/hook-reader-support.ts`, `test/application/inspection-service.test.ts`, `test/application/bundle-reconciler.test.ts`, `test/formats/claude/manifest-reader.test.ts`.
+- Tests added: focused service and reconciler branch matrices; catalog foreign inventory, strict presentation classification, invalid UTF-8 result handling, hook identity verification, configured byte limits, boundary/abort distinctions, locator conflicts, configuration, determinism, and execution of invalid-UTF8, prototype-key, and duplicate-key fixtures.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+- Verification: `npm test` passed (46 files, 313 tests, typecheck, dependency boundaries, build, and compiled package import); independent `npm run build && node test/compiled-package-import.mjs` passed (114 exports).
