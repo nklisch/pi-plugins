@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization
 kind: feature
-stage: review
+stage: implementing
 tags: [security, infra]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-domain-contracts]
@@ -551,4 +551,4 @@ Integrated verification: `npm test` passes 209 tests plus typecheck, 152 depende
 
 ## Review findings
 
-The feature's primary review-hardening story closes decompression, disk binding, slot scratch, write persistence, streaming, hashing, cleanup, manifest, and credential-baseline findings. Final probes found authoritative-selector, canonical-slot, non-cooperative cancellation, early-limit, path-token, and verifier-boundary gaps; `epic-foreign-plugin-model-source-materialization-review-hardening-2` is now done and closes them. Independent integrated verification passes 229 tests plus typecheck, 154 dependency edges with no violations, build, and the exact 94-export package allowlist. The feature returns to `stage: review` for final confirmation.
+The first two review-hardening stories close decompression, disk binding, scratch, writes, streaming, cleanup, selector, slot, cancellation, limit, credential, and verifier-boundary findings. Certification then found marketplace SHA-shaped refs lacked the plugin-side revision binding and recursive traversal could hash a reserved sibling after descendants consumed the entry budget. They are tracked by `epic-foreign-plugin-model-source-materialization-review-hardening-3`; the feature remains at `stage: implementing` until both close.
