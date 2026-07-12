@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-plugin-bundle-ingestion-hooks-mcp-foreign
 kind: story
-stage: review
+stage: done
 tags: [compatibility]
 parent: epic-foreign-plugin-model-plugin-bundle-ingestion
 depends_on: [epic-foreign-plugin-model-plugin-bundle-ingestion-manifest-reconciliation]
@@ -52,6 +52,16 @@ Use the real agile-workflow hook document as a hermetic fixture and independent 
 - Discrepancies from design: `stable-component-id.ts` supplies the pure SHA-256 adapter needed by synchronous format readers to emit the existing v1 component contract; the application can still re-derive ids through its injected hash port.
 - Adjacent issues parked: none.
 - Verification: `npm test`; independent `npm run build && node test/compiled-package-import.mjs`.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane hook/MCP/foreign reader review. Independently confirmed `npm test`: 278 tests, typecheck, dependency boundaries with no violations, build, and exact 111-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
 
 ## Out of scope
 
