@@ -58,8 +58,11 @@ browsable.
 | Git `url` source | Supported |
 | `git-subdir` source | Supported |
 | `ref` selector | Supported |
-| Full Git `sha` pin | Supported; exactly 40 lowercase hex characters and takes precedence over `ref` |
-| npm package | Supported without lifecycle scripts |
+| Full Git `sha` pin | Supported; exactly 40 lowercase hex characters, authoritative over `ref`, and becomes the resolved trust identity |
+| Qualified Git branch/tag | Supported; resolved exactly and tags peel to commits |
+| Unqualified branch/tag collision | Incompatible; rejected as ambiguous even when both currently peel to the same commit |
+| Git submodules | Incompatible; `.gitmodules` fails materialization rather than producing an incomplete bundle |
+| npm package | Supported through direct packument/tarball acquisition without install or lifecycle scripts |
 | npm version, range, or distribution tag | Supported |
 | HTTPS custom npm registry | Supported; HTTPS only and no embedded credentials |
 | Embedded HTTPS Git or npm credentials | Incompatible; use configured non-interactive credentials |
@@ -73,7 +76,15 @@ browsable.
 
 Private Git and npm sources use the user's existing non-interactive credential
 configuration. Plugin Host does not store source credentials or accept
-credentials embedded in HTTPS source URLs.
+credentials embedded in HTTPS source URLs. npm tarballs require canonical
+SHA-512 integrity and are verified before extraction; missing or mismatched
+integrity is incompatible.
+
+Materialization writes only into a caller-provided private staging slot and
+returns a resolved source, content root, and deterministic content manifest.
+It does not choose cache or marketplace paths or perform promotion, locking,
+state commit, journaling, rollback, recovery, or collection. Error and
+cancellation return no partial handoff and clean materializer-owned writes.
 
 Resolved sources retain their immutable URL/path/package fields and revision.
 Their `source-v1` canonical form is derived from those fields and the injected

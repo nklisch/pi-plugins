@@ -348,6 +348,10 @@ against each host's documented behavior.
 
 ## Source acquisition
 
+Source materialization is a staging producer, not a store or transaction manager. The lifecycle caller allocates a new empty private staging slot. A materializer writes only `content/` and temporary `.work/` children inside that slot, removes temporary work before success, and returns the content root, verified resolved source, and deterministic content manifest. Error or cancellation returns no partial handoff and cleans materializer-owned writes. Lifecycle code separately owns cache and marketplace paths, atomic promotion, state, locks, fsync/journaling, rollback, recovery, retention, and garbage collection.
+
+The source tree and archive are treated as malicious. The security boundary assumes lifecycle created a private staging slot and that an already-materialized marketplace root is immutable for the duration of a marketplace-relative copy. It does not claim portable resistance to a privileged local process that can concurrently mutate those private roots.
+
 ### Marketplace store
 
 A marketplace is materialized by canonical source and immutable Git revision.
@@ -373,32 +377,56 @@ External Git and npm plugins are materialized independently.
 
 ### Secure copying
 
-The materializer:
+Every acquisition adapter writes through one hardened content sink into an initially empty root. The sink:
 
-- rejects path traversal before filesystem access;
-- resolves real paths before containment checks;
-- rejects symlinks escaping the source root;
-- preserves safe internal symlinks where supported;
-- never copies host files reached through an external symlink;
-- installs npm packages without lifecycle scripts;
-- records file hashes required by activation and trust.
+- rejects traversal, absolute/drive/UNC/backslash paths, dangerous platform names, case or Unicode-normalization collisions, and escaping links before creating the affected entry;
+- uses exclusive regular-file creation, validates every ancestor, creates safe internal symlinks only after ordinary entries, and materializes hardlinks as regular-file copies;
+- enforces entry, path, file, expanded-byte, compressed-byte, and expansion-ratio limits;
+- rejects special files, sparse/unknown archive forms, setuid/setgid metadata, escaping symlinks/hardlinks, and `.git` content;
+- performs a final realpath/manifest verification as defense in depth rather than relying on a post-extraction sweep alone;
+- emits a versioned SHA-256 manifest over normalized relative paths, content/link digests, normalized executable modes, and empty directories.
+
+Git resolution uses argument-array subprocesses and clean `git archive` output. A full declared SHA is authoritative over a ref. Otherwise qualified branch/tag names resolve exactly; an unqualified name that exists as both branch and tag is rejected as ambiguous. Tags peel to commits, and the resolved full commit SHA is trust identity. Selected trees containing `.gitmodules` are rejected because submodule materialization is not supported.
+
+npm acquisition reads packuments and downloads tarballs directly through bounded HTTPS adapters. It requires canonical SHA-512 integrity and verifies downloaded bytes before extraction. It never runs npm installation, dependency installation, or lifecycle scripts.
 
 ### Source ports
 
 ```typescript
 interface MarketplaceMaterializer {
-  materialize(source: MarketplaceSource, signal: AbortSignal):
-    Promise<MaterializedMarketplace>;
+  materialize(
+    source: MarketplaceSource,
+    destination: StagingSlot,
+    signal: AbortSignal,
+  ): Promise<MaterializedMarketplace>;
 }
 
 interface PluginMaterializer {
-  materialize(source: PluginSource, context: SourceContext, signal: AbortSignal):
-    Promise<MaterializedPlugin>;
+  materialize(
+    source: PluginSource,
+    context: SourceContext,
+    destination: StagingSlot,
+    signal: AbortSignal,
+  ): Promise<MaterializedPlugin>;
+}
+
+type SourceContext =
+  | { kind: "external" }
+  | {
+      kind: "marketplace";
+      root: string;
+      source: ResolvedMarketplaceSource;
+      contentRootDigest: ContentDigest;
+    };
+
+interface MaterializedPlugin {
+  root: string;
+  source: ResolvedPluginSource;
+  content: ContentManifest;
 }
 ```
 
-Git and npm subprocess details remain inside adapters. Commands use argument
-arrays rather than interpolated shell strings.
+Marketplace-relative sources require marketplace context; external Git/npm sources reject it. Git subprocess and npm/HTTP/filesystem details remain inside infrastructure adapters. Credentials come from existing noninteractive Git/SSH/npm configuration, never source declarations or materializer results. Cancellation propagates through every port and is rethrown after cleanup rather than converted to a domain diagnostic.
 
 ## Authoritative state
 

@@ -396,6 +396,8 @@ commits successfully.
 
 ## Install transaction
 
+Source materializers do not allocate installed, cache, or marketplace storage. The lifecycle operation supplies an empty private staging slot. Materialization writes only inside that slot and returns a verified resolved source, content root, and deterministic content manifest; cancellation or failure returns no partial result and cleans materializer-owned writes. Lifecycle code owns atomic promotion, state and locks, journaling/fsync, rollback, recovery, retention, and garbage collection.
+
 Installation and update follow one transaction:
 
 1. Resolve the marketplace snapshot and plugin source.
@@ -480,9 +482,9 @@ component definitions. Credentials are never stored in plugin-host state.
 Project declarations require Pi project trust. Path traversal, symlink escape,
 malformed schemas, ambiguous identity, and conflicting manifests fail closed.
 
-Install and update operations never run npm lifecycle scripts. Runtime
-dependencies required by a plugin are installed only through an explicitly
-declared and trusted plugin operation.
+Install and update operations never run npm lifecycle scripts. npm sources are resolved from bounded HTTPS packuments, require canonical SHA-512 integrity, and have their tarball bytes verified before hardened extraction; materialization never runs `npm install` or installs package dependencies. Runtime dependencies required by a plugin are installed only through an explicitly declared and trusted plugin operation.
+
+Git sources resolve to a full commit SHA. A declared full SHA is authoritative over an accompanying ref; otherwise qualified branch/tag names resolve exactly and an unqualified name shared by a branch and tag is rejected as ambiguous. Submodule-bearing source trees are unsupported and fail closed rather than producing an incomplete bundle.
 
 ## Foreign-state adoption
 
