@@ -1,0 +1,173 @@
+import { createHash } from "node:crypto";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import { z } from "zod";
+import { CompatibilityReportSchema, type CompatibilityReport } from "../../../src/domain/compatibility.js";
+import { createContentManifest, hashContent } from "../../../src/domain/content-manifest.js";
+import { NormalizedPluginSchema } from "../../../src/domain/plugin.js";
+import { createResolvedMarketplaceSource, createResolvedPluginSource } from "../../../src/domain/source.js";
+import { claim, type Provenance } from "../../../src/domain/provenance.js";
+import {
+  CanonicalProjectRootSchema,
+  ProjectIdentitySchema,
+  deriveProjectKey,
+  type ScopeContext,
+} from "../../../src/domain/state/scope.js";
+import {
+  ProjectLocalStateDocumentSchemaV1,
+  ProjectLocalStateSchemaFamily,
+  createProjectLocalStateDocument,
+  decodeProjectPlugins,
+  type ProjectLocalStateDocumentV1,
+} from "../../../src/domain/state/project-state.js";
+
+const sha256 = (bytes: Uint8Array): Uint8Array =>
+  new Uint8Array(createHash("sha256").update(bytes).digest());
+const text = (value: string): Uint8Array => new TextEncoder().encode(value);
+const location: Provenance = {
+  location: { host: "claude", documentKind: "manifest", path: ".claude-plugin/plugin.json", pointer: "" },
+};
+const source = createResolvedPluginSource({
+  kind: "git",
+  url: "https://example.com/project-plugin.git",
+  revision: "c".repeat(40),
+}, sha256);
+const plugin = NormalizedPluginSchema.parse({
+  identity: { key: "demo@community", marketplaceName: "community", marketplaceEntryName: "demo" },
+  version: claim("2.0.0", location),
+  source,
+  configuration: { options: [] },
+  components: { skills: [], hooks: [], mcpServers: [], foreign: [] },
+  metadata: [],
+});
+const report: CompatibilityReport = CompatibilityReportSchema.parse({
+  plugin: plugin.identity,
+  activatable: true,
+  components: [],
+  requirements: [],
+  diagnostics: [],
+});
+const content = createContentManifest([{
+  kind: "file",
+  path: "plugin.txt",
+  mode: 0o644,
+  size: 7,
+  digest: hashContent(text("project"), sha256),
+}], sha256);
+const identity = ProjectIdentitySchema.parse({
+  kind: "repository",
+  canonicalRoot: CanonicalProjectRootSchema.parse("file:///home/example/project/"),
+  repositoryFingerprint: "sha256:" + "9".repeat(64),
+});
+const projectKey = deriveProjectKey(identity, sha256);
+const context: ScopeContext = {
+  kind: "project",
+  identity,
+  projectKey,
+};
+const pluginInput = {
+  plugin: plugin.identity.key,
+  activation: "enabled" as const,
+  revisions: [{ plugin, compatibility: report, content }],
+};
+const marketplaceInput = {
+  marketplace: "community",
+  source: createResolvedMarketplaceSource({
+    declared: { kind: "github" as const, repository: "example/marketplace" },
+    revision: "d".repeat(40),
+  }, sha256),
+  content,
+};
+
+describe("project-local lifecycle state", () => {
+  it("binds the document to the verified context and declaration digest", () => {
+    const document = createProjectLocalStateDocument({
+      generation: 2,
+      projectKey,
+      identity,
+      declarationDigest: content.rootDigest,
+      marketplaces: [marketplaceInput],
+      plugins: [pluginInput],
+    }, context as Extract<ScopeContext, { kind: "project" }>, sha256);
+
+    expect(ProjectLocalStateDocumentSchemaV1.parse(document)).toEqual(document);
+    expect(document.projectKey).toBe(projectKey);
+    expect(document.identity).toEqual(identity);
+    expect(document.plugins[0]!.revisions[0]!.dataRef).toContain("plugin-data-v1:");
+    expect(JSON.stringify(document)).toContain(projectKey);
+  });
+
+  it("rejects a mismatched key, identity, or malformed context before records are built", () => {
+    expect(() => createProjectLocalStateDocument({
+      generation: 0,
+      projectKey: "project-v1:sha256:" + "0".repeat(64),
+      identity,
+      declarationDigest: content.rootDigest,
+      marketplaces: [marketplaceInput],
+      plugins: [pluginInput],
+    }, context as Extract<ScopeContext, { kind: "project" }>, sha256)).toThrow(/project key|scope context/i);
+
+    expect(() => createProjectLocalStateDocument({
+      generation: 0,
+      projectKey,
+      identity: { ...identity, kind: "path-only", limitation: "identity-changes-with-canonical-root" },
+      declarationDigest: content.rootDigest,
+      marketplaces: [marketplaceInput],
+      plugins: [pluginInput],
+    }, context as Extract<ScopeContext, { kind: "project" }>, sha256)).toThrow(/identity/);
+
+    expect(() => createProjectLocalStateDocument({
+      generation: 0,
+      projectKey,
+      identity,
+      declarationDigest: content.rootDigest,
+      marketplaces: [marketplaceInput],
+      plugins: [{ ...pluginInput, plugin: "other@community" }],
+    }, context as Extract<ScopeContext, { kind: "project" }>, sha256)).toThrow();
+  });
+
+  it("does not share project data references with user records", async () => {
+    const project = createProjectLocalStateDocument({
+      generation: 0,
+      projectKey,
+      identity,
+      declarationDigest: content.rootDigest,
+      marketplaces: [marketplaceInput],
+      plugins: [pluginInput],
+    }, context as Extract<ScopeContext, { kind: "project" }>, sha256);
+    const { createInstalledUserStateDocument } = await import("../../../src/domain/state/installed-state.js");
+    const user = createInstalledUserStateDocument({
+      generation: 0,
+      marketplaces: [{ marketplace: "community", source: marketplaceInput.source, content }],
+      plugins: [pluginInput],
+    }, sha256);
+
+    expect(project.plugins[0]!.revisions[0]!.dataRef).not.toBe(user.plugins[0]!.revisions[0]!.dataRef);
+    expect(project.plugins[0]!.revisions[0]!.contentRef).not.toBe(user.plugins[0]!.revisions[0]!.contentRef);
+  });
+
+  it("quarantines invalid and duplicate project plugins", () => {
+    const result = decodeProjectPlugins([
+      pluginInput,
+      pluginInput,
+      { ...pluginInput, activation: "invalid" },
+    ], context as Extract<ScopeContext, { kind: "project" }>, sha256);
+    expect(result.records).toHaveLength(0);
+    expect(result.quarantined.filter((entry) => entry.code === "RECORD_DUPLICATE")).toHaveLength(2);
+    expect(result.quarantined.some((entry) => entry.code === "RECORD_INVALID")).toBe(true);
+  });
+
+  it("has an independently versioned v1 family and strict envelope", () => {
+    expect(ProjectLocalStateSchemaFamily.latestVersion).toBe(1);
+    expect(ProjectLocalStateDocumentSchemaV1.safeParse({
+      schemaVersion: 1,
+      generation: 0,
+      projectKey,
+      identity,
+      declarationDigest: content.rootDigest,
+      marketplaces: [],
+      plugins: [],
+      operation: { kind: "install" },
+    }).success).toBe(false);
+    expectTypeOf<z.infer<typeof ProjectLocalStateDocumentSchemaV1>>().toEqualTypeOf<ProjectLocalStateDocumentV1>();
+  });
+});

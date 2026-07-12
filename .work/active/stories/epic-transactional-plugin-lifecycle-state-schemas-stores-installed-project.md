@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores-installed-project
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-state-schemas-stores
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores-scope-versioning]
@@ -39,9 +39,18 @@ Authoritative revision evidence directly reuses `Resolved*Source`, `NormalizedPl
 
 ## Acceptance criteria
 
-- [ ] No lifecycle mirror of canonical source/plugin/content/report contracts exists.
-- [ ] Forged hashes/bindings, mismatched identities/sources/references, duplicate revisions, and dangling selected revisions fail before write.
-- [ ] User and project records for one plugin remain independently addressable and use distinct derived references.
-- [ ] Serialized records contain no absolute paths, secret values, trust decisions, projection contents, expanded environment, reload evidence, timestamps, or native causes.
-- [ ] Valid sibling plugins survive one corrupt plugin record; duplicate keys never gain file-order precedence.
-- [ ] Project identity/key/context mismatch makes the project-local document unusable.
+- [x] No lifecycle mirror of canonical source/plugin/content/report contracts exists.
+- [x] Forged hashes/bindings, mismatched identities/sources/references, duplicate revisions, and dangling selected revisions fail before write.
+- [x] User and project records for one plugin remain independently addressable and use distinct derived references.
+- [x] Serialized records contain no absolute paths, secret values, trust decisions, projection contents, expanded environment, reload evidence, timestamps, or native causes.
+- [x] Valid sibling plugins survive one corrupt plugin record; duplicate keys never gain file-order precedence.
+- [x] Project identity/key/context mismatch makes the project-local document unusable.
+
+## Implementation notes
+
+- Execution capability: inline single-owner implementation; the two domain modules and focused tests form one cohesive adapter-free boundary, and the caller explicitly prohibited agents.
+- Review weight: standard (default); implementation stops at the requested `stage: review` boundary.
+- Files changed: `src/domain/state/installed-state.ts`, `src/domain/state/project-state.ts`, `test/domain/state/installed-state.test.ts`, `test/domain/state/project-state.test.ts`.
+- Tests added: canonical evidence/binding/reference integrity, user/project isolation, project context binding, strict state envelopes, corruption isolation, duplicate quarantine, and lifecycle-payload exclusion tests.
+- Discrepancies from design: none; constructor-only scope metadata is stripped from persisted records and is used solely to derive scope-bound logical references.
+- Adjacent issues parked: none.
