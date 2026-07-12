@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model
 kind: epic
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: null
 depends_on: []
@@ -76,4 +76,4 @@ Integrated verification: `npm test` passes 352 tests plus clean typecheck and de
 
 ## Review findings
 
-The epic returns to `stage: implementing` until inspection applies materialization's exact Git selector precedence for both Git source forms and end-to-end regressions close the seam.
+The epic review-hardening story is done. Inspection now applies materialization's exact selector precedence for Git and Git-subdirectory sources: explicit SHA, otherwise SHA-shaped ref, otherwise immutable named-ref resolution. End-to-end regressions cover both bypass forms and valid cases. Independent integrated verification passes 354 tests plus clean typecheck and dependency boundaries, build, and exact 131-export package import. The epic returns to `stage: review` for final certification.
