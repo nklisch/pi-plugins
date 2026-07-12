@@ -19,6 +19,9 @@ import {
   ContentManifestEntrySchema,
   ContentManifestSchema,
   createContentIndex,
+  createNodePluginInspector,
+  createPluginInspectionService,
+  reconcilePluginBundle,
   DEFAULT_MATERIALIZATION_LIMITS,
   ClaimConflictError,
   ClaimedSchema,
@@ -114,6 +117,9 @@ import {
   type BundleInspectionInput,
   type BundleInspectionResult,
   type BundleReaderSet,
+  type PluginInspectionDependencies,
+  type PluginInspectionService,
+  type BundleReconciliationInput,
   type CompatibilityReport,
   type ComponentLocatorClaim,
   type ComponentLogicalIdentity,
@@ -203,6 +209,9 @@ describe("explicit package API", () => {
       ContentManifestEntrySchema,
       ContentManifestSchema,
       createContentIndex,
+      createNodePluginInspector,
+      createPluginInspectionService,
+      reconcilePluginBundle,
       DEFAULT_MATERIALIZATION_LIMITS,
       ClaimConflictError,
       ClaimedSchema,
@@ -301,6 +310,9 @@ describe("explicit package API", () => {
 
   it("keeps public types inferred from the exported schemas", () => {
     expectTypeOf<BundleDocumentLimitsContract>().toEqualTypeOf<z.infer<typeof BundleDocumentLimitsSchema>>();
+    expectTypeOf<PluginInspectionService>().toMatchTypeOf<{ inspect: Function }>();
+    expectTypeOf<PluginInspectionDependencies>().toMatchTypeOf<{ sha256: Function }>();
+    expectTypeOf<BundleReconciliationInput>().toMatchTypeOf<{ manifestClaims: readonly unknown[] }>();
     expectTypeOf<BundleInspectionInput>().toEqualTypeOf<z.infer<typeof BundleInspectionInputSchema>>();
     expectTypeOf<BundleInspectionResult>().toEqualTypeOf<z.infer<typeof BundleInspectionResultSchema>>();
     expectTypeOf<ComponentLocatorClaim>().toEqualTypeOf<z.infer<typeof ComponentLocatorClaimSchema>>();

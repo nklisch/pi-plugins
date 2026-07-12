@@ -76,6 +76,13 @@ module.exports = {
       to: { path: "^(?:src/(?:application|infrastructure|runtime|pi)(?:/|$)|node:)" },
     },
     {
+      name: "inner-layers-no-composition-imports",
+      comment: "The composition root wires inward layers; inward layers must never depend on it.",
+      severity: "error",
+      from: { path: "^src/(?:domain|application|formats|infrastructure)(?:/|$)" },
+      to: { path: "^src/composition(?:/|$)" },
+    },
+    {
       name: "no-circular",
       comment: "Circular dependencies make contract initialization order implicit and fragile.",
       severity: "error",

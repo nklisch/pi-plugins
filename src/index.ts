@@ -275,4 +275,15 @@ export type {
   McpDocumentReaderContext,
   PluginManifestReader,
   PluginManifestReaderContext,
+  SkillPresentationReader,
 } from "./application/ports/bundle-readers.js";
+
+export { createPluginInspectionService } from "./application/inspection-service.js";
+export type {
+  PluginInspectionDependencies,
+  PluginInspectionService,
+} from "./application/inspection-service.js";
+export { reconcilePluginBundle } from "./application/bundle-reconciler.js";
+export type { BundleReconciliationInput } from "./application/bundle-reconciler.js";
+export { createNodePluginInspector } from "./composition/create-plugin-inspector.js";
+export type { NodePluginInspectorOptions } from "./composition/create-plugin-inspector.js";

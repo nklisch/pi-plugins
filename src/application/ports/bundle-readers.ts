@@ -50,7 +50,22 @@ export type AgentSkillReaderContext = Readonly<{
   documentPath: string;
   provenance: Provenance;
   presentation?: JsonValue;
+  /** Optional bounded-parser settings supplied by the composition root. */
+  limits?: Readonly<{
+    maxDocumentBytes: number;
+    maxFrontmatterBytes: number;
+    maxFrontmatterLines: number;
+    maxDepth: number;
+    maxNodes: number;
+    maxScalarBytes: number;
+  }>;
 }>;
+
+export type SkillPresentationReader = (
+  source: string,
+  provenance: Provenance,
+  limits?: AgentSkillReaderContext["limits"],
+) => ReadResult<JsonValue>;
 
 export type AgentSkillReader = (
   markdown: string,
@@ -66,4 +81,6 @@ export interface BundleReaderSet {
   readonly claudeMcp: McpDocumentReader;
   readonly codexMcp: McpDocumentReader;
   readonly agentSkill: AgentSkillReader;
+  /** Optional because unit callers may not need Codex presentation parsing. */
+  readonly skillPresentation?: SkillPresentationReader;
 }
