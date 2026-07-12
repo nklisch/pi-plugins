@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-domain-contracts]
@@ -551,4 +551,4 @@ Integrated verification: `npm test` passes 209 tests plus typecheck, 152 depende
 
 ## Review findings
 
-The feature's review-hardening story is now at `stage: review` after implementing cryptographic end-to-end binding, total decompression accounting, slot-owned scratch, write-all persistence, live streaming/incremental hashing, explicit combined failure semantics, bounded manifest verification, exact credential claims, and executable adversarial regressions.
+The feature's review-hardening story is done after implementing cryptographic end-to-end binding, total decompression accounting, slot-owned scratch, write-all persistence, live streaming/incremental hashing, explicit combined failure semantics, bounded manifest verification, exact credential claims, and executable adversarial regressions. Independent integrated verification passes 209 tests plus typecheck, 152 dependency edges with no violations, build, and the exact 94-export package allowlist. The feature returns to `stage: review` for final convergence.
