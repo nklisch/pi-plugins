@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-compatibility-reporting-contract-hardening
 kind: story
-stage: review
+stage: done
 tags: [compatibility]
 parent: epic-foreign-plugin-model-compatibility-reporting
 depends_on: [epic-foreign-plugin-model-compatibility-reporting-policy-evaluator, epic-foreign-plugin-model-compatibility-reporting-capability-service]
@@ -33,14 +33,14 @@ This story may update `docs/COMPATIBILITY.md` only if implementation proves that
 
 ## Acceptance criteria
 
-- [ ] Every parent compatibility grounding row has a unique registry rule id and positive/negative fixture; orphan rules and ungrounded rows fail the table contract test.
-- [ ] Skills, every listed hook event/handler behavior, all MCP transports/auth/features, foreign native components, configuration diagnostics, and marketplace diagnostics are covered.
-- [ ] Unknown hook/MCP/foreign behavior always yields an explicit incompatible assessment, never omission or an exception.
-- [ ] Mixed bundles prove all-or-nothing activation while retaining one assessment per component.
-- [ ] Available/unavailable and uncited capabilities prove requirement availability is separate from component verdicts.
-- [ ] Reports are deterministic under input permutations and retain exact safe provenance for every diagnostic/requirement.
-- [ ] Canary secrets, headers, configured values, environment values, native causes, timestamps, and runtime paths never appear in serialized reports.
-- [ ] Full `npm test` passes, including typecheck, dependency boundaries, unit/integration tests, build, and exact compiled exports.
+- [x] Every parent compatibility grounding row has a unique registry rule id and positive/negative fixture; orphan rules and ungrounded rows fail the table contract test.
+- [x] Skills, every listed hook event/handler behavior, all MCP transports/auth/features, foreign native components, configuration diagnostics, and marketplace diagnostics are covered.
+- [x] Unknown hook/MCP/foreign behavior always yields an explicit incompatible assessment, never omission or an exception.
+- [x] Mixed bundles prove all-or-nothing activation while retaining one assessment per component.
+- [x] Available/unavailable and uncited capabilities prove requirement availability is separate from component verdicts.
+- [x] Reports are deterministic under input permutations and retain exact safe provenance for every diagnostic/requirement.
+- [x] Canary secrets, headers, configured values, environment values, native causes, timestamps, and runtime paths never appear in serialized reports.
+- [x] Full `npm test` passes, including typecheck, dependency boundaries, unit/integration tests, build, and exact compiled exports.
 
 ## Verification
 
@@ -54,3 +54,13 @@ Run the registry table contract, integration fixtures, report JSON safety checks
 - Tests added: registry-exhaustive positive/negative rule fixtures, all listed hook events and handlers, all MCP transports/auth/features/default-deny cases, foreign/configuration/marketplace tables, real-reader normalized-bundle integration, mixed activation, availability separation, deterministic permutations, provenance assertions, safe serialization canaries, and adapter/caller outcome coverage.
 - Discrepancies from design: none. The compatibility policy/evaluator received narrow contract corrections for Codex invocation-policy objects, unsupported hook-handler routing, nested MCP fail-closed validation, and report-safe provenance/explanations. `docs/COMPATIBILITY.md` was unchanged because every documented row was representable by the normalized contract or exercised through its explicit foreign/default-deny path.
 - Adjacent issues parked: none.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane contract-hardening review. Independently confirmed 347 tests, clean typecheck and dependency boundaries, build, and exact 131-export package import. Verdict: Approve - story verified by implement; fast-lane advance.
