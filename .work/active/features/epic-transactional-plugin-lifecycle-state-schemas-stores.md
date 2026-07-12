@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores
 kind: feature
-stage: review
+stage: implementing
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: []
@@ -631,3 +631,13 @@ The least recoverable mistake is exposing unvalidated unknown state through the 
 All five child stories are done. The implementation delivers strict versioned state families, secure project/scope identity, portable project intent, installed user/project evidence, trust/pointer codecs, corruption isolation, deterministic mutations and an adapter-neutral lifecycle state port. Physical storage, locks, trust policy, secrets, promotion, operations, projections and recovery remain outside this feature.
 
 Integrated verification: `npm test` passes 417 tests plus clean typecheck and dependency boundaries, build, and exact 238-export package import.
+
+## Other agent review
+
+- Phase 1 completeness: Z.AI GLM 5.2 xhigh approved the intended schema, migration, scope, isolation, and port architecture.
+- Phase 2 contract quality: GPT-5.6 Sol high reproduced unrestricted runtime/secret persistence, digest checks that defeated isolation, optional mutation verification, recovery of unidentifiable records, and free-form corruption-detail leakage.
+- Accepted: all blocker and important findings because they violate authoritative-state safety and corruption isolation. Tracked by `epic-transactional-plugin-lifecycle-state-schemas-stores-review-hardening`.
+
+## Review findings
+
+The feature returns to `stage: implementing` until persisted evidence is safe-by-construction, raw digests precede isolation, canonical mutation verification is mandatory, unidentified records fail closed, and corruption projections are schema-redacted.
