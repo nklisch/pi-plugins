@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion-review-hardening-4
 kind: story
-stage: review
+stage: done
 tags: [compatibility, security, tests]
 parent: epic-foreign-plugin-model-marketplace-ingestion
 depends_on: [epic-foreign-plugin-model-marketplace-ingestion-review-hardening-3]
@@ -41,3 +41,13 @@ Close two residual merger-boundary failures reproduced after nested-policy harde
 - Files changed: `src/formats/marketplace-merger.ts`, `test/formats/marketplace-merger.test.ts`, this story.
 - Verification: `npm test` passed 223 tests, typecheck, dependency boundaries, build, and compiled package import; independent build/import verification also passed.
 - Deviations: none. No source materialization or later ingestion surfaces were changed.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane merger-boundary story review. Independently confirmed `npm test`: 223 tests, typecheck, 152 dependency edges with no violations, build, and exact 94-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
