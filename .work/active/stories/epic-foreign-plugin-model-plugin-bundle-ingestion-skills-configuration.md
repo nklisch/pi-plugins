@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-plugin-bundle-ingestion-skills-configuration
 kind: story
-stage: review
+stage: done
 tags: [compatibility]
 parent: epic-foreign-plugin-model-plugin-bundle-ingestion
 depends_on: [epic-foreign-plugin-model-plugin-bundle-ingestion-manifest-reconciliation]
@@ -33,14 +33,14 @@ Commit hermetic snapshots from `/home/nathan/dev/skills` commit `8d312608113b2e6
 
 ## Acceptance criteria
 
-- [ ] Frontmatter enforces the parent feature's byte, line, depth, node, and scalar bounds before/until allocation can exceed them.
-- [ ] Aliases, anchors, explicit tags, merge keys, duplicate/non-string/prototype-polluting keys, multi-document YAML, invalid UTF-8, and unterminated frontmatter fail with no partial skill.
-- [ ] Required Agent Skills fields and recognized invocation metadata are structurally validated; unknown fields are retained without runtime meaning or verdicts.
-- [ ] Discovery accepts only manifest-indexed `SKILL.md` files beneath declared roots and never follows symlinks or discovers nested undeclared roots.
-- [ ] `userConfig` emits `PluginConfiguration` descriptors only and rejects duplicate keys, unknown types, sensitive defaults, invalid patterns, type/default mismatches, and bound errors.
-- [ ] Configured values, substitutions, environment, path existence checks, secrets, and secret stores do not appear in this implementation.
-- [ ] Real folded frontmatter and `agents/openai.yaml` snapshots parse; fixture origin and commit are recorded.
-- [ ] Focused tests and full `npm test` pass.
+- [x] Frontmatter enforces the parent feature's byte, line, depth, node, and scalar bounds before/until allocation can exceed them.
+- [x] Aliases, anchors, explicit tags, merge keys, duplicate/non-string/prototype-polluting keys, multi-document YAML, invalid UTF-8, and unterminated frontmatter fail with no partial skill.
+- [x] Required Agent Skills fields and recognized invocation metadata are structurally validated; unknown fields are retained without runtime meaning or verdicts.
+- [x] Discovery accepts only manifest-indexed `SKILL.md` files beneath declared roots and never follows symlinks or discovers nested undeclared roots.
+- [x] `userConfig` emits `PluginConfiguration` descriptors only and rejects duplicate keys, unknown types, sensitive defaults, invalid patterns, type/default mismatches, and bound errors.
+- [x] Configured values, substitutions, environment, path existence checks, secrets, and secret stores do not appear in this implementation.
+- [x] Real folded frontmatter and `agents/openai.yaml` snapshots parse; fixture origin and commit are recorded.
+- [x] Focused tests and full `npm test` pass.
 
 ## Out of scope
 
@@ -55,3 +55,13 @@ No compatibility interpretation of invocation fields, configured-value collectio
 - Discrepancies from design: discovery remains an application-layer responsibility; these pure readers accept only caller-supplied manifest-indexed paths/content and import no filesystem or runtime modules. The bounded YAML parser is pinned to `yaml@2.8.1`.
 - Adjacent issues parked: none.
 - Verification: focused tests, full `npm test`, and independent build/import verification passed.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane skill/config reader review. Independently confirmed `npm test`: 292 tests, typecheck, dependency boundaries with no violations, build, and exact 111-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
