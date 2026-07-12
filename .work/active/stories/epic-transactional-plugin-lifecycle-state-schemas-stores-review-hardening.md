@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores-review-hardening
 kind: story
-stage: review
+stage: done
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-state-schemas-stores
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores-contract-hardening]
@@ -46,3 +46,13 @@ Resolve all accepted blocker and important findings from the state-contract feat
 - Tests added: `test/domain/state/review-hardening-repro.test.ts` directly covers all five reproducers, raw-digest ordering, sibling isolation, mutation verification, and serialized canary exclusion.
 - Discrepancies from design: the earlier installed-record design embedded canonical normalized declarations and manifests; this hardening replaces them with strict evidence summaries, fingerprints, and immutable logical references as required by the review findings.
 - Adjacent issues parked: none.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane state-hardening review. Independently confirmed 422 tests, clean typecheck and dependency boundaries, build, and exact 253-export package import. Verdict: Approve - story verified by implement; fast-lane advance.
