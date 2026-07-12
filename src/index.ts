@@ -692,3 +692,31 @@ export type {
   StateLoadResult,
 } from "./application/state-contract.js";
 export type { LifecycleStateStore } from "./application/ports/lifecycle-state-store.js";
+
+// Mutation coordination is a portable application contract. The SQLite
+// adapter, physical lock roots, retry timers, and protocol schema remain an
+// infrastructure composition detail.
+export { MutationSubjectSchema } from "./application/mutation-coordination.js";
+export type {
+  KeyedMutationScheduler,
+  MutationExecutionContext,
+  MutationSubject,
+} from "./application/mutation-coordination.js";
+export { createKeyedMutationScheduler } from "./application/keyed-mutation-scheduler.js";
+export type {
+  ScopeLockLease,
+  ScopeLockManager,
+} from "./application/ports/scope-lock.js";
+export {
+  CommittedMutationCleanupError,
+  MutationCleanupError,
+  createGenerationMutationCoordinator,
+} from "./application/generation-mutation-coordinator.js";
+export type {
+  GenerationMutationCoordinator,
+  GenerationMutationCoordinatorDependencies,
+  GenerationMutationResult,
+  PreparedMutation,
+  PreparedMutationContext,
+  PreparedMutationRequest,
+} from "./application/generation-mutation-coordinator.js";

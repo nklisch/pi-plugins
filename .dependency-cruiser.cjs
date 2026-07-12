@@ -71,6 +71,13 @@ module.exports = {
       to: { dependencyTypes: ["core"] },
     },
     {
+      name: "sqlite-only-state-infrastructure",
+      comment: "The SQLite scope-lock implementation is the only allowed node:sqlite consumer.",
+      severity: "error",
+      from: { path: "^src/(?!infrastructure/state/)(?:domain|application|formats|composition|runtime|pi)(?:/|$)" },
+      to: { path: "^node:sqlite$" },
+    },
+    {
       name: "state-port-no-outer-layer-imports",
       comment: "The lifecycle state port exposes no adapter, runtime, Pi, or composition detail.",
       severity: "error",

@@ -406,6 +406,8 @@ commits successfully.
 
 Source materializers do not allocate installed, cache, or marketplace storage. The lifecycle operation supplies an empty private staging slot. The Node factory composes Git, npm, bounded HTTPS, archive, filesystem, process, crypto, and credential adapters behind the application ports; those adapter details are not public API. Materialization writes only inside that slot, keeps Git/npm scratch under `<slot>/.work`, and returns an exact `<slot>/content` root, a disk-verified resolved source, a deterministic content manifest, and a source/content binding; cancellation or failure returns no partial result and cleans materializer-owned writes. A cleanup failure is explicit and cannot become a successful handoff. Lifecycle code owns atomic promotion, state and locks, journaling/fsync, rollback, recovery, retention, and garbage collection.
 
+Lifecycle mutation coordination uses a scope-qualified in-process FIFO scheduler plus a cross-process `ScopeLockManager`. The Node adapter uses one rollback-journal SQLite database per user or project scope and holds `BEGIN IMMEDIATE` only for the guarded promotion/compare-and-commit window. The lock root must be private and capability-probed on a supported local filesystem; unknown or network filesystems fail closed. SQLite busy code 5 is retried only through the caller's abort signal and bounded application jitter. There is no lock expiry, PID takeover, heartbeat, fairness guarantee, or process-local fallback: process termination releases the operating-system lock, while a paused live owner remains the owner.
+
 Installation and update follow one transaction:
 
 1. Resolve the marketplace snapshot and plugin source.

@@ -108,8 +108,10 @@ describe("dependency boundary regression", () => {
     const infrastructureFixture = resolve(infrastructureDirectory, ".boundary-regression-fixture.ts");
     mkdirSync(infrastructureDirectory, { recursive: true });
     writeFileSync(applicationFixture, [
+      'import { DatabaseSync } from "node:sqlite";',
       'import { readFile } from "node:fs/promises";',
       'import { boundaryRegressionTarget } from "../infrastructure/.boundary-regression-target.js";',
+      "void DatabaseSync;",
       "void readFile;",
       "void boundaryRegressionTarget;",
     ].join("\n"), "utf8");
@@ -119,6 +121,7 @@ describe("dependency boundary regression", () => {
       const appOutput = cruise(root, "src/application/.boundary-regression-fixture.ts");
       expect(appOutput).toContain("application-no-node-builtins");
       expect(appOutput).toContain("application-no-outer-layer-imports");
+      expect(appOutput).toContain("sqlite-only-state-infrastructure");
       const infraOutput = cruise(root, "src/infrastructure/.boundary-regression-fixture.ts");
       expect(infraOutput).toContain("infrastructure-no-outer-layer-imports");
     } finally {

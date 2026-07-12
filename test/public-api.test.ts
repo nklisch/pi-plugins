@@ -230,6 +230,11 @@ import {
   migrateVersionedDocument,
   parsePortableProjectDeclaration,
   isVerifiedStateMutation,
+  MutationSubjectSchema,
+  createKeyedMutationScheduler,
+  CommittedMutationCleanupError,
+  MutationCleanupError,
+  createGenerationMutationCoordinator,
   parseStateMutation,
   stateDocumentKinds,
   toScopeReference,
@@ -245,7 +250,20 @@ import {
   verifyTrustSubjectRef,
   type AgentSkillReader,
   type LifecycleStateStore,
+  type ScopeLockLease,
+  type ScopeLockManager,
+  type KeyedMutationScheduler,
+  type MutationExecutionContext,
+  type MutationSubject,
+  type GenerationMutationCoordinator,
+  type GenerationMutationCoordinatorDependencies,
+  type GenerationMutationResult,
+  type PreparedMutation,
+  type PreparedMutationContext,
+  type PreparedMutationRequest,
   type Generation,
+  type GenerationSnapshot,
+  type ScopeContext,
   type HostConfigDocumentV1,
   type InstalledUserStateDocumentV1,
   type ProjectLocalStateDocumentV1,
@@ -537,6 +555,11 @@ describe("explicit package API", () => {
       StateDocumentPointerSchema,
       StateDocumentRegistry,
       StateLoadFailureSchema,
+      MutationSubjectSchema,
+      createKeyedMutationScheduler,
+      CommittedMutationCleanupError,
+      MutationCleanupError,
+      createGenerationMutationCoordinator,
       StateMutationInputSchema,
       StateMutationSchema,
       StatePointersDocumentSchema,
@@ -709,5 +732,16 @@ describe("explicit package API", () => {
     expectTypeOf<UserGenerationSnapshot>().toMatchTypeOf<{ generation: Generation }>();
     expectTypeOf<ProjectGenerationSnapshot>().toMatchTypeOf<{ generation: Generation }>();
     expectTypeOf<LifecycleStateStore>().toMatchTypeOf<{ read: Function; commit: Function }>();
+    expectTypeOf<ScopeLockLease>().toMatchTypeOf<{ assertOwned: Function; release: Function }>();
+    expectTypeOf<ScopeLockManager>().toMatchTypeOf<{ acquire: Function }>();
+    expectTypeOf<KeyedMutationScheduler>().toMatchTypeOf<{ run: Function }>();
+    expectTypeOf<MutationExecutionContext>().toMatchTypeOf<{ runNested: Function }>();
+    expectTypeOf<MutationSubject>().toEqualTypeOf<z.infer<typeof MutationSubjectSchema>>();
+    expectTypeOf<GenerationMutationCoordinator>().toMatchTypeOf<{ runPreparedMutation: Function }>();
+    expectTypeOf<GenerationMutationCoordinatorDependencies>().toMatchTypeOf<{ scheduler: KeyedMutationScheduler }>();
+    expectTypeOf<GenerationMutationResult<unknown>>().toMatchTypeOf<{ kind: "committed" | "stale-generation" }>();
+    expectTypeOf<PreparedMutation<unknown>>().toMatchTypeOf<{ mutation: VerifiedStateMutation }>();
+    expectTypeOf<PreparedMutationContext>().toMatchTypeOf<{ snapshot: GenerationSnapshot; assertOwned: Function }>();
+    expectTypeOf<PreparedMutationRequest>().toMatchTypeOf<{ scope: ScopeContext; expectedGeneration: Generation }>();
   });
 });

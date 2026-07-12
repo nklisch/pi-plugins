@@ -492,17 +492,29 @@ resolve
   → validate compatibility
   → inspect trust
   → prepare runtime projections
-  → acquire state lock
-  → verify generation
-  → promote immutable revision
+  → acquire scope-qualified plugin keys
+  → acquire the SQLite scope lock
+  → read and verify expected generation
+  → run the prepared promotion callback
+  → commit the verified mutation
   → write pending transition
   → reload
   → verify activation
   → finalize transition
 ```
 
-Long-running network and source work happens before the state lock. The lock
-covers only the compare-and-commit window.
+Long-running network, source materialization, inspection, compatibility, trust,
+and projection preparation happen before coordination. `createKeyedMutationScheduler`
+and `createGenerationMutationCoordinator` then compose scope-qualified FIFO
+ownership with the application `ScopeLockManager`. The SQLite adapter holds its
+rollback-journal `BEGIN IMMEDIATE` transaction only for the short guarded window;
+its private root is capability-probed for local filesystem locking and unknown or
+network filesystems fail closed. SQLite busy code 5 is retried with caller
+cancellation and bounded application jitter. Locks do not expire, claim fairness,
+or fall back to process-local safety; process death releases the OS lock, while a
+paused live owner remains held. `LifecycleStateStore.commit` remains the final
+compare-and-swap authority, and an uncertain cleanup after a committed result is
+reported with committed evidence rather than replayed blindly.
 
 A pending transition records:
 
@@ -739,13 +751,15 @@ registration because its identity cannot be trusted.
 
 ## Concurrency
 
-- One in-process coordinator serializes mutations per plugin key.
-- Cross-process locks protect scope state.
-- Different plugin sources may download concurrently.
-- State commits remain short and serialized.
+- `KeyedMutationScheduler` serializes scope-qualified plugin mutations in FIFO order; canonical multi-key acquisition prevents order cycles.
+- `ScopeLockManager` protects one complete user or project scope across processes.
+- `createGenerationMutationCoordinator` checks generation before its callback and lets `LifecycleStateStore.commit` perform the final compare-and-swap.
+- Different plugin sources may download concurrently, and long-running preparation never runs under the scope lock.
+- SQLite uses one rollback-journal database per scope, a zero native busy timeout, and cancellable application-level retries; local capability failure is fatal.
+- State commits remain short and serialized; cleanup failure after commit carries committed evidence.
 - Hook handler concurrency follows the normalized foreign event contract.
 - MCP process lifecycle belongs to the MCP runtime.
-- Abort signals propagate through Git, npm, hook, and MCP operations.
+- Abort signals propagate through Git, npm, hook, MCP, scheduler waits, and lock acquisition.
 
 ## Testing strategy
 
