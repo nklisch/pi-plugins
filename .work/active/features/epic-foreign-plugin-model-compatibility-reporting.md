@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-compatibility-reporting
 kind: feature
-stage: review
+stage: implementing
 tags: [compatibility]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-plugin-bundle-ingestion]
@@ -423,3 +423,13 @@ All three child stories are done:
 The implementation delivers registry-driven capability and policy semantics, exhaustive one-assessment-per-component evaluation, fail-closed hook/MCP/foreign handling, deterministic requirement availability and safe diagnostics, a narrow capability probe/service boundary, and executable fixtures for every documented compatibility row. It does not own trust, activation, runtime adapters, lifecycle, configuration collection, or UI.
 
 Integrated verification: `npm test` passes 347 tests plus clean typecheck and dependency boundaries, build, and exact 131-export package import.
+
+## Other agent review
+
+- Phase 1 completeness: Z.AI GLM 5.2 xhigh approved the broad registry, graph, report, and service surface.
+- Phase 2 contract quality: GPT-5.6 Sol high reproduced fail-open arbitrary hook conditions, ambiguous OAuth flows, malformed MCP feature flags, and a negative-fixture contract that asserted only identity.
+- Accepted: all blocker and important findings because malformed executable declarations could be reported compatible. Tracked by `epic-foreign-plugin-model-compatibility-reporting-review-hardening`.
+
+## Review findings
+
+The feature returns to `stage: implementing` until recognized hook-condition grammar, coherent MCP nested shapes, and complete positive/negative fixture expectations enforce the documented default-deny policy.
