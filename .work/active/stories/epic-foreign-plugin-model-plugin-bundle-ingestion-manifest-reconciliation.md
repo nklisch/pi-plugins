@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-plugin-bundle-ingestion-manifest-reconciliation
 kind: story
-stage: implementing
+stage: review
 tags: [compatibility]
 parent: epic-foreign-plugin-model-plugin-bundle-ingestion
 depends_on: [epic-foreign-plugin-model-plugin-bundle-ingestion-inspection-contracts]
@@ -44,3 +44,13 @@ Apply the exact authority matrix in the parent. Authority controls manifest requ
 ## Out of scope
 
 No skill/hook/MCP file parsing, compatibility assessment, filesystem I/O, runtime activation, or lifecycle behavior.
+
+## Implementation notes
+
+- Execution capability: direct-read only; this is one cohesive pure-format/application unit and the caller prohibited other agents.
+- Review weight: standard by project default; explicit stop at `stage: review` because the caller requested that transition and prohibited other agents.
+- Files changed: `src/domain/bundle-ingestion.ts`, `src/formats/plugin-manifest.ts`, `src/formats/claude/manifest-reader.ts`, `src/formats/codex/manifest-reader.ts`, `src/formats/manifest-merger.ts`, `src/application/discovery-plan.ts`, and matching format/application tests plus committed real-manifest fixtures.
+- Tests added: pure Claude/Codex reader tables, real paired `nklisch/skills` snapshots, dual-manifest reconciliation/conflict tests, authority/convention discovery-plan tests, and catalog-versus-manifest contradiction coverage.
+- Discrepancies from design: the shared `PluginManifestClaims` contract already lived in `src/domain/bundle-ingestion.ts` from the prerequisite story, so `src/formats/plugin-manifest.ts` re-exports the format-facing types and keeps manifest paths in a shared domain registry to preserve the application/format boundary.
+- Adjacent issues parked: none.
+- Verification: `npm test`; independent `npm run build && node test/compiled-package-import.mjs`.

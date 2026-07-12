@@ -1,0 +1,563 @@
+import { z } from "zod";
+import {
+  ComponentLocatorClaimSchema,
+  ForeignComponentDeclarationSchema,
+  PluginManifestPathRegistry,
+  type ComponentLocatorClaim,
+  type ForeignComponentDeclaration,
+  type PluginManifestClaims,
+} from "../domain/bundle-ingestion.js";
+import {
+  DiagnosticSchema,
+  ErrorCodeRegistry,
+  type Diagnostic,
+  type ReadResult,
+} from "../domain/errors.js";
+import {
+  MarketplaceAuthoritySchema,
+  NormalizedMarketplaceEntrySchema,
+  type MarketplaceAuthority,
+  type MarketplaceEntryDeclaration,
+  type NormalizedMarketplaceEntry,
+} from "../domain/marketplace.js";
+import {
+  NativeHostSchema,
+  ProvenanceSchema,
+  type Claimed,
+  type NativeHost,
+  type Provenance,
+} from "../domain/provenance.js";
+import { PluginKeySchema } from "../domain/identity.js";
+import { JsonValueSchema, type JsonValue } from "../domain/schema.js";
+import type { ContentIndex } from "./content-index.js";
+
+const OPERATION = "createDiscoveryPlan";
+const HOST_RANK: Readonly<Record<NativeHost, number>> = { claude: 0, codex: 1 };
+
+export type ManifestPresence = Readonly<{
+  nativeHost: NativeHost;
+  path: string;
+  required: boolean;
+  present: boolean;
+}>;
+
+export const ManifestPresenceSchema = z.object({
+  nativeHost: NativeHostSchema,
+  path: z.string().min(1),
+  required: z.boolean(),
+  present: z.boolean(),
+}).strict().readonly();
+
+export type DiscoveryPlan = Readonly<{
+  manifests: readonly ManifestPresence[];
+  locators: readonly ComponentLocatorClaim[];
+  catalogForeign: readonly ForeignComponentDeclaration[];
+}>;
+
+export const DiscoveryPlanSchema = z.object({
+  manifests: z.array(ManifestPresenceSchema).readonly(),
+  locators: z.array(ComponentLocatorClaimSchema).readonly(),
+  catalogForeign: z.array(ForeignComponentDeclarationSchema).readonly()
+}).strict().readonly();
+
+type ClaimLike<T> = Readonly<{
+  value: T;
+  provenance: readonly Provenance[];
+}>;
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) =>
+    `${JSON.stringify(key)}:${stableJson(record[key])}`).join(",")}}`;
+}
+
+function locationKey(provenance: Provenance): string {
+  const location = provenance.location;
+  return stableJson([
+    location.host,
+    location.documentKind,
+    location.path,
+    location.pointer === undefined ? null : location.pointer,
+    location.line === undefined ? null : location.line,
+    location.column === undefined ? null : location.column,
+  ]);
+}
+
+function compareProvenance(left: Provenance, right: Provenance): number {
+  const host = HOST_RANK[left.location.host] - HOST_RANK[right.location.host];
+  if (host !== 0) return host;
+  const a = locationKey(left);
+  const b = locationKey(right);
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+type ProvenanceCarrier = Readonly<{ provenance: readonly Provenance[] }> | readonly Provenance[];
+
+function firstProvenance(claim: ProvenanceCarrier): Provenance {
+  const provenance = Array.isArray(claim)
+    ? claim
+    : (claim as Readonly<{ provenance: readonly Provenance[] }>).provenance;
+  return [...provenance].sort(compareProvenance)[0] as Provenance;
+}
+
+function mergeProvenance(
+  left: readonly Provenance[],
+  right: readonly Provenance[],
+): readonly [Provenance, ...Provenance[]] {
+  const values = [...left, ...right].sort(compareProvenance);
+  const unique: Provenance[] = [];
+  for (const value of values) {
+    if (!unique.some((existing) =>
+      locationKey(existing) === locationKey(value) &&
+      stableJson(existing.declaration) === stableJson(value.declaration))) {
+      unique.push(value);
+    }
+  }
+  return unique as [Provenance, ...Provenance[]];
+}
+
+function pointerField(pointer: string): string {
+  const token = pointer.split("/")[1] ?? pointer;
+  return token.replaceAll("~1", "/").replaceAll("~0", "~");
+}
+
+function normalizeCatalogPath(value: unknown, pointer: string): string {
+  if (typeof value !== "string" || value.length < 3 || !value.startsWith("./")) {
+    throw new Error(`${pointer} must be a relative path beginning with ./`);
+  }
+  if (value.includes("\\") || value.includes("\u0000")) {
+    throw new Error(`${pointer} cannot contain backslashes or NUL bytes`);
+  }
+  const body = value.slice(2).endsWith("/") ? value.slice(2, -1) : value.slice(2);
+  const segments = body.split("/");
+  if (
+    segments.some((segment) => segment.length === 0 || segment === "." || segment === "..") ||
+    /^[A-Za-z]:/.test(segments[0] ?? "")
+  ) {
+    throw new Error(`${pointer} contains an unsafe path segment`);
+  }
+  return `./${segments.join("/")}`;
+}
+
+function sourceProvenance(
+  host: NativeHost,
+  path: string,
+  pointer: string,
+  declaration?: JsonValue,
+): Provenance {
+  return ProvenanceSchema.parse({
+    location: { host, documentKind: "convention", path, pointer },
+    ...(declaration === undefined ? {} : { declaration }),
+  });
+}
+
+function diagnostic(
+  code: "SCHEMA_INVALID" | "MANIFEST_ROOT_INVALID" | "PATH_CONTAINMENT_FAILED" | "CLAIM_CONFLICT",
+  message: string,
+  plugin?: string,
+  provenance?: Provenance,
+  details?: JsonValue,
+): Diagnostic {
+  return DiagnosticSchema.parse({
+    code,
+    severity: "error",
+    operation: OPERATION,
+    message,
+    ...(plugin === undefined ? {} : { plugin: PluginKeySchema.parse(plugin) }),
+    ...(provenance === undefined ? {} : { location: provenance.location }),
+    ...(details === undefined ? {} : { details }),
+  });
+}
+
+function failure(
+  code: "SCHEMA_INVALID" | "MANIFEST_ROOT_INVALID" | "PATH_CONTAINMENT_FAILED" | "CLAIM_CONFLICT",
+  message: string,
+  plugin: string,
+  provenance?: Provenance,
+  details?: JsonValue,
+): ReadResult<DiscoveryPlan> {
+  return { ok: false, diagnostics: [diagnostic(code, message, plugin, provenance, details)] };
+}
+
+function authorityFor(
+  authorities: readonly MarketplaceAuthority[],
+  host: NativeHost,
+): MarketplaceAuthority | undefined {
+  return authorities.find((authority) => authority.nativeHost === host);
+}
+
+function manifestRequired(authority: MarketplaceAuthority): boolean {
+  return authority.manifest.value === "required";
+}
+
+function contentPath(target: ComponentLocatorClaim["target"]): string | undefined {
+  return target.kind === "inline" ? undefined : target.path.startsWith("./") ? target.path.slice(2) : target.path;
+}
+
+function targetKey(locator: ComponentLocatorClaim): string {
+  return `${locator.componentKind}\u0000${stableJson(locator.target)}`;
+}
+
+function locatorSourceRank(source: ComponentLocatorClaim["source"]): number {
+  return source === "catalog" ? 0 : source === "manifest" ? 1 : 2;
+}
+
+function locatorOrder(locator: ComponentLocatorClaim): string {
+  return [
+    targetKey(locator),
+    String(locatorSourceRank(locator.source)),
+    String(HOST_RANK[locator.nativeHost]),
+    stableJson(locator.provenance.map(locationKey)),
+  ].join("\u0000");
+}
+
+function deduplicateLocators(
+  locators: readonly ComponentLocatorClaim[],
+): readonly ComponentLocatorClaim[] {
+  const byKey = new Map<string, ComponentLocatorClaim>();
+  for (const candidate of locators) {
+    const validated = ComponentLocatorClaimSchema.parse(candidate);
+    const key = targetKey(validated);
+    const current = byKey.get(key);
+    if (current === undefined) {
+      byKey.set(key, validated);
+      continue;
+    }
+    const currentRank = [locatorSourceRank(current.source), HOST_RANK[current.nativeHost]];
+    const nextRank = [locatorSourceRank(validated.source), HOST_RANK[validated.nativeHost]];
+    const preferred = nextRank[0]! < currentRank[0]! ||
+      (nextRank[0] === currentRank[0]! && nextRank[1]! < currentRank[1]!)
+      ? validated
+      : current;
+    byKey.set(key, {
+      ...preferred,
+      provenance: mergeProvenance(current.provenance, validated.provenance),
+    });
+  }
+  return [...byKey.values()].sort((left, right) => {
+    const a = locatorOrder(left);
+    const b = locatorOrder(right);
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
+}
+
+function locatorField(locator: ComponentLocatorClaim): ComponentLocatorClaim["componentKind"] {
+  return locator.componentKind;
+}
+
+function explicitLocatorConflict(
+  locators: readonly ComponentLocatorClaim[],
+  plugin: string,
+): ReadResult<DiscoveryPlan> | undefined {
+  const explicit = locators.filter((locator) =>
+    locator.source === "catalog" || locator.source === "manifest");
+  for (let leftIndex = 0; leftIndex < explicit.length; leftIndex += 1) {
+    const left = explicit[leftIndex] as ComponentLocatorClaim;
+    for (let rightIndex = leftIndex + 1; rightIndex < explicit.length; rightIndex += 1) {
+      const right = explicit[rightIndex] as ComponentLocatorClaim;
+      if (left.source === right.source || left.nativeHost !== right.nativeHost) continue;
+      if (locatorField(left) !== locatorField(right) || targetKey(left) === targetKey(right)) continue;
+      const leftProvenance = firstProvenance(left);
+      const rightProvenance = firstProvenance(right);
+      return failure(
+        ErrorCodeRegistry.claimConflict,
+        `Conflicting explicit ${left.componentKind} locators`,
+        plugin,
+        leftProvenance,
+        {
+          field: `locator.${left.componentKind}`,
+          left: JsonValueSchema.parse(left),
+          right: JsonValueSchema.parse(right),
+          locations: JsonValueSchema.parse([leftProvenance.location, rightProvenance.location]),
+        },
+      );
+    }
+  }
+  return undefined;
+}
+
+function ensureExplicitTargets(
+  content: ContentIndex,
+  locators: readonly ComponentLocatorClaim[],
+  plugin: string,
+): ReadResult<DiscoveryPlan> | undefined {
+  for (const locator of locators) {
+    const path = contentPath(locator.target);
+    if (path === undefined) continue;
+    const entry = content.get(path);
+    const provenance = firstProvenance(locator);
+    const expectedKind = locator.target.kind;
+    if (entry === undefined) {
+      return failure(
+        ErrorCodeRegistry.pathContainmentFailed,
+        `explicit ${expectedKind} target is not present in the content manifest: ${path}`,
+        plugin,
+        provenance,
+        { path, expected: expectedKind },
+      );
+    }
+    if (entry.kind !== expectedKind) {
+      return failure(
+        ErrorCodeRegistry.pathContainmentFailed,
+        `explicit ${expectedKind} target has manifest kind ${entry.kind}: ${path}`,
+        plugin,
+        provenance,
+        { path, expected: expectedKind, actual: entry.kind },
+      );
+    }
+  }
+  return undefined;
+}
+
+function catalogLocator(
+  declaration: MarketplaceEntryDeclaration,
+  authority: "authoritative" | "supplemental",
+  target: ComponentLocatorClaim["target"],
+  provenance: readonly Provenance[],
+): ComponentLocatorClaim {
+  const componentKind = declaration.field === "skills"
+    ? "skill"
+    : declaration.field === "hooks"
+      ? "hook"
+      : "mcp-server";
+  return {
+    nativeHost: declaration.nativeHost,
+    componentKind,
+    authority,
+    source: "catalog",
+    target,
+    provenance: mergeProvenance(provenance, []),
+  };
+}
+
+function catalogPathLocators(
+  declaration: MarketplaceEntryDeclaration,
+  authority: "authoritative" | "supplemental",
+): ComponentLocatorClaim[] {
+  const raw = declaration.declaration.value;
+  const pointer = declaration.declaration.provenance[0]?.location.pointer ?? `/${declaration.field}`;
+  const declarationProvenance = declaration.declaration.provenance;
+  const targetKind = declaration.field === "skills" ? "directory" : "file";
+  if (declaration.field === "skills" && Array.isArray(raw)) {
+    return raw.map((value, index) => catalogLocator(
+      declaration,
+      authority,
+      { kind: targetKind, path: normalizeCatalogPath(value, `${pointer}/${index}`) },
+      declarationProvenance,
+    ));
+  }
+  if (declaration.field === "mcpServers" && raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
+    return [catalogLocator(declaration, authority, { kind: "inline", declaration: JsonValueSchema.parse(raw) }, declarationProvenance)];
+  }
+  if (declaration.field === "hooks" && raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
+    return [catalogLocator(declaration, authority, { kind: "inline", declaration: JsonValueSchema.parse(raw) }, declarationProvenance)];
+  }
+  if (typeof raw !== "string") {
+    throw new Error(`${declaration.field} must be a path${declaration.field === "skills" ? " or array of paths" : " or inline object"}`);
+  }
+  return [catalogLocator(
+    declaration,
+    authority,
+    { kind: targetKind, path: normalizeCatalogPath(raw, pointer) },
+    declarationProvenance,
+  )];
+}
+
+function catalogForeign(
+  declaration: MarketplaceEntryDeclaration,
+): ForeignComponentDeclaration {
+  const nativeKind = declaration.field;
+  return {
+    nativeHost: declaration.nativeHost,
+    nativeKind: {
+      value: nativeKind,
+      provenance: declaration.declaration.provenance,
+    },
+    declarationKey: declaration.declaration.provenance[0]?.location.pointer ?? `/${nativeKind}`,
+    declaration: declaration.declaration,
+  };
+}
+
+function conventionalLocator(
+  host: NativeHost,
+  componentKind: ComponentLocatorClaim["componentKind"],
+  path: string,
+  targetKind: "file" | "directory" = componentKind === "skill" ? "directory" : "file",
+): ComponentLocatorClaim {
+  const provenance = sourceProvenance(host, path, "", path);
+  return {
+    nativeHost: host,
+    componentKind,
+    authority: "conventional",
+    source: "convention",
+    target: {
+      kind: targetKind,
+      path: `./${path}`,
+    },
+    provenance: [provenance],
+  };
+}
+
+function conventionLocators(
+  entry: NormalizedMarketplaceEntry,
+  content: ContentIndex,
+  host: NativeHost,
+  authority: MarketplaceAuthority,
+  manifestPresent: boolean,
+): ComponentLocatorClaim[] {
+  if (host !== "claude") return [];
+  const enabled = authority.strict?.value === false || manifestPresent;
+  if (!enabled) return [];
+  const locators: ComponentLocatorClaim[] = [];
+  const skills = content.get("skills");
+  if (skills?.kind === "directory") locators.push(conventionalLocator(host, "skill", "skills"));
+  const rootSkill = content.get("SKILL.md");
+  if (rootSkill?.kind === "file") locators.push(conventionalLocator(host, "skill", "SKILL.md", "file"));
+  const hooks = content.get("hooks/hooks.json");
+  if (hooks?.kind === "file") locators.push(conventionalLocator(host, "hook", "hooks/hooks.json"));
+  const mcp = content.get(".mcp.json");
+  if (mcp?.kind === "file") locators.push(conventionalLocator(host, "mcp-server", ".mcp.json"));
+  void entry;
+  return locators;
+}
+
+function manifestPresence(
+  content: ContentIndex,
+  host: NativeHost,
+  required: boolean,
+  plugin: string,
+  authority: MarketplaceAuthority,
+): ReadResult<ManifestPresence> {
+  const path = host === "claude" ? PluginManifestPathRegistry.claude : PluginManifestPathRegistry.codex;
+  const entry = content.get(path);
+  const provenance = firstProvenance(authority.manifest);
+  if (entry === undefined) {
+    if (required) {
+      return {
+        ok: false,
+        diagnostics: [diagnostic(
+          ErrorCodeRegistry.manifestRootInvalid,
+          `${host} plugin manifest is required but missing: ${path}`,
+          plugin,
+          provenance,
+          { path, nativeHost: host },
+        )],
+      };
+    }
+    return { ok: true, value: { nativeHost: host, path, required, present: false }, diagnostics: [] };
+  }
+  if (entry.kind !== "file") {
+    return {
+      ok: false,
+      diagnostics: [diagnostic(
+        ErrorCodeRegistry.manifestRootInvalid,
+        `${host} plugin manifest is not a regular file: ${path}`,
+        plugin,
+        provenance,
+        { path, nativeHost: host, actual: entry.kind },
+      )],
+    };
+  }
+  return { ok: true, value: { nativeHost: host, path, required, present: true }, diagnostics: [] };
+}
+
+function authorityClaims(
+  entry: NormalizedMarketplaceEntry,
+): readonly MarketplaceAuthority[] {
+  return [...entry.authorities].sort((left, right) => HOST_RANK[left.nativeHost] - HOST_RANK[right.nativeHost]);
+}
+
+/**
+ * Build the finite inspection plan. This function never lists a directory: a
+ * conventional locator exists only when its exact entry is in ContentIndex.
+ */
+export function createDiscoveryPlan(input: Readonly<{
+  entry: NormalizedMarketplaceEntry;
+  content: ContentIndex;
+  claudeManifest?: PluginManifestClaims;
+  codexManifest?: PluginManifestClaims;
+}>): ReadResult<DiscoveryPlan> {
+  try {
+    const entry = NormalizedMarketplaceEntrySchema.parse(input.entry);
+    const content = input.content;
+    const plugin = PluginKeySchema.parse(entry.identity.value.key);
+    const authorities = authorityClaims(entry);
+    const manifests: ManifestPresence[] = [];
+    const locators: ComponentLocatorClaim[] = [];
+    const foreign: ForeignComponentDeclaration[] = [];
+
+    for (const authority of authorities) {
+      const host = NativeHostSchema.parse(authority.nativeHost);
+      MarketplaceAuthoritySchema.parse(authority);
+      const presence = manifestPresence(content, host, manifestRequired(authority), plugin, authority);
+      if (!presence.ok) return presence;
+      manifests.push(presence.value);
+
+      const manifest = host === "claude" ? input.claudeManifest : input.codexManifest;
+      if (manifest !== undefined) {
+        if (manifest.nativeHost !== host) {
+          return failure(ErrorCodeRegistry.schemaInvalid, `${host} manifest claim has the wrong native host`, plugin, manifest.document);
+        }
+        const expectedPath = host === "claude" ? PluginManifestPathRegistry.claude : PluginManifestPathRegistry.codex;
+        if (manifest.document.location.path !== expectedPath) {
+          return failure(ErrorCodeRegistry.manifestRootInvalid, `${host} manifest claim has an unexpected path`, plugin, manifest.document);
+        }
+        locators.push(...manifest.locators);
+        foreign.push(...manifest.foreign);
+      }
+
+      const catalogAuthority = authority.catalogRuntime.value;
+      for (const declaration of entry.declarations.filter((item) => item.nativeHost === host)) {
+        if (declaration.field === "skills" || declaration.field === "hooks" || declaration.field === "mcpServers") {
+          try {
+            locators.push(...catalogPathLocators(declaration, catalogAuthority));
+          } catch (error) {
+            return failure(
+              ErrorCodeRegistry.schemaInvalid,
+              error instanceof Error ? error.message : "catalog component declaration is invalid",
+              plugin,
+              declaration.declaration.provenance[0],
+            );
+          }
+        } else {
+          foreign.push(catalogForeign(declaration));
+        }
+      }
+
+      const manifestPresent = presence.value.present;
+      locators.push(...conventionLocators(entry, content, host, authority, manifestPresent));
+    }
+
+    const claimFailure = explicitLocatorConflict(locators, plugin);
+    if (claimFailure !== undefined) return claimFailure;
+    const targetFailure = ensureExplicitTargets(content, locators, plugin);
+    if (targetFailure !== undefined) return targetFailure;
+
+    return {
+      ok: true,
+      value: {
+        manifests: manifests.sort((left, right) => HOST_RANK[left.nativeHost] - HOST_RANK[right.nativeHost]),
+        locators: deduplicateLocators(locators),
+        catalogForeign: foreign.sort((left, right) => {
+          const a = `${HOST_RANK[left.nativeHost]}\u0000${left.declarationKey}`;
+          const b = `${HOST_RANK[right.nativeHost]}\u0000${right.declarationKey}`;
+          return a < b ? -1 : a > b ? 1 : 0;
+        }),
+      },
+      diagnostics: [],
+    };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return failure(ErrorCodeRegistry.schemaInvalid, "discovery plan input is invalid", String((input as { entry?: { identity?: { value?: { key?: string } } } }).entry?.identity?.value?.key ?? "unknown"), undefined, {
+        issues: error.issues.map((issue) => ({ code: issue.code, path: issue.path.map(String), message: issue.message })),
+      });
+    }
+    return failure(
+      ErrorCodeRegistry.schemaInvalid,
+      error instanceof Error ? error.message : "discovery plan is invalid",
+      "unknown@unknown",
+    );
+  }
+}

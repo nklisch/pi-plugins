@@ -11,6 +11,14 @@ import {
 } from "./provenance.js";
 import { JsonValueSchema } from "./schema.js";
 
+/** Manifest locations are a shared contract for readers and discovery planning. */
+export const PluginManifestPathRegistry = {
+  claude: ".claude-plugin/plugin.json",
+  codex: ".codex-plugin/plugin.json",
+} as const;
+
+export type PluginManifestPath = (typeof PluginManifestPathRegistry)[keyof typeof PluginManifestPathRegistry];
+
 function registryEnum<const T extends readonly [string, ...string[]]>(
   values: T,
 ): z.ZodEnum<{ [K in T[number]]: K }> {
