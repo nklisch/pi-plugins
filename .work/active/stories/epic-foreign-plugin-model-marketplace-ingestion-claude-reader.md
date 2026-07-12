@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-marketplace-ingestion-claude-reader
 kind: story
-stage: review
+stage: done
 tags: [compatibility]
 parent: epic-foreign-plugin-model-marketplace-ingestion
 depends_on: [epic-foreign-plugin-model-marketplace-ingestion-domain-contracts]
@@ -40,6 +40,16 @@ The reader validates relative path syntax only. It must not access the filesyste
 ## Verification
 
 - `npm test` — 13 test files, 127 tests passed; typecheck, dependency boundaries, build, and compiled export allowlist passed.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane story review. Integrated verification with both readers independently passed `npm test`: 131 tests, typecheck, dependency boundaries, build, and exact 81-export compiled package import. Verdict: Approve - story verified by implement; fast-lane advance.
 
 ## Design source
 
