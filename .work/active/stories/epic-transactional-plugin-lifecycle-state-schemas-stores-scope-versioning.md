@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-state-schemas-stores-scope-versioning
 kind: story
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-state-schemas-stores
 depends_on: []
@@ -58,3 +58,13 @@ This story defines no filesystem identity discovery, physical path layout, lock,
 - Tests added: schema-derived migration graph/golden and immutability tests; project-key golden/adversarial identity and scope-reference tests; tagged logical-reference golden, cross-family, path-free, canonicalization, and injected-hash tests.
 - Discrepancies from design: none.
 - Adjacent issues parked: none.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane scope/versioning review. Independently confirmed 373 tests, clean typecheck and dependency boundaries, build, and exact 131-export package import. Verdict: Approve - story verified by implement; fast-lane advance.
