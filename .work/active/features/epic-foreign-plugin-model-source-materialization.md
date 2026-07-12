@@ -1,7 +1,7 @@
 ---
 id: epic-foreign-plugin-model-source-materialization
 kind: feature
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-domain-contracts]
@@ -551,4 +551,14 @@ Integrated verification: `npm test` passes 209 tests plus typecheck, 152 depende
 
 ## Review findings
 
-The first two review-hardening stories close decompression, disk binding, scratch, writes, streaming, cleanup, selector, slot, cancellation, limit, credential, and verifier-boundary findings. Certification then found marketplace SHA-shaped refs lacked revision binding and recursive traversal could exceed the hash-work budget; `epic-foreign-plugin-model-source-materialization-review-hardening-3` is now done and closes both. Independent integrated verification passes 237 tests plus typecheck, 156 dependency edges with no violations, build, and the exact 94-export package allowlist. The feature returns to `stage: review` for final confirmation.
+The first two review-hardening stories close decompression, disk binding, scratch, writes, streaming, cleanup, selector, slot, cancellation, limit, credential, and verifier-boundary findings. Certification then found marketplace SHA-shaped refs lacked revision binding and recursive traversal could exceed the hash-work budget; `epic-foreign-plugin-model-source-materialization-review-hardening-3` closes both. Independent integrated verification passes 237 tests plus typecheck, 156 dependency edges with no violations, build, and the exact 94-export package allowlist.
+
+## Review (2026-07-12)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Deep two-model convergence. GLM 5.2 completeness certification and GPT-5.6 Sol contract-quality certification independently reproduced the historical findings and approved current HEAD after the marketplace SHA-ref and recursive budget fixes. Focused certification passed 5/5 regressions and 58/58 materialization acceptance checks; full suite passed 237 tests, clean typecheck, 156 dependency edges, build, and exact 94-export package import.
