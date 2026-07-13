@@ -1,0 +1,186 @@
+import { randomBytes as nodeRandomBytes } from "node:crypto";
+import { lstat, mkdir, chmod, realpath, readdir, rm } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { DomainContractError, ErrorCodeRegistry } from "../../domain/errors.js";
+import type { StagingSlot } from "../../application/ports/source-acquisition.js";
+import type { StagingAllocation } from "../../application/ports/content-store.js";
+import {
+  assertOwnedDirectory,
+  stagingAllocationPath,
+  type ContentStoreLayout,
+} from "./content-store-layout.js";
+
+export type RandomBytes = (size: number) => Uint8Array | Promise<Uint8Array>;
+
+export type StagingAllocator = Readonly<{
+  allocateStaging(signal: AbortSignal): Promise<StagingAllocation>;
+  discardStaging(allocation: StagingAllocation, signal: AbortSignal): Promise<void>;
+}>;
+
+type AllocationRecord = Readonly<{
+  allocation: StagingAllocation;
+  root: string;
+  parent: string;
+  dev: number;
+  ino: number;
+}>;
+
+function allocationError(
+  code: "STAGING_ALLOCATION_INVALID" | "ADAPTER_FAILED",
+  operation: string,
+  message: string,
+  cause?: unknown,
+): DomainContractError {
+  return new DomainContractError({
+    code: ErrorCodeRegistry[code === "STAGING_ALLOCATION_INVALID" ? "stagingAllocationInvalid" : "adapterFailed"],
+    operation,
+    message,
+    details: { operation },
+    ...(cause === undefined ? {} : { cause }),
+  });
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+}
+
+function allocationIdFromBytes(bytes: Uint8Array): string {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength !== 16) {
+    throw new TypeError("staging random source must return 16 bytes");
+  }
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Allocate only below the layout's private staging root. The WeakMap is a
+ * capability boundary: copying the visible slot/token fields does not create
+ * authority to promote or remove the directory.
+ */
+export function createStagingAllocator(
+  layout: ContentStoreLayout,
+  options: Readonly<{ randomBytes?: RandomBytes }> = {},
+): StagingAllocator & {
+  assertOwned(allocation: unknown, operation?: string): Promise<AllocationRecord>;
+} {
+  const randomBytes: RandomBytes = options.randomBytes ?? ((size) => new Uint8Array(nodeRandomBytes(size)));
+  const owned = new WeakMap<object, AllocationRecord>();
+  const byRoot = new Map<string, AllocationRecord>();
+
+  async function assertOwned(allocation: unknown, operation = "validateStagingAllocation"): Promise<AllocationRecord> {
+    if (allocation === null || typeof allocation !== "object") {
+      throw allocationError("STAGING_ALLOCATION_INVALID", operation, "staging allocation capability is invalid");
+    }
+    const record = owned.get(allocation);
+    if (record === undefined) {
+      throw allocationError("STAGING_ALLOCATION_INVALID", operation, "staging allocation capability is not owned by this store");
+    }
+    const value = allocation as StagingAllocation;
+    if (
+      value.allocationId !== record.allocation.allocationId ||
+      value.slot.root !== record.allocation.slot.root ||
+      record.parent !== layout.stagingRoot ||
+      resolve(dirname(record.root)) !== resolve(layout.stagingRoot)
+    ) {
+      throw allocationError("STAGING_ALLOCATION_INVALID", operation, "staging allocation capability does not match its owner");
+    }
+    let current;
+    try {
+      current = await assertOwnedDirectory(record.root, operation);
+    } catch (error) {
+      if (error instanceof DomainContractError) throw error;
+      throw allocationError("STAGING_ALLOCATION_INVALID", operation, "staging allocation directory is not owned", error);
+    }
+    if (current.realpath !== record.root || current.dev !== record.dev || current.ino !== record.ino) {
+      throw allocationError("STAGING_ALLOCATION_INVALID", operation, "staging allocation directory identity changed");
+    }
+    const stat = await lstat(record.root);
+    if ((stat.mode & 0o077) !== 0) {
+      throw allocationError("STAGING_ALLOCATION_INVALID", operation, "staging allocation directory is not private");
+    }
+    return record;
+  }
+
+  async function allocateStaging(signal: AbortSignal): Promise<StagingAllocation> {
+    throwIfAborted(signal);
+    for (let attempt = 0; attempt < 32; attempt += 1) {
+      throwIfAborted(signal);
+      const bytes = await randomBytes(16);
+      const allocationId = allocationIdFromBytes(bytes);
+      const root = stagingAllocationPath(layout, allocationId);
+      try {
+        await mkdir(root, { mode: 0o700 });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
+        throw allocationError("ADAPTER_FAILED", "allocateStaging", "staging allocation failed", error);
+      }
+      try {
+        await chmod(root, 0o700);
+        const canonical = await realpath(root);
+        if (canonical !== root) throw new Error("staging allocation resolved through a symlink");
+        const stat = await lstat(root);
+        if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0) {
+          throw new Error("staging allocation is not a private real directory");
+        }
+        if ((await readdir(root)).length !== 0) throw new Error("staging allocation is not empty");
+        const allocation = Object.freeze({
+          slot: Object.freeze({ root: canonical }) as StagingSlot,
+          allocationId,
+        });
+        const record: AllocationRecord = Object.freeze({
+          allocation,
+          root: canonical,
+          parent: layout.stagingRoot,
+          dev: stat.dev,
+          ino: stat.ino,
+        });
+        owned.set(allocation, record);
+        byRoot.set(canonical, record);
+        throwIfAborted(signal);
+        return allocation;
+      } catch (error) {
+        await rm(root, { recursive: true, force: true }).catch(() => undefined);
+        if (signal.aborted) throw signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+        throw allocationError("ADAPTER_FAILED", "allocateStaging", "staging allocation could not be verified", error);
+      }
+    }
+    throw allocationError("ADAPTER_FAILED", "allocateStaging", "staging allocation id collision limit exceeded");
+  }
+
+  async function discardStaging(allocation: StagingAllocation, signal: AbortSignal): Promise<void> {
+    throwIfAborted(signal);
+    if (allocation === null || typeof allocation !== "object") {
+      throw allocationError("STAGING_ALLOCATION_INVALID", "discardStaging", "staging allocation capability is invalid");
+    }
+    const record = owned.get(allocation);
+    if (record === undefined) {
+      throw allocationError("STAGING_ALLOCATION_INVALID", "discardStaging", "staging allocation capability is not owned by this store");
+    }
+    try {
+      await assertOwned(allocation, "discardStaging");
+    } catch (error) {
+      const nativeCause = error instanceof Error ? error.cause : undefined;
+      const missing = nativeCause !== undefined && typeof nativeCause === "object" && nativeCause !== null &&
+        (nativeCause as NodeJS.ErrnoException).code === "ENOENT";
+      if (!missing) throw error;
+      // A missing path is the one safe idempotent retry. Confirm the parent
+      // still has the adapter's canonical identity before forgetting it.
+      await assertOwnedDirectory(layout.stagingRoot, "discardStaging");
+      return;
+    }
+    try {
+      await rm(record.root, { recursive: true, force: false });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return;
+      }
+      throw allocationError("ADAPTER_FAILED", "discardStaging", "staging allocation cleanup failed", error);
+    }
+  }
+
+  // Keep the map in the closure for debugging invariants without exposing it
+  // as a path/token lookup API.
+  void byRoot;
+  return Object.freeze({ allocateStaging, discardStaging, assertOwned });
+}
+
+export type { AllocationRecord };

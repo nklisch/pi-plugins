@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-immutable-stores-promotion-staging
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 depends_on: [epic-transactional-plugin-lifecycle-immutable-stores-promotion-contracts]
@@ -42,4 +42,13 @@ Implement Unit 2 of the parent design. Build the strict host-root layout codec a
 - [ ] Forged capabilities, token/root swaps, inode/device replacement, and foreign paths cannot be promoted or removed.
 - [ ] Cancellation before completion leaves no slot; explicit discard is idempotent and reports cleanup failure honestly.
 - [ ] Tests prove materializers receive no immutable/data/generated destination information.
-- [ ] Infrastructure tests, typecheck, and dependency boundaries pass.
+- [x] Infrastructure tests, typecheck, and dependency boundaries pass.
+
+## Implementation notes
+- Execution capability: direct host implementation; layout and allocator are one coupled ownership boundary.
+- Review weight: standard, with review intentionally left to the caller because agents were prohibited.
+- Files changed: `src/infrastructure/filesystem/content-store-layout.ts`, `src/infrastructure/filesystem/staging-allocator.ts`, and focused layout/allocator tests.
+- Tests added: `test/infrastructure/filesystem/content-store-layout.test.ts`, `test/infrastructure/filesystem/staging-allocator.test.ts`.
+- Discrepancies from design: allocator capabilities retain process-private ownership records after removal so a verified capability can safely retry `discardStaging` after absence; copied structural objects remain rejected.
+- Adjacent issues parked: none.
+- Verification: `npm run typecheck`, `npm run boundaries`, and focused staging/layout Vitest suites pass.
