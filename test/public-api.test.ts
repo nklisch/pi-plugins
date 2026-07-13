@@ -272,7 +272,6 @@ import {
   type ScopeLockLease,
   type ScopeLockManager,
   type KeyedMutationScheduler,
-  type MutationExecutionContext,
   type MutationSubject,
   type GenerationMutationCoordinator,
   type GenerationMutationCoordinatorDependencies,
@@ -779,11 +778,10 @@ describe("explicit package API", () => {
     expectTypeOf<ScopeLockLease>().toMatchTypeOf<{ assertOwned: Function; release: Function }>();
     expectTypeOf<ScopeLockManager>().toMatchTypeOf<{ acquire: Function }>();
     expectTypeOf<KeyedMutationScheduler>().toMatchTypeOf<{ run: Function }>();
-    expectTypeOf<MutationExecutionContext>().toMatchTypeOf<{ runNested: Function }>();
     expectTypeOf<MutationSubject>().toEqualTypeOf<z.infer<typeof MutationSubjectSchema>>();
     expectTypeOf<GenerationMutationCoordinator>().toMatchTypeOf<{ runPreparedMutation: Function }>();
     expectTypeOf<GenerationMutationCoordinatorDependencies>().toMatchTypeOf<{ scheduler: KeyedMutationScheduler }>();
-    expectTypeOf<GenerationMutationResult<unknown>>().toMatchTypeOf<{ kind: "committed" | "stale-generation" }>();
+    expectTypeOf<GenerationMutationResult<unknown>>().toMatchTypeOf<{ kind: "committed" | "stale-generation" | "commit-failed" | "commit-ambiguous" }>();
     expectTypeOf<PreparedMutation<unknown>>().toMatchTypeOf<{ mutation: VerifiedStateMutation }>();
     expectTypeOf<PreparedMutationContext>().toMatchTypeOf<{ snapshot: GenerationSnapshot; assertOwned: Function }>();
     expectTypeOf<PreparedMutationRequest>().toMatchTypeOf<{ scope: ScopeContext; expectedGeneration: Generation }>();

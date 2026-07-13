@@ -22,10 +22,10 @@ Establish the portable application contracts for cross-process scope leases and 
 ## Implementation
 
 - Add `ScopeLockLease` and `ScopeLockManager` under `src/application/ports/scope-lock.ts`.
-- Add strict `MutationSubject`, `MutationExecutionContext`, and scheduler contracts under `src/application/mutation-coordination.ts`.
+- Add strict `MutationSubject` and scheduler contracts under `src/application/mutation-coordination.ts`.
 - Implement `createKeyedMutationScheduler` in `src/application/keyed-mutation-scheduler.ts`.
 - Encode `(ScopeReference, PluginKey)` injectively; reject cross-scope and duplicate subjects; acquire keys canonically and release in reverse.
-- Give callbacks an explicit context whose `runNested` rejects held-key overlap and order inversion without importing Node `AsyncLocalStorage`.
+- Keep callbacks free of recursive-acquisition capabilities; lifecycle composition does not require nested scheduling.
 - Remove cancelled waiters and idle key queues without converting abort reasons.
 
 ## Acceptance criteria
@@ -44,6 +44,7 @@ Run focused scheduler tests, direct `tsc -p tsconfig.test.json --noEmit`, depend
 
 ## Implementation notes
 - Execution capability: direct-read inline implementation; the caller explicitly prohibited agents and the scheduler has one cohesive application ownership surface.
+- Review hardening correction: removed the unused public nested callback context rather than retaining a potentially deadlocking API.
 - Review weight: standard from the feature design/default policy; this requested run stops at `stage: review`.
 - Files changed: `src/application/ports/scope-lock.ts`, `src/application/mutation-coordination.ts`, `src/application/keyed-mutation-scheduler.ts`, and `test/application/keyed-mutation-scheduler.test.ts`.
 - Tests added: FIFO same-key serialization, unrelated scope/plugin overlap, canonical multi-key ordering, cancellation identity and queue removal, callback cleanup, nested context checks, and injective key behavior.

@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-generation-locking-review-hardening
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-generation-locking
 depends_on: [epic-transactional-plugin-lifecycle-generation-locking-contract-hardening]
@@ -30,9 +30,19 @@ Close all important findings from deep generation-locking review.
 
 ## Acceptance criteria
 
-- [ ] No supported scheduler API admits the reproduced nested head-of-line deadlock.
-- [ ] Child-process integration proves no lost update through the real coordinator and SQLite lock.
-- [ ] Database path replacement cannot yield two owners accepted by coordination.
-- [ ] Commit-then-throw/abort preserves typed committed evidence after reconciliation.
-- [ ] Forged scope/generation store responses are rejected.
-- [ ] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+- [x] No supported scheduler API admits the reproduced nested head-of-line deadlock.
+- [x] Child-process integration proves no lost update through the real coordinator and SQLite lock.
+- [x] Database path replacement cannot yield two owners accepted by coordination.
+- [x] Commit-then-throw/abort preserves typed committed evidence after reconciliation.
+- [x] Forged scope/generation store responses are rejected.
+- [x] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+
+## Implementation notes
+- Execution capability: direct-read inline implementation; the caller explicitly prohibited agents and requested this story stop at `stage: review`.
+- Review weight: standard from the project/default policy; no independent review was invoked because the caller prohibited agents.
+- Files changed: `src/application/mutation-coordination.ts`, `src/application/keyed-mutation-scheduler.ts`, `src/application/generation-mutation-coordinator.ts`, `src/infrastructure/state/sqlite-scope-lock.ts`, `src/infrastructure/state/local-lock-filesystem.ts`, `src/index.ts`, `test/application/keyed-mutation-scheduler.test.ts`, `test/application/generation-mutation-coordinator.test.ts`, `test/infrastructure/state/sqlite-scope-lock.test.ts`, `test/integration/generation-locking.test.ts`, `test/fixtures/locking/child-generation-coordinator.mjs`, `test/fixtures/locking/source-loader.mjs`, `test/public-api.test.ts`, `docs/SPEC.md`, `docs/ARCHITECTURE.md`, and the generation-locking feature/work records.
+- Tests added: exact nested-deadlock reproducer closure, forged load/commit scope and generation responses, commit-then-throw and commit-then-abort reconciliation, missing/replaced database fail-closed reproducers, platform-scoped capability policy, and real two-process coordinator/SQLite/shared-file generation tests for normal contention, pause/cancellation, and crash release.
+- Discrepancies from design: the shipped scheduler no longer exposes `MutationExecutionContext` or `runNested`; the unused recursive capability was removed instead of retaining a topology that could deadlock. Project database names now encode the complete validated key rather than depending on a domain prefix.
+- Adjacent issues parked: none.
+
+Verification completed: `npm test` passed with production and test typechecking, dependency boundaries (120 modules / 661 dependencies), 90 Vitest files / 520 tests with no type errors, build, and compiled package import (318 exports).

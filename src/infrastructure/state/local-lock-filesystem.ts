@@ -15,22 +15,26 @@ const PRIVATE_DATABASE_MODE = 0o600;
  * unknown mount is a capability failure, not permission to silently fall back
  * to process-local coordination.
  */
-const LOCAL_FILESYSTEM_TYPES = new Set([
-  0x0000ef53, // ext2/3/4
-  0x01021994, // tmpfs
-  0x3153464a, // jfs
-  0x3434, // nilfs
-  0x4d44, // msdos/fat
-  0x52654973, // reiserfs
-  0x5346544e, // ntfs
-  0x58465342, // xfs
-  0x794c7630, // overlayfs
-  0x9123683e, // btrfs
-  0xf2f52010, // f2fs
-  0x2fc12fc1, // zfs
-  0x858458f6, // ramfs
-  0x2011bab0, // exfat
-]);
+const LOCAL_FILESYSTEM_TYPES_BY_PLATFORM: Readonly<Record<string, ReadonlySet<number>>> = {
+  // Only filesystems whose SQLite locking behavior is covered by this
+  // adapter's capability boundary are accepted. Unknown platform/type pairs
+  // fail closed rather than inheriting a Linux guess.
+  linux: new Set([
+    0x0000ef53, // ext2/3/4
+    0x01021994, // tmpfs
+    0x3153464a, // jfs
+    0x52654973, // reiserfs
+    0x58465342, // xfs
+    0x794c7630, // overlayfs
+    0x9123683e, // btrfs
+    0xf2f52010, // f2fs
+    0x2fc12fc1, // zfs
+    0x858458f6, // ramfs
+  ]),
+  win32: new Set([0x5346544e]), // NTFS
+  darwin: new Set([0x41504653, 0x48465300]), // APFS, HFS+
+  freebsd: new Set([0x011954, 0x09011954]), // UFS, UFS2
+};
 
 function filesystemMode(mode: number): number {
   return mode & 0o777;
@@ -85,8 +89,9 @@ export async function ensurePrivateLockRoot(input: string): Promise<string> {
 export async function verifyLocalFilesystemCapability(root: string): Promise<void> {
   const stats = await statfs(root);
   const type = Number(stats.type);
-  if (!Number.isSafeInteger(type) || !LOCAL_FILESYSTEM_TYPES.has(type >>> 0)) {
-    throw filesystemFailure("filesystem locking capability is unknown or non-local");
+  const supportedTypes = LOCAL_FILESYSTEM_TYPES_BY_PLATFORM[process.platform];
+  if (supportedTypes === undefined || !Number.isSafeInteger(type) || !supportedTypes.has(type >>> 0)) {
+    throw filesystemFailure("filesystem locking capability is unknown or unsupported on this platform");
   }
 }
 

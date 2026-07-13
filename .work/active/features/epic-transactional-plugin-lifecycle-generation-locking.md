@@ -116,18 +116,10 @@ export const MutationSubjectSchema = z.object({
 }).strict().readonly();
 export type MutationSubject = z.infer<typeof MutationSubjectSchema>;
 
-export interface MutationExecutionContext {
-  runNested<T>(
-    subjects: readonly MutationSubject[],
-    work: (context: MutationExecutionContext) => Promise<T>,
-    signal: AbortSignal,
-  ): Promise<T>;
-}
-
 export interface KeyedMutationScheduler {
   run<T>(
     subjects: readonly MutationSubject[],
-    work: (context: MutationExecutionContext) => Promise<T>,
+    work: () => Promise<T>,
     signal: AbortSignal,
   ): Promise<T>;
 }
@@ -135,14 +127,14 @@ export interface KeyedMutationScheduler {
 export function createKeyedMutationScheduler(): KeyedMutationScheduler;
 ```
 
-Canonical scheduler keys are injective length-prefixed encodings of scope kind/project key and plugin key, never ambiguous string concatenation. A request contains one scope only, rejects duplicate subjects, acquires sorted keys, runs once, and releases in reverse order in `finally`. FIFO queues remove cancelled waiters and delete idle key state so the scheduler cannot grow without bound. The callback-scoped `MutationExecutionContext` carries the explicit held-key capability: `runNested` rejects overlap and allows only canonically ordered disjoint extension, avoiding an `AsyncLocalStorage` dependency. Application composition never recursively calls the top-level scheduler method.
+Canonical scheduler keys are injective length-prefixed encodings of scope kind/project key and plugin key, never ambiguous string concatenation. A request contains one scope only, rejects duplicate subjects, acquires sorted keys, runs once, and releases in reverse order in `finally`. FIFO queues remove cancelled waiters and delete idle key state so the scheduler cannot grow without bound. The shipped scheduler callback has no recursive-acquisition capability; nested scheduling was removed because no lifecycle composition requires it and exposing it could admit a head-of-line deadlock.
 
 **Acceptance criteria**:
 - [ ] Same plugin and scope execute strictly one at a time in FIFO order; different plugins or different scopes may overlap.
 - [ ] Multi-plugin requests with opposite caller order cannot deadlock because acquisition uses one canonical order.
 - [ ] Cancellation before acquisition preserves the exact abort reason, never invokes work, and removes the waiter.
 - [ ] Throwing or cancellation during work releases every key and allows the next waiter to proceed.
-- [ ] `runNested` rejects acquisition of a held key or an order inversion; cross-scope, duplicate-subject, and malformed scope/plugin requests fail fast.
+- [ ] Cross-scope, duplicate-subject, and malformed scope/plugin requests fail fast; no supported callback API admits nested scheduler acquisition.
 - [ ] Idle queues are removed and no timer, callback, or waiter remains retained after completion.
 
 ### Unit 2: Crash-released SQLite scope lock
@@ -338,4 +330,10 @@ Verification: full `npm test` passed with strict production typecheck, dependenc
 
 ## Review findings
 
-Deep review found a supported nested scheduler deadlock, missing real cross-process no-lost-update evidence, database-path replacement split ownership, ambiguous commit completion that loses committed evidence, and unvalidated store scope/generation responses. `epic-transactional-plugin-lifecycle-generation-locking-review-hardening` tracks all accepted findings; the feature remains at `stage: implementing` until they close.
+Deep review found a supported nested scheduler deadlock, missing real cross-process no-lost-update evidence, database-path replacement split ownership, ambiguous commit completion that loses committed evidence, and unvalidated store scope/generation responses. `epic-transactional-plugin-lifecycle-generation-locking-review-hardening` tracks all accepted findings.
+
+## Review-hardening implementation summary
+
+The review-hardening story closes every finding while this parent feature remains at `stage: implementing` pending review. The public scheduler now accepts a callback with no recursive-acquisition capability, removing the reproduced head-of-line deadlock rather than preserving an unused nested API. SQLite initialization binds a durable root marker and per-database device/inode marker, verifies identity before and during ownership, and fails closed on missing, mismatched, or replaced paths. The coordinator validates exact load/commit scope and generation contracts, requires expected-generation-plus-one committed snapshots, and reconciles commit errors or cancellation under the held lock into committed, explicit failure, or explicit ambiguity outcomes.
+
+The integration harness now launches two real Node processes through the source loader, exercises the real coordinator and SQLite transaction against a shared file-backed generation, and covers same-generation contention, a paused live owner with cancellation, and crash release. Platform filesystem support is an explicit per-platform allowlist with unknown pairs failing closed; project database names encode the complete validated key without relying on a hard-coded domain prefix. Full verification passed with 90 test files / 520 tests, strict production and test typechecking, dependency boundaries, build, and compiled package import (318 exports).

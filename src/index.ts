@@ -753,7 +753,6 @@ export type {
 export { MutationSubjectSchema } from "./application/mutation-coordination.js";
 export type {
   KeyedMutationScheduler,
-  MutationExecutionContext,
   MutationSubject,
 } from "./application/mutation-coordination.js";
 export { createKeyedMutationScheduler } from "./application/keyed-mutation-scheduler.js";

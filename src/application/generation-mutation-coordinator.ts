@@ -6,12 +6,14 @@ import {
 } from "../domain/state/config-state.js";
 import {
   ScopeContextSchema,
+  ScopeReferenceSchema,
   toScopeReference,
   type ScopeContext,
   type ScopeReference,
 } from "../domain/state/scope.js";
 import {
   isVerifiedStateMutation,
+  StateLoadFailureSchema,
   type GenerationSnapshot,
   type StateCommitResult,
   type StateLoadResult,
@@ -21,7 +23,6 @@ import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
 import type { ScopeLockLease, ScopeLockManager } from "./ports/scope-lock.js";
 import type {
   KeyedMutationScheduler,
-  MutationExecutionContext,
   MutationSubject,
 } from "./mutation-coordination.js";
 
@@ -51,6 +52,18 @@ export type GenerationMutationResult<T> =
       kind: "stale-generation";
       expected: Generation;
       actual: Generation;
+    }>
+  | Readonly<{
+      kind: "commit-failed";
+      value: T;
+      expected: Generation;
+      actual: Generation;
+    }>
+  | Readonly<{
+      kind: "commit-ambiguous";
+      value: T;
+      expected: Generation;
+      actual?: Generation;
     }>;
 
 /** Retains both failures when a mutation and its lock cleanup fail together. */
@@ -180,6 +193,31 @@ function loadFailure(result: Extract<StateLoadResult, { ok: false }>): Error {
   });
 }
 
+function sameScopeOrThrow(candidate: ScopeContext, expected: ScopeContext, operation: string): ScopeContext {
+  const parsed = ScopeContextSchema.parse(candidate);
+  if (!sameScopeContext(parsed, expected) || !sameScopeReference(toScopeReference(parsed), toScopeReference(expected))) {
+    throw new Error(`state store returned a snapshot for the wrong scope during ${operation}`);
+  }
+  return parsed;
+}
+
+function validateLoadResult(result: StateLoadResult, scope: ScopeContext): StateLoadResult {
+  if (result === null || typeof result !== "object") throw new Error("state store returned an invalid load result");
+  if (result.ok === true) {
+    return { ok: true, snapshot: validateSnapshot(result.snapshot, scope) };
+  }
+  if (result.ok !== false) throw new Error("state store returned an unknown load result");
+  const failure = StateLoadFailureSchema.parse(result);
+  sameScopeOrThrow(failure.scope, scope, "load failure");
+  const expectedReference = toScopeReference(scope);
+  for (const corruption of failure.corruptions) {
+    if (!sameScopeReference(ScopeReferenceSchema.parse(corruption.scope), expectedReference)) {
+      throw new Error("state store returned a load corruption for the wrong scope");
+    }
+  }
+  return result;
+}
+
 function staleResult(expected: Generation, actual: Generation): GenerationMutationResult<never> {
   return {
     kind: "stale-generation",
@@ -214,17 +252,71 @@ function validateCommitResult(
 ): StateCommitResult {
   if (result === null || typeof result !== "object") throw new Error("state store returned an invalid commit result");
   if (result.kind === "stale-generation") {
-    return {
-      kind: "stale-generation",
-      expected: GenerationSchema.parse(result.expected),
-      actual: GenerationSchema.parse(result.actual),
-    };
+    const expected = GenerationSchema.parse(result.expected);
+    const actual = GenerationSchema.parse(result.actual);
+    if (expected !== request.expectedGeneration || actual <= expected) {
+      throw new Error("state store returned an invalid stale generation result");
+    }
+    return { kind: "stale-generation", expected, actual };
   }
   if (result.kind !== "committed") throw new Error("state store returned an unknown commit result");
-  return {
-    kind: "committed",
-    snapshot: validateSnapshot(result.snapshot, scope),
-  };
+  const snapshot = validateSnapshot(result.snapshot, scope);
+  const expectedNext = GenerationSchema.parse(GenerationSchema.parse(request.expectedGeneration) + 1);
+  if (snapshot.generation !== expectedNext) {
+    throw new Error("state store committed a generation other than expectedGeneration + 1");
+  }
+  return { kind: "committed", snapshot };
+}
+
+type CommitReconciliation<T> = Readonly<{
+  outcome: GenerationMutationResult<T>;
+  committed?: Readonly<{ value: T; snapshot: GenerationSnapshot }>;
+}>;
+
+async function reconcileCommitFailure<T>(
+  dependencies: GenerationMutationCoordinatorDependencies,
+  lease: ScopeLockLease,
+  scope: ScopeContext,
+  expectedGeneration: Generation,
+  value: T,
+): Promise<CommitReconciliation<T>> {
+  const recoverySignal = new AbortController().signal;
+  try {
+    await lease.assertOwned(recoverySignal);
+    const loaded = validateLoadResult(await dependencies.state.read(scope, recoverySignal), scope);
+    if (!loaded.ok) {
+      return { outcome: { kind: "commit-ambiguous", value, expected: expectedGeneration } };
+    }
+    const snapshot = loaded.snapshot;
+    const expectedNext = GenerationSchema.parse(expectedGeneration + 1);
+    if (snapshot.generation === expectedNext) {
+      const committed = { value, snapshot };
+      return { outcome: { kind: "committed", ...committed }, committed };
+    }
+    if (snapshot.generation === expectedGeneration) {
+      return {
+        outcome: {
+          kind: "commit-failed",
+          value,
+          expected: expectedGeneration,
+          actual: snapshot.generation,
+        },
+      };
+    }
+    return {
+      outcome: {
+        kind: "commit-ambiguous",
+        value,
+        expected: expectedGeneration,
+        actual: snapshot.generation,
+      },
+    };
+  } catch {
+    // A malformed or unavailable authority read cannot prove that the durable
+    // write did not happen. Preserve an explicit recovery outcome rather than
+    // returning the caller's cancellation/error as if it settled the commit.
+    return { outcome: { kind: "commit-ambiguous", value, expected: expectedGeneration } };
+  }
 }
 
 class Coordinator implements GenerationMutationCoordinator {
@@ -242,13 +334,12 @@ class Coordinator implements GenerationMutationCoordinator {
 
     return this.dependencies.scheduler.run(
       subjects(validated.scopeReference, validated.plugins),
-      async (schedulerContext) => this.runWithKeys(
+      () => this.runWithKeys(
         request,
         validated.scope,
         expectedGeneration,
         prepareCommit,
         signal,
-        schedulerContext,
       ),
       signal,
     );
@@ -260,9 +351,7 @@ class Coordinator implements GenerationMutationCoordinator {
     expectedGeneration: Generation,
     prepareCommit: (context: PreparedMutationContext) => Promise<PreparedMutation<T>>,
     signal: AbortSignal,
-    schedulerContext: MutationExecutionContext,
   ): Promise<GenerationMutationResult<T>> {
-    void schedulerContext;
     const scopeReference = toScopeReference(scope);
     let lease: ScopeLockLease | undefined;
     let primaryFailure: unknown;
@@ -273,9 +362,9 @@ class Coordinator implements GenerationMutationCoordinator {
     try {
       lease = await this.dependencies.locks.acquire(scopeReference, signal);
       await lease.assertOwned(signal);
-      const loaded = await this.dependencies.state.read(scope, signal);
+      const loaded = validateLoadResult(await this.dependencies.state.read(scope, signal), scope);
       if (!loaded.ok) throw loadFailure(loaded);
-      const snapshot = validateSnapshot(loaded.snapshot, scope);
+      const snapshot = loaded.snapshot;
       if (snapshot.generation !== expectedGeneration) {
         outcome = staleResult(expectedGeneration, snapshot.generation);
       } else {
@@ -289,16 +378,29 @@ class Coordinator implements GenerationMutationCoordinator {
           scope,
         );
         await lease.assertOwned(signal);
-        const commitResult = validateCommitResult(
-          await this.dependencies.state.commit(prepared.mutation, signal),
-          request,
-          scope,
-        );
-        if (commitResult.kind === "stale-generation") {
-          outcome = staleResult(commitResult.expected, commitResult.actual);
-        } else {
-          committed = { value: prepared.value, snapshot: commitResult.snapshot };
-          outcome = { kind: "committed", value: prepared.value, snapshot: commitResult.snapshot };
+        try {
+          const commitResult = validateCommitResult(
+            await this.dependencies.state.commit(prepared.mutation, signal),
+            request,
+            scope,
+          );
+          if (commitResult.kind === "stale-generation") {
+            outcome = staleResult(commitResult.expected, commitResult.actual);
+          } else {
+            committed = { value: prepared.value, snapshot: commitResult.snapshot };
+            outcome = { kind: "committed", value: prepared.value, snapshot: commitResult.snapshot };
+          }
+        } catch (error) {
+          const reconciliation = await reconcileCommitFailure(
+            this.dependencies,
+            lease,
+            scope,
+            expectedGeneration,
+            prepared.value,
+          );
+          outcome = reconciliation.outcome;
+          if (reconciliation.committed !== undefined) committed = reconciliation.committed;
+          else primaryFailure = error;
         }
       }
     } catch (error) {
@@ -317,7 +419,7 @@ class Coordinator implements GenerationMutationCoordinator {
 
     if (cleanupFailure !== undefined) {
       if (committed !== undefined) throw new CommittedMutationCleanupError(committed, cleanupFailure);
-      if (failed) throw new MutationCleanupError(primaryFailure, cleanupFailure);
+      if (failed || primaryFailure !== undefined) throw new MutationCleanupError(primaryFailure, cleanupFailure);
       throw cleanupFailure;
     }
     if (failed) throw primaryFailure;

@@ -112,31 +112,19 @@ describe("scope-qualified keyed mutation scheduler", () => {
     await nextStarted.promise;
   });
 
-  it("rejects cross-scope, duplicate, and nested order violations", async () => {
+  it("rejects cross-scope and duplicate requests before work", async () => {
     const scheduler = createKeyedMutationScheduler();
     expect(() => scheduler.run([subject("a", user), subject("b", project)], async () => {}, new AbortController().signal)).toThrow(/one scope/);
     expect(() => scheduler.run([subject("a"), subject("a")], async () => {}, new AbortController().signal)).toThrow(/duplicate/);
-
-    const held = subject("b");
-    await scheduler.run([held], async (context) => {
-      expect(() => context.runNested([held], async () => {}, new AbortController().signal)).toThrow(/reacquire/);
-      expect(() => context.runNested([subject("a")], async () => {}, new AbortController().signal)).toThrow(/canonical/);
-    }, new AbortController().signal);
   });
 
-  it("supports explicitly carried nested context for a disjoint canonical extension", async () => {
+  it("does not expose recursive acquisition through the scheduler callback", async () => {
     const scheduler = createKeyedMutationScheduler();
-    const events: string[] = [];
-    await scheduler.run([subject("a")], async (context) => {
-      events.push("outer");
-      await context.runNested([subject("b")], async (nested) => {
-        events.push("nested");
-        await nested.runNested([], async () => {
-          events.push("empty");
-        }, new AbortController().signal);
-      }, new AbortController().signal);
+    let argumentCount = -1;
+    await scheduler.run([subject("a")], async function noNestedContext(...args: readonly unknown[]) {
+      argumentCount = args.length;
     }, new AbortController().signal);
-    expect(events).toEqual(["outer", "nested", "empty"]);
+    expect(argumentCount).toBe(0);
   });
 
   it("uses an injective canonical key for distinct scope/plugin fields", () => {

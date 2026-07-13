@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
-import { chmodSync, lstatSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, closeSync, lstatSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import { BoundaryError } from "../../domain/errors.js";
 import {
   ScopeReferenceSchema,
@@ -17,6 +18,11 @@ import {
 const PROTOCOL = "pi-plugin-host-scope-lock";
 const PROTOCOL_VERSION = 1;
 const PROTOCOL_TABLE = "scope_lock_protocol";
+const ROOT_MARKER_NAME = ".scope-lock-root.identity";
+const DATABASE_MARKER_SUFFIX = ".identity";
+const DATABASE_INITIALIZATION_CLAIM_SUFFIX = ".initializing";
+const ROOT_MARKER_PROTOCOL = "pi-plugin-host-scope-lock-root";
+const DATABASE_MARKER_PROTOCOL = "pi-plugin-host-scope-lock-database";
 const DEFAULT_RETRY_DELAY = Object.freeze({ minimum: 2, maximum: 25 });
 const SQLITE_BUSY = 5;
 
@@ -32,6 +38,22 @@ type SqliteError = {
 };
 
 type SqliteRow = Record<string, unknown>;
+type FileIdentity = Readonly<{ device: string; inode: string }>;
+type RootIdentityMarker = Readonly<{
+  protocol: typeof ROOT_MARKER_PROTOCOL;
+  version: 1;
+  identity: string;
+}>;
+type DatabaseIdentityMarker = Readonly<{
+  protocol: typeof DATABASE_MARKER_PROTOCOL;
+  version: 1;
+  rootIdentity: string;
+  database: string;
+  state: "initializing" | "ready";
+  identity?: FileIdentity;
+}>;
+
+class DatabaseInitializationInProgress extends Error {}
 
 function assertSignal(signal: AbortSignal): void {
   if (
@@ -88,11 +110,155 @@ function validateRandom(random: () => number): void {
 function scopeDatabaseName(scope: ScopeReference): string {
   const value = ScopeReferenceSchema.parse(scope);
   if (value.kind === "user") return "user.sqlite";
-  return `project-${value.projectKey.slice("project-v1:sha256:".length)}.sqlite`;
+  // Keep the domain's key grammar out of the adapter. URI escaping is injective
+  // for the validated key and remains a legal filename on every supported OS.
+  return `project-${encodeURIComponent(value.projectKey)}.sqlite`;
 }
 
 function databasePath(root: string, scope: ScopeReference): string {
   return join(root, scopeDatabaseName(scope));
+}
+
+function sameFileIdentity(left: FileIdentity, right: FileIdentity): boolean {
+  return left.device === right.device && left.inode === right.inode;
+}
+
+function regularFileIdentity(path: string): FileIdentity {
+  const stats = lstatSync(path);
+  if (stats.isSymbolicLink() || !stats.isFile()) throw new Error("scope lock identity path is not a regular file");
+  return { device: String(stats.dev), inode: String(stats.ino) };
+}
+
+function parseRootIdentityMarker(input: unknown): RootIdentityMarker {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) throw new Error("scope lock root identity marker is invalid");
+  const value = input as Record<string, unknown>;
+  if (
+    Object.keys(value).length !== 3 ||
+    value.protocol !== ROOT_MARKER_PROTOCOL ||
+    value.version !== 1 ||
+    typeof value.identity !== "string" ||
+    value.identity.length === 0
+  ) throw new Error("scope lock root identity marker is invalid");
+  return value as RootIdentityMarker;
+}
+
+function rootIdentityMarkerPath(root: string): string {
+  return join(root, ROOT_MARKER_NAME);
+}
+
+function ensureRootIdentityMarker(root: string): string {
+  const path = rootIdentityMarkerPath(root);
+  let markerExists = false;
+  try {
+    regularFileIdentity(path);
+    markerExists = true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  if (!markerExists) {
+    const marker: RootIdentityMarker = {
+      protocol: ROOT_MARKER_PROTOCOL,
+      version: 1,
+      identity: randomUUID(),
+    };
+    try {
+      writeFileSync(path, `${JSON.stringify(marker)}\n`, { flag: "wx", mode: LOCAL_LOCK_DATABASE_MODE });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+  chmodSync(path, LOCAL_LOCK_DATABASE_MODE);
+  return parseRootIdentityMarker(JSON.parse(readFileSync(path, "utf8"))).identity;
+}
+
+function databaseIdentityMarkerPath(path: string): string {
+  return `${path}${DATABASE_MARKER_SUFFIX}`;
+}
+
+function databaseInitializationClaimPath(path: string): string {
+  return `${path}${DATABASE_INITIALIZATION_CLAIM_SUFFIX}`;
+}
+
+function parseDatabaseIdentityMarker(input: unknown): DatabaseIdentityMarker {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) throw new Error("scope lock database identity marker is invalid");
+  const value = input as Record<string, unknown>;
+  if (
+    (value.state !== "initializing" && value.state !== "ready") ||
+    Object.keys(value).length !== (value.state === "ready" ? 6 : 5) ||
+    value.protocol !== DATABASE_MARKER_PROTOCOL ||
+    value.version !== 1 ||
+    typeof value.rootIdentity !== "string" ||
+    value.rootIdentity.length === 0 ||
+    typeof value.database !== "string" ||
+    value.database.length === 0
+  ) throw new Error("scope lock database identity marker is invalid");
+  if (value.state === "initializing") return {
+    protocol: DATABASE_MARKER_PROTOCOL,
+    version: 1,
+    rootIdentity: value.rootIdentity,
+    database: value.database,
+    state: "initializing",
+  };
+  const identity = value.identity;
+  if (identity === null || typeof identity !== "object" || Array.isArray(identity)) {
+    throw new Error("scope lock database identity marker is invalid");
+  }
+  const fileIdentity = identity as Record<string, unknown>;
+  if (
+    Object.keys(fileIdentity).length !== 2 ||
+    typeof fileIdentity.device !== "string" ||
+    typeof fileIdentity.inode !== "string" ||
+    fileIdentity.device.length === 0 ||
+    fileIdentity.inode.length === 0
+  ) throw new Error("scope lock database identity marker is invalid");
+  return {
+    protocol: DATABASE_MARKER_PROTOCOL,
+    version: 1,
+    rootIdentity: value.rootIdentity,
+    database: value.database,
+    state: "ready",
+    identity: { device: fileIdentity.device, inode: fileIdentity.inode },
+  };
+}
+
+function readDatabaseIdentityMarker(path: string): DatabaseIdentityMarker | undefined {
+  const markerPath = databaseIdentityMarkerPath(path);
+  try {
+    regularFileIdentity(markerPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    try {
+      regularFileIdentity(databaseInitializationClaimPath(path));
+    } catch (claimError) {
+      if ((claimError as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw claimError;
+    }
+    throw new DatabaseInitializationInProgress("scope lock database initialization is in progress");
+  }
+  chmodSync(markerPath, LOCAL_LOCK_DATABASE_MODE);
+  return parseDatabaseIdentityMarker(JSON.parse(readFileSync(markerPath, "utf8")));
+}
+
+function validateDatabaseIdentity(
+  root: string,
+  rootIdentity: string,
+  path: string,
+  databaseName: string,
+  marker: DatabaseIdentityMarker,
+): FileIdentity {
+  if (marker.state === "initializing") throw new DatabaseInitializationInProgress("scope lock database initialization is in progress");
+  if (
+    marker.rootIdentity !== rootIdentity ||
+    marker.database !== databaseName ||
+    basename(path) !== databaseName
+  ) throw new Error("scope lock database identity marker does not match its path");
+  regularFileIdentity(rootIdentityMarkerPath(root));
+  if (parseRootIdentityMarker(JSON.parse(readFileSync(rootIdentityMarkerPath(root), "utf8"))).identity !== rootIdentity) {
+    throw new Error("scope lock root identity marker changed");
+  }
+  const identity = regularFileIdentity(path);
+  if (marker.identity === undefined || !sameFileIdentity(identity, marker.identity)) throw new Error("scope lock database path was replaced");
+  return identity;
 }
 
 function validateProtocolSchema(database: DatabaseSync): void {
@@ -141,19 +307,85 @@ function validateProtocolSchema(database: DatabaseSync): void {
   }
 }
 
-function prepareDatabase(path: string): DatabaseSync {
-  let existing: ReturnType<typeof lstatSync> | undefined;
+function prepareDatabase(
+  root: string,
+  rootIdentity: string,
+  path: string,
+  databaseName: string,
+): DatabaseSync {
+  let marker = readDatabaseIdentityMarker(path);
+  let created = false;
+  let ownsInitialization = false;
+  let existing = true;
   try {
-    // lstat is deliberately used here: opening a symlink would turn a private
-    // root into an attacker-selected lock target.
-    existing = lstatSync(path);
+    regularFileIdentity(path);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  if (existing !== undefined && (existing.isSymbolicLink() || !existing.isFile())) {
-    throw new Error("scope lock database is not a regular file");
+    existing = false;
   }
 
+  if (marker === undefined) {
+    if (existing) throw new Error("scope lock database identity marker is missing");
+    const initializing: DatabaseIdentityMarker = {
+      protocol: DATABASE_MARKER_PROTOCOL,
+      version: 1,
+      rootIdentity,
+      database: databaseName,
+      state: "initializing",
+    };
+    try {
+      // Claim initialization with a separate atomically-created path. The
+      // complete marker is then published by rename, so readers never parse a
+      // partially written identity document.
+      const claimPath = databaseInitializationClaimPath(path);
+      const claim = openSync(claimPath, "wx", LOCAL_LOCK_DATABASE_MODE);
+      closeSync(claim);
+      const temporary = `${databaseIdentityMarkerPath(path)}.${randomUUID()}.tmp`;
+      writeFileSync(temporary, `${JSON.stringify(initializing)}\n`, {
+        flag: "wx",
+        mode: LOCAL_LOCK_DATABASE_MODE,
+      });
+      renameSync(temporary, databaseIdentityMarkerPath(path));
+      marker = initializing;
+      ownsInitialization = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      marker = readDatabaseIdentityMarker(path);
+      if (marker === undefined) throw new Error("scope lock database identity marker disappeared");
+    }
+  }
+
+  if (marker.state === "initializing" && !ownsInitialization) {
+    throw new DatabaseInitializationInProgress("scope lock database initialization is in progress");
+  }
+  if (marker.state === "ready" && !existing) {
+    throw new Error("scope lock database is missing after initialization");
+  }
+  if (!existing) {
+    let descriptor: number;
+    try {
+      descriptor = openSync(path, "wx", LOCAL_LOCK_DATABASE_MODE);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new DatabaseInitializationInProgress("scope lock database initialization is in progress");
+      }
+      throw error;
+    }
+    closeSync(descriptor);
+    const identity = regularFileIdentity(path);
+    const ready: DatabaseIdentityMarker = {
+      protocol: DATABASE_MARKER_PROTOCOL,
+      version: 1,
+      rootIdentity,
+      database: databaseName,
+      state: "ready",
+      identity,
+    };
+    marker = ready;
+    created = true;
+  }
+
+  validateDatabaseIdentity(root, rootIdentity, path, databaseName, marker);
   const database = new DatabaseSync(path, {
     allowExtension: false,
     defensive: true,
@@ -165,18 +397,31 @@ function prepareDatabase(path: string): DatabaseSync {
   try {
     database.enableLoadExtension(false);
     database.enableDefensive(true);
-    const created = lstatSync(path);
-    if (created.isSymbolicLink() || !created.isFile()) throw new Error("scope lock database is not a regular file");
+    const openedIdentity = validateDatabaseIdentity(root, rootIdentity, path, databaseName, marker);
     chmodSync(path, LOCAL_LOCK_DATABASE_MODE);
     if (process.platform !== "win32" && (lstatSync(path).mode & 0o777) !== LOCAL_LOCK_DATABASE_MODE) {
       throw new Error("scope lock database is not private");
     }
     database.exec("PRAGMA journal_mode = DELETE; PRAGMA locking_mode = NORMAL; PRAGMA foreign_keys = ON; PRAGMA trusted_schema = OFF;");
-    database.exec(`CREATE TABLE IF NOT EXISTS ${PROTOCOL_TABLE} (protocol TEXT PRIMARY KEY NOT NULL CHECK (protocol = '${PROTOCOL}'), version INTEGER NOT NULL CHECK (version = ${PROTOCOL_VERSION})) STRICT;`);
-    database.exec(`INSERT OR IGNORE INTO ${PROTOCOL_TABLE} (protocol, version) VALUES ('${PROTOCOL}', ${PROTOCOL_VERSION});`);
+    if (created) {
+      database.exec(`CREATE TABLE ${PROTOCOL_TABLE} (protocol TEXT PRIMARY KEY NOT NULL CHECK (protocol = '${PROTOCOL}'), version INTEGER NOT NULL CHECK (version = ${PROTOCOL_VERSION})) STRICT;`);
+      database.exec(`INSERT INTO ${PROTOCOL_TABLE} (protocol, version) VALUES ('${PROTOCOL}', ${PROTOCOL_VERSION});`);
+    }
     validateProtocolSchema(database);
+    validateDatabaseIdentity(root, rootIdentity, path, databaseName, marker);
+    if (marker.identity === undefined || !sameFileIdentity(openedIdentity, marker.identity)) throw new Error("scope lock database path was replaced during open");
     const journal = database.prepare("PRAGMA journal_mode").get() as SqliteRow | undefined;
     if (journal?.journal_mode !== "delete") throw new Error("scope lock database is not using rollback journal mode");
+    if (created) {
+      const temporary = `${databaseIdentityMarkerPath(path)}.${randomUUID()}.tmp`;
+      try {
+        writeFileSync(temporary, `${JSON.stringify(marker)}\n`, { flag: "wx", mode: LOCAL_LOCK_DATABASE_MODE });
+        renameSync(temporary, databaseIdentityMarkerPath(path));
+        unlinkSync(databaseInitializationClaimPath(path));
+      } catch (error) {
+        throw new Error("scope lock database identity marker could not be finalized", { cause: error });
+      }
+    }
     return database;
   } catch (error) {
     try {
@@ -219,7 +464,15 @@ class SqliteScopeLockLease implements ScopeLockLease {
   readonly scope: ScopeReference;
   private status: "held" | "released" | "uncertain" = "held";
 
-  constructor(scope: ScopeReference, private readonly database: DatabaseSync) {
+  constructor(
+    scope: ScopeReference,
+    private readonly database: DatabaseSync,
+    private readonly root: string,
+    private readonly rootIdentity: string,
+    private readonly path: string,
+    private readonly databaseName: string,
+    private readonly marker: DatabaseIdentityMarker,
+  ) {
     this.scope = scope;
   }
 
@@ -228,6 +481,11 @@ class SqliteScopeLockLease implements ScopeLockLease {
     throwIfAborted(signal);
     if (this.status !== "held" || !this.database.isOpen || !this.database.isTransaction) {
       throw adapterFailure("scope-lock.assert-owned", new Error("scope lock is no longer held"));
+    }
+    try {
+      validateDatabaseIdentity(this.root, this.rootIdentity, this.path, this.databaseName, this.marker);
+    } catch (error) {
+      throw adapterFailure("scope-lock.assert-owned", error);
     }
   }
 
@@ -258,6 +516,7 @@ class SqliteScopeLockLease implements ScopeLockLease {
 class SqliteScopeLockManager implements ScopeLockManager {
   constructor(
     private readonly root: string,
+    private readonly rootIdentity: string,
     private readonly retryDelayMs: Readonly<{ minimum: number; maximum: number }>,
     private readonly random: () => number,
   ) {}
@@ -271,13 +530,17 @@ class SqliteScopeLockManager implements ScopeLockManager {
       throwIfAborted(signal);
       let database: DatabaseSync | undefined;
       try {
-        database = prepareDatabase(path);
+        const databaseName = scopeDatabaseName(scope);
+        database = prepareDatabase(this.root, this.rootIdentity, path, databaseName);
         database.exec("BEGIN IMMEDIATE");
         if (signal.aborted) {
           await closeDatabase(database);
           throw signal.reason;
         }
-        return new SqliteScopeLockLease(scope, database);
+        const marker = readDatabaseIdentityMarker(path);
+        if (marker === undefined) throw new Error("scope lock database identity marker disappeared");
+        validateDatabaseIdentity(this.root, this.rootIdentity, path, databaseName, marker);
+        return new SqliteScopeLockLease(scope, database, this.root, this.rootIdentity, path, databaseName, marker);
       } catch (error) {
         if (database !== undefined) {
           try {
@@ -287,6 +550,11 @@ class SqliteScopeLockManager implements ScopeLockManager {
           }
         }
         if (signal.aborted) throw signal.reason;
+        if (error instanceof DatabaseInitializationInProgress) {
+          const delay = await this.retryDelay();
+          await waitForRetry(delay, signal);
+          continue;
+        }
         if (!isBusy(error)) throw adapterFailure("scope-lock.acquire", error);
         const delay = await this.retryDelay();
         await waitForRetry(delay, signal);
@@ -308,17 +576,17 @@ class SqliteScopeLockManager implements ScopeLockManager {
   }
 }
 
-async function probeExclusion(root: string): Promise<void> {
+async function probeExclusion(root: string, rootIdentity: string): Promise<void> {
   const probeDirectory = await mkdtemp(join(root, ".scope-lock-probe-"));
   const path = join(probeDirectory, "probe.sqlite");
   let holder: DatabaseSync | undefined;
   let contender: DatabaseSync | undefined;
   let released: DatabaseSync | undefined;
   try {
-    holder = prepareDatabase(path);
+    holder = prepareDatabase(root, rootIdentity, path, "probe.sqlite");
     holder.exec("BEGIN IMMEDIATE");
     try {
-      contender = prepareDatabase(path);
+      contender = prepareDatabase(root, rootIdentity, path, "probe.sqlite");
       contender.exec("BEGIN IMMEDIATE");
       throw new Error("SQLite did not exclude a second writer");
     } catch (error) {
@@ -330,7 +598,7 @@ async function probeExclusion(root: string): Promise<void> {
     holder.close();
     holder = undefined;
 
-    released = prepareDatabase(path);
+    released = prepareDatabase(root, rootIdentity, path, "probe.sqlite");
     released.exec("BEGIN IMMEDIATE");
     released.exec("ROLLBACK");
     released.close();
@@ -364,13 +632,14 @@ export async function createSqliteScopeLockManager(
     throw adapterFailure("scope-lock.initialize", error);
   });
   try {
+    const rootIdentity = ensureRootIdentityMarker(root);
     await (options.verifyLocalFilesystem ?? verifyLocalFilesystemCapability)(root);
-    await probeExclusion(root);
+    await probeExclusion(root, rootIdentity);
+    return new SqliteScopeLockManager(root, rootIdentity, retryDelayMs, random);
   } catch (error) {
     if (error instanceof BoundaryError) throw error;
     throw adapterFailure("scope-lock.initialize", error);
   }
-  return new SqliteScopeLockManager(root, retryDelayMs, random);
 }
 
 export { scopeDatabaseName };

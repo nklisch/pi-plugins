@@ -20,6 +20,15 @@ import type { ScopeContext, ScopeReference } from "../../src/domain/state/scope.
 import type { PluginKey } from "../../src/domain/identity.js";
 
 const user: ScopeContext = { kind: "user" };
+const otherProject: ScopeContext = {
+  kind: "project",
+  identity: {
+    kind: "path-only",
+    canonicalRoot: "file:///workspace/other/" as never,
+    limitation: "identity-changes-with-canonical-root",
+  },
+  projectKey: `project-v1:sha256:${"c".repeat(64)}` as never,
+};
 const plugin = "demo@marketplace" as PluginKey;
 const sha256 = () => new Uint8Array(32);
 const config = HostConfigDocumentSchemaV1.parse({ schemaVersion: 1, generation: 0, records: [] });
@@ -139,15 +148,7 @@ describe("generation-guarded prepared mutation coordinator", () => {
       expect(events).not.toContain("state.commit");
     }
 
-    const project = {
-      kind: "project" as const,
-      identity: {
-        kind: "path-only" as const,
-        canonicalRoot: "file:///workspace/other/" as never,
-        limitation: "identity-changes-with-canonical-root" as const,
-      },
-      projectKey: `project-v1:sha256:${"c".repeat(64)}` as never,
-    } satisfies ScopeContext;
+    const project = otherProject;
     const wrongScopeEvents: string[] = [];
     const wrongScopeService = coordinator(
       wrongScopeEvents,
@@ -162,6 +163,32 @@ describe("generation-guarded prepared mutation coordinator", () => {
     expect(wrongScopeEvents).not.toContain("state.commit");
   });
 
+  it("rejects forged load scope and generation responses before promotion", async () => {
+    const wrongScopeEvents: string[] = [];
+    const wrongScope = await coordinator(
+      wrongScopeEvents,
+      stateStore({ events: wrongScopeEvents, loaded: { ok: true, snapshot: snapshot(otherProject, 0) } }),
+    ).runPreparedMutation(
+      { scope: user, plugins: [plugin], expectedGeneration: 0 },
+      async () => ({ mutation: mutation(), value: "wrong scope" }),
+      new AbortController().signal,
+    ).then(() => undefined, (error: unknown) => error);
+    expect(wrongScope).toBeInstanceOf(Error);
+    expect(wrongScopeEvents).not.toContain("state.commit");
+
+    const wrongGenerationEvents: string[] = [];
+    const wrongGeneration = await coordinator(
+      wrongGenerationEvents,
+      stateStore({ events: wrongGenerationEvents, loaded: { ok: true, snapshot: snapshot(user, "not-a-generation" as never) } }),
+    ).runPreparedMutation(
+      { scope: user, plugins: [plugin], expectedGeneration: 0 },
+      async () => ({ mutation: mutation(), value: "wrong generation" }),
+      new AbortController().signal,
+    ).then(() => undefined, (error: unknown) => error);
+    expect(wrongGeneration).toBeInstanceOf(Error);
+    expect(wrongGenerationEvents).not.toContain("state.commit");
+  });
+
   it("converts a store-level stale response into the typed outer result", async () => {
     const events: string[] = [];
     const service = coordinator(events, stateStore({
@@ -174,6 +201,86 @@ describe("generation-guarded prepared mutation coordinator", () => {
       new AbortController().signal,
     );
     expect(result).toEqual({ kind: "stale-generation", expected: 0, actual: 7 });
+  });
+
+  it("reconciles a commit that writes durable state before throwing", async () => {
+    const events: string[] = [];
+    let generation = 0;
+    const commitError = new Error("response lost after write");
+    const store: LifecycleStateStore = {
+      async read() {
+        events.push("state.read");
+        return { ok: true, snapshot: snapshot(user, generation) };
+      },
+      async commit() {
+        events.push("state.commit");
+        generation = 1;
+        throw commitError;
+      },
+    };
+    const service = coordinator(events, store);
+    const result = await service.runPreparedMutation(
+      { scope: user, plugins: [plugin], expectedGeneration: 0 },
+      async () => ({ mutation: mutation(), value: "reconciled" }),
+      new AbortController().signal,
+    );
+    expect(result).toEqual({ kind: "committed", value: "reconciled", snapshot: snapshot(user, 1) });
+    expect(events).toEqual([
+      "lock.acquire", "lock.assert", "state.read", "lock.assert", "lock.assert", "state.commit", "lock.assert", "state.read", "lock.release",
+    ]);
+  });
+
+  it("reconciles a commit that writes durable state before cancellation", async () => {
+    const events: string[] = [];
+    let generation = 0;
+    const controller = new AbortController();
+    const reason = new Error("commit cancelled after write");
+    const service = coordinator(events, {
+      async read() {
+        return { ok: true, snapshot: snapshot(user, generation) };
+      },
+      async commit() {
+        generation = 1;
+        controller.abort(reason);
+        throw reason;
+      },
+    });
+    await expect(service.runPreparedMutation(
+      { scope: user, plugins: [plugin], expectedGeneration: 0 },
+      async () => ({ mutation: mutation(), value: "cancel-reconciled" }),
+      controller.signal,
+    )).resolves.toEqual({ kind: "committed", value: "cancel-reconciled", snapshot: snapshot(user, 1) });
+  });
+
+  it("does not turn an aborted commit with no durable write into a bare cancellation", async () => {
+    const events: string[] = [];
+    const reason = new Error("commit cancelled");
+    const service = coordinator(events, stateStore({
+      events,
+      commit: async () => { throw reason; },
+    }));
+    const result = await service.runPreparedMutation(
+      { scope: user, plugins: [plugin], expectedGeneration: 0 },
+      async () => ({ mutation: mutation(), value: "not committed" }),
+      new AbortController().signal,
+    );
+    expect(result).toEqual({ kind: "commit-failed", value: "not committed", expected: 0, actual: 0 });
+  });
+
+  it("rejects forged committed responses unless authority reconciliation proves expected plus one", async () => {
+    for (const forgedSnapshot of [snapshot(user, 9), snapshot(otherProject, 1)]) {
+      const events: string[] = [];
+      const service = coordinator(events, stateStore({
+        events,
+        commit: async () => ({ kind: "committed", snapshot: forgedSnapshot }),
+      }));
+      const result = await service.runPreparedMutation(
+        { scope: user, plugins: [plugin], expectedGeneration: 0 },
+        async () => ({ mutation: mutation(), value: "forged" }),
+        new AbortController().signal,
+      );
+      expect(result).toEqual({ kind: "commit-failed", value: "forged", expected: 0, actual: 0 });
+    }
   });
 
   it("preserves abort identity when ownership is released before the callback", async () => {

@@ -1,7 +1,6 @@
 import {
   MutationSubjectSchema,
   type KeyedMutationScheduler,
-  type MutationExecutionContext,
   type MutationSubject,
 } from "./mutation-coordination.js";
 import { ScopeReferenceSchema } from "../domain/state/scope.js";
@@ -93,49 +92,19 @@ function removeWaiter(state: KeyState, waiter: Waiter): void {
   if (index !== -1) state.queue.splice(index, 1);
 }
 
-function createContext(
-  scheduler: Scheduler,
-  heldKeys: readonly string[],
-): MutationExecutionContext {
-  const held = new Set(heldKeys);
-  const lastHeld = heldKeys.at(-1);
-
-  return {
-    runNested<T>(
-      subjects: readonly MutationSubject[],
-      work: (context: MutationExecutionContext) => Promise<T>,
-      signal: AbortSignal,
-    ) {
-      if (typeof work !== "function") throw new TypeError("nested mutation work must be a function");
-      const validated = validateSubjects(subjects);
-      const keys = validated.map(canonicalSubjectKey);
-      for (const key of keys) {
-        if (held.has(key)) {
-          throw new TypeError("nested mutation cannot reacquire a held subject");
-        }
-        if (lastHeld !== undefined && compareKeys(key, lastHeld) <= 0) {
-          throw new TypeError("nested mutation subjects must extend canonical lock order");
-        }
-      }
-      return scheduler.runInternal(validated, work, signal, [...heldKeys, ...keys]);
-    },
-  };
-}
-
 class Scheduler implements KeyedMutationScheduler {
   private readonly states = new Map<string, KeyState>();
 
-  run<T>(subjects: readonly MutationSubject[], work: (context: MutationExecutionContext) => Promise<T>, signal: AbortSignal): Promise<T> {
+  run<T>(subjects: readonly MutationSubject[], work: () => Promise<T>, signal: AbortSignal): Promise<T> {
     if (typeof work !== "function") throw new TypeError("mutation work must be a function");
     const validated = validateSubjects(subjects);
-    return this.runInternal(validated, work, signal, []);
+    return this.runInternal(validated, work, signal);
   }
 
-  runInternal<T>(
+  private runInternal<T>(
     subjects: readonly MutationSubject[],
-    work: (context: MutationExecutionContext) => Promise<T>,
+    work: () => Promise<T>,
     signal: AbortSignal,
-    parentKeys: readonly string[],
   ): Promise<T> {
     assertSignal(signal);
     if (typeof work !== "function") throw new TypeError("mutation work must be a function");
@@ -145,14 +114,14 @@ class Scheduler implements KeyedMutationScheduler {
     if (keys.length === 0) {
       return Promise.resolve().then(async () => {
         throwIfAborted(signal);
-        return work(createContext(this, parentKeys));
+        return work();
       });
     }
 
     return this.acquire(keys, signal).then(async (waiter) => {
       try {
         throwIfAborted(signal);
-        return await work(createContext(this, [...parentKeys, ...keys]));
+        return await work();
       } finally {
         this.release(waiter);
       }
