@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-immutable-stores-promotion-review-hardening
 kind: story
-stage: review
+stage: done
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 depends_on: [epic-transactional-plugin-lifecycle-immutable-stores-promotion-hardening]
@@ -48,3 +48,9 @@ Close confirmed promotion cleanup findings and execute every interrupted adversa
 - Discrepancies from design: persisted installed revision records remain scope-free envelopes, so `resolvePlugin` now requires the authoritative scope as an explicit argument rather than defaulting to user scope; the port contract was tightened accordingly.
 - Adjacent issues parked: none.
 - Verification: `npm test` passes with 90 test files / 539 tests, production typecheck, dependency boundaries, build, and compiled package import (319 exports).
+
+## Review (2026-07-13)
+
+**Verdict**: Approve
+
+**Review notes**: Substrate mode; caller's explicit story fast-advance policy; independent full-suite verification. Confirmed all five acceptance criteria and every interrupted adversarial candidate through 539 tests, strict production/test typechecking, clean boundaries, build, and exact 319-export package import. No blockers, important findings, or nits.
