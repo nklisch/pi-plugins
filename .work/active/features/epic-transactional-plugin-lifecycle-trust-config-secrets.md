@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -530,7 +530,7 @@ Deep GLM 5.2 and GPT-5.6 Sol review accepted seven required fixes: stale removal
 
 ## Review-hardening implementation summary
 
-The first two hardening stories close all previously tracked findings. Final adversarial review reproduced one remaining CAS lineage race: a descendant authoritative document can preserve a candidate locator while changing revision, causing revision-only reconciliation to delete an active credential. `epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening-3` now reconciles each fresh locator against the validated current authority, cleaning only proven-inactive credentials and retaining safe recovery evidence for unreadable or malformed authority. The feature remains at `stage: implementing` while its broader lifecycle work continues.
+All three hardening stories are done. Locator reconciliation checks each fresh credential against validated current authority, including descendant and partial-preservation cases, cleans only proven-inactive credentials, and retains safe recovery evidence for unreadable or malformed authority. Independent verification passes 524 tests plus strict production/test typechecking, clean boundaries, build, and exact 318-export package import. The feature returns to `stage: review` for final confirmation.
 
 ## Testing
 
