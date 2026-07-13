@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-operations-integration-hardening
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-operations
 depends_on: [epic-transactional-plugin-lifecycle-operations-guarded-transitions]
@@ -51,3 +51,12 @@ Implement Unit 3 of the parent design. Integrate the lifecycle facade against sc
 - [ ] Dependency-cruiser canaries reject application imports from Node, filesystem, Pi, runtime, formats, and infrastructure.
 - [ ] `npm test` passes typecheck, boundaries, useful integration tests, build, and exact package import.
 - [ ] Foundation docs remain rolling-current and do not claim concrete runtime/reload/recovery/update/UI behavior outside this feature.
+
+## Implementation notes
+- Execution capability: direct host implementation; public-boundary and integration hardening are one coherent package-surface change and the caller prohibited agents.
+- Review weight: standard, caller did not override the project default.
+- Files changed: `src/index.ts`, `.dependency-cruiser.cjs`, `test/integration/plugin-lifecycle.test.ts`, `test/public-api.test.ts`, `test/compiled-package-import.mjs`, plus small contract/service hardening corrections required by the integrated fake-port flow.
+- Tests added/removed: complete skill/hook/MCP projection integration, user/project logical-reference isolation, public facade allowlist, and existing full boundary/package checks.
+- Simplification: one exported facade and narrow evidence ports; preparation and guarded commit internals remain unexported.
+- Discrepancies from design: no foundation assertion required a wording update; existing docs already describe this feature as a future seam and continue to exclude concrete runtime, recovery, update policy, and UI adapters.
+- Adjacent issues parked: none.

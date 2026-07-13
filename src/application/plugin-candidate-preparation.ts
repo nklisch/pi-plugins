@@ -41,9 +41,6 @@ import {
   type TrustCandidate,
 } from "../domain/trust-policy.js";
 import {
-  authorizeTrustCandidate,
-} from "./trust-service.js";
-import {
   withResolvedPluginConfiguration,
   ConfigurationResolutionError,
 } from "./configuration-resolver.js";
@@ -159,11 +156,13 @@ function mapFailure(error: unknown, phase: "materialize" | "inspect" | "compatib
 async function discardOwned(
   dependencies: PluginCandidatePreparationDependencies,
   allocation: StagingAllocation | undefined,
-  signal: AbortSignal,
+  _signal: AbortSignal,
 ): Promise<void> {
   if (allocation === undefined) return;
   try {
-    await dependencies.content.discardStaging(allocation, signal);
+    // Cleanup is deliberate even after caller cancellation; the staging
+    // capability is owned by this preparation and carries no user data.
+    await dependencies.content.discardStaging(allocation, new AbortController().signal);
   } catch {
     // The allocation is an inert staging capability. A later store cleanup can
     // reclaim it; do not hide the original typed preparation outcome.
@@ -193,8 +192,6 @@ async function resolveReadiness(
   signal: AbortSignal,
 ): Promise<void> {
   const scope = createScopeContext(input.configurationPathContext.scope, dependencies.sha256);
-  const authorization = await authorizeTrustCandidate({ candidate: input.trust, records: input.trustRecords, scope }, dependencies, signal);
-  if (authorization.kind === "denied") throw new ConfigurationResolutionError(authorization.code);
   await withResolvedPluginConfiguration({
     candidate: input.trust,
     trustRecords: input.trustRecords,
@@ -339,6 +336,7 @@ export async function prepareEnableCandidate(
     const loaded: LoadedInstalledPlugin = await dependencies.installed.load({ scope, revision: selected }, signal);
     const normalizedLoaded = NormalizedPluginSchema.parse(loaded.plugin);
     const compatibility = CompatibilityReportSchema.parse(loaded.compatibility);
+    if (loaded.binding !== selected.revision) return { kind: "rejected", code: "MALFORMED" };
     if (normalizedLoaded.identity.key !== installed.plugin || compatibility.plugin.key !== installed.plugin) {
       return { kind: "rejected", code: "MALFORMED" };
     }

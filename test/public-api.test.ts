@@ -670,6 +670,17 @@ describe("explicit package API", () => {
     }
   });
 
+  it("exposes one lifecycle facade and narrow evidence ports", () => {
+    expect(sourceApi.createPluginLifecycleService).toBeDefined();
+    expect(sourceApi.PluginRuntimeProjectionSchemaV1).toBeDefined();
+    expect(sourceApi.LifecycleTransitionRecordSchemaV1).toBeDefined();
+    expect(sourceApi.ActivationObservationSchema).toBeDefined();
+    expect(sourceApi.LoadedInstalledPluginSchema).toBeDefined();
+    expect(sourceApi).not.toHaveProperty("preparePluginCandidate");
+    expect(sourceApi).not.toHaveProperty("runPreparedMutation");
+    expect(sourceApi).not.toHaveProperty("activateSkill");
+  });
+
   it("keeps secret custody and policy boundaries out of the public surface", () => {
     expect(sourceApi.SensitiveValue).toBeDefined();
     expect(sourceApi.withResolvedPluginConfiguration).toBeDefined();

@@ -61,6 +61,7 @@ import {
 } from "./state-contract.js";
 import {
   createInstalledPluginRecord,
+  createInstalledRevisionRecord,
   InstalledPluginRecordSchema,
   type InstalledPluginRecord,
   type InstalledRevisionRecord,
@@ -318,6 +319,18 @@ async function preparePreviousExpectation(
   const selected = previous.revisions.find((revision) => revision.revision === previous.selectedRevision);
   if (selected === undefined) throw new Error("installed state selected revision is missing");
   const loaded = await dependencies.installed.load({ scope, revision: selected }, signal);
+  if (loaded.binding !== selected.revision || loaded.plugin.identity.key !== plugin) throw new Error("installed loader returned a different selected revision");
+  const reconstructed = createInstalledRevisionRecord({
+    plugin: loaded.plugin,
+    compatibility: loaded.compatibility,
+    content: loaded.content,
+    revision: selected.revision,
+    contentRef: selected.contentRef,
+    dataRef: selected.dataRef,
+    ...(selected.configurationRef === undefined ? {} : { configurationRef: selected.configurationRef }),
+    scope: toScopeReference(scope),
+  }, dependencies.sha256);
+  if (!sameJson(reconstructed, selected)) throw new Error("installed loader evidence does not match selected state");
   const projection = createActiveProjectionExpectation(createPluginRuntimeProjection({
     scope: toScopeReference(scope),
     plugin: loaded.plugin,
@@ -565,6 +578,7 @@ export function createPluginLifecycleService(
           ? { kind: "recovery" }
           : { kind: "recovery", committed: result.actual };
       } catch (error) {
+        if (signal.aborted) return { kind: "rejected", code: "ABORTED" };
         if (error instanceof GuardMismatch) return { kind: "stale", expected, actual: error.generation };
         if (error instanceof PromotionFailure) return { kind: "rejected", code: "PROMOTION_FAILED" };
         return { kind: "recovery" };
@@ -579,11 +593,16 @@ export function createPluginLifecycleService(
     signal: AbortSignal,
   ): Promise<PluginLifecycleResult> {
     LifecycleOperationSchema.parse(operation);
-    signal.throwIfAborted();
+    if (signal.aborted) return rejected(operation, "ABORTED");
     const scope = asScopeContext(request.scope, dependencies.sha256);
     const plugin = PluginKeySchema.parse(request.plugin);
     const origin = operationOrigin(request);
-    const initial = await load(scope, signal);
+    let initial: GenerationSnapshot | undefined;
+    try {
+      initial = await load(scope, signal);
+    } catch {
+      return rejected(operation, signal.aborted ? "ABORTED" : "MALFORMED");
+    }
     if (initial === undefined) return rejected(operation, "MALFORMED");
     const previous = targetRecord(initial, plugin);
     if (previous?.pendingTransition !== undefined) return rejected(operation, "PENDING_TRANSITION");
@@ -598,7 +617,11 @@ export function createPluginLifecycleService(
     if (operation === "uninstall" && previous === undefined) return noOp(operation, initial);
 
     const trustRecords = operation === "install" || operation === "update" || operation === "enable"
-      ? await trustFor(scope, "trustRecords" in request ? request.trustRecords : undefined, signal)
+      ? ("trustRecords" in request && request.trustRecords !== undefined
+        ? request.trustRecords
+        : "trust" in initial
+          ? initial.trust.records
+          : await trustFor(scope, undefined, signal))
       : [];
     let prepared: PreparedPluginCandidate | undefined;
     let candidateExpectation: ProjectionExpectation;
@@ -618,6 +641,10 @@ export function createPluginLifecycleService(
         const result = await preparePluginCandidate(preparation, candidateRequest, signal);
         if (result.kind === "rejected") return rejected(operation, mapPreparationCode(result.code));
         prepared = result.candidate;
+        if (prepared.plugin !== plugin) {
+          await discardCandidate(dependencies, prepared);
+          return rejected(operation, "MALFORMED");
+        }
         if (operation === "install" && previous !== undefined) {
           if (previous.selectedRevision === prepared.record.selectedRevision && previous.activation === "enabled") {
             await discardCandidate(dependencies, prepared);

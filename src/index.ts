@@ -776,3 +776,121 @@ export type {
   PreparedMutationContext,
   PreparedMutationRequest,
 } from "./application/generation-mutation-coordinator.js";
+
+// Whole-plugin lifecycle is exposed as one facade plus narrow, adapter-neutral
+// evidence ports. Candidate preparation and guarded mutation helpers stay
+// private so callers cannot bypass transaction policy.
+export {
+  LifecycleOperationRegistry,
+  LifecycleOperationSchema,
+  LifecycleOriginRegistry,
+  LifecycleOriginSchema,
+  LifecycleRetainedDataRegistry,
+  LifecycleRetainedDataSchema,
+  LifecycleRejectionCodeRegistry,
+  LifecycleRejectionCodeSchema,
+  LifecycleOutcomeRegistry,
+  LifecycleOutcomeSchema,
+  LifecyclePluginStateSchema,
+  LifecyclePluginReferenceSchema,
+  PendingTransitionIdentitySchema,
+  LifecyclePluginRequestSchema,
+  LifecycleRecoveryEvidenceSchema,
+  deriveLifecyclePendingTransitionRef,
+} from "./application/plugin-lifecycle-contract.js";
+export type {
+  LifecycleOperation,
+  LifecycleOrigin,
+  LifecycleRetainedData,
+  LifecycleRejectionCode,
+  LifecycleOutcome,
+  LifecyclePluginState,
+  LifecyclePluginReference,
+  PendingTransitionIdentity,
+  LifecyclePluginRequest,
+  LifecycleRecoveryEvidence,
+} from "./application/plugin-lifecycle-contract.js";
+
+export {
+  RuntimePluginComponentsSchema,
+  PluginRuntimeProjectionSchemaV1,
+  ProjectionExpectationSchema,
+  createPluginRuntimeProjection,
+  createActiveProjectionExpectation,
+  createInactiveProjectionExpectation,
+  verifyProjectionExpectation,
+} from "./application/ports/runtime-projection.js";
+export type {
+  RuntimePluginComponents,
+  PluginRuntimeProjection,
+  ProjectionExpectation,
+  RuntimeProjectionPort,
+} from "./application/ports/runtime-projection.js";
+
+export {
+  ActivationObservationSchema,
+  LifecycleReloadResultSchemaRegistry,
+  LifecycleReloadResultSchema,
+  LifecycleReloadRequestSchema,
+  LifecycleObservationRequestSchema,
+  verifyActivationObservation,
+} from "./application/ports/lifecycle-reload.js";
+export type {
+  ActivationObservation,
+  LifecycleReloadResult,
+  LifecycleReloadRequest,
+  LifecycleObservationRequest,
+  LifecycleReloadPort,
+} from "./application/ports/lifecycle-reload.js";
+
+export {
+  LifecycleTransitionRecordSchemaV1,
+  LifecycleTransitionPrepareResultSchema,
+  LifecycleTransitionOutcomeSchema,
+  LifecycleTransitionSettleRequestSchema,
+  createLifecycleTransitionRecord,
+} from "./application/ports/lifecycle-transition-store.js";
+export type {
+  LifecycleTransitionRecord,
+  LifecycleTransitionPrepareResult,
+  LifecycleTransitionOutcome,
+  LifecycleTransitionSettleRequest,
+  LifecycleTransitionStore,
+} from "./application/ports/lifecycle-transition-store.js";
+
+export {
+  LifecycleOperationIdSchema,
+  parseLifecycleOperationId,
+} from "./application/ports/lifecycle-operation-id.js";
+export type {
+  LifecycleOperationId,
+  LifecycleOperationIdPort,
+} from "./application/ports/lifecycle-operation-id.js";
+
+export {
+  LoadedInstalledPluginSchema,
+  InstalledPluginLoaderRequestSchema,
+  verifyLoadedInstalledPlugin,
+} from "./application/ports/installed-plugin-loader.js";
+export type {
+  LoadedInstalledPlugin,
+  InstalledPluginLoaderRequest,
+  InstalledPluginLoader,
+} from "./application/ports/installed-plugin-loader.js";
+
+export {
+  createPluginLifecycleService,
+  PluginLifecycleResultSchema,
+} from "./application/plugin-lifecycle-service.js";
+export type {
+  InstallPluginRequest,
+  UpdatePluginRequest,
+  EnablePluginRequest,
+  DisablePluginRequest,
+  UninstallPluginRequest,
+  LifecycleActivationFailure,
+  LifecycleCleanupIntent,
+  PluginLifecycleResult,
+  PluginLifecycleService,
+  PluginLifecycleServiceDependencies,
+} from "./application/plugin-lifecycle-service.js";

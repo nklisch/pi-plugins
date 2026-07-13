@@ -71,6 +71,15 @@ module.exports = {
       to: { dependencyTypes: ["core"] },
     },
     {
+      name: "lifecycle-policy-no-host-adapters",
+      comment: "Whole-plugin lifecycle policy is portable; reload, projection, storage, and Pi adapters remain injected ports.",
+      severity: "error",
+      from: { path: "^src/application/(?:plugin-lifecycle|plugin-candidate-preparation|ports/(?:lifecycle|runtime-projection|installed-plugin-loader))" },
+      to: {
+        path: "^(?:src/(?:formats|infrastructure|runtime|pi|composition)(?:/|$)|node:)",
+      },
+    },
+    {
       name: "sqlite-only-state-infrastructure",
       comment: "The SQLite scope-lock implementation is the only allowed node:sqlite consumer.",
       severity: "error",
