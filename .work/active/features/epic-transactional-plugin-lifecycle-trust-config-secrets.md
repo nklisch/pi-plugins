@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets
 kind: feature
-stage: review
+stage: implementing
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -530,7 +530,7 @@ Deep GLM 5.2 and GPT-5.6 Sol review accepted seven required fixes: stale removal
 
 ## Review-hardening implementation summary
 
-The hardening story is done and the feature returns to `stage: review`. Removal now CAS-retires the authoritative document before credential cleanup, cancellation uses independent recovery cleanup with typed locator evidence, resolver completion values are discarded, adapter responses are runtime-schema-validated, unknown keys are omitted from errors, project scope/path authority is identity- and capability-bound, and descriptor patterns use a bounded fail-closed policy. Adversarial regressions cover every finding. Independent verification passes 485 tests, strict production/test typechecking, clean boundaries, build, and exact 300-export package import.
+The first hardening story closes its seven original findings. Final adversarial confirmation found three adjacent blockers: bounded `{m,n}` chains bypassed regex complexity policy, ambiguous commit-then-throw CAS cleanup could delete active credentials, and the exported trusted-root constructor allowed public self-issuance. `epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening-2` tracks these; the feature remains at `stage: implementing` until they close.
 
 ## Testing
 

@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-generation-locking
 kind: feature
-stage: review
+stage: implementing
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -334,4 +334,8 @@ Implementation commits:
 - `ac85767` — `implement: epic-transactional-plugin-lifecycle-generation-locking-guarded-window`
 - `8403add` — `implement: epic-transactional-plugin-lifecycle-generation-locking-contract-hardening`
 
-Verification: full `npm test` passed with strict production typecheck, dependency boundaries, 80 Vitest files / 478 tests and no type errors, build, and compiled package import (298 exports). The feature is left at `stage: review` per the requested implementation boundary; no review lane was invoked.
+Verification: full `npm test` passed with strict production typecheck, dependency boundaries, 80 Vitest files / 478 tests and no type errors, build, and compiled package import (298 exports).
+
+## Review findings
+
+Deep review found a supported nested scheduler deadlock, missing real cross-process no-lost-update evidence, database-path replacement split ownership, ambiguous commit completion that loses committed evidence, and unvalidated store scope/generation responses. `epic-transactional-plugin-lifecycle-generation-locking-review-hardening` tracks all accepted findings; the feature remains at `stage: implementing` until they close.
