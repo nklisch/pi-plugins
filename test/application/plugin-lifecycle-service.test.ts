@@ -40,6 +40,11 @@ const plugin = NormalizedPluginSchema.parse({
   metadata: [],
 });
 const compatibility = CompatibilityReportSchema.parse({ plugin: plugin.identity, activatable: true, components: [], requirements: [], diagnostics: [] });
+const otherPlugin = NormalizedPluginSchema.parse({
+  ...plugin,
+  identity: { ...plugin.identity, key: "other@community", marketplaceEntryName: "other" },
+});
+const otherCompatibility = CompatibilityReportSchema.parse({ ...compatibility, plugin: otherPlugin.identity });
 const content = createContentManifest([], sha256);
 const binding = createMaterializationBinding(plugin.source.hash, content.rootDigest, sha256);
 const materialized = { root: "/virtual/plugin", source: plugin.source, content, binding };
@@ -107,7 +112,13 @@ function fakeCoordinator(state: MemoryState): GenerationMutationCoordinator {
   };
 }
 
-function dependencies(state: MemoryState, options: Readonly<{ rejectReload?: boolean }> = {}): PluginLifecycleServiceDependencies {
+type LifecycleTestOptions = Readonly<{
+  rejectReload?: boolean;
+  onReload?: (count: number, state: MemoryState) => void;
+  onPromote?: () => void;
+}>;
+
+function dependencies(state: MemoryState, options: LifecycleTestOptions = {}): PluginLifecycleServiceDependencies {
   const expectations: ProjectionExpectation[] = [];
   let reloadCount = 0;
   const projections: RuntimeProjectionPort = {
@@ -116,6 +127,7 @@ function dependencies(state: MemoryState, options: Readonly<{ rejectReload?: boo
   const reload: LifecycleReloadPort = {
     async reload() {
       reloadCount += 1;
+      options.onReload?.(reloadCount, state);
       if (options.rejectReload && reloadCount === 1) return { kind: "failed", code: "adapter-error" };
       return { kind: "accepted" };
     },
@@ -135,7 +147,10 @@ function dependencies(state: MemoryState, options: Readonly<{ rejectReload?: boo
   const contentPort = {
     async allocateStaging() { return { slot: { root: "/virtual/stage" }, allocationId: "stage" }; },
     async discardStaging() { return undefined; },
-    async promote(plan: any) { return { kind: "promoted" as const, identity: plan.identity, root: "/virtual/store", manifest: plan.manifest }; },
+    async promote(plan: any) {
+      options.onPromote?.();
+      return { kind: "promoted" as const, identity: plan.identity, root: "/virtual/store", manifest: plan.manifest };
+    },
   };
   const base = {
     state,
@@ -167,6 +182,36 @@ const installRequest = {
   sourceContext: { kind: "marketplace" as const, root: "/virtual/marketplace", source: marketplaceSource, contentRootDigest: content.rootDigest, content, binding: createMaterializationBinding(marketplaceSource.hash, content.rootDigest, sha256) },
   configurationPathContext: { scope: { kind: "user" as const } },
 };
+
+const otherRecord = createInstalledPluginRecord({
+  plugin: otherPlugin.identity.key,
+  activation: "enabled",
+  revisions: [{ plugin: otherPlugin, compatibility: otherCompatibility, content }],
+}, sha256);
+
+function advanceOtherPlugin(state: MemoryState): void {
+  const current = state.current;
+  const plugins = current.installed.plugins.map((record) => record.plugin === otherPlugin.identity.key
+    ? createInstalledPluginRecord({ ...record, activation: "disabled" }, sha256)
+    : record);
+  state.current = nextSnapshot(current, {
+    replace: {
+      installed: createInstalledUserStateDocument({ ...current.installed, plugins }, sha256),
+    },
+  });
+}
+
+function changeTargetPlugin(state: MemoryState): void {
+  const current = state.current;
+  const plugins = current.installed.plugins.map((record) => record.plugin === plugin.identity.key
+    ? createInstalledPluginRecord({ ...record, activation: record.activation === "enabled" ? "disabled" : "enabled" }, sha256)
+    : record);
+  state.current = nextSnapshot(current, {
+    replace: {
+      installed: createInstalledUserStateDocument({ ...current.installed, plugins }, sha256),
+    },
+  });
+}
 
 describe("plugin lifecycle service", () => {
   it("keeps idempotent missing and disabled operations deterministic", async () => {
@@ -204,5 +249,72 @@ describe("plugin lifecycle service", () => {
     const result = await service.disable({ scope: { kind: "user" }, plugin: plugin.identity.key }, signal);
     expect(result.kind).toBe("rolled-back");
     expect(state.current.installed.plugins[0]?.activation).toBe("enabled");
+  });
+
+  it("rebases successful finalization over an unrelated plugin generation advance", async () => {
+    const state = new MemoryState(snapshot(0, [otherRecord]));
+    let reloads = 0;
+    let promotions = 0;
+    const service = createPluginLifecycleService(dependencies(state, {
+      onReload(count, current) {
+        reloads = count;
+        if (count === 1) advanceOtherPlugin(current);
+      },
+      onPromote() { promotions += 1; },
+    }));
+
+    const result = await service.install(installRequest, signal);
+
+    expect(result.kind).toBe("changed");
+    expect(reloads).toBe(1);
+    expect(promotions).toBe(1);
+    const target = state.current.installed.plugins.find((record) => record.plugin === plugin.identity.key);
+    expect(target?.activation).toBe("enabled");
+    expect(target).not.toHaveProperty("pendingTransition");
+    expect(state.current.installed.plugins.find((record) => record.plugin === otherPlugin.identity.key)?.activation).toBe("disabled");
+  });
+
+  it("rebases failed-reload restoration over an unrelated plugin generation advance", async () => {
+    const previousRecord = createInstalledPluginRecord({ plugin: plugin.identity.key, activation: "enabled", revisions: [{ plugin, compatibility, content }] }, sha256);
+    const state = new MemoryState(snapshot(0, [previousRecord, otherRecord]));
+    let reloads = 0;
+    let promotions = 0;
+    const service = createPluginLifecycleService(dependencies(state, {
+      rejectReload: true,
+      onReload(count, current) {
+        reloads = count;
+        if (count === 1) advanceOtherPlugin(current);
+      },
+      onPromote() { promotions += 1; },
+    }));
+
+    const result = await service.disable({ scope: { kind: "user" }, plugin: plugin.identity.key }, signal);
+
+    expect(result.kind).toBe("rolled-back");
+    expect(reloads).toBe(2);
+    expect(promotions).toBe(0);
+    const target = state.current.installed.plugins.find((record) => record.plugin === plugin.identity.key);
+    expect(target?.activation).toBe("enabled");
+    expect(target).not.toHaveProperty("pendingTransition");
+    expect(state.current.installed.plugins.find((record) => record.plugin === otherPlugin.identity.key)?.activation).toBe("disabled");
+  });
+
+  it("requires recovery when a target plugin changes during reload", async () => {
+    const state = new MemoryState(snapshot(0, []));
+    let reloads = 0;
+    const service = createPluginLifecycleService(dependencies(state, {
+      onReload(count, current) {
+        reloads = count;
+        if (count === 1) changeTargetPlugin(current);
+      },
+    }));
+
+    const result = await service.install(installRequest, signal);
+    const target = state.current.installed.plugins.find((record) => record.plugin === plugin.identity.key);
+
+    expect(result.kind).toBe("recovery-required");
+    expect(reloads).toBe(1);
+    expect(target?.activation).toBe("disabled");
+    expect(target?.pendingTransition).toBeDefined();
   });
 });

@@ -201,6 +201,11 @@ class FinalizationFailure extends Error {
   }
 }
 
+// Reload runs outside the generation lock. One unrelated plugin may therefore
+// advance the scope before the pending transition can be settled. Keep the
+// compensation small and explicit: repeated contention remains recoverable.
+const MAX_PENDING_REBASE_ATTEMPTS = 2;
+
 function sameJson(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -230,6 +235,19 @@ function withPending(record: InstalledPluginRecord, reference: import("../domain
 
 function scopeRecords(snapshot: GenerationSnapshot): readonly InstalledPluginRecord[] {
   return "installed" in snapshot ? snapshot.installed.plugins : snapshot.project.plugins;
+}
+
+function matchesIntermediateRecord(
+  snapshot: GenerationSnapshot,
+  plugin: PluginKey,
+  candidate: InstalledPluginRecord,
+  reference: import("../domain/state/references.js").PendingTransitionRef,
+  allowAbsentCurrent: boolean,
+  finalRecord: InstalledPluginRecord | null,
+): boolean {
+  const current = targetRecord(snapshot, plugin);
+  if (current === undefined) return allowAbsentCurrent && finalRecord === null;
+  return current.pendingTransition === reference && sameJson(withoutPending(current), candidate);
 }
 
 function replaceTarget(
@@ -433,8 +451,52 @@ export function createPluginLifecycleService(
     return snapshot !== undefined && "trust" in snapshot ? snapshot.trust.records : [];
   }
 
+  async function commitPendingReplacement(
+    scope: ScopeContext,
+    plugin: PluginKey,
+    candidate: InstalledPluginRecord,
+    finalRecord: InstalledPluginRecord | null,
+    reference: import("../domain/state/references.js").PendingTransitionRef,
+    committed: GenerationSnapshot,
+    replacement: (snapshot: GenerationSnapshot) => StateMutation,
+    signal: AbortSignal,
+    allowAbsentCurrent = false,
+  ): Promise<GenerationSnapshot | undefined> {
+    let expected = committed.generation;
+    for (let attempt = 0; attempt < MAX_PENDING_REBASE_ATTEMPTS; attempt += 1) {
+      try {
+        const result = await dependencies.mutations.runPreparedMutation(
+          { scope, plugins: [plugin], expectedGeneration: expected },
+          async (context) => {
+            await context.assertOwned();
+            if (!matchesIntermediateRecord(context.snapshot, plugin, candidate, reference, allowAbsentCurrent, finalRecord)) {
+              throw new FinalizationFailure();
+            }
+            return { mutation: replacement(context.snapshot), value: undefined };
+          },
+          signal,
+        );
+        if (result.kind === "committed") return result.snapshot;
+        if (result.kind !== "stale-generation" || attempt + 1 >= MAX_PENDING_REBASE_ATTEMPTS) return undefined;
+
+        // The coordinator only reports the generation mismatch. Re-read the
+        // authoritative snapshot before rebasing so a target mutation or lost
+        // pending marker can never be mistaken for unrelated contention.
+        const fresh = await load(scope, signal);
+        if (
+          fresh === undefined ||
+          fresh.generation <= expected ||
+          !matchesIntermediateRecord(fresh, plugin, candidate, reference, allowAbsentCurrent, finalRecord)
+        ) return undefined;
+        expected = fresh.generation;
+      } catch {
+        return undefined;
+      }
+    }
+    return undefined;
+  }
+
   async function finalize(
-    operation: LifecycleOperation,
     scope: ScopeContext,
     plugin: PluginKey,
     candidate: InstalledPluginRecord,
@@ -444,29 +506,18 @@ export function createPluginLifecycleService(
     signal: AbortSignal,
     allowAbsentCurrent = false,
   ): Promise<Readonly<{ ok: true; snapshot: GenerationSnapshot }> | Readonly<{ ok: false }>> {
-    try {
-      const result = await dependencies.mutations.runPreparedMutation(
-        { scope, plugins: [plugin], expectedGeneration: committed.generation },
-        async (context) => {
-          await context.assertOwned();
-          const current = targetRecord(context.snapshot, plugin);
-          if (current === undefined) {
-            if (!allowAbsentCurrent || finalRecord !== null) throw new FinalizationFailure();
-          } else if (current.pendingTransition !== reference || !sameJson(withoutPending(current), candidate)) {
-            throw new FinalizationFailure();
-          }
-          return {
-            mutation: replaceTarget(context.snapshot, plugin, finalRecord, dependencies.sha256),
-            value: undefined,
-          };
-        },
-        signal,
-      );
-      if (result.kind !== "committed") return { ok: false };
-      return { ok: true, snapshot: result.snapshot };
-    } catch {
-      return { ok: false };
-    }
+    const snapshot = await commitPendingReplacement(
+      scope,
+      plugin,
+      candidate,
+      finalRecord,
+      reference,
+      committed,
+      (current) => replaceTarget(current, plugin, finalRecord, dependencies.sha256),
+      signal,
+      allowAbsentCurrent,
+    );
+    return snapshot === undefined ? { ok: false } : { ok: true, snapshot };
   }
 
   async function rollback(
@@ -481,34 +532,26 @@ export function createPluginLifecycleService(
     failure: LifecycleActivationFailure,
     signal: AbortSignal,
   ): Promise<PluginLifecycleResult> {
-    let restored: GenerationSnapshot;
-    try {
-      const result = await dependencies.mutations.runPreparedMutation(
-        { scope, plugins: [plugin], expectedGeneration: committed.generation },
-        async (context) => {
-          await context.assertOwned();
-          const current = targetRecord(context.snapshot, plugin);
-          if (current === undefined || current.pendingTransition !== reference || !sameJson(withoutPending(current), candidate)) {
-            throw new FinalizationFailure();
-          }
-          const restoration = previous === undefined ? null : withPending(previous, reference, dependencies.sha256);
-          return {
-            mutation: replaceTarget(context.snapshot, plugin, restoration, dependencies.sha256),
-            value: undefined,
-          };
-        },
-        signal,
-      );
-      if (result.kind !== "committed") return recovery(operation, reference, committed.generation);
-      restored = result.snapshot;
-    } catch {
-      return recovery(operation, reference, committed.generation);
-    }
+    const restored = await commitPendingReplacement(
+      scope,
+      plugin,
+      candidate,
+      previous ?? null,
+      reference,
+      committed,
+      (current) => {
+        const restoration = previous === undefined ? null : withPending(previous, reference, dependencies.sha256);
+        return replaceTarget(current, plugin, restoration, dependencies.sha256);
+      },
+      signal,
+      previous === undefined,
+    );
+    if (restored === undefined) return recovery(operation, reference, committed.generation);
 
     const observed = await reloadAndObserve(dependencies, scope, plugin, reference, previousExpectation, signal);
     if (!observed.ok) return recovery(operation, reference, restored.generation);
     const restoredRecord = previous === undefined ? candidate : previous;
-    const final = await finalize(operation, scope, plugin, restoredRecord, previous ?? null, reference, restored, signal, previous === undefined);
+    const final = await finalize(scope, plugin, restoredRecord, previous ?? null, reference, restored, signal, previous === undefined);
     if (!final.ok) return recovery(operation, reference, restored.generation);
     try {
       await dependencies.transitions.settle({ reference, outcome: "rolled-back", generation: final.snapshot.generation }, signal);
@@ -738,7 +781,7 @@ export function createPluginLifecycleService(
     const committed = first.snapshot;
     const activation = await reloadAndObserve(dependencies, scope, plugin, reference, candidateExpectation, signal);
     if (!activation.ok) return rollback(operation, scope, plugin, previous, candidate, previousExpectation, reference, committed, activation.failure, signal);
-    const final = await finalize(operation, scope, plugin, candidate, finalRecord, reference, committed, signal);
+    const final = await finalize(scope, plugin, candidate, finalRecord, reference, committed, signal);
     if (!final.ok) return recovery(operation, reference, committed.generation);
     try {
       await dependencies.transitions.settle({ reference, outcome: "completed", generation: final.snapshot.generation }, signal);

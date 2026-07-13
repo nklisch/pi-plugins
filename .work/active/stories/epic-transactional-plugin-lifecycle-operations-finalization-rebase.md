@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-operations-finalization-rebase
 kind: story
-stage: implementing
+stage: review
 tags: [correctness, tests]
 parent: epic-transactional-plugin-lifecycle-operations
 depends_on: [epic-transactional-plugin-lifecycle-operations-project-scope-wiring]
@@ -35,9 +35,18 @@ For finalization and rollback only, handle stale generation by re-reading author
 
 ## Acceptance criteria
 
-- [ ] Plugin B generation advancement during successful plugin A reload rebases A finalization and clears its pending marker.
-- [ ] The same unrelated advancement during failed-reload rollback rebases restoration and clears pending evidence.
-- [ ] Changes to plugin A or its pending reference prevent rebase and return safe recovery-required/conflict outcome.
-- [ ] Rebase never repeats promotion or reload.
-- [ ] User/project scope behavior remains isolated.
-- [ ] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+- [x] Plugin B generation advancement during successful plugin A reload rebases A finalization and clears its pending marker.
+- [x] The same unrelated advancement during failed-reload rollback rebases restoration and clears pending evidence.
+- [x] Changes to plugin A or its pending reference prevent rebase and return safe recovery-required/conflict outcome.
+- [x] Rebase never repeats promotion or reload.
+- [x] User/project scope behavior remains isolated.
+- [x] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+
+## Implementation notes
+- Execution capability: direct host implementation; the caller prohibited agents and this is one cohesive post-commit lifecycle change.
+- Review weight: standard; the caller requested the story advance from implementing to review.
+- Files changed: `src/application/plugin-lifecycle-service.ts`, `test/application/plugin-lifecycle-service.test.ts`.
+- Tests added/removed: successful-finalization and failed-reload-restoration regressions with concurrent plugin-B generation changes, plus target-change recovery coverage; no tests removed.
+- Simplification: finalization and rollback now share one bounded pending-replacement commit helper, preserving unrelated records while avoiding duplicate promotion or reload work.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
