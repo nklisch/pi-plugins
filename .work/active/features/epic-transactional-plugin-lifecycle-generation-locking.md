@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-generation-locking
 kind: feature
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -353,3 +353,9 @@ Phase-1 GLM review reproduced an intermittent two-process first-initialization T
 The first-use TOCTOU fix is implemented, independently verified, and the story is done; this parent feature returns to `stage: review` for complementary re-confirmation. SQLite initialization now treats a marker-absent/database-present observation as stale evidence, retries through the caller's cancellable loop, and fails closed when the same coherent orphan state persists. Live, unknown, and proven-dead initializer handling plus replacement/tamper checks remain unchanged. A marker-read scheduling seam deterministically forces winner publication between the stale marker read and database observation, and the real child-process integration repeats first-use contention 20 times with one committed result, one stale result, and zero adapter failures. That stress also found a concurrent root identity marker partial-write race; complete temporary-file plus exclusive hard-link publication closes it without changing the root identity contract.
 
 Verification: `npm test` passed with strict production/test typechecking, clean dependency boundaries, 90 Vitest files / 541 tests, build, and exact compiled package import (319 exports).
+
+## Final review (2026-07-13)
+
+**Verdict**: Approve with comments
+
+**Review notes**: Effective `review_weight: standard`, using the project's practical plugin-installer bar. Complementary re-confirmation approved the real two-process coordination path, initializer recovery, tamper checks, commit proof, and all gates. Adversarial review found disjoint recursive self-acquisition and a deliberately contract-violating state adapter that mutates without generation advancement. Shipped lifecycle coordination does not recursively acquire the scheduler, and production adapters are required to honor atomic generation contracts; these are accepted residual misuse risks rather than normal-use blockers. No realistic ordinary-Pi-session blocker remains.
