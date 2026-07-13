@@ -150,6 +150,7 @@ function dependencies(state: MemoryState, options: Readonly<{ rejectReload?: boo
     transitions,
     operationIds: { async create() { return "00000000-0000-4000-8000-000000000001"; } },
     projectTrust: { async assess() { return { kind: "trusted" as const }; } },
+    projectRoots: { async acquire() { throw new Error("user scope must not acquire a project root"); }, verify() { throw new Error("user scope must not verify a project root"); } },
     configurations: { async read() { return { kind: "missing" as const }; }, async replace() { return { kind: "stored" as const }; }, async remove() { return "missing" as const; } },
     secrets: { async put() { return { kind: "collision" as const }; }, async get() { return { kind: "missing" as const }; }, async remove() { return "missing" as const; }, async removeOwned() { return "missing" as const; } },
     paths: { async normalizeAndInspect() { return { kind: "missing" as const }; } },

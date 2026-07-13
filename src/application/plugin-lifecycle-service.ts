@@ -49,6 +49,7 @@ import type { PluginInspectionService } from "./inspection-service.js";
 import type { CompatibilityService } from "./compatibility-service.js";
 import type { ContentStorePort, PromotionResult } from "./ports/content-store.js";
 import type { ProjectTrustPort } from "./ports/project-trust.js";
+import type { ProjectRootAuthorityPort } from "./ports/project-root-authority.js";
 import type { PluginConfigurationStore } from "./ports/plugin-configuration-store.js";
 import type { SecretStore } from "./ports/secret-store.js";
 import type { ConfigurationPathPort, ConfigurationPathContext } from "./ports/configuration-path.js";
@@ -56,7 +57,6 @@ import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
 import {
   parseStateMutation,
   type GenerationSnapshot,
-  type StateLoadResult,
   type StateMutation,
 } from "./state-contract.js";
 import {
@@ -171,6 +171,7 @@ export type PluginLifecycleServiceDependencies = Readonly<{
   transitions: LifecycleTransitionStore;
   operationIds: LifecycleOperationIdPort;
   projectTrust: ProjectTrustPort;
+  projectRoots: ProjectRootAuthorityPort;
   configurations: PluginConfigurationStore;
   secrets: SecretStore;
   paths: ConfigurationPathPort;
@@ -261,10 +262,6 @@ function replaceTarget(
     expectedGeneration: snapshot.generation,
     replace: { project },
   }, sha256);
-}
-
-function stateLoadFailure(result: StateLoadResult): PluginLifecycleResult | undefined {
-  return result.ok ? undefined : { kind: "rejected", operation: "install", code: "MALFORMED" };
 }
 
 function mapPreparationCode(code: CandidatePreparationCode): LifecycleRejectionCode {

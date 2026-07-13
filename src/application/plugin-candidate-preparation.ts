@@ -47,6 +47,7 @@ import {
 import type { ConfigurationPathContext } from "./ports/configuration-path.js";
 import type { PluginConfigurationStore } from "./ports/plugin-configuration-store.js";
 import type { ProjectTrustPort } from "./ports/project-trust.js";
+import type { ProjectRootAuthorityPort } from "./ports/project-root-authority.js";
 import type { SecretStore } from "./ports/secret-store.js";
 import type { ConfigurationPathPort } from "./ports/configuration-path.js";
 import type { ContentStorePort, StagingAllocation, VerifiedPromotionPlan } from "./ports/content-store.js";
@@ -89,6 +90,7 @@ export type PluginCandidatePreparationDependencies = Readonly<{
   installed: InstalledPluginLoader;
   projections: RuntimeProjectionPort;
   projectTrust: ProjectTrustPort;
+  projectRoots: ProjectRootAuthorityPort;
   configurations: PluginConfigurationStore;
   secrets: SecretStore;
   paths: ConfigurationPathPort;
@@ -140,7 +142,15 @@ function abortIfRequested(signal: AbortSignal): void {
   signal.throwIfAborted();
 }
 
+class ProjectionPreparationError extends Error {
+  constructor() {
+    super("runtime projection preparation failed");
+    this.name = "ProjectionPreparationError";
+  }
+}
+
 function mapFailure(error: unknown, phase: "materialize" | "inspect" | "compatibility" | "trust" | "configuration" | "projection"): CandidatePreparationCode {
+  if (error instanceof ProjectionPreparationError) return "PROJECTION_FAILED";
   if (error instanceof ConfigurationResolutionError) {
     return error.code === "PROJECT_UNTRUSTED" || error.code === "TRUST_ABSENT" || error.code === "TRUST_REVOKED" || error.code === "TRUST_EVIDENCE_INVALID"
       ? "UNTRUSTED"
@@ -174,10 +184,15 @@ async function prepareProjection(
   expectation: ProjectionExpectation,
   signal: AbortSignal,
 ): Promise<ProjectionExpectation> {
-  const prepared = await dependencies.projections.prepare(expectation, signal);
-  const verified = verifyProjectionExpectation(prepared, dependencies.sha256);
-  if (!sameJson(verified, expectation)) throw new Error("projection adapter returned different evidence");
-  return verified;
+  try {
+    const prepared = await dependencies.projections.prepare(expectation, signal);
+    const verified = verifyProjectionExpectation(prepared, dependencies.sha256);
+    if (!sameJson(verified, expectation)) throw new Error("projection adapter returned different evidence");
+    return verified;
+  } catch (error) {
+    if (signal.aborted) throw error;
+    throw new ProjectionPreparationError();
+  }
 }
 
 async function resolveReadiness(
@@ -192,12 +207,22 @@ async function resolveReadiness(
   signal: AbortSignal,
 ): Promise<void> {
   const scope = createScopeContext(input.configurationPathContext.scope, dependencies.sha256);
+  let pathContext: ConfigurationPathContext = { ...input.configurationPathContext, scope };
+  if (scope.kind === "project") {
+    try {
+      const trustedProjectRoot = await dependencies.projectRoots.acquire(signal);
+      pathContext = { ...pathContext, trustedProjectRoot };
+    } catch (error) {
+      if (signal.aborted) throw error;
+      throw new ConfigurationResolutionError("CONFIGURATION_INVALID");
+    }
+  }
   await withResolvedPluginConfiguration({
     candidate: input.trust,
     trustRecords: input.trustRecords,
     configurationRef: input.configurationRef,
     descriptors: input.normalized.configuration,
-    pathContext: { ...input.configurationPathContext, scope },
+    pathContext,
   }, dependencies, signal, async () => undefined);
 }
 

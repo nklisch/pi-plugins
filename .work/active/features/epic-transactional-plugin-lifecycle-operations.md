@@ -362,4 +362,6 @@ The fallback is deliberately visible: if state or runtime cannot prove success o
 
 ## Review findings
 
-Phase-1 complementary review found one realistic normal-use blocker: lifecycle dependencies omitted `ProjectRootAuthorityPort`, so project-scope install, enable, and update always rejected as unconfigured. It also found the promised service-level project-scope skill/hook/MCP lifecycle integration was absent. `epic-transactional-plugin-lifecycle-operations-project-scope-wiring` owns the bounded wiring and coverage fix; the feature returns to `stage: implementing`. Adversarial review is deferred until complementary review clears.
+Phase-1 complementary review found one realistic normal-use blocker: lifecycle dependencies omitted `ProjectRootAuthorityPort`, so project-scope install, enable, and update always rejected as unconfigured. It also found the promised service-level project-scope skill/hook/MCP lifecycle integration was absent. `epic-transactional-plugin-lifecycle-operations-project-scope-wiring` owns the bounded wiring and coverage fix; the feature remains at `stage: implementing` while that story completes. Adversarial review is deferred until complementary review clears.
+
+The wiring story also records the recovery boundary: if the previous revision becomes corrupt or cannot be reconstructed after a candidate commit, verified rollback is unavailable and the lifecycle result must remain `recovery-required`; startup recovery owns that case and is not implemented by this feature.
