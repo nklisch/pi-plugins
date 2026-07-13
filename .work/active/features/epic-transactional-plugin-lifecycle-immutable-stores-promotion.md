@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 kind: feature
-stage: review
+stage: implementing
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -378,7 +378,7 @@ The contracts story fixes identity and port vocabulary first. Staging and runtim
 
 ## Review findings
 
-Deep review confirmed two cleanup defects and supplied three exact interrupted adversarial candidates. `epic-transactional-plugin-lifecycle-immutable-stores-promotion-review-hardening` closes all five: loser and post-seal cleanup are explicit and safe, projection allocation identity is revalidated nofollow, nested control names are hashed/sealed, and resolution requires exact scope. Independent verification passes 539 tests, strict production/test typechecking, clean boundaries, build, and exact 319-export package import. The feature returns to `stage: review`.
+The first hardening story closes all complementary findings and interrupted candidates, with 539 tests and all gates green. Phase-1 GLM review approved. Phase-2 GPT-5.6 Sol review then reproduced a store-parent path/inode swap that redirected publication and data writes outside the configured host root, plus projection metadata whose scope/plugin was not re-bound to its derived reference. `epic-transactional-plugin-lifecycle-immutable-stores-promotion-review-hardening-2` owns both accepted findings; the feature returns to `stage: implementing`.
 
 ## Pre-mortem
 
