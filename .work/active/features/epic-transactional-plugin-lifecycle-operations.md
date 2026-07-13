@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-operations
 kind: feature
-stage: review
+stage: implementing
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-trust-config-secrets, epic-transactional-plugin-lifecycle-generation-locking, epic-transactional-plugin-lifecycle-immutable-stores-promotion]
@@ -365,3 +365,5 @@ The fallback is deliberately visible: if state or runtime cannot prove success o
 Phase-1 complementary review found one realistic normal-use blocker: lifecycle dependencies omitted `ProjectRootAuthorityPort`, so project-scope install, enable, and update always rejected as unconfigured. `epic-transactional-plugin-lifecycle-operations-project-scope-wiring` closes the wiring and service-level coverage gap and is done. Independent verification passes 562 tests, strict production/test typechecking, clean boundaries, build, and exact 360-export import. The feature returns to `stage: review` for complementary re-confirmation; adversarial review remains deferred until that clears.
 
 The wiring story also records the recovery boundary: if the previous revision becomes corrupt or cannot be reconstructed after a candidate commit, verified rollback is unavailable and the lifecycle result must remain `recovery-required`; startup recovery owns that case and is not implemented by this feature.
+
+Phase-1 complementary re-confirmation approved. The focused phase-2 review then reproduced one ordinary-session concurrency blocker: another plugin mutating the same scope during reload advances generation, and finalization/rollback did not rebase even when the target plugin and exact pending reference remained unchanged. `epic-transactional-plugin-lifecycle-operations-finalization-rebase` owns the bounded target-preserving retry; the feature returns to `stage: implementing`.
