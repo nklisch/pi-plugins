@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-operations
 kind: feature
-stage: review
+stage: implementing
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-trust-config-secrets, epic-transactional-plugin-lifecycle-generation-locking, epic-transactional-plugin-lifecycle-immutable-stores-promotion]
@@ -359,3 +359,7 @@ The fallback is deliberately visible: if state or runtime cannot prove success o
 - Delivered one registry-backed lifecycle contract set, logical active/inactive projections, durable pending-transition evidence, installed-revision loading, candidate preparation with exact trust/configuration readiness, one guarded five-operation facade, independent reload observation, verified rollback, recovery-required outcomes, and public/dependency boundaries.
 - Verification: `npm test` passed production/test typechecking, dependency-cruiser, 93 unit files / 561 tests, build, and exact compiled package import (360 exports).
 - Commits: `09a7692` contracts/preparation, `139a312` guarded transitions, `bc142da` integration hardening. Parent stage transition is committed separately.
+
+## Review findings
+
+Phase-1 complementary review found one realistic normal-use blocker: lifecycle dependencies omitted `ProjectRootAuthorityPort`, so project-scope install, enable, and update always rejected as unconfigured. It also found the promised service-level project-scope skill/hook/MCP lifecycle integration was absent. `epic-transactional-plugin-lifecycle-operations-project-scope-wiring` owns the bounded wiring and coverage fix; the feature returns to `stage: implementing`. Adversarial review is deferred until complementary review clears.
