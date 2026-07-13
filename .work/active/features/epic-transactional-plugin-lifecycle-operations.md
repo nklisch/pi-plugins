@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-operations
 kind: feature
-stage: implementing
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-trust-config-secrets, epic-transactional-plugin-lifecycle-generation-locking, epic-transactional-plugin-lifecycle-immutable-stores-promotion]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-12
-updated: 2026-07-12
+updated: 2026-07-13
 ---
 
 # Whole-Plugin Lifecycle Operations
@@ -366,6 +366,12 @@ Phase-1 complementary review found one realistic normal-use blocker: lifecycle d
 
 The wiring story also records the recovery boundary: if the previous revision becomes corrupt or cannot be reconstructed after a candidate commit, verified rollback is unavailable and the lifecycle result must remain `recovery-required`; startup recovery owns that case and is not implemented by this feature.
 
-Phase-1 complementary re-confirmation approved. The focused phase-2 review then reproduced one ordinary-session concurrency blocker: another plugin mutating the same scope during reload advances generation, and finalization/rollback did not rebase even when the target plugin and exact pending reference remained unchanged. `epic-transactional-plugin-lifecycle-operations-finalization-rebase` owns the bounded target-preserving retry; the feature returns to `stage: implementing`.
+Phase-1 complementary re-confirmation approved. The focused phase-2 review then reproduced one ordinary-session concurrency blocker: another plugin mutating the same scope during reload advances generation, and finalization/rollback did not rebase even when the target plugin and exact pending reference remained unchanged. `epic-transactional-plugin-lifecycle-operations-finalization-rebase` closes that gap with bounded target-preserving finalization and rollback rebasing.
+
+## Final review (2026-07-13)
+
+**Verdict**: Approve
+
+Complementary review approved the corrected project-scope wiring. The single focused adversarial pass found the ordinary-session generation race, which is fixed and covered for successful finalization, failed-reload restoration, and target change without repeating promotion or reload. Independent verification passes 565 tests, strict production/test typechecking, clean boundaries, build, and exact 360-export package import. No realistic normal-use blocker remains under the project review bar.
 
 Phase-2 implementation summary: finalization and rollback now re-read authoritative state after stale generation results, retry at most once when the target's exact intermediate record and pending reference still match, and replace only the target record so unrelated plugin mutations survive. Target changes remain `recovery-required`; promotion and reload are never repeated by the rebase. Service regressions cover successful finalization, failed-reload restoration, plugin-B preservation, and target mutation. Full `npm test` passes 93 test files / 565 tests, strict typechecking, boundaries, build, and compiled package import. The story advances to `stage: review`; this parent remains `stage: implementing` pending review.
