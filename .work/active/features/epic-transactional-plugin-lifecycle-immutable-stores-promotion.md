@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -366,6 +366,15 @@ The contracts story fixes identity and port vocabulary first. Staging and runtim
 - **Full rewalk on every idempotent retry or process resolution can be expensive**: correctness and collision safety take precedence. Mitigation: always rewalk before promotion and first resolution; process-local verified inode metadata may cache subsequent reads. Any persistent verification cache must be digest-bound and is late-bound performance work.
 - **Incomplete destinations after crashes need ownership-safe cleanup**: eager cleanup here could delete another process's promotion. Mitigation: unready targets are invisible; this feature only resumes/removes a matching adapter-owned pending directory. General age/reference-based cleanup belongs to recovery/GC.
 - **Least certainty — generated projection writer contract**: later runtime epics may need a richer prepared-projection API. Mitigation: expose allocation/seal around bytes and digest only, with no component-specific shape. The port can gain a new writer adapter without changing immutable content/data identities.
+
+## Implementation summary
+
+- Execution topology: direct host, serialized dependency order as explicitly requested; no agents or peer mechanisms were used. Staging and runtime roots have disjoint implementation surfaces, but serialization preserved the requested story order and made each verification boundary explicit.
+- Stories advanced to `review`: contracts, staging, atomic engine, runtime roots, and hardening. All dependencies were satisfied before each transition.
+- Verification: full `npm test` passes — typecheck, dependency-cruiser boundaries, 89 Vitest files / 503 tests, build, and exact compiled package import (319 exports).
+- Commits: `277cec5` contracts, `f4a277c` staging, `dfa8ee3` atomic engine, `eb170c0` runtime roots, `39f681b` hardening.
+- Scope delivered: capability-owned staging, content-addressed immutable identities/layout, bounded final rewalk, marker-gated read-only publication, explicit durability probing, idempotency/collision handling, state-derived resolution, stable data roots, replaceable projection roots, public Node composition, and rolling architecture documentation.
+- Review boundary: left at `stage: review` for the requested read-only review handoff; no self-approval or agent review was performed.
 
 ## Pre-mortem
 
