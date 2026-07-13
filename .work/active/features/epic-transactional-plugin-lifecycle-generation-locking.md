@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-generation-locking
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -350,6 +350,6 @@ Phase-1 GLM review reproduced an intermittent two-process first-initialization T
 
 ## Review-hardening-3 implementation summary
 
-The first-use TOCTOU fix is implemented and the story is advanced to `stage: review`; this parent feature remains `stage: implementing` as requested. SQLite initialization now treats a marker-absent/database-present observation as stale evidence, retries through the caller's cancellable loop, and fails closed when the same coherent orphan state persists. Live, unknown, and proven-dead initializer handling plus replacement/tamper checks remain unchanged. A marker-read scheduling seam deterministically forces winner publication between the stale marker read and database observation, and the real child-process integration repeats first-use contention 20 times with one committed result, one stale result, and zero adapter failures. That stress also found a concurrent root identity marker partial-write race; complete temporary-file plus exclusive hard-link publication closes it without changing the root identity contract.
+The first-use TOCTOU fix is implemented, independently verified, and the story is done; this parent feature returns to `stage: review` for complementary re-confirmation. SQLite initialization now treats a marker-absent/database-present observation as stale evidence, retries through the caller's cancellable loop, and fails closed when the same coherent orphan state persists. Live, unknown, and proven-dead initializer handling plus replacement/tamper checks remain unchanged. A marker-read scheduling seam deterministically forces winner publication between the stale marker read and database observation, and the real child-process integration repeats first-use contention 20 times with one committed result, one stale result, and zero adapter failures. That stress also found a concurrent root identity marker partial-write race; complete temporary-file plus exclusive hard-link publication closes it without changing the root identity contract.
 
-Verification: `npm test` passed with strict production/test typechecking, dependency boundaries, 90 Vitest files / 541 tests, build, and compiled package import (319 exports).
+Verification: `npm test` passed with strict production/test typechecking, clean dependency boundaries, 90 Vitest files / 541 tests, build, and exact compiled package import (319 exports).
