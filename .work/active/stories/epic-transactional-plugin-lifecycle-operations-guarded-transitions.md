@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-operations-guarded-transitions
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-operations
 depends_on: [epic-transactional-plugin-lifecycle-operations-contracts-preparation]
@@ -50,3 +50,12 @@ Implement Unit 2 of the parent design. Add the single `PluginLifecycleService` f
 - [ ] Reload rejection/mismatch returns `rolled-back` only after verified previous-state reload; failed proof returns `recovery-required` with safe pending evidence.
 - [ ] Cancellation before commit preserves prior state and cleans staging; after possible commit it yields proved completion/rollback or `recovery-required`.
 - [ ] Focused tests cover the operation table and major commit/reload/rollback outcomes without cloning lower-level concurrency or filesystem suites.
+
+## Implementation notes
+- Execution capability: direct host implementation; one facade and one guarded transition path share state, promotion, reload, and compensation ownership, and the caller prohibited agents.
+- Review weight: standard, caller did not override the project default.
+- Files changed: `src/application/plugin-lifecycle-service.ts`, `test/application/plugin-lifecycle-service.test.ts`.
+- Tests added/removed: schema-valid in-memory lifecycle flow covering install, disable, enable, same-revision update no-op, uninstall cleanup intent, missing-operation idempotence, and verified rollback after reload rejection.
+- Simplification: one `execute` path, one coordinator callback for first commit, one finalization helper, and one rollback helper; no request keys, timers, component-specific methods, or retry store.
+- Discrepancies from design: concrete adapters remain injected ports; stale rebasing is bounded to one retry when the exact target is unchanged, with ambiguous evidence returned as recovery-required.
+- Adjacent issues parked: none.
