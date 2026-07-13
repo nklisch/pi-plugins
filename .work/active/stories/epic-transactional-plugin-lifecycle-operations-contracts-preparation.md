@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-operations-contracts-preparation
 kind: story
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-operations
 depends_on: []
@@ -58,3 +58,9 @@ Implement Unit 1 of the parent design. Add schema-derived whole-plugin operation
 - Simplification: one registry-backed contract surface and one preparation path; no component-specific activation or retry machinery.
 - Discrepancies from design: preparation returns typed rejection evidence and keeps successful staging ownership for the later guarded promotion window; concrete adapters remain unimplemented as designed.
 - Adjacent issues parked: none.
+
+## Review (2026-07-13)
+
+**Verdict**: Approve
+
+**Review notes**: Substrate mode; caller's explicit story fast-advance policy; independent integrated verification. Full suite passes 561 tests with strict production/test typechecking, clean boundaries, build, and exact 360-export package import. Acceptance evidence is complete and no realistic normal-use blocker remains.
