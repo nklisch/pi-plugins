@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-operations-finalization-rebase
 kind: story
-stage: review
+stage: done
 tags: [correctness, tests]
 parent: epic-transactional-plugin-lifecycle-operations
 depends_on: [epic-transactional-plugin-lifecycle-operations-project-scope-wiring]
@@ -50,3 +50,9 @@ For finalization and rollback only, handle stale generation by re-reading author
 - Simplification: finalization and rollback now share one bounded pending-replacement commit helper, preserving unrelated records while avoiding duplicate promotion or reload work.
 - Discrepancies from design: none.
 - Adjacent issues parked: none.
+
+## Review (2026-07-13)
+
+**Verdict**: Approve
+
+**Review notes**: Substrate mode; caller's explicit story fast-advance policy; independent integrated verification. Success-finalization, rollback-restoration, and target-change cases are covered without repeated promotion/reload. Full suite passes 565 tests with strict typechecking, clean boundaries, build, and exact 360-export import. No realistic normal-use blocker remains.
