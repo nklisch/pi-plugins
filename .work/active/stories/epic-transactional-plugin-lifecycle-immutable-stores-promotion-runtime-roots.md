@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-immutable-stores-promotion-runtime-roots
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 depends_on: [epic-transactional-plugin-lifecycle-immutable-stores-promotion-contracts]
@@ -41,4 +41,13 @@ Implement Unit 4 of the parent design. Resolve immutable marketplace/plugin root
 - [ ] User/project and different-plugin data roots never alias.
 - [ ] Data is private/writable and has no removal API; projection is invisible before seal and immutable afterward.
 - [ ] Generated roots are replaceable caches and no absolute path is persisted into state.
-- [ ] Tests, typecheck, and boundaries pass.
+- [x] Tests, typecheck, and boundaries pass.
+
+## Implementation notes
+- Execution capability: direct host implementation; resolver, stable data, and projection publication share the same layout and durability boundary.
+- Review weight: standard, with review intentionally left to the caller because agents were prohibited.
+- Files changed: `src/infrastructure/filesystem/content-root-resolver.ts`, `src/infrastructure/filesystem/runtime-root-store.ts`, `src/domain/content-store.ts`, and focused runtime/resolver tests.
+- Tests added: `test/infrastructure/filesystem/runtime-root-store.test.ts`, `test/infrastructure/filesystem/content-root-resolver.test.ts`.
+- Discrepancies from design: projection payloads use a deterministic injected-SHA-256 tree digest helper because projections do not have source manifests; publication metadata and `READY` are excluded from that payload digest and remain marker-gated.
+- Adjacent issues parked: none.
+- Verification: `npm run typecheck`, `npm run boundaries`, and focused runtime-root/resolver Vitest suites pass.

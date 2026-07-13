@@ -126,6 +126,36 @@ export function createMarketplaceStoreIdentity(
   });
 }
 
+/** Reconstruct a marketplace locator from the safe fields retained in state. */
+export function createMarketplaceStoreIdentityFromEvidence(
+  evidence: Readonly<{ sourceHash: SourceHash; revision: string; binding: ContentDigest }>,
+  sha256: Sha256,
+): MarketplaceStoreIdentity {
+  const sourceHash = z.custom<SourceHash>((value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value)).parse(evidence.sourceHash);
+  const revision = z.string().regex(/^[0-9a-f]{40}$/).parse(evidence.revision);
+  const binding = ContentDigestSchema.parse(evidence.binding);
+  const key = deriveStoreKey(ContentStoreKindRegistry.marketplace.tag, [
+    ["source-hash", sourceHash],
+    ["revision", revision],
+    ["binding", binding],
+  ], sha256);
+  return MarketplaceStoreIdentitySchema.parse({ kind: "marketplace", sourceHash, revision, binding, key });
+}
+
+/** Reconstruct a plugin locator from the safe fields retained in state. */
+export function createPluginStoreIdentityFromEvidence(
+  evidence: Readonly<{ sourceHash: SourceHash; binding: ContentDigest }>,
+  sha256: Sha256,
+): PluginStoreIdentity {
+  const sourceHash = z.custom<SourceHash>((value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value)).parse(evidence.sourceHash);
+  const binding = ContentDigestSchema.parse(evidence.binding);
+  const key = deriveStoreKey(ContentStoreKindRegistry.plugin.tag, [
+    ["source-hash", sourceHash],
+    ["binding", binding],
+  ], sha256);
+  return PluginStoreIdentitySchema.parse({ kind: "plugin", sourceHash, binding, key });
+}
+
 /** Derive the immutable plugin revision identity from verified evidence. */
 export function createPluginStoreIdentity(
   source: ResolvedPluginSource,
@@ -155,6 +185,12 @@ export function verifyContentStoreIdentity(
   sha256: Sha256,
 ): ContentStoreIdentity {
   const value = ContentStoreIdentitySchema.parse(candidate);
+  if (value.kind === "marketplace" && !("declared" in source)) {
+    throw new Error("marketplace identity requires resolved marketplace evidence");
+  }
+  if (value.kind === "plugin" && ("declared" in source)) {
+    throw new Error("plugin identity requires resolved plugin evidence");
+  }
   const expected = value.kind === "marketplace"
     ? createMarketplaceStoreIdentity(source as ResolvedMarketplaceSource, manifest, binding, sha256)
     : createPluginStoreIdentity(source as ResolvedPluginSource, manifest, binding, sha256);
