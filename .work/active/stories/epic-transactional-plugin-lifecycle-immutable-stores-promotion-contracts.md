@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-immutable-stores-promotion-contracts
 kind: story
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 depends_on: []
@@ -56,3 +56,13 @@ Implement Unit 1 of the parent design. Add schema-derived marketplace/plugin phy
 - Discrepancies from design: identity schemas use a small local key-schema registry helper rather than adding schema objects to `ContentStoreKindRegistry`; this keeps the registry's public tag vocabulary unchanged while retaining one source of truth for routing.
 - Adjacent issues parked: none.
 - Verification: `npm run typecheck`, `npm run boundaries`, and the focused domain/application/state Vitest suites pass.
+
+## Review (2026-07-13)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane independent verification confirmed 503 tests, real production/test typechecking, clean dependency boundaries, build, and exact 319-export package import. Verdict: Approve - story verified by implement; fast-lane advance.

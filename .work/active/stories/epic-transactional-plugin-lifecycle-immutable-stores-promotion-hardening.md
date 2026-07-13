@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-immutable-stores-promotion-hardening
 kind: story
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 depends_on: [epic-transactional-plugin-lifecycle-immutable-stores-promotion-atomic-engine, epic-transactional-plugin-lifecycle-immutable-stores-promotion-runtime-roots]
@@ -54,3 +54,13 @@ Implement Unit 5 of the parent design. Wire the Node content store beside existi
 - Discrepancies from design: the public Node factory accepts only a host root and refuses capability probing without a platform-specific no-replace primitive; an internal composition helper provides injected platform coverage without exposing platform primitives in the package API.
 - Adjacent issues parked: none.
 - Verification: full `npm test` passes with 89 test files, 503 tests, typecheck, dependency boundaries, build, and compiled package import.
+
+## Review (2026-07-13)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane independent verification confirmed 503 tests, real production/test typechecking, clean dependency boundaries, build, and exact 319-export package import. Verdict: Approve - story verified by implement; fast-lane advance.

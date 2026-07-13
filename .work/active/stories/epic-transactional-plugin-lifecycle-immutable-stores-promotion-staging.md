@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-immutable-stores-promotion-staging
 kind: story
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 depends_on: [epic-transactional-plugin-lifecycle-immutable-stores-promotion-contracts]
@@ -52,3 +52,13 @@ Implement Unit 2 of the parent design. Build the strict host-root layout codec a
 - Discrepancies from design: allocator capabilities retain process-private ownership records after removal so a verified capability can safely retry `discardStaging` after absence; copied structural objects remain rejected.
 - Adjacent issues parked: none.
 - Verification: `npm run typecheck`, `npm run boundaries`, and focused staging/layout Vitest suites pass.
+
+## Review (2026-07-13)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane independent verification confirmed 503 tests, real production/test typechecking, clean dependency boundaries, build, and exact 319-export package import. Verdict: Approve - story verified by implement; fast-lane advance.

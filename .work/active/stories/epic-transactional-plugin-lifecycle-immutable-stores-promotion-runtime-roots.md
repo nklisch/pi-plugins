@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-immutable-stores-promotion-runtime-roots
 kind: story
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 depends_on: [epic-transactional-plugin-lifecycle-immutable-stores-promotion-contracts]
@@ -51,3 +51,13 @@ Implement Unit 4 of the parent design. Resolve immutable marketplace/plugin root
 - Discrepancies from design: projection payloads use a deterministic injected-SHA-256 tree digest helper because projections do not have source manifests; publication metadata and `READY` are excluded from that payload digest and remain marker-gated.
 - Adjacent issues parked: none.
 - Verification: `npm run typecheck`, `npm run boundaries`, and focused runtime-root/resolver Vitest suites pass.
+
+## Review (2026-07-13)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane independent verification confirmed 503 tests, real production/test typechecking, clean dependency boundaries, build, and exact 319-export package import. Verdict: Approve - story verified by implement; fast-lane advance.
