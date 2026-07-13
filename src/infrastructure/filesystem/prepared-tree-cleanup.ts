@@ -1,5 +1,6 @@
 import { chmod, lstat, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { assertRootCapability, type RootCapability } from "./content-store-layout.js";
 
 export type PreparedTreeIdentity = Readonly<{
   dev: number;
@@ -54,7 +55,9 @@ async function restorePermissions(path: string): Promise<void> {
 export async function removePreparedTree(
   path: string,
   expected?: PreparedTreeIdentity,
+  parent?: RootCapability,
 ): Promise<"removed" | "already-absent"> {
+  if (parent !== undefined) await assertRootCapability(parent, "removePreparedTree");
   let stat;
   try {
     stat = await lstat(path);
@@ -69,6 +72,11 @@ export async function removePreparedTree(
     throw new Error("prepared cleanup root identity changed");
   }
   await restorePermissions(path);
+  if (parent !== undefined) await assertRootCapability(parent, "removePreparedTree");
+  const final = await lstat(path);
+  if (final.isSymbolicLink() || !final.isDirectory() || (expected !== undefined && (final.dev !== expected.dev || final.ino !== expected.ino))) {
+    throw new Error("prepared cleanup root identity changed");
+  }
   await rm(path, { recursive: true, force: false });
   return "removed";
 }

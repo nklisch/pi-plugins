@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-immutable-stores-promotion-review-hardening-2
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 depends_on: [epic-transactional-plugin-lifecycle-immutable-stores-promotion-review-hardening]
@@ -38,4 +38,12 @@ During projection inspection, existing-target idempotency, and race-loser verifi
 - [ ] Valid unchanged parents preserve existing promotion/runtime behavior.
 - [ ] Projection metadata scope, plugin, digest, and derived ref are mutually bound on every inspection/idempotency path.
 - [ ] Exact plugin-store, data-root, staging/projection parent-swap and metadata-tamper reproducers pass fail-closed without foreign mutation.
-- [ ] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+- [x] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+
+## Implementation summary
+
+- Added persistent no-follow root capabilities retaining every ancestor realpath/device/inode identity for host, staging, marketplace/plugin stores, data, generated, and projection roots.
+- Revalidated those capabilities and allocation/prepared identities immediately before filesystem/platform effects, after asynchronous verification/sync gaps, and before cleanup; parent swaps and symlink substitutions fail closed without foreign-tree mutation.
+- Rebound projection metadata by recomputing `ProjectionRootRef` from exact scope/plugin/digest and comparing all identity fields during inspection, idempotency, and publication-race loser verification.
+- Added exact staging, plugin-store, marketplace-store, prepared-root, data-parent, projection-parent, and projection metadata tamper reproducers.
+- Verification: `npm test`, build, boundaries, and compiled package import pass.

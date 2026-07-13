@@ -37,7 +37,11 @@ import type {
 } from "../../application/ports/content-store.js";
 import type { ContentStorePlatform } from "../../application/ports/content-store-platform.js";
 import type { Sha256 } from "../../domain/source.js";
-import type { ContentStoreLayout } from "./content-store-layout.js";
+import {
+  assertLayoutRoot,
+  assertOwnedDirectory,
+  type ContentStoreLayout,
+} from "./content-store-layout.js";
 import { projectionStagingPath } from "./content-store-layout.js";
 import { removePreparedTree, type PreparedTreeIdentity } from "./prepared-tree-cleanup.js";
 
@@ -105,37 +109,40 @@ function comparePath(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
+function sameJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function projectionMetadataMatches(
+  metadata: ProjectionMetadata,
+  identity: Readonly<{ scope: ScopeReference; plugin: PluginKey; projectionDigest: ContentDigest; projectionRef: ProjectionRootRef }>,
+  sha256: Sha256,
+): boolean {
+  const expectedRef = deriveProjectionRootRef({
+    scope: identity.scope,
+    plugin: identity.plugin,
+    projectionDigest: identity.projectionDigest,
+  }, sha256);
+  return metadata.version === 1 &&
+    metadata.projectionRef === identity.projectionRef &&
+    metadata.projectionDigest === identity.projectionDigest &&
+    metadata.projectionRef === expectedRef &&
+    sameJson(metadata.scope, identity.scope) &&
+    metadata.plugin === identity.plugin;
+}
+
 async function assertProjectionAllocation(
   record: ProjectionRecord,
   layout: ContentStoreLayout,
   operation: string,
 ): Promise<void> {
-  const stat = await lstat(record.root).catch((cause) => {
-    throw rootError("stagingAllocationInvalid", operation, "projection allocation is unavailable", cause);
-  });
-  if (!stat.isDirectory() || stat.isSymbolicLink()) {
-    throw rootError("stagingAllocationInvalid", operation, "projection allocation is not a real directory");
-  }
-  if (stat.dev !== record.identity.dev || stat.ino !== record.identity.ino) {
-    throw rootError("stagingAllocationInvalid", operation, "projection allocation identity changed");
-  }
-  const canonical = await realpath(record.root).catch((cause) => {
-    throw rootError("stagingAllocationInvalid", operation, "projection allocation cannot be canonicalized", cause);
-  });
-  if (canonical !== record.root) {
-    throw rootError("stagingAllocationInvalid", operation, "projection allocation containment changed");
-  }
-  const stagingParent = await lstat(layout.projectionStagingRoot).catch((cause) => {
-    throw rootError("stagingAllocationInvalid", operation, "projection staging root is unavailable", cause);
-  });
-  if (!stagingParent.isDirectory() || stagingParent.isSymbolicLink()) {
-    throw rootError("stagingAllocationInvalid", operation, "projection staging root is not a real directory");
-  }
-  const parentRealpath = await realpath(layout.projectionStagingRoot).catch((cause) => {
-    throw rootError("stagingAllocationInvalid", operation, "projection staging containment cannot be verified", cause);
-  });
-  if (parentRealpath !== layout.projectionStagingRoot) {
-    throw rootError("stagingAllocationInvalid", operation, "projection staging containment changed");
+  try {
+    await assertLayoutRoot(layout, "projectionStagingRoot", operation);
+    await assertLayoutRoot(layout, "generatedRoot", operation);
+    await assertOwnedDirectory(record.root, operation, record.identity, layout.rootCapabilities.projectionStagingRoot);
+  } catch (cause) {
+    if (cause instanceof DomainContractError) throw cause;
+    throw rootError("stagingAllocationInvalid", operation, "projection allocation identity changed", cause);
   }
 }
 
@@ -171,22 +178,35 @@ export async function hashProjectionRoot(root: string, sha256: Sha256): Promise<
   return hashContent(new TextEncoder().encode(`projection-root-v1\0${JSON.stringify(entries)}`), sha256);
 }
 
-async function sealProjectionTree(root: string, sha256: Sha256, platform: ContentStorePlatform): Promise<void> {
+type BeforeEffect = () => Promise<void>;
+
+async function sealProjectionTree(
+  root: string,
+  sha256: Sha256,
+  platform: ContentStorePlatform,
+  beforeEffect?: BeforeEffect,
+): Promise<void> {
+  await beforeEffect?.();
   const entries = await projectionEntriesWithHash(root, sha256);
+  await beforeEffect?.();
   for (const entry of [...entries].sort((left, right) => right.path.split("/").length - left.path.split("/").length)) {
     const path = join(root, ...entry.path.split("/"));
     if (entry.kind === "directory") {
+      await beforeEffect?.();
       await chmod(path, 0o555);
+      await beforeEffect?.();
       await platform.syncDirectory(path);
     } else if (entry.kind === "file") {
+      await beforeEffect?.();
       await chmod(path, entry.mode === 0o755 ? 0o555 : 0o444);
+      await beforeEffect?.();
       await platform.syncFile(path);
     }
   }
-  // Keep the staging directory writable until publication. It is invisible
-  // under `.staging`; sealing the root itself after the atomic rename avoids
-  // platform-specific rename permission differences for directory sources.
-  await chmod(root, 0o700);
+  // Keep the allocation root writable until publication. The caller performs
+  // the final identity-checked chmod after the no-replace rename so the
+  // staging parent remains writable for that rename.
+  await beforeEffect?.();
   await platform.syncDirectory(root);
 }
 
@@ -194,7 +214,8 @@ export function createRuntimeRootStore(options: RuntimeRootStoreOptions): Runtim
   const projectionAllocations = new WeakMap<object, ProjectionRecord>();
   const randomBytes = options.randomBytes ?? ((size: number) => new Uint8Array(nodeRandomBytes(size)));
   let capabilitiesPromise: Promise<ContentStoreCapabilities> | undefined;
-  const capabilities = (): Promise<ContentStoreCapabilities> => {
+  const capabilities = async (): Promise<ContentStoreCapabilities> => {
+    await assertLayoutRoot(options.layout, "hostRoot", "probeRuntimeRoots");
     capabilitiesPromise ??= options.platform.probe(options.layout.hostRoot).then((value) => {
       if (!value.atomicNoReplaceDirectory || !value.fileSync || !value.directorySync || value.readOnlyModeEnforcement !== "posix-mode") {
         throw rootError("durabilityUnavailable", "probeRuntimeRoots", "runtime root durability is unavailable");
@@ -212,14 +233,21 @@ export function createRuntimeRootStore(options: RuntimeRootStoreOptions): Runtim
     const expected = derivePluginDataRef({ scope, plugin, purpose: "persistent-plugin-data" }, options.sha256);
     if (dataRef !== expected) throw rootError("contentVerificationFailed", "ensureDataRoot", "persistent data reference is not stable for its scope and plugin");
     const root = options.layout.dataPath(dataRef);
+    await assertLayoutRoot(options.layout, "dataRoot", "ensureDataRoot");
     try {
       await mkdir(root, { mode: 0o700 });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw rootError("adapterFailed", "ensureDataRoot", "persistent data root could not be created", error);
     }
+    await assertLayoutRoot(options.layout, "dataRoot", "ensureDataRoot");
     const stat = await lstat(root).catch((cause) => { throw rootError("contentVerificationFailed", "ensureDataRoot", "persistent data root is unavailable", cause); });
     if (!stat.isDirectory() || stat.isSymbolicLink()) throw rootError("contentVerificationFailed", "ensureDataRoot", "persistent data root is not a private directory");
+    const identity = { dev: stat.dev, ino: stat.ino };
+    await assertOwnedDirectory(root, "ensureDataRoot", identity, options.layout.rootCapabilities.dataRoot);
+    await assertLayoutRoot(options.layout, "dataRoot", "ensureDataRoot");
     await chmod(root, 0o700);
+    await assertOwnedDirectory(root, "ensureDataRoot", identity, options.layout.rootCapabilities.dataRoot);
+    await assertLayoutRoot(options.layout, "dataRoot", "ensureDataRoot");
     return Object.freeze({ root, scope, plugin, dataRef });
   }
 
@@ -235,6 +263,8 @@ export function createRuntimeRootStore(options: RuntimeRootStoreOptions): Runtim
       throwIfAborted(signal);
       const id = idFromBytes(await randomBytes(16));
       const root = projectionStagingPath(options.layout, id);
+      await assertLayoutRoot(options.layout, "projectionStagingRoot", "allocateProjectionRoot");
+      let allocationIdentity: PreparedTreeIdentity | undefined;
       try {
         await mkdir(root, { mode: 0o700 });
       } catch (error) {
@@ -242,17 +272,22 @@ export function createRuntimeRootStore(options: RuntimeRootStoreOptions): Runtim
         throw rootError("adapterFailed", "allocateProjectionRoot", "projection root allocation failed", error);
       }
       try {
+        await assertLayoutRoot(options.layout, "projectionStagingRoot", "allocateProjectionRoot");
         const stat = await lstat(root);
+        allocationIdentity = { dev: stat.dev, ino: stat.ino };
         const canonical = await realpath(root);
         if (!stat.isDirectory() || stat.isSymbolicLink() || canonical !== root || (stat.mode & 0o077) !== 0) {
           throw new Error("projection root allocation is not a private real directory");
         }
+        await assertOwnedDirectory(root, "allocateProjectionRoot", allocationIdentity, options.layout.rootCapabilities.projectionStagingRoot);
         const allocation = Object.freeze({ root, scope, plugin, projectionDigest, projectionRef, allocationId: id });
         projectionAllocations.set(allocation, { allocation, root, identity: { dev: stat.dev, ino: stat.ino } });
         return allocation;
       } catch (error) {
         let cleanupFailure: unknown;
-        try { await removePreparedTree(root); } catch (cause) { cleanupFailure = cause; }
+        try {
+          if (allocationIdentity !== undefined) await removePreparedTree(root, allocationIdentity, options.layout.rootCapabilities.projectionStagingRoot);
+        } catch (cause) { cleanupFailure = cause; }
         if (cleanupFailure !== undefined) {
           throw rootError(
             "adapterFailed",
@@ -278,20 +313,25 @@ export function createRuntimeRootStore(options: RuntimeRootStoreOptions): Runtim
     // replaced allocation must not turn metadata writes into foreign writes.
     await assertProjectionAllocation(record, options.layout, "sealProjectionRoot");
     await capabilities();
+    await assertProjectionAllocation(record, options.layout, "sealProjectionRoot");
     const expected = deriveProjectionRootRef({ scope: input.scope, plugin: input.plugin, projectionDigest: input.projectionDigest }, options.sha256);
     if (expected !== input.projectionRef) throw rootError("contentVerificationFailed", "sealProjectionRoot", "projection root identity changed");
     const digest = await hashProjectionRoot(record.root, options.sha256).catch((cause) => { throw rootError("contentVerificationFailed", "sealProjectionRoot", "projection payload could not be verified", cause); });
+    await assertProjectionAllocation(record, options.layout, "sealProjectionRoot");
     if (digest !== input.projectionDigest) throw rootError("contentVerificationFailed", "sealProjectionRoot", "projection payload digest does not match its reference");
     const target = options.layout.projectionPath(input.projectionRef);
+    await assertLayoutRoot(options.layout, "generatedRoot", "sealProjectionRoot");
     let targetStat;
     try { targetStat = await lstat(target); } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw rootError("adapterFailed", "sealProjectionRoot", "projection target could not be inspected", error);
     }
     if (targetStat !== undefined) {
+      await assertLayoutRoot(options.layout, "generatedRoot", "sealProjectionRoot");
       const existing = await inspectProjection(target, options.sha256);
-      if (existing.projectionRef === input.projectionRef && existing.projectionDigest === input.projectionDigest) {
+      if (projectionMetadataMatches(existing, input, options.sha256)) {
         try {
-          await removePreparedTree(record.root, record.identity);
+          await removePreparedTree(record.root, record.identity, options.layout.rootCapabilities.projectionStagingRoot);
+          await assertLayoutRoot(options.layout, "projectionStagingRoot", "sealProjectionRoot");
         } catch (cause) {
           throw rootError("adapterFailed", "sealProjectionRoot", "projection allocation cleanup was incomplete", cause, "incomplete");
         }
@@ -306,11 +346,15 @@ export function createRuntimeRootStore(options: RuntimeRootStoreOptions): Runtim
       if (cleanupAttempted) return cleanupFailure;
       cleanupAttempted = true;
       try {
-        await removePreparedTree(record.root, record.identity);
+        await removePreparedTree(record.root, record.identity, options.layout.rootCapabilities.projectionStagingRoot);
+        await assertLayoutRoot(options.layout, "projectionStagingRoot", "sealProjectionRoot");
       } catch (cause) {
         cleanupFailure = cause;
       }
       return cleanupFailure;
+    };
+    const assertProjectionBeforeEffect: BeforeEffect = async () => {
+      await assertProjectionAllocation(record, options.layout, "sealProjectionRoot");
     };
     const cleanupError = (primary: unknown): DomainContractError => rootError(
       "adapterFailed",
@@ -320,39 +364,62 @@ export function createRuntimeRootStore(options: RuntimeRootStoreOptions): Runtim
       "incomplete",
     );
     try {
-      await assertProjectionAllocation(record, options.layout, "sealProjectionRoot");
+      await assertProjectionBeforeEffect();
       const metadata: ProjectionMetadata = { version: 1, projectionRef: input.projectionRef, projectionDigest: input.projectionDigest, scope: input.scope, plugin: input.plugin };
+      await assertProjectionBeforeEffect();
       await writeFile(join(record.root, METADATA), JSON.stringify(metadata), { flag: "wx", mode: 0o600 });
+      await assertProjectionBeforeEffect();
       await writeFile(join(record.root, READY_TMP), READY_TEXT, { flag: "wx", mode: 0o600 });
+      await assertProjectionBeforeEffect();
       await rename(join(record.root, READY_TMP), join(record.root, READY));
+      await assertProjectionBeforeEffect();
       await chmod(join(record.root, METADATA), 0o444);
+      await assertProjectionBeforeEffect();
       await chmod(join(record.root, READY), 0o444);
+      await assertProjectionBeforeEffect();
       for (const entry of await projectionEntriesWithHash(record.root, options.sha256)) {
         const path = join(record.root, ...entry.path.split("/"));
-        if (entry.kind === "file") await options.platform.syncFile(path);
+        if (entry.kind === "file") {
+          await assertProjectionBeforeEffect();
+          await options.platform.syncFile(path);
+        }
       }
+      await assertProjectionBeforeEffect();
       await options.platform.syncFile(join(record.root, METADATA));
+      await assertProjectionBeforeEffect();
       await options.platform.syncFile(join(record.root, READY));
-      await assertProjectionAllocation(record, options.layout, "sealProjectionRoot");
-      await sealProjectionTree(record.root, options.sha256, options.platform);
-      await assertProjectionAllocation(record, options.layout, "sealProjectionRoot");
+      await assertProjectionBeforeEffect();
+      await sealProjectionTree(record.root, options.sha256, options.platform, assertProjectionBeforeEffect);
+      await assertProjectionBeforeEffect();
       throwIfAborted(signal);
+      await assertLayoutRoot(options.layout, "generatedRoot", "sealProjectionRoot");
       const destinationParent = await lstat(options.layout.generatedRoot);
       const sourceParent = await lstat(join(record.root, ".."));
       if (!destinationParent.isDirectory() || destinationParent.isSymbolicLink() || (destinationParent.mode & 0o700) !== 0o700) throw new Error("projection destination parent is not traversable");
       if (!sourceParent.isDirectory() || sourceParent.isSymbolicLink() || (sourceParent.mode & 0o700) !== 0o700) throw new Error("projection staging parent is not writable");
-      await assertProjectionAllocation(record, options.layout, "sealProjectionRoot");
+      await assertProjectionBeforeEffect();
       const publication = await options.platform.renameNoReplace(record.root, target);
       if (publication === "exists") {
+        await assertLayoutRoot(options.layout, "generatedRoot", "sealProjectionRoot");
         const existing = await inspectProjection(target, options.sha256);
+        if (!projectionMetadataMatches(existing, input, options.sha256)) {
+          throw rootError("storeIdentityCollision", "sealProjectionRoot", "concurrent projection publication collides with different content");
+        }
         if (await tryCleanup() !== undefined) throw cleanupError(new Error("identical projection lost publication race"));
-        if (existing.projectionRef !== input.projectionRef || existing.projectionDigest !== input.projectionDigest) throw rootError("storeIdentityCollision", "sealProjectionRoot", "concurrent projection publication collides with different content");
         return { root: target, scope: input.scope, plugin: input.plugin, projectionDigest: input.projectionDigest, projectionRef: input.projectionRef };
       }
       published = true;
+      await assertLayoutRoot(options.layout, "generatedRoot", "sealProjectionRoot");
+      const targetIdentity = await lstat(target);
+      if (!targetIdentity.isDirectory() || targetIdentity.isSymbolicLink()) throw new Error("published projection root is not a real directory");
+      await assertOwnedDirectory(target, "sealProjectionRoot", { dev: targetIdentity.dev, ino: targetIdentity.ino }, options.layout.rootCapabilities.generatedRoot);
+      await assertLayoutRoot(options.layout, "generatedRoot", "sealProjectionRoot");
       await chmod(target, 0o555);
+      await assertLayoutRoot(options.layout, "generatedRoot", "sealProjectionRoot");
       await options.platform.syncDirectory(target);
+      await assertLayoutRoot(options.layout, "generatedRoot", "sealProjectionRoot");
       await options.platform.syncDirectory(options.layout.generatedRoot);
+      await assertLayoutRoot(options.layout, "generatedRoot", "sealProjectionRoot");
       return { root: target, scope: input.scope, plugin: input.plugin, projectionDigest: input.projectionDigest, projectionRef: input.projectionRef };
     } catch (error) {
       if (!published && await tryCleanup() !== undefined) {
@@ -370,6 +437,10 @@ export function createRuntimeRootStore(options: RuntimeRootStoreOptions): Runtim
 
 export async function inspectProjection(root: string, sha256: Sha256): Promise<ProjectionMetadata> {
   try {
+    const rootStat = await lstat(root);
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || await realpath(root) !== root) {
+      throw new Error("projection root is not a real directory");
+    }
     const markerStat = await lstat(join(root, READY));
     const metadataStat = await lstat(join(root, METADATA));
     if (!markerStat.isFile() || markerStat.isSymbolicLink() || !metadataStat.isFile() || metadataStat.isSymbolicLink()) {
@@ -381,12 +452,17 @@ export async function inspectProjection(root: string, sha256: Sha256): Promise<P
     if ((markerStat.mode & 0o777) !== 0o444 || (metadataStat.mode & 0o777) !== 0o444) {
       throw new Error("publication controls are mutable");
     }
-    const rootStat = await lstat(root);
-    if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || (rootStat.mode & 0o777) !== 0o555) {
+    if ((rootStat.mode & 0o777) !== 0o555) {
       throw new Error("projection root is not read-only");
     }
     const digest = await hashProjectionRoot(root, sha256);
     if (digest !== metadata.projectionDigest) throw new Error("projection root digest does not match metadata");
+    const expectedRef = deriveProjectionRootRef({
+      scope: metadata.scope,
+      plugin: metadata.plugin,
+      projectionDigest: metadata.projectionDigest,
+    }, sha256);
+    if (metadata.projectionRef !== expectedRef) throw new Error("projection metadata identity is not self-bound");
     return metadata;
   } catch (cause) {
     if (cause instanceof DomainContractError) throw cause;

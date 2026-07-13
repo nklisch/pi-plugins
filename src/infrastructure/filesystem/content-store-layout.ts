@@ -1,5 +1,5 @@
 import { lstat, mkdir, chmod, realpath } from "node:fs/promises";
-import { isAbsolute, join, parse, resolve } from "node:path";
+import { dirname, isAbsolute, join, parse, resolve } from "node:path";
 import {
   contentStoreKeyDigest,
   ContentStoreIdentitySchema,
@@ -19,6 +19,33 @@ const STORE_VERSION = "v1";
 const DATA_VERSION = "v1";
 const GENERATED_VERSION = "v1";
 
+export type RootIdentity = Readonly<{
+  path: string;
+  realpath: string;
+  dev: number;
+  ino: number;
+}>;
+
+/**
+ * A persistent path capability. `ancestors` is deliberately retained rather
+ * than recomputed: checking only the leaf lets a swapped parent redirect a
+ * perfectly real leaf into a foreign tree.
+ */
+export type RootCapability = Readonly<RootIdentity & {
+  ancestors: readonly RootIdentity[];
+}>;
+
+export type ContentStoreRootCapabilities = Readonly<{
+  hostRoot: RootCapability;
+  stagingRoot: RootCapability;
+  storesRoot: RootCapability;
+  marketplaceStoreRoot: RootCapability;
+  pluginStoreRoot: RootCapability;
+  dataRoot: RootCapability;
+  generatedRoot: RootCapability;
+  projectionStagingRoot: RootCapability;
+}>;
+
 export type ContentStoreLayout = Readonly<{
   hostRoot: string;
   stagingRoot: string;
@@ -28,18 +55,19 @@ export type ContentStoreLayout = Readonly<{
   dataRoot: string;
   generatedRoot: string;
   projectionStagingRoot: string;
+  rootCapabilities: ContentStoreRootCapabilities;
   marketplacePath(identity: ContentStoreIdentity): string;
   pluginPath(identity: ContentStoreIdentity): string;
   dataPath(dataRef: PluginDataRef): string;
   projectionPath(projectionRef: ProjectionRootRef): string;
 }>;
 
-function layoutError(message: string, cause?: unknown): DomainContractError {
+function layoutError(message: string, cause?: unknown, operation = "bootstrapContentStoreLayout"): DomainContractError {
   return new DomainContractError({
     code: ErrorCodeRegistry.stagingAllocationInvalid,
-    operation: "bootstrapContentStoreLayout",
+    operation,
     message,
-    details: { operation: "bootstrapContentStoreLayout" },
+    details: { operation },
     ...(cause === undefined ? {} : { cause }),
   });
 }
@@ -59,6 +87,7 @@ function assertAbsoluteHostRoot(hostRoot: string): string {
 
 async function ensurePrivateDirectory(path: string, operation: string): Promise<string> {
   try {
+    await captureRootCapability(dirname(resolve(path)), operation);
     let stat;
     try {
       stat = await lstat(path);
@@ -70,6 +99,7 @@ async function ensurePrivateDirectory(path: string, operation: string): Promise<
     if (!stat.isDirectory() || stat.isSymbolicLink()) {
       throw new Error("content store path component is not a real directory");
     }
+    await captureRootCapability(dirname(resolve(path)), operation);
     await chmod(path, PRIVATE_DIRECTORY_MODE);
     const verified = await lstat(path);
     if (!verified.isDirectory() || verified.isSymbolicLink() || (verified.mode & 0o077) !== 0) {
@@ -96,6 +126,7 @@ async function bootstrapRoot(hostRoot: string): Promise<string> {
   const segments = absolute.slice(parsed.root.length).split(/[\\/]+/u).filter(Boolean);
   for (const segment of segments) {
     current = join(current, segment);
+    await captureRootCapability(dirname(current), "bootstrapContentStoreLayout");
     let stat;
     try {
       stat = await lstat(current);
@@ -128,6 +159,51 @@ function storePath(layout: ContentStoreLayout, identity: ContentStoreIdentity): 
  * can become a path segment; source URLs, aliases, plugin names, and project
  * roots never reach this module's joins.
  */
+async function captureRootCapability(path: string, operation: string): Promise<RootCapability> {
+  const absolute = resolve(path);
+  const parsed = parse(absolute);
+  let current = parsed.root;
+  const rootStat = await lstat(current).catch((cause) => { throw layoutError("owned root cannot be inspected", cause); });
+  const rootCanonical = await realpath(current).catch((cause) => { throw layoutError("owned root cannot be canonicalized", cause); });
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || rootCanonical !== current) throw layoutError("owned root contains a symlink or non-directory");
+  const ancestors: RootIdentity[] = [Object.freeze({ path: current, realpath: rootCanonical, dev: rootStat.dev, ino: rootStat.ino })];
+  for (const segment of absolute.slice(parsed.root.length).split(/[\\/]+/u).filter(Boolean)) {
+    current = join(current, segment);
+    const stat = await lstat(current).catch((cause) => { throw layoutError("owned root cannot be inspected", cause); });
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw layoutError("owned root contains a symlink or non-directory");
+    const canonical = await realpath(current).catch((cause) => { throw layoutError("owned root cannot be canonicalized", cause); });
+    if (canonical !== current) throw layoutError("owned root resolves through a symlink");
+    ancestors.push(Object.freeze({ path: current, realpath: canonical, dev: stat.dev, ino: stat.ino }));
+  }
+  const identity = ancestors.at(-1)!;
+  return Object.freeze({ ...identity, ancestors: Object.freeze(ancestors) });
+}
+
+/** Revalidate every no-follow component of a retained root capability. */
+export async function assertRootCapability(capability: RootCapability, operation: string): Promise<void> {
+  for (const expected of capability.ancestors) {
+    const stat = await lstat(expected.path).catch((cause) => { throw layoutError("owned root is unavailable", cause); });
+    if (!stat.isDirectory() || stat.isSymbolicLink() || stat.dev !== expected.dev || stat.ino !== expected.ino) {
+      throw layoutError("owned root identity changed");
+    }
+    const canonical = await realpath(expected.path).catch((cause) => { throw layoutError("owned root cannot be canonicalized", cause); });
+    if (canonical !== expected.realpath || canonical !== expected.path) throw layoutError("owned root containment changed");
+  }
+  const leaf = capability.ancestors.at(-1);
+  if (leaf === undefined || leaf.path !== capability.path || leaf.dev !== capability.dev || leaf.ino !== capability.ino || leaf.realpath !== capability.realpath) {
+    throw layoutError("owned root capability is malformed");
+  }
+  void operation;
+}
+
+export async function assertLayoutRoot(
+  layout: ContentStoreLayout,
+  root: keyof ContentStoreRootCapabilities,
+  operation: string,
+): Promise<void> {
+  await assertRootCapability(layout.rootCapabilities[root], operation);
+}
+
 export async function createContentStoreLayout(hostRoot: string): Promise<ContentStoreLayout> {
   const root = await bootstrapRoot(hostRoot);
   const stagingParent = await ensurePrivateDirectory(join(root, "staging"), "bootstrapContentStoreLayout");
@@ -143,6 +219,16 @@ export async function createContentStoreLayout(hostRoot: string): Promise<Conten
   const generatedParent = await ensurePrivateDirectory(join(root, "generated"), "bootstrapContentStoreLayout");
   const generatedRoot = await ensurePrivateDirectory(join(generatedParent, GENERATED_VERSION), "bootstrapContentStoreLayout");
   const projectionStagingRoot = await ensurePrivateDirectory(join(generatedRoot, ".staging"), "bootstrapContentStoreLayout");
+  const rootCapabilities: ContentStoreRootCapabilities = Object.freeze({
+    hostRoot: await captureRootCapability(root, "bootstrapContentStoreLayout"),
+    stagingRoot: await captureRootCapability(stagingRoot, "bootstrapContentStoreLayout"),
+    storesRoot: await captureRootCapability(storesRoot, "bootstrapContentStoreLayout"),
+    marketplaceStoreRoot: await captureRootCapability(marketplaceStoreRoot, "bootstrapContentStoreLayout"),
+    pluginStoreRoot: await captureRootCapability(pluginStoreRoot, "bootstrapContentStoreLayout"),
+    dataRoot: await captureRootCapability(dataRoot, "bootstrapContentStoreLayout"),
+    generatedRoot: await captureRootCapability(generatedRoot, "bootstrapContentStoreLayout"),
+    projectionStagingRoot: await captureRootCapability(projectionStagingRoot, "bootstrapContentStoreLayout"),
+  });
 
   const layout: ContentStoreLayout = {
     hostRoot: root,
@@ -153,6 +239,7 @@ export async function createContentStoreLayout(hostRoot: string): Promise<Conten
     dataRoot,
     generatedRoot,
     projectionStagingRoot,
+    rootCapabilities,
     marketplacePath(identity) {
       const value = ContentStoreIdentitySchema.parse(identity);
       if (value.kind !== "marketplace") throw layoutError("marketplace path requires a marketplace identity");
@@ -187,7 +274,13 @@ export function projectionStagingPath(layout: ContentStoreLayout, allocationId: 
   return join(layout.projectionStagingRoot, allocationId);
 }
 
-export async function assertOwnedDirectory(path: string, operation: string): Promise<{ readonly realpath: string; readonly dev: number; readonly ino: number }> {
+export async function assertOwnedDirectory(
+  path: string,
+  operation: string,
+  expected?: Readonly<{ realpath?: string; dev: number; ino: number }>,
+  parent?: RootCapability,
+): Promise<{ readonly realpath: string; readonly dev: number; readonly ino: number }> {
+  if (parent !== undefined) await assertRootCapability(parent, operation);
   const stat = await lstat(path).catch((cause) => {
     throw new DomainContractError({
       code: ErrorCodeRegistry.stagingAllocationInvalid,
@@ -205,6 +298,14 @@ export async function assertOwnedDirectory(path: string, operation: string): Pro
       details: { operation },
     });
   }
+  if (expected !== undefined && (stat.dev !== expected.dev || stat.ino !== expected.ino)) {
+    throw new DomainContractError({
+      code: ErrorCodeRegistry.stagingAllocationInvalid,
+      operation,
+      message: "owned directory identity changed",
+      details: { operation },
+    });
+  }
   const canonical = await realpath(path).catch((cause) => {
     throw new DomainContractError({
       code: ErrorCodeRegistry.stagingAllocationInvalid,
@@ -214,7 +315,7 @@ export async function assertOwnedDirectory(path: string, operation: string): Pro
       cause,
     });
   });
-  if (canonical !== path) {
+  if (canonical !== path || (expected !== undefined && expected.realpath !== undefined && canonical !== expected.realpath)) {
     throw new DomainContractError({
       code: ErrorCodeRegistry.stagingAllocationInvalid,
       operation,

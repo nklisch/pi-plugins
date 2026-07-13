@@ -1,4 +1,4 @@
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -24,6 +24,26 @@ describe("private staging allocator", () => {
       expect(allocation.slot.root).not.toContain(layout.dataRoot);
       await allocator.discardStaging(allocation, signal);
       await expect(stat(allocation.slot.root)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a swapped staging parent before allocation can touch a foreign tree", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-staging-parent-swap-"));
+    try {
+      const layout = await createContentStoreLayout(join(root, "host"));
+      const allocator = createStagingAllocator(layout);
+      const foreign = await mkdtemp(join(root, "foreign-"));
+      await writeFile(join(foreign, "foreign.txt"), "untouched");
+      const stagingParent = join(layout.stagingRoot, "..");
+      const displaced = `${stagingParent}.displaced`;
+      await rename(stagingParent, displaced);
+      await symlink(foreign, stagingParent);
+      await expect(allocator.allocateStaging(signal)).rejects.toThrow();
+      expect(await readFile(join(foreign, "foreign.txt"), "utf8")).toBe("untouched");
+      await rm(stagingParent, { force: true });
+      await rename(displaced, stagingParent);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

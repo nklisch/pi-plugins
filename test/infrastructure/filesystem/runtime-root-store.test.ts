@@ -54,6 +54,27 @@ describe("runtime data and projection roots", () => {
     }
   });
 
+  it("rejects a data-root parent swap before touching a foreign tree", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-data-parent-swap-"));
+    try {
+      const layout = await createContentStoreLayout(join(root, "host"));
+      const runtime = createRuntimeRootStore({ layout, platform: createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe }), sha256 });
+      const foreign = await mkdtemp(join(root, "foreign-"));
+      await writeFile(join(foreign, "foreign.txt"), "untouched");
+      const dataParent = join(layout.dataRoot, "..");
+      const displaced = `${dataParent}.displaced`;
+      await rename(dataParent, displaced);
+      await symlink(foreign, dataParent);
+      const dataRef = derivePluginDataRef({ scope: { kind: "user" }, plugin: "demo@market", purpose: "persistent-plugin-data" }, sha256);
+      await expect(runtime.ensureDataRoot({ scope: { kind: "user" }, plugin: "demo@market", dataRef }, signal)).rejects.toThrow();
+      expect(await readFile(join(foreign, "foreign.txt"), "utf8")).toBe("untouched");
+      await rm(dataParent, { force: true });
+      await rename(displaced, dataParent);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects an allocation symlink swap before touching a foreign tree", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-projection-symlink-"));
     let allocationRoot: string | undefined;
@@ -85,6 +106,32 @@ describe("runtime data and projection roots", () => {
         await rm(allocationRoot, { recursive: true, force: true }).catch(() => undefined);
         await rm(`${allocationRoot}.displaced`, { recursive: true, force: true }).catch(() => undefined);
       }
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a projection parent swap before allocation can write", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-projection-parent-swap-"));
+    try {
+      const layout = await createContentStoreLayout(join(root, "host"));
+      const runtime = createRuntimeRootStore({ layout, platform: createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe }), sha256 });
+      const foreign = await mkdtemp(join(root, "foreign-"));
+      await writeFile(join(foreign, "foreign.txt"), "untouched");
+      const generatedParent = join(layout.generatedRoot, "..");
+      const displaced = `${generatedParent}.displaced`;
+      await rename(generatedParent, displaced);
+      await symlink(foreign, generatedParent);
+      const payload = await mkdtemp(join(root, "payload-"));
+      const projectionDigest = await hashProjectionRoot(payload, sha256);
+      const scope = { kind: "user" } as const;
+      const plugin = "demo@market" as const;
+      const projectionRef = deriveProjectionRootRef({ scope, plugin, projectionDigest }, sha256);
+      await expect(runtime.allocateProjectionRoot({ scope, plugin, projectionDigest, projectionRef }, signal)).rejects.toThrow();
+      expect(await readFile(join(foreign, "foreign.txt"), "utf8")).toBe("untouched");
+      await rm(generatedParent, { force: true });
+      await rename(displaced, generatedParent);
+      await rm(payload, { recursive: true, force: true });
+    } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -200,6 +247,50 @@ describe("runtime data and projection roots", () => {
       await rm(allocation.root, { force: true });
       await rm(payload, { recursive: true, force: true });
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects tampered scope or plugin metadata even when the stored ref is unchanged", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-projection-metadata-binding-"));
+    let published: string | undefined;
+    try {
+      const layout = await createContentStoreLayout(join(root, "host"));
+      const runtime = createRuntimeRootStore({ layout, platform: createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe }), sha256 });
+      const payload = await mkdtemp(join(root, "payload-"));
+      await writeFile(join(payload, "descriptor.json"), "bound");
+      const projectionDigest = await hashProjectionRoot(payload, sha256);
+      const scope = { kind: "user" } as const;
+      const plugin = "demo@market" as const;
+      const projectionRef = deriveProjectionRootRef({ scope, plugin, projectionDigest }, sha256);
+      const allocation = await runtime.allocateProjectionRoot({ scope, plugin, projectionDigest, projectionRef }, signal);
+      await writeFile(join(allocation.root, "descriptor.json"), "bound");
+      const resolved = await runtime.sealProjectionRoot(allocation, signal);
+      published = resolved.root;
+
+      const metadataPath = join(published, "metadata.json");
+      const metadata = JSON.parse(await readFile(metadataPath, "utf8")) as Record<string, unknown>;
+      const original = JSON.stringify(metadata);
+      for (const tampered of [
+        { ...metadata, plugin: "other@market" },
+        { ...metadata, scope: { kind: "project", projectKey: `project-v1:sha256:${"e".repeat(64)}` } },
+      ]) {
+        await chmod(metadataPath, 0o644);
+        await writeFile(metadataPath, JSON.stringify(tampered));
+        await chmod(metadataPath, 0o444);
+        await expect(inspectProjection(published, sha256)).rejects.toMatchObject({ code: "CONTENT_VERIFICATION_FAILED" });
+        await chmod(metadataPath, 0o644);
+        await writeFile(metadataPath, original);
+        await chmod(metadataPath, 0o444);
+      }
+      await rm(payload, { recursive: true, force: true });
+    } finally {
+      if (published !== undefined) {
+        await chmod(join(published, "descriptor.json"), 0o644).catch(() => undefined);
+        await chmod(join(published, "metadata.json"), 0o644).catch(() => undefined);
+        await chmod(join(published, "READY"), 0o644).catch(() => undefined);
+        await chmod(published, 0o755).catch(() => undefined);
+      }
       await rm(root, { recursive: true, force: true });
     }
   });

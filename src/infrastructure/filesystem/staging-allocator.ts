@@ -1,14 +1,16 @@
 import { randomBytes as nodeRandomBytes } from "node:crypto";
-import { lstat, mkdir, chmod, realpath, readdir, rm } from "node:fs/promises";
+import { lstat, mkdir, chmod, realpath, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { DomainContractError, ErrorCodeRegistry } from "../../domain/errors.js";
 import type { StagingSlot } from "../../application/ports/source-acquisition.js";
 import type { StagingAllocation } from "../../application/ports/content-store.js";
 import {
+  assertLayoutRoot,
   assertOwnedDirectory,
   stagingAllocationPath,
   type ContentStoreLayout,
 } from "./content-store-layout.js";
+import { removePreparedTree, type PreparedTreeIdentity } from "./prepared-tree-cleanup.js";
 
 export type RandomBytes = (size: number) => Uint8Array | Promise<Uint8Array>;
 
@@ -23,6 +25,7 @@ type AllocationRecord = Readonly<{
   parent: string;
   dev: number;
   ino: number;
+  parentCapability: ContentStoreLayout["rootCapabilities"]["stagingRoot"];
 }>;
 
 function allocationError(
@@ -75,6 +78,7 @@ export function createStagingAllocator(
       throw allocationError("STAGING_ALLOCATION_INVALID", operation, "staging allocation capability is not owned by this store");
     }
     const value = allocation as StagingAllocation;
+    await assertLayoutRoot(layout, "stagingRoot", operation);
     if (
       value.allocationId !== record.allocation.allocationId ||
       value.slot.root !== record.allocation.slot.root ||
@@ -85,7 +89,8 @@ export function createStagingAllocator(
     }
     let current;
     try {
-      current = await assertOwnedDirectory(record.root, operation);
+      current = await assertOwnedDirectory(record.root, operation, record, record.parentCapability);
+      await assertLayoutRoot(layout, "stagingRoot", operation);
     } catch (error) {
       if (error instanceof DomainContractError) throw error;
       throw allocationError("STAGING_ALLOCATION_INVALID", operation, "staging allocation directory is not owned", error);
@@ -107,21 +112,28 @@ export function createStagingAllocator(
       const bytes = await randomBytes(16);
       const allocationId = allocationIdFromBytes(bytes);
       const root = stagingAllocationPath(layout, allocationId);
+      await assertLayoutRoot(layout, "stagingRoot", "allocateStaging");
       try {
         await mkdir(root, { mode: 0o700 });
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
         throw allocationError("ADAPTER_FAILED", "allocateStaging", "staging allocation failed", error);
       }
+      let allocationIdentity: PreparedTreeIdentity | undefined;
       try {
+        await assertLayoutRoot(layout, "stagingRoot", "allocateStaging");
         await chmod(root, 0o700);
+        await assertLayoutRoot(layout, "stagingRoot", "allocateStaging");
         const canonical = await realpath(root);
         if (canonical !== root) throw new Error("staging allocation resolved through a symlink");
         const stat = await lstat(root);
         if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0) {
           throw new Error("staging allocation is not a private real directory");
         }
+        allocationIdentity = { dev: stat.dev, ino: stat.ino };
+        await assertLayoutRoot(layout, "stagingRoot", "allocateStaging");
         if ((await readdir(root)).length !== 0) throw new Error("staging allocation is not empty");
+        await assertOwnedDirectory(root, "allocateStaging", allocationIdentity, layout.rootCapabilities.stagingRoot);
         const allocation = Object.freeze({
           slot: Object.freeze({ root: canonical }) as StagingSlot,
           allocationId,
@@ -132,13 +144,16 @@ export function createStagingAllocator(
           parent: layout.stagingRoot,
           dev: stat.dev,
           ino: stat.ino,
+          parentCapability: layout.rootCapabilities.stagingRoot,
         });
         owned.set(allocation, record);
         byRoot.set(canonical, record);
         throwIfAborted(signal);
         return allocation;
       } catch (error) {
-        await rm(root, { recursive: true, force: true }).catch(() => undefined);
+        if (allocationIdentity !== undefined) {
+          await removePreparedTree(root, allocationIdentity, layout.rootCapabilities.stagingRoot).catch(() => undefined);
+        }
         if (signal.aborted) throw signal.reason ?? new DOMException("The operation was aborted", "AbortError");
         throw allocationError("ADAPTER_FAILED", "allocateStaging", "staging allocation could not be verified", error);
       }
@@ -164,15 +179,13 @@ export function createStagingAllocator(
       if (!missing) throw error;
       // A missing path is the one safe idempotent retry. Confirm the parent
       // still has the adapter's canonical identity before forgetting it.
-      await assertOwnedDirectory(layout.stagingRoot, "discardStaging");
+      await assertLayoutRoot(layout, "stagingRoot", "discardStaging");
       return;
     }
     try {
-      await rm(record.root, { recursive: true, force: false });
+      await removePreparedTree(record.root, { dev: record.dev, ino: record.ino }, record.parentCapability);
+      await assertLayoutRoot(layout, "stagingRoot", "discardStaging");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return;
-      }
       throw allocationError("ADAPTER_FAILED", "discardStaging", "staging allocation cleanup failed", error);
     }
   }

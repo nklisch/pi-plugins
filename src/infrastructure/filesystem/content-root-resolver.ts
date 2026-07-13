@@ -22,7 +22,7 @@ import { DomainContractError, ErrorCodeRegistry } from "../../domain/errors.js";
 import type { Sha256 } from "../../domain/source.js";
 import { join } from "node:path";
 import type { ResolvedContentRoot } from "../../application/ports/content-store.js";
-import type { ContentStoreLayout } from "./content-store-layout.js";
+import { assertLayoutRoot, type ContentStoreLayout } from "./content-store-layout.js";
 import { inspectPublishedRevision } from "./immutable-content-store.js";
 
 export type ContentRootResolver = Readonly<{
@@ -70,10 +70,12 @@ async function verifyMarketplace(
     revision: record.source.revision,
     binding: record.binding,
   }, sha256);
+  await assertLayoutRoot(layout, "marketplaceStoreRoot", "resolveContent");
   const published = await inspectPublishedRevision(layout.marketplacePath(identity), sha256).catch((cause) => {
     if (cause instanceof DomainContractError) throw cause;
     throw resolutionError("marketplace content is not a complete ready revision", cause);
   });
+  await assertLayoutRoot(layout, "marketplaceStoreRoot", "resolveContent");
   if (published.identity.kind !== "marketplace" || published.identity.key !== identity.key || published.identity.sourceHash !== identity.sourceHash || published.identity.revision !== identity.revision || published.identity.binding !== identity.binding || published.manifest.rootDigest !== record.contentDigest) {
     throw resolutionError("marketplace state evidence does not match the published revision");
   }
@@ -122,10 +124,12 @@ async function verifyPlugin(
   }
   const source = record.evidence.source;
   const identity = createPluginStoreIdentityFromEvidence({ sourceHash: source.sourceHash, binding: record.revision }, sha256);
+  await assertLayoutRoot(layout, "pluginStoreRoot", "resolveContent");
   const published = await inspectPublishedRevision(layout.pluginPath(identity), sha256).catch((cause) => {
     if (cause instanceof DomainContractError) throw cause;
     throw resolutionError("plugin content is not a complete ready revision", cause);
   });
+  await assertLayoutRoot(layout, "pluginStoreRoot", "resolveContent");
   if (published.identity.kind !== "plugin" || published.identity.key !== identity.key || published.identity.sourceHash !== identity.sourceHash || published.identity.binding !== identity.binding || published.manifest.rootDigest !== record.contentDigest) {
     throw resolutionError("installed state evidence does not match the published revision");
   }

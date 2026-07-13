@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmod, cp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ import {
   createMaterializationBinding,
   hashContent,
 } from "../../../src/domain/content-manifest.js";
-import { createResolvedPluginSource } from "../../../src/domain/source.js";
+import { createResolvedMarketplaceSource, createResolvedPluginSource } from "../../../src/domain/source.js";
 import { createPromotionPlan } from "../../../src/application/content-promotion.js";
 import { createContentStoreLayout } from "../../../src/infrastructure/filesystem/content-store-layout.js";
 import { createStagingAllocator } from "../../../src/infrastructure/filesystem/staging-allocator.js";
@@ -53,6 +53,25 @@ async function makePlan(allocator: Awaited<ReturnType<typeof makeStore>>["alloca
   }, sha256);
 }
 
+async function makeMarketplacePlan(allocator: Awaited<ReturnType<typeof makeStore>>["allocator"]) {
+  const allocation = await allocator.allocateStaging(signal);
+  await mkdir(join(allocation.slot.root, "content"), { mode: 0o755 });
+  await writeFile(join(allocation.slot.root, "content", "marketplace.txt"), "marketplace", { mode: 0o644 });
+  const bytes = new TextEncoder().encode("marketplace");
+  const manifest = createContentManifest([{ kind: "file", path: "marketplace.txt", mode: 0o644, size: bytes.byteLength, digest: hashContent(bytes, sha256) }], sha256);
+  const source = createResolvedMarketplaceSource({ declared: { kind: "git", url: "https://example.com/marketplace.git" }, revision: "b".repeat(40) }, sha256);
+  return createPromotionPlan({
+    kind: "marketplace",
+    allocation,
+    materialized: {
+      root: join(allocation.slot.root, "content"),
+      source,
+      content: manifest,
+      binding: createMaterializationBinding(source.hash, manifest.rootDigest, sha256),
+    },
+  }, sha256);
+}
+
 describe("immutable content promotion", () => {
   it("normalizes missing revision publication controls", async () => {
     const { root, layout } = await makeStore();
@@ -64,6 +83,91 @@ describe("immutable content promotion", () => {
       expect((error as Error).message).not.toContain("ENOENT");
       expect(JSON.stringify((error as { toDiagnostic(): unknown }).toDiagnostic())).not.toContain(missing);
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a plugin-store parent swap before foreign publication", async () => {
+    const { root, layout, allocator, store } = await makeStore();
+    try {
+      const plan = await makePlan(allocator, root);
+      const foreign = await mkdtemp(join(root, "foreign-plugin-"));
+      await writeFile(join(foreign, "foreign.txt"), "untouched");
+      const displaced = `${layout.pluginStoreRoot}.displaced`;
+      await rename(layout.pluginStoreRoot, displaced);
+      await symlink(foreign, layout.pluginStoreRoot);
+      await expect(store.promote(plan, signal)).rejects.toThrow();
+      expect(await readFile(join(foreign, "foreign.txt"), "utf8")).toBe("untouched");
+      await expect(readFile(join(foreign, "metadata.json"))).rejects.toMatchObject({ code: "ENOENT" });
+      await rm(layout.pluginStoreRoot, { force: true });
+      await rename(displaced, layout.pluginStoreRoot);
+      await allocator.discardStaging(plan.allocation, signal);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a marketplace-store parent swap before foreign publication", async () => {
+    const { root, layout, allocator, store } = await makeStore();
+    try {
+      const plan = await makeMarketplacePlan(allocator);
+      const foreign = await mkdtemp(join(root, "foreign-marketplace-"));
+      await writeFile(join(foreign, "foreign.txt"), "untouched");
+      const displaced = `${layout.marketplaceStoreRoot}.displaced`;
+      await rename(layout.marketplaceStoreRoot, displaced);
+      await symlink(foreign, layout.marketplaceStoreRoot);
+      await expect(store.promote(plan, signal)).rejects.toThrow();
+      expect(await readFile(join(foreign, "foreign.txt"), "utf8")).toBe("untouched");
+      await expect(readFile(join(foreign, "metadata.json"))).rejects.toMatchObject({ code: "ENOENT" });
+      await rm(layout.marketplaceStoreRoot, { force: true });
+      await rename(displaced, layout.marketplaceStoreRoot);
+      await allocator.discardStaging(plan.allocation, signal);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a prepared-root parent swap before cleanup can touch foreign content", async () => {
+    const { root, layout, allocator } = await makeStore();
+    const foreign = await mkdtemp(join(root, "foreign-prepared-"));
+    await writeFile(join(foreign, "foreign.txt"), "untouched");
+    const displaced = `${layout.pluginStoreRoot}.displaced`;
+    const prepared = `${layout.pluginStoreRoot}/.pending-1f1e1d1c1b1a19181716151413121110`;
+    let swapped = false;
+    try {
+      const base = createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe });
+      const platform = {
+        ...base,
+        async syncDirectory(path: string): Promise<void> {
+          await base.syncDirectory(path);
+          if (!swapped && path === prepared) {
+            swapped = true;
+            await rename(layout.pluginStoreRoot, displaced);
+            await symlink(foreign, layout.pluginStoreRoot);
+          }
+        },
+      };
+      const store = createImmutableContentStore({ layout, allocator, platform, sha256, randomBytes: () => Uint8Array.from({ length: 16 }, (_, i) => 31 - i) });
+      const plan = await makePlan(allocator, root, "prepared-parent");
+      await expect(store.promote(plan, signal)).rejects.toThrow();
+      expect(await readFile(join(foreign, "foreign.txt"), "utf8")).toBe("untouched");
+      await expect(readFile(join(foreign, "metadata.json"))).rejects.toMatchObject({ code: "ENOENT" });
+      await rm(layout.pluginStoreRoot, { force: true });
+      await rename(displaced, layout.pluginStoreRoot);
+      await allocator.discardStaging(plan.allocation, signal);
+    } finally {
+      await chmod(join(layout.pluginStoreRoot, ".pending-1f1e1d1c1b1a19181716151413121110", "READY"), 0o644).catch(() => undefined);
+      await chmod(join(displaced, ".pending-1f1e1d1c1b1a19181716151413121110", "READY"), 0o644).catch(() => undefined);
+      await chmod(join(layout.pluginStoreRoot, ".pending-1f1e1d1c1b1a19181716151413121110", "metadata.json"), 0o644).catch(() => undefined);
+      await chmod(join(displaced, ".pending-1f1e1d1c1b1a19181716151413121110", "metadata.json"), 0o644).catch(() => undefined);
+      await chmod(join(layout.pluginStoreRoot, ".pending-1f1e1d1c1b1a19181716151413121110", "content", "plugin.txt"), 0o644).catch(() => undefined);
+      await chmod(join(displaced, ".pending-1f1e1d1c1b1a19181716151413121110", "content", "plugin.txt"), 0o644).catch(() => undefined);
+      await chmod(join(layout.pluginStoreRoot, ".pending-1f1e1d1c1b1a19181716151413121110", "content"), 0o755).catch(() => undefined);
+      await chmod(join(displaced, ".pending-1f1e1d1c1b1a19181716151413121110", "content"), 0o755).catch(() => undefined);
+      await chmod(join(layout.pluginStoreRoot, ".pending-1f1e1d1c1b1a19181716151413121110"), 0o755).catch(() => undefined);
+      await chmod(join(displaced, ".pending-1f1e1d1c1b1a19181716151413121110"), 0o755).catch(() => undefined);
+      await chmod(layout.pluginStoreRoot, 0o755).catch(() => undefined);
+      await chmod(displaced, 0o755).catch(() => undefined);
       await rm(root, { recursive: true, force: true });
     }
   });
