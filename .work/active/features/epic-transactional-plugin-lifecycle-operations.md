@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-operations
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-trust-config-secrets, epic-transactional-plugin-lifecycle-generation-locking, epic-transactional-plugin-lifecycle-immutable-stores-promotion]
@@ -362,6 +362,6 @@ The fallback is deliberately visible: if state or runtime cannot prove success o
 
 ## Review findings
 
-Phase-1 complementary review found one realistic normal-use blocker: lifecycle dependencies omitted `ProjectRootAuthorityPort`, so project-scope install, enable, and update always rejected as unconfigured. It also found the promised service-level project-scope skill/hook/MCP lifecycle integration was absent. `epic-transactional-plugin-lifecycle-operations-project-scope-wiring` owns the bounded wiring and coverage fix; the feature remains at `stage: implementing` while that story completes. Adversarial review is deferred until complementary review clears.
+Phase-1 complementary review found one realistic normal-use blocker: lifecycle dependencies omitted `ProjectRootAuthorityPort`, so project-scope install, enable, and update always rejected as unconfigured. `epic-transactional-plugin-lifecycle-operations-project-scope-wiring` closes the wiring and service-level coverage gap and is done. Independent verification passes 562 tests, strict production/test typechecking, clean boundaries, build, and exact 360-export import. The feature returns to `stage: review` for complementary re-confirmation; adversarial review remains deferred until that clears.
 
 The wiring story also records the recovery boundary: if the previous revision becomes corrupt or cannot be reconstructed after a candidate commit, verified rollback is unavailable and the lifecycle result must remain `recovery-required`; startup recovery owns that case and is not implemented by this feature.
