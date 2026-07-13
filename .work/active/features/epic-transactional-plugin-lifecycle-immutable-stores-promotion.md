@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 kind: feature
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -375,7 +375,13 @@ The contracts story fixes identity and port vocabulary first. Staging and runtim
 - Commits: `277cec5` contracts, `f4a277c` staging, `dfa8ee3` atomic engine, `eb170c0` runtime roots, `39f681b` hardening.
 - Scope delivered: capability-owned staging, content-addressed immutable identities/layout, bounded final rewalk, marker-gated read-only publication, explicit durability probing, idempotency/collision handling, state-derived resolution, stable data roots, replaceable projection roots, public Node composition, and rolling architecture documentation.
 - Review boundary: left at `stage: review` for the requested read-only review handoff; no self-approval or agent review was performed.
-- Phase-2 hardening follow-up: `epic-transactional-plugin-lifecycle-immutable-stores-promotion-review-hardening-2` implemented persistent no-follow root capabilities, immediate ancestor identity revalidation, prepared-tree cleanup binding, projection metadata self-binding, and exact parent-swap/metadata-tamper reproducers. Independent verification passes 548 tests, strict production/test typechecking, clean boundaries, build, and exact 319-export package import. The child is done and this feature returns to `stage: review` for complementary re-confirmation.
+- Phase-2 hardening follow-up: `epic-transactional-plugin-lifecycle-immutable-stores-promotion-review-hardening-2` implemented persistent no-follow root capabilities, immediate ancestor identity revalidation, prepared-tree cleanup binding, projection metadata self-binding, and exact parent-swap/metadata-tamper reproducers. Independent verification passes 548 tests, strict production/test typechecking, clean boundaries, build, and exact 319-export package import.
+
+## Final review (2026-07-13)
+
+**Verdict**: Approve with comments
+
+**Review notes**: Effective `review_weight: standard`, using the project's practical plugin-installer bar. Complementary re-confirmation approved all parent-swap, metadata-binding, cleanup, publication, and runtime-root dimensions. The adversarial re-review was provider-interrupted after demonstrating that a same-user process can chmod/tamper with already published content before an idempotent retry. Read-only modes are an integrity convention, not a sandbox against the account owner, as the feature design already states. This residual is accepted as non-blocking; no realistic normal-use blocker remains.
 
 ## Review findings
 
