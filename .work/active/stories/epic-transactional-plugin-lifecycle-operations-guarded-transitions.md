@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-operations-guarded-transitions
 kind: story
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-operations
 depends_on: [epic-transactional-plugin-lifecycle-operations-contracts-preparation]
@@ -59,3 +59,9 @@ Implement Unit 2 of the parent design. Add the single `PluginLifecycleService` f
 - Simplification: one `execute` path, one coordinator callback for first commit, one finalization helper, and one rollback helper; no request keys, timers, component-specific methods, or retry store.
 - Discrepancies from design: concrete adapters remain injected ports; stale rebasing is bounded to one retry when the exact target is unchanged, with ambiguous evidence returned as recovery-required.
 - Adjacent issues parked: none.
+
+## Review (2026-07-13)
+
+**Verdict**: Approve
+
+**Review notes**: Substrate mode; caller's explicit story fast-advance policy; independent integrated verification. Full suite passes 561 tests with strict production/test typechecking, clean boundaries, build, and exact 360-export package import. Acceptance evidence is complete and no realistic normal-use blocker remains.
