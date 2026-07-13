@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-immutable-stores-promotion-review-hardening-2
 kind: story
-stage: review
+stage: done
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 depends_on: [epic-transactional-plugin-lifecycle-immutable-stores-promotion-review-hardening]
@@ -33,11 +33,11 @@ During projection inspection, existing-target idempotency, and race-loser verifi
 
 ## Acceptance criteria
 
-- [ ] Swapping any configured parent with a symlink/different inode cannot redirect writes, publication, cleanup, or chmod outside the host root.
-- [ ] Parent identities are nofollow-validated at each effect boundary and after relevant async gaps.
-- [ ] Valid unchanged parents preserve existing promotion/runtime behavior.
-- [ ] Projection metadata scope, plugin, digest, and derived ref are mutually bound on every inspection/idempotency path.
-- [ ] Exact plugin-store, data-root, staging/projection parent-swap and metadata-tamper reproducers pass fail-closed without foreign mutation.
+- [x] Swapping any configured parent with a symlink/different inode cannot redirect writes, publication, cleanup, or chmod outside the host root.
+- [x] Parent identities are nofollow-validated at each effect boundary and after relevant async gaps.
+- [x] Valid unchanged parents preserve existing promotion/runtime behavior.
+- [x] Projection metadata scope, plugin, digest, and derived ref are mutually bound on every inspection/idempotency path.
+- [x] Exact plugin-store, data-root, staging/projection parent-swap and metadata-tamper reproducers pass fail-closed without foreign mutation.
 - [x] Full real-typechecked suite, boundaries, build, and compiled package import pass.
 
 ## Implementation summary
@@ -47,3 +47,9 @@ During projection inspection, existing-target idempotency, and race-loser verifi
 - Rebound projection metadata by recomputing `ProjectionRootRef` from exact scope/plugin/digest and comparing all identity fields during inspection, idempotency, and publication-race loser verification.
 - Added exact staging, plugin-store, marketplace-store, prepared-root, data-parent, projection-parent, and projection metadata tamper reproducers.
 - Verification: `npm test`, build, boundaries, and compiled package import pass.
+
+## Review (2026-07-13)
+
+**Verdict**: Approve
+
+**Review notes**: Substrate mode; caller's explicit story fast-advance policy; independent full-suite verification. Confirmed all parent-swap and projection-metadata acceptance criteria through 548 tests, strict production/test typechecking, clean boundaries, build, and exact 319-export package import. No blockers, important findings, or nits.
