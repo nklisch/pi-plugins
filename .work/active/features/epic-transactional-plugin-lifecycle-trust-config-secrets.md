@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -530,7 +530,7 @@ Deep GLM 5.2 and GPT-5.6 Sol review accepted seven required fixes: stale removal
 
 ## Review-hardening implementation summary
 
-The first four hardening stories close all complementary findings and CAS lineage cases, with phase-1 GLM approval. Phase-2 Sol review reproduced a duplicate write-ID collision where concurrent writers shared one locator and stale cleanup deleted the winner's active credential; its unfinished pass also identified native project-root error custody for explicit confirmation. `epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening-4` now implements atomic create-only secret semantics, opaque operation-owned cleanup evidence, collision-aware stale/ambiguous reconciliation, exact two-writer barriers, and adapter-error redaction. The feature remains at `stage: implementing` while this story awaits review.
+All four hardening stories are done. Phase-1 GLM review approved. The single concrete phase-2 finding is closed with atomic create-only secret semantics, opaque operation-owned cleanup evidence, collision-aware reconciliation, exact two-writer barriers, and adapter-error redaction. Integrated verification passes 552 tests, strict production/test typechecking, clean boundaries, build, and exact 319-export package import. The feature returns to `stage: review`.
 
 ## Testing
 
