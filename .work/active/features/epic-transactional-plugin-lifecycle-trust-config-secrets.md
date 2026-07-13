@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets
 kind: feature
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -530,7 +530,13 @@ Deep GLM 5.2 and GPT-5.6 Sol review accepted seven required fixes: stale removal
 
 ## Review-hardening implementation summary
 
-All four hardening stories are done. Phase-1 GLM review approved. The single concrete phase-2 finding is closed with atomic create-only secret semantics, opaque operation-owned cleanup evidence, collision-aware reconciliation, exact two-writer barriers, and adapter-error redaction. Integrated verification passes 552 tests, strict production/test typechecking, clean boundaries, build, and exact 319-export package import. The feature returns to `stage: review`.
+All four hardening stories are done. Phase-1 GLM review approved. The single concrete phase-2 finding is closed with atomic create-only secret semantics, opaque operation-owned cleanup evidence, collision-aware reconciliation, exact two-writer barriers, and adapter-error redaction. Integrated verification passes 552 tests, strict production/test typechecking, clean boundaries, build, and exact 319-export package import.
+
+## Final review (2026-07-13)
+
+**Verdict**: Approve with comments
+
+**Review notes**: Effective `review_weight: standard`, using the project's practical plugin-installer bar. Complementary review approved with zero significant findings. Adversarial review's concrete duplicate-locator race was fixed and independently verified; its provider-interrupted speculative continuation does not justify another convergence loop. Residual risk from deliberately contract-violating adapters is accepted as non-blocking. No realistic normal-use blockers or important findings remain.
 
 ## Testing
 
