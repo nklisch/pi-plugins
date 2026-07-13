@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening-3
 kind: story
-stage: review
+stage: done
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-trust-config-secrets
 depends_on: [epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening-2]
@@ -45,3 +45,13 @@ When a configuration replacement may have committed before its response was lost
 ## Verification
 
 - `npm test` — passed: production/test typechecking, dependency boundaries (120 modules / 661 dependencies), 90 Vitest files / 524 tests with no type errors, clean build, and compiled ESM import allowlist (318 exports).
+
+## Review (2026-07-13)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane independent verification confirmed exact candidate, descendant-all, descendant-subset, inactive, and malformed-authority locator liveness cases plus 524 tests and all gates. Verdict: Approve - story verified by implement; fast-lane advance.
