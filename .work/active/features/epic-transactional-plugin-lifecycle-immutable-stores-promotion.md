@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -378,7 +378,7 @@ The contracts story fixes identity and port vocabulary first. Staging and runtim
 
 ## Review findings
 
-Deep review confirmed two important cleanup defects: identical lost-race success leaked a sealed prepared directory, and post-seal error cleanup silently failed on read-only trees. An interrupted adversarial pass also supplied exact candidate reproducers for projection allocation symlink replacement, nested control-name mutability, and project-scope resolution. `epic-transactional-plugin-lifecycle-immutable-stores-promotion-review-hardening` implemented and tested the confirmed fixes, and is now at `stage: review` for the requested isolated-snapshot reviewer. The feature remains at `stage: implementing` until that review closes.
+Deep review confirmed two cleanup defects and supplied three exact interrupted adversarial candidates. `epic-transactional-plugin-lifecycle-immutable-stores-promotion-review-hardening` closes all five: loser and post-seal cleanup are explicit and safe, projection allocation identity is revalidated nofollow, nested control names are hashed/sealed, and resolution requires exact scope. Independent verification passes 539 tests, strict production/test typechecking, clean boundaries, build, and exact 319-export package import. The feature returns to `stage: review`.
 
 ## Pre-mortem
 
