@@ -10,7 +10,7 @@ import { createPluginConfigurationDocument, deriveSecretLocator, digestConfigura
 import { SensitiveValue, withSensitiveValue } from "../../src/application/sensitive-value.js";
 import { directPlugin, claimFixture } from "../fixtures/compatibility/common.js";
 import type { PluginConfigurationStore } from "../../src/application/ports/plugin-configuration-store.js";
-import type { SecretStore } from "../../src/application/ports/secret-store.js";
+import type { SecretCreationEvidence, SecretStore } from "../../src/application/ports/secret-store.js";
 import type { ConfigurationPathPort } from "../../src/application/ports/configuration-path.js";
 import type { PluginConfigurationDocument, SecretLocator } from "../../src/domain/configured-values.js";
 import type { TrustCandidate } from "../../src/domain/trust-policy.js";
@@ -53,9 +53,22 @@ class ConfigStore implements PluginConfigurationStore {
 class Secrets implements SecretStore {
   values = new Map<string, SensitiveValue>();
   missing = new Set<string>();
-  async put(locator: string, value: SensitiveValue) { this.values.set(locator, value); }
+  private readonly owned = new WeakMap<object, string>();
+  async put(locator: string, value: SensitiveValue) {
+    if (this.values.has(locator)) return { kind: "collision" as const };
+    this.values.set(locator, value);
+    const evidence = Object.freeze({}) as SecretCreationEvidence;
+    this.owned.set(evidence, locator);
+    return { kind: "created" as const, locator, evidence };
+  }
   async get(locator: string) { return !this.missing.has(locator) && this.values.has(locator) ? { kind: "found" as const, value: this.values.get(locator)! } : { kind: "missing" as const }; }
   async remove() { return "removed" as const; }
+  async removeOwned(evidence: object) {
+    const locator = this.owned.get(evidence);
+    if (locator === undefined) throw new Error("unowned evidence");
+    this.owned.delete(evidence);
+    return this.remove(locator);
+  }
 }
 const paths: ConfigurationPathPort = {
   async normalizeAndInspect(input) {

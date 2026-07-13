@@ -32,7 +32,9 @@ import {
   type PluginConfigurationStore,
 } from "./ports/plugin-configuration-store.js";
 import {
+  SecretStoreCreateResultSchema,
   SecretStoreRemoveResultSchema,
+  type SecretCreationEvidence,
   type SecretStore,
 } from "./ports/secret-store.js";
 import type { Sha256 } from "../domain/source.js";
@@ -69,6 +71,11 @@ export type ConfigurationSaveResult =
   | Readonly<{
       kind: "ambiguous-with-recovery-required";
       recovery: ConfigurationReconciliation;
+    }>
+  | Readonly<{
+      kind: "secret-collision";
+      code: "SECRET_LOCATOR_COLLISION";
+      locators: readonly SecretLocator[];
     }>;
 
 export type RemovePluginConfigurationRequest = Readonly<{
@@ -213,12 +220,40 @@ async function reconcileReplace(
   }
 }
 
-async function cleanupLocators(
+type OwnedSecretLocator = Readonly<{
+  locator: SecretLocator;
+  evidence: SecretCreationEvidence;
+}>;
+
+/**
+ * Cleanup of credentials created by this operation requires the adapter-issued
+ * evidence object. The locator is retained only for matching authority and
+ * safe recovery reporting; it is never used as proof of ownership.
+ */
+async function cleanupOwnedLocators(
   secrets: SecretStore,
-  locators: readonly SecretLocator[],
+  owned: readonly OwnedSecretLocator[],
 ): Promise<SecretLocator[]> {
   // Cleanup is recovery work. Reusing an already-aborted caller signal would
   // turn a guaranteed cleanup attempt into an orphaning path.
+  const cleanupSignal = new AbortController().signal;
+  const failed: SecretLocator[] = [];
+  for (const entry of owned) {
+    try {
+      const result = SecretStoreRemoveResultSchema.parse(await secrets.removeOwned(entry.evidence, cleanupSignal));
+      void result;
+    } catch {
+      failed.push(entry.locator);
+    }
+  }
+  return failed;
+}
+
+/** Cleanup of an old locator is authorized only after document retirement/CAS. */
+async function cleanupUnownedLocators(
+  secrets: SecretStore,
+  locators: readonly SecretLocator[],
+): Promise<SecretLocator[]> {
   const cleanupSignal = new AbortController().signal;
   const failed: SecretLocator[] = [];
   for (const locator of locators) {
@@ -359,22 +394,48 @@ export async function savePluginConfiguration(
   if (freshLocators.some((locator) => currentLocators.has(locator))) {
     throw new Error("configuration write id reused an active secret locator");
   }
-  const written: SecretLocator[] = [];
+  const owned: OwnedSecretLocator[] = [];
 
   for (const entry of fresh) {
+    let creation: Awaited<ReturnType<SecretStore["put"]>>;
     try {
       signal.throwIfAborted();
-      // Track the attempt before calling the adapter: a provider may persist a
-      // credential and then fail while reporting the operation result.
-      written.push(entry.locator);
-      await dependencies.secrets.put(entry.locator, entry.value, signal);
+      creation = SecretStoreCreateResultSchema.parse(await dependencies.secrets.put(entry.locator, entry.value, signal));
     } catch (error) {
-      const failedCleanup = await cleanupLocators(dependencies.secrets, written);
+      // An adapter error does not prove whether the native backend committed.
+      // Only already-returned evidence can be used for cleanup; the current
+      // locator is deliberately not guessed from its caller-supplied string.
+      const failedCleanup = await cleanupOwnedLocators(dependencies.secrets, owned);
       const cleanupError = cleanupFailure("save", failedCleanup, signal.aborted || isAbortRejection(error));
       if (cleanupError !== undefined) throw cleanupError;
       if (signal.aborted || isAbortRejection(error)) return assertAbort(signal, error);
       throw adapterFailure("putConfigurationSecret");
     }
+    if (creation.kind === "collision") {
+      const failedCleanup = await cleanupOwnedLocators(dependencies.secrets, owned);
+      const cleanupError = cleanupFailure("save", failedCleanup, false);
+      if (cleanupError !== undefined) throw cleanupError;
+      // Collision is a pre-CAS failure. No configuration mutation is allowed,
+      // and the colliding credential has no ownership evidence for this op.
+      return {
+        kind: "secret-collision",
+        code: "SECRET_LOCATOR_COLLISION",
+        locators: [entry.locator],
+      };
+    }
+    if (creation.locator !== entry.locator) {
+      // A successful adapter result must bind its evidence to the locator the
+      // candidate document will reference. Otherwise CAS could publish a
+      // document whose locator was never created by this operation.
+      const failedCleanup = await cleanupOwnedLocators(dependencies.secrets, [{
+        locator: creation.locator,
+        evidence: creation.evidence,
+      }]);
+      const cleanupError = cleanupFailure("save", failedCleanup, false);
+      if (cleanupError !== undefined) throw cleanupError;
+      throw adapterFailure("putConfigurationSecret");
+    }
+    owned.push({ locator: entry.locator, evidence: creation.evidence });
   }
 
   let replacement: Awaited<ReturnType<PluginConfigurationStore["replace"]>>;
@@ -389,21 +450,21 @@ export async function savePluginConfiguration(
       dependencies.configurations,
       request.configurationRef,
       document,
-      freshLocators,
+      owned.map((entry) => entry.locator),
       { ...request, scope: verifiedScope },
       dependencies.sha256,
     );
     if (reconciliation.kind === "unknown") {
       return {
         kind: "ambiguous-with-recovery-required",
-        recovery: { code: "CONFIGURATION_RECONCILIATION_REQUIRED", locators: [...freshLocators] },
+        recovery: { code: "CONFIGURATION_RECONCILIATION_REQUIRED", locators: owned.map((entry) => entry.locator) },
       };
     }
 
     // The authoritative read proved the candidate inactive, so and only so is
     // it safe to delete fresh credentials after an ambiguous replace.
     if (reconciliation.kind === "inactive") {
-      const failedCleanup = await cleanupLocators(dependencies.secrets, freshLocators);
+      const failedCleanup = await cleanupOwnedLocators(dependencies.secrets, owned);
       const cleanupError = cleanupFailure("save", failedCleanup, signal.aborted || isAbortRejection(error));
       if (cleanupError !== undefined) throw cleanupError;
       if (signal.aborted || isAbortRejection(error)) return assertAbort(signal, error);
@@ -419,8 +480,12 @@ export async function savePluginConfiguration(
     const activeLocators = new Set(reconciliation.document.secrets.map((entry) => entry.locator));
     const superseded = (current?.secrets.map((entry) => entry.locator) ?? [])
       .filter((locator) => !activeLocators.has(locator));
-    const cleanupTargets: SecretLocator[] = [...new Set([...inactiveFreshLocators, ...superseded])];
-    const failedCleanup = await cleanupLocators(dependencies.secrets, cleanupTargets);
+    const failedOwnedCleanup = await cleanupOwnedLocators(
+      dependencies.secrets,
+      owned.filter((entry) => inactiveFreshLocators.includes(entry.locator)),
+    );
+    const failedSupersededCleanup = await cleanupUnownedLocators(dependencies.secrets, superseded);
+    const failedCleanup = [...new Set([...failedOwnedCleanup, ...failedSupersededCleanup])];
     const cleanup = cleanupResult(failedCleanup);
     return cleanup === undefined
       ? { kind: "stored", document: reconciliation.document }
@@ -428,8 +493,34 @@ export async function savePluginConfiguration(
   }
 
   if (replacement.kind === "stale") {
-    const failedCleanup = await cleanupLocators(dependencies.secrets, freshLocators);
+    // A stale response is not ownership evidence that the fresh locators are
+    // inactive. Re-read authority first, including duplicate-ID races where a
+    // winner may now reference the same locator.
+    const reconciliation = await reconcileReplace(
+      dependencies.configurations,
+      request.configurationRef,
+      document,
+      owned.map((entry) => entry.locator),
+      { ...request, scope: verifiedScope },
+      dependencies.sha256,
+    );
+    if (reconciliation.kind === "unknown") {
+      return {
+        kind: "ambiguous-with-recovery-required",
+        recovery: { code: "CONFIGURATION_RECONCILIATION_REQUIRED", locators: owned.map((entry) => entry.locator) },
+      };
+    }
+    const live = reconciliation.kind === "active"
+      ? new Set(reconciliation.liveFreshLocators)
+      : new Set<SecretLocator>();
+    const inactiveOwned = owned.filter((entry) => !live.has(entry.locator));
+    const failedCleanup = await cleanupOwnedLocators(dependencies.secrets, inactiveOwned);
     const cleanup = cleanupResult(failedCleanup);
+    if (reconciliation.kind === "active") {
+      return cleanup === undefined
+        ? { kind: "stored", document: reconciliation.document }
+        : { kind: "stored-with-cleanup-required", document: reconciliation.document, cleanup };
+    }
     if (signal.aborted) {
       const cleanupError = cleanupFailure("save", failedCleanup, true);
       if (cleanupError !== undefined) throw cleanupError;
@@ -443,7 +534,7 @@ export async function savePluginConfiguration(
   const activeLocators = new Set(document.secrets.map((entry) => entry.locator));
   const superseded = (current?.secrets.map((entry) => entry.locator) ?? [])
     .filter((locator) => !activeLocators.has(locator));
-  const failedCleanup = await cleanupLocators(dependencies.secrets, superseded);
+  const failedCleanup = await cleanupUnownedLocators(dependencies.secrets, superseded);
   const cleanup = cleanupResult(failedCleanup);
   // Once CAS wins, the new document is authoritative. Never roll it back on
   // cancellation; return cleanup evidence for any old locators that remain.
@@ -510,7 +601,7 @@ export async function removePluginConfiguration(
   // The document is now retired. Finish cleanup with a non-aborted recovery
   // signal so cancellation cannot strand credentials without evidence.
   const allLocators = current.secrets.map((entry) => entry.locator);
-  const failedCleanup = await cleanupLocators(dependencies.secrets, allLocators);
+  const failedCleanup = await cleanupUnownedLocators(dependencies.secrets, allLocators);
   if (failedCleanup.length > 0) {
     const failed = new Set(failedCleanup);
     return {

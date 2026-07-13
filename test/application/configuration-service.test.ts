@@ -14,7 +14,7 @@ import {
 } from "../../src/domain/configured-values.js";
 import type { PluginConfigurationDocument } from "../../src/domain/configured-values.js";
 import type { PluginConfigurationStore } from "../../src/application/ports/plugin-configuration-store.js";
-import type { SecretStore } from "../../src/application/ports/secret-store.js";
+import type { SecretCreationEvidence, SecretStore } from "../../src/application/ports/secret-store.js";
 import type { ConfigurationPathPort } from "../../src/application/ports/configuration-path.js";
 import type { ConfigurationWriteIdPort } from "../../src/application/ports/configuration-write-id.js";
 import { claimFixture } from "../fixtures/compatibility/common.js";
@@ -34,6 +34,8 @@ const paths: ConfigurationPathPort = { normalizeAndInspect: async () => ({ kind:
 class FakeConfigurationStore implements PluginConfigurationStore {
   document: PluginConfigurationDocument | undefined;
   stale = false;
+  failRead = false;
+  failReplace = false;
   throwAfterReplace = false;
   failReconciliationRead = false;
   malformedReconciliationRead = false;
@@ -42,6 +44,7 @@ class FakeConfigurationStore implements PluginConfigurationStore {
   abortAfterReplace?: AbortController;
   removeResult: "removed" | "stale" | "missing" = "removed";
   async read() {
+    if (this.failRead) throw new Error("CANARY_CONFIG_READ_FAILURE");
     if (this.replacementCount > 1 && this.failReconciliationRead) throw new Error("CANARY_CONFIG_READ_FAILURE");
     if (this.replacementCount > 1 && this.malformedReconciliationRead) {
       return { kind: "found" as const, document: {} as PluginConfigurationDocument };
@@ -49,6 +52,7 @@ class FakeConfigurationStore implements PluginConfigurationStore {
     return this.document === undefined ? { kind: "missing" as const } : { kind: "found" as const, document: this.document };
   }
   async replace(request: { expectedRevision: PluginConfigurationDocument["revision"] | null; document: PluginConfigurationDocument }) {
+    if (this.failReplace) throw new Error("CANARY_CONFIG_REPLACE_FAILURE");
     if (this.stale) return { kind: "stale" as const, actualRevision: this.document?.revision ?? null };
     if ((this.document?.revision ?? null) !== request.expectedRevision) return { kind: "stale" as const, actualRevision: this.document?.revision ?? null };
     this.document = this.afterReplace?.(request.document) ?? request.document;
@@ -66,19 +70,34 @@ class FakeConfigurationStore implements PluginConfigurationStore {
 
 class FakeSecretStore implements SecretStore {
   values = new Map<string, SensitiveValue>();
+  private readonly owned = new WeakMap<object, string>();
   failPut = false;
   failRemove = new Set<string>();
   abortAfterPut?: AbortController;
+  beforePut?: () => Promise<void>;
+  removeOwnedCalls: string[] = [];
   async put(locator: string, value: SensitiveValue, _signal?: AbortSignal) {
     if (this.failPut) throw new Error("CANARY_SECRET_ADAPTER_FAILURE");
+    await this.beforePut?.();
+    if (this.values.has(locator)) return { kind: "collision" as const };
     this.values.set(locator, value);
+    const evidence = Object.freeze({}) as SecretCreationEvidence;
+    this.owned.set(evidence, locator);
     this.abortAfterPut?.abort();
+    return { kind: "created" as const, locator, evidence };
   }
   async get(locator: string) { return this.values.has(locator) ? { kind: "found" as const, value: this.values.get(locator)! } : { kind: "missing" as const }; }
   async remove(locator: string) {
     if (this.failRemove.has(locator)) throw new Error("CANARY_SECRET_REMOVE_FAILURE");
     if (!this.values.delete(locator)) return "missing" as const;
     return "removed" as const;
+  }
+  async removeOwned(evidence: object) {
+    const locator = this.owned.get(evidence);
+    if (locator === undefined) throw new Error("unowned evidence");
+    this.owned.delete(evidence);
+    this.removeOwnedCalls.push(locator);
+    return this.remove(locator);
   }
 }
 
@@ -89,8 +108,8 @@ const writeIds: ConfigurationWriteIdPort = {
 function request(values: Record<string, unknown>) {
   return { configurationRef, plugin: "demo@catalog" as const, scope, descriptors, values, pathContext: { scope, trustedBaseDirectory: "/trusted" } };
 }
-function deps(configurations: FakeConfigurationStore, secrets: FakeSecretStore) {
-  return { configurations, secrets, paths, writeIds, sha256 };
+function deps(configurations: FakeConfigurationStore, secrets: FakeSecretStore, ids: ConfigurationWriteIdPort = writeIds) {
+  return { configurations, secrets, paths, writeIds: ids, sha256 };
 }
 
 describe("configuration replacement service", () => {
@@ -106,6 +125,32 @@ describe("configuration replacement service", () => {
     const value = [...secrets.values.values()][0]!;
     expect(String(value)).toBe("[REDACTED]");
     expect(withSensitiveValue(value, (plaintext) => plaintext)).toBe("CANARY_SECRET");
+  });
+
+  it("redacts configuration and secret adapter failures", async () => {
+    const canary = "CANARY_ADAPTER /private/config/credential";
+    const readFailure = new FakeConfigurationStore();
+    readFailure.failRead = true;
+    const readError = await savePluginConfiguration(request({ NAME: "demo", TOKEN: "secret" }), deps(readFailure, new FakeSecretStore()), new AbortController().signal)
+      .catch((value: unknown) => value);
+    expect(readError).toMatchObject({ code: "ADAPTER_FAILED", operation: "readPluginConfiguration" });
+    expect((readError as Error).message).not.toContain(canary);
+    expect((readError as { cause?: unknown }).cause).toBeUndefined();
+    expect(JSON.stringify(readError)).not.toContain("CANARY_CONFIG_READ_FAILURE");
+
+    const replaceFailure = new FakeConfigurationStore();
+    replaceFailure.failReplace = true;
+    const replaceError = await savePluginConfiguration(request({ NAME: "demo", TOKEN: "secret" }), deps(replaceFailure, new FakeSecretStore()), new AbortController().signal)
+      .catch((value: unknown) => value);
+    expect(replaceError).toMatchObject({ code: "ADAPTER_FAILED", operation: "replacePluginConfiguration" });
+    expect(JSON.stringify(replaceError)).not.toContain("CANARY_CONFIG_REPLACE_FAILURE");
+
+    const secretFailure = new FakeSecretStore();
+    secretFailure.failPut = true;
+    const secretError = await savePluginConfiguration(request({ NAME: "demo", TOKEN: "CANARY_SECRET" }), deps(new FakeConfigurationStore(), secretFailure), new AbortController().signal)
+      .catch((value: unknown) => value);
+    expect(secretError).toMatchObject({ code: "ADAPTER_FAILED", operation: "putConfigurationSecret" });
+    expect(JSON.stringify(secretError)).not.toContain("CANARY_SECRET");
   });
 
   it("preserves omitted secrets, replaces supplied secrets, and cleans superseded locators after CAS", async () => {
@@ -159,6 +204,44 @@ describe("configuration replacement service", () => {
     expect(error).toMatchObject({ name: "AbortError" });
     expect(secrets.values.size).toBe(0);
     expect(configurations.document).toBeUndefined();
+  });
+
+  it("uses a create-only collision barrier for duplicate write IDs", async () => {
+    const configurations = new FakeConfigurationStore();
+    const secrets = new FakeSecretStore();
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => { release = resolve; });
+    let entered = 0;
+    secrets.beforePut = async () => {
+      entered += 1;
+      if (entered === 2) release();
+      await barrier;
+    };
+    const duplicateIds: ConfigurationWriteIdPort = {
+      create: async () => `config-write-v1:${"z".repeat(22)}`,
+    };
+
+    const [first, second] = await Promise.all([
+      savePluginConfiguration(request({ NAME: "first", TOKEN: "FIRST_SECRET" }), deps(configurations, secrets, duplicateIds), new AbortController().signal),
+      savePluginConfiguration(request({ NAME: "second", TOKEN: "SECOND_SECRET" }), deps(configurations, secrets, duplicateIds), new AbortController().signal),
+    ]);
+    const results = [first, second];
+    expect(results.filter((result) => result.kind === "stored")).toHaveLength(1);
+    expect(results.filter((result) => result.kind === "secret-collision")).toHaveLength(1);
+    const winner = results.find((result) => result.kind === "stored");
+    if (winner?.kind !== "stored") throw new Error("expected one winning configuration");
+    expect(secrets.values.size).toBe(1);
+    expect(secrets.removeOwnedCalls).toEqual([]);
+    const locator = winner.document.secrets[0]!.locator;
+    const stored = await secrets.get(locator, new AbortController().signal);
+    expect(stored.kind).toBe("found");
+    if (stored.kind === "found") {
+      expect(withSensitiveValue(stored.value, (value) => value)).toBe(
+        winner.document.values.find((entry) => entry.key === "NAME")?.value.value === "first"
+          ? "FIRST_SECRET"
+          : "SECOND_SECRET",
+      );
+    }
   });
 
   it("retains fresh credentials when CAS commits before throwing", async () => {

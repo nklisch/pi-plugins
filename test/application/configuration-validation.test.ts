@@ -80,6 +80,17 @@ describe("configuration submission validation", () => {
       .rejects.toMatchObject({ code: "CONFIG_REQUIRED" });
   });
 
+  it("redacts native path adapter failures", async () => {
+    const canary = "CANARY_PATH_ADAPTER /private/secret";
+    const failing: ConfigurationPathPort = { normalizeAndInspect: async () => { throw new Error(canary); } };
+    const error = await validateConfigurationSubmission(base({ NAME: "safe", DIR: "x", TOKEN: "secret" }), failing, new AbortController().signal)
+      .catch((value: unknown) => value);
+    expect(error).toMatchObject({ code: "CONFIG_PATH_ADAPTER_FAILED" });
+    expect((error as Error).message).not.toContain(canary);
+    expect((error as { cause?: unknown }).cause).toBeUndefined();
+    expect(JSON.stringify(error)).not.toContain(canary);
+  });
+
   it("fails before path effects for unknown, duplicate, pattern, bounds, and required input", async () => {
     const calls: string[] = [];
     const port: ConfigurationPathPort = { normalizeAndInspect: async (input) => {

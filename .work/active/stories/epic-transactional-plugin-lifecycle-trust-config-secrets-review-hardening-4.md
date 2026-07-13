@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening-4
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-trust-config-secrets
 depends_on: [epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening-3]
@@ -34,9 +34,21 @@ Two concurrent saves can receive the same schema-valid write ID and derive the s
 
 ## Acceptance criteria
 
-- [ ] Concurrent duplicate write IDs cannot overwrite or delete an active credential.
-- [ ] Stale cleanup removes only locators proven created by that operation and currently unreferenced.
-- [ ] Secret-store conformance requires atomic create-only behavior and typed collision.
-- [ ] The authoritative document always resolves to the winning stored secret after collision.
-- [ ] All project-root and adjacent adapter errors are fixed-code/redacted at public boundaries.
-- [ ] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+- [x] Concurrent duplicate write IDs cannot overwrite or delete an active credential.
+- [x] Stale cleanup removes only locators proven created by that operation and currently unreferenced.
+- [x] Secret-store conformance requires atomic create-only behavior and typed collision.
+- [x] The authoritative document always resolves to the winning stored secret after collision.
+- [x] All project-root and adjacent adapter errors are fixed-code/redacted at public boundaries.
+- [x] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+
+## Implementation notes
+
+- Execution capability: host-local inline implementation; the caller explicitly prohibited agents and isolated worktrees.
+- Secret creation is now a schema-derived `created | collision` result. Successful creates return opaque adapter evidence; pre-CAS cleanup calls `removeOwned` only with evidence returned by that operation. Authoritative post-CAS/removal cleanup retains the existing locator-based path after the document has proved the locator unreferenced or retired.
+- Stale CAS and ambiguous replace outcomes reconcile authoritative liveness before deleting any operation-owned fresh locator. Collisions fail before configuration CAS and return locator-only `secret-collision` evidence; a colliding locator is never treated as owned.
+- Added a two-writer duplicate-ID barrier, create-only secret-store conformance coverage, and fixed redaction assertions for project-root, path, configuration, and secret adapter throws. Project-root acquire/verify now expose stable `ADAPTER_FAILED` errors without native causes.
+- Files changed: `src/application/ports/secret-store.ts`, `src/application/configuration-service.ts`, `src/composition/create-project-root-authority.ts`, and the related contract/application/integration tests.
+
+## Verification
+
+- `npm test` — passed: real production/test typechecking, dependency boundaries, 90 Vitest files / 552 tests with no type errors, clean build, and compiled ESM package import allowlist.
