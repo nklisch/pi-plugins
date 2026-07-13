@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -526,11 +526,11 @@ Verification is green: full `npm test` completed strict production/test typechec
 
 ## Review findings
 
-Deep GLM 5.2 and GPT-5.6 Sol review accepted seven required fixes: stale removal could delete an actively referenced credential; resolver callbacks could return plaintext; project scope/root provenance was forgeable; cancellation could orphan new credentials; adapter output was not runtime validated; unknown keys leaked through serialized errors; and untrusted regexes allowed catastrophic backtracking. These are tracked by `epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening`; the feature remains at `stage: implementing` until all close.
+Deep GLM 5.2 and GPT-5.6 Sol review accepted seven required fixes: stale removal could delete an actively referenced credential; resolver callbacks could return plaintext; project scope/root provenance was forgeable; cancellation could orphan new credentials; adapter output was not runtime validated; unknown keys leaked through serialized errors; and untrusted regexes allowed catastrophic backtracking. `epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening` closes all seven and passed independent verification.
 
 ## Review-hardening implementation summary
 
-The seven review findings are closed in `epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening` and that story is advanced to `stage: review`; this feature remains `stage: implementing` pending its review. Removal now CAS-retires the authoritative document before credential cleanup, cancellation uses independent recovery cleanup with typed locator evidence, resolver completion values are discarded, adapter responses are runtime-schema-validated, unknown keys are omitted from errors, project scope/path authority is identity- and capability-bound, and descriptor patterns use a bounded fail-closed policy. Adversarial regressions cover stale removal, post-retirement cleanup, cancellation, malformed responses, callback-result leaks, forged project/path provenance, error serialization, and catastrophic regex patterns.
+The hardening story is done and the feature returns to `stage: review`. Removal now CAS-retires the authoritative document before credential cleanup, cancellation uses independent recovery cleanup with typed locator evidence, resolver completion values are discarded, adapter responses are runtime-schema-validated, unknown keys are omitted from errors, project scope/path authority is identity- and capability-bound, and descriptor patterns use a bounded fail-closed policy. Adversarial regressions cover every finding. Independent verification passes 485 tests, strict production/test typechecking, clean boundaries, build, and exact 300-export package import.
 
 ## Testing
 
