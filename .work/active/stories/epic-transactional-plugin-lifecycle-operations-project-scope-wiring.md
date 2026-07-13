@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-operations-project-scope-wiring
 kind: story
-stage: review
+stage: done
 tags: [correctness, tests]
 parent: epic-transactional-plugin-lifecycle-operations
 depends_on: [epic-transactional-plugin-lifecycle-operations-integration-hardening]
@@ -48,3 +48,9 @@ Fix normal-use project-scope install, enable, and update, and close the integrat
 - Simplification: no new public rejection variant or lifecycle path; projection adapter failures now use the existing `PROJECTION_FAILED` registry entry instead of being misclassified as trust failures, and the unused hardcoded-install load-failure helper was removed.
 - Discrepancies from design: the fake materializer uses an external-source handoff while retaining the real schema/coordinator/service contracts; this keeps the test focused on lifecycle wiring rather than duplicating source acquisition.
 - Adjacent issues parked: corrupt previous-revision evidence after a possible commit routes to `recovery-required`; verified rollback/recovery implementation remains owned by the recovery feature.
+
+## Review (2026-07-13)
+
+**Verdict**: Approve
+
+**Review notes**: Substrate mode; caller's explicit story fast-advance policy; independent integrated verification. Project install/enable/update, root-authority isolation, representative skill/hook/MCP lifecycle, and user/project separation are covered. Full suite passes 562 tests with strict typechecking, clean boundaries, build, and exact 360-export import. No realistic normal-use blocker remains.
