@@ -1,0 +1,433 @@
+import { z } from "zod";
+import {
+  NormalizedMarketplaceEntrySchema,
+  type NormalizedMarketplaceEntry,
+} from "../domain/marketplace.js";
+import {
+  PluginKeySchema,
+  type PluginKey,
+} from "../domain/identity.js";
+import {
+  ScopeContextSchema,
+  createScopeContext,
+  toScopeReference,
+  type ScopeContext,
+} from "../domain/state/scope.js";
+import {
+  InstalledPluginRecordSchema,
+  InstalledRevisionRecordSchema,
+  createInstalledPluginRecord,
+  createInstalledRevisionRecord,
+  type InstalledPluginRecord,
+  type InstalledRevisionRecord,
+} from "../domain/state/installed-state.js";
+import type { TrustStateRecord } from "../domain/state/trust-state.js";
+import {
+  CompatibilityReportSchema,
+  type CompatibilityReport,
+} from "../domain/compatibility.js";
+import {
+  NormalizedPluginSchema,
+  type NormalizedPlugin,
+} from "../domain/plugin.js";
+import {
+  PluginSourceSchema,
+  ResolvedMarketplaceSourceSchema,
+  type ResolvedMarketplaceSource,
+  type Sha256,
+} from "../domain/source.js";
+import {
+  createTrustCandidate,
+  type TrustCandidate,
+} from "../domain/trust-policy.js";
+import {
+  authorizeTrustCandidate,
+} from "./trust-service.js";
+import {
+  withResolvedPluginConfiguration,
+  ConfigurationResolutionError,
+} from "./configuration-resolver.js";
+import type { ConfigurationPathContext } from "./ports/configuration-path.js";
+import type { PluginConfigurationStore } from "./ports/plugin-configuration-store.js";
+import type { ProjectTrustPort } from "./ports/project-trust.js";
+import type { SecretStore } from "./ports/secret-store.js";
+import type { ConfigurationPathPort } from "./ports/configuration-path.js";
+import type { ContentStorePort, StagingAllocation, VerifiedPromotionPlan } from "./ports/content-store.js";
+import type { PluginMaterializer, SourceContext } from "./source-materialization.js";
+import type { PluginInspectionService } from "./inspection-service.js";
+import type { CompatibilityService } from "./compatibility-service.js";
+import { createPromotionPlan } from "./content-promotion.js";
+import {
+  createActiveProjectionExpectation,
+  createInactiveProjectionExpectation,
+  createPluginRuntimeProjection,
+  verifyProjectionExpectation,
+  type ProjectionExpectation,
+  type RuntimeProjectionPort,
+} from "./ports/runtime-projection.js";
+import type { InstalledPluginLoader, LoadedInstalledPlugin } from "./ports/installed-plugin-loader.js";
+
+export const CandidatePreparationCodeRegistry = {
+  incompatible: { tag: "INCOMPATIBLE" },
+  untrusted: { tag: "UNTRUSTED" },
+  unconfigured: { tag: "UNCONFIGURED" },
+  projectionFailed: { tag: "PROJECTION_FAILED" },
+  aborted: { tag: "ABORTED" },
+  malformed: { tag: "MALFORMED" },
+} as const;
+export type CandidatePreparationCode = (typeof CandidatePreparationCodeRegistry)[keyof typeof CandidatePreparationCodeRegistry]["tag"];
+const candidatePreparationCodes = Object.values(CandidatePreparationCodeRegistry).map((entry) => entry.tag) as [
+  CandidatePreparationCode,
+  ...CandidatePreparationCode[],
+];
+export const CandidatePreparationCodeSchema = z.enum(candidatePreparationCodes);
+
+export const PluginCandidatePreparationDependenciesSchema = z.object({}).passthrough();
+
+export type PluginCandidatePreparationDependencies = Readonly<{
+  content: ContentStorePort;
+  materializer: PluginMaterializer;
+  inspector: PluginInspectionService;
+  compatibility: CompatibilityService;
+  installed: InstalledPluginLoader;
+  projections: RuntimeProjectionPort;
+  projectTrust: ProjectTrustPort;
+  configurations: PluginConfigurationStore;
+  secrets: SecretStore;
+  paths: ConfigurationPathPort;
+  sha256: Sha256;
+}>;
+
+export type PluginCandidatePreparationRequest = Readonly<{
+  operation: "install" | "update";
+  scope: ScopeContext;
+  entry: NormalizedMarketplaceEntry;
+  marketplaceSource: ResolvedMarketplaceSource;
+  sourceContext: SourceContext;
+  trustRecords: readonly TrustStateRecord[];
+  configurationPathContext: ConfigurationPathContext;
+  existing?: InstalledPluginRecord;
+}>;
+
+export type EnableCandidatePreparationRequest = Readonly<{
+  operation: "enable";
+  scope: ScopeContext;
+  installed: InstalledPluginRecord;
+  trustRecords: readonly TrustStateRecord[];
+  configurationPathContext: ConfigurationPathContext;
+}>;
+
+export type PreparedPluginCandidate = Readonly<{
+  operation: "install" | "update" | "enable";
+  scope: ScopeContext;
+  plugin: PluginKey;
+  normalized: NormalizedPlugin;
+  compatibility: CompatibilityReport;
+  revision: InstalledRevisionRecord;
+  record: InstalledPluginRecord;
+  projection: Extract<ProjectionExpectation, { kind: "active" }>;
+  trust: TrustCandidate;
+  promotion?: VerifiedPromotionPlan;
+  allocation?: StagingAllocation;
+}>;
+
+export type CandidatePreparationResult =
+  | Readonly<{ kind: "prepared"; candidate: PreparedPluginCandidate }>
+  | Readonly<{ kind: "rejected"; code: CandidatePreparationCode }>;
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function abortIfRequested(signal: AbortSignal): void {
+  signal.throwIfAborted();
+}
+
+function mapFailure(error: unknown, phase: "materialize" | "inspect" | "compatibility" | "trust" | "configuration" | "projection"): CandidatePreparationCode {
+  if (error instanceof ConfigurationResolutionError) {
+    return error.code === "PROJECT_UNTRUSTED" || error.code === "TRUST_ABSENT" || error.code === "TRUST_REVOKED" || error.code === "TRUST_EVIDENCE_INVALID"
+      ? "UNTRUSTED"
+      : "UNCONFIGURED";
+  }
+  if (phase === "trust") return "UNTRUSTED";
+  if (phase === "projection") return "PROJECTION_FAILED";
+  if (phase === "compatibility" || phase === "inspect") return "INCOMPATIBLE";
+  if (phase === "materialize") return "MALFORMED";
+  return "MALFORMED";
+}
+
+async function discardOwned(
+  dependencies: PluginCandidatePreparationDependencies,
+  allocation: StagingAllocation | undefined,
+  signal: AbortSignal,
+): Promise<void> {
+  if (allocation === undefined) return;
+  try {
+    await dependencies.content.discardStaging(allocation, signal);
+  } catch {
+    // The allocation is an inert staging capability. A later store cleanup can
+    // reclaim it; do not hide the original typed preparation outcome.
+  }
+}
+
+async function prepareProjection(
+  dependencies: PluginCandidatePreparationDependencies,
+  expectation: ProjectionExpectation,
+  signal: AbortSignal,
+): Promise<ProjectionExpectation> {
+  const prepared = await dependencies.projections.prepare(expectation, signal);
+  const verified = verifyProjectionExpectation(prepared, dependencies.sha256);
+  if (!sameJson(verified, expectation)) throw new Error("projection adapter returned different evidence");
+  return verified;
+}
+
+async function resolveReadiness(
+  dependencies: PluginCandidatePreparationDependencies,
+  input: Readonly<{
+    trust: TrustCandidate;
+    trustRecords: readonly TrustStateRecord[];
+    configurationRef: InstalledRevisionRecord["configurationRef"];
+    normalized: NormalizedPlugin;
+    configurationPathContext: ConfigurationPathContext;
+  }>,
+  signal: AbortSignal,
+): Promise<void> {
+  const scope = createScopeContext(input.configurationPathContext.scope, dependencies.sha256);
+  const authorization = await authorizeTrustCandidate({ candidate: input.trust, records: input.trustRecords, scope }, dependencies, signal);
+  if (authorization.kind === "denied") throw new ConfigurationResolutionError(authorization.code);
+  await withResolvedPluginConfiguration({
+    candidate: input.trust,
+    trustRecords: input.trustRecords,
+    configurationRef: input.configurationRef,
+    descriptors: input.normalized.configuration,
+    pathContext: { ...input.configurationPathContext, scope },
+  }, dependencies, signal, async () => undefined);
+}
+
+async function prepareNormalizedCandidate(
+  dependencies: PluginCandidatePreparationDependencies,
+  input: PluginCandidatePreparationRequest,
+  normalized: NormalizedPlugin,
+  compatibility: CompatibilityReport,
+  materialized: Awaited<ReturnType<PluginMaterializer["materialize"]>>,
+  allocation: StagingAllocation,
+  signal: AbortSignal,
+): Promise<PreparedPluginCandidate> {
+  const scope = createScopeContext(input.scope, dependencies.sha256);
+  const scopeReference = toScopeReference(scope);
+  const revision = createInstalledRevisionRecord({
+    plugin: normalized,
+    compatibility,
+    content: materialized.content,
+    scope: scopeReference,
+  }, dependencies.sha256);
+  const trust = createTrustCandidate({
+    scope: scopeReference,
+    marketplaceSource: input.marketplaceSource,
+    plugin: normalized,
+    compatibility,
+    content: materialized.content,
+    materializationBinding: materialized.binding,
+  }, dependencies.sha256);
+  await resolveReadiness(dependencies, {
+    trust,
+    trustRecords: input.trustRecords,
+    configurationRef: revision.configurationRef,
+    normalized,
+    configurationPathContext: input.configurationPathContext,
+  }, signal);
+  const record = createInstalledPluginRecord({
+    plugin: normalized.identity.key,
+    activation: "enabled",
+    selectedRevision: revision.revision,
+    revisions: [
+      ...(input.existing?.revisions ?? []).filter((candidate) => candidate.revision !== revision.revision),
+      revision,
+    ],
+    scope: scopeReference,
+  }, dependencies.sha256);
+  const projection = createActiveProjectionExpectation(createPluginRuntimeProjection({
+    scope: scopeReference,
+    plugin: normalized,
+    compatibility,
+    revision,
+    sha256: dependencies.sha256,
+  }), dependencies.sha256);
+  const preparedProjection = await prepareProjection(dependencies, projection, signal);
+  if (preparedProjection.kind !== "active") throw new Error("active candidate projection became inactive");
+  const promotion = createPromotionPlan({
+    kind: "plugin",
+    allocation,
+    materialized,
+  }, dependencies.sha256);
+  return Object.freeze({
+    operation: input.operation,
+    scope,
+    plugin: normalized.identity.key,
+    normalized,
+    compatibility,
+    revision,
+    record,
+    projection: preparedProjection,
+    trust,
+    promotion,
+    allocation,
+  });
+}
+
+/** Prepare an install/update candidate entirely before state coordination. */
+export async function preparePluginCandidate(
+  dependencies: PluginCandidatePreparationDependencies,
+  input: PluginCandidatePreparationRequest,
+  signal: AbortSignal,
+): Promise<CandidatePreparationResult> {
+  let allocation: StagingAllocation | undefined;
+  let retainAllocation = false;
+  let phase: "materialize" | "inspect" | "compatibility" | "trust" | "configuration" | "projection" = "materialize";
+  try {
+    abortIfRequested(signal);
+    const request = {
+      ...input,
+      scope: createScopeContext(input.scope, dependencies.sha256),
+      entry: NormalizedMarketplaceEntrySchema.parse(input.entry),
+      marketplaceSource: ResolvedMarketplaceSourceSchema.parse(input.marketplaceSource),
+    };
+    PluginSourceSchema.parse(request.entry.source.value);
+    allocation = await dependencies.content.allocateStaging(signal);
+    const materialized = await dependencies.materializer.materialize(
+      request.entry.source.value,
+      request.sourceContext,
+      allocation.slot,
+      signal,
+    );
+    phase = "inspect";
+    const inspected = await dependencies.inspector.inspect({ entry: request.entry, materialized }, signal);
+    if (!inspected.ok) return { kind: "rejected", code: "INCOMPATIBLE" };
+    phase = "compatibility";
+    const compatibility = CompatibilityReportSchema.parse(await dependencies.compatibility.assess({
+      plugin: inspected.value,
+      ...(request.entry.policy === undefined ? {} : { marketplacePolicy: request.entry.policy }),
+    }, signal));
+    if (!compatibility.activatable) return { kind: "rejected", code: "INCOMPATIBLE" };
+    phase = "trust";
+    const candidate = await prepareNormalizedCandidate(dependencies, request, inspected.value, compatibility, materialized, allocation, signal);
+    phase = "projection";
+    retainAllocation = true;
+    return { kind: "prepared", candidate };
+  } catch (error) {
+    if (signal.aborted) return { kind: "rejected", code: "ABORTED" };
+    return { kind: "rejected", code: mapFailure(error, phase) };
+  } finally {
+    // Promotion happens only later under the coordinator. Until then every
+    // rejection, cancellation, or malformed handoff releases its owned slot.
+    if (allocation !== undefined && !retainAllocation) await discardOwned(dependencies, allocation, signal);
+  }
+}
+
+/** Prepare enable from the exact selected installed revision. */
+export async function prepareEnableCandidate(
+  dependencies: PluginCandidatePreparationDependencies,
+  input: EnableCandidatePreparationRequest,
+  signal: AbortSignal,
+): Promise<CandidatePreparationResult> {
+  try {
+    abortIfRequested(signal);
+    const scope = createScopeContext(input.scope, dependencies.sha256);
+    const installed = InstalledPluginRecordSchema.parse(input.installed);
+    const selected = installed.revisions.find((revision) => revision.revision === installed.selectedRevision);
+    if (selected === undefined) return { kind: "rejected", code: "MALFORMED" };
+    const loaded: LoadedInstalledPlugin = await dependencies.installed.load({ scope, revision: selected }, signal);
+    const normalizedLoaded = NormalizedPluginSchema.parse(loaded.plugin);
+    const compatibility = CompatibilityReportSchema.parse(loaded.compatibility);
+    if (normalizedLoaded.identity.key !== installed.plugin || compatibility.plugin.key !== installed.plugin) {
+      return { kind: "rejected", code: "MALFORMED" };
+    }
+    const reconstructed = createInstalledRevisionRecord({
+      plugin: normalizedLoaded,
+      compatibility,
+      content: loaded.content,
+      revision: selected.revision,
+      contentRef: selected.contentRef,
+      dataRef: selected.dataRef,
+      ...(selected.configurationRef === undefined ? {} : { configurationRef: selected.configurationRef }),
+      scope: toScopeReference(scope),
+    }, dependencies.sha256);
+    if (!sameJson(reconstructed, selected)) return { kind: "rejected", code: "MALFORMED" };
+    if (!compatibility.activatable) return { kind: "rejected", code: "INCOMPATIBLE" };
+    const trust = createTrustCandidate({
+      scope: toScopeReference(scope),
+      marketplaceSource: loaded.marketplaceSource,
+      plugin: normalizedLoaded,
+      compatibility,
+      content: loaded.content,
+      materializationBinding: loaded.binding,
+    }, dependencies.sha256);
+    await resolveReadiness(dependencies, {
+      trust,
+      trustRecords: input.trustRecords,
+      configurationRef: selected.configurationRef,
+      normalized: normalizedLoaded,
+      configurationPathContext: input.configurationPathContext,
+    }, signal);
+    const record = createInstalledPluginRecord({
+      ...installed,
+      activation: "enabled",
+      scope: toScopeReference(scope),
+    }, dependencies.sha256);
+    const projection = createActiveProjectionExpectation(createPluginRuntimeProjection({
+      scope: toScopeReference(scope),
+      plugin: normalizedLoaded,
+      compatibility,
+      revision: selected,
+      sha256: dependencies.sha256,
+    }), dependencies.sha256);
+    const preparedProjection = await prepareProjection(dependencies, projection, signal);
+    if (preparedProjection.kind !== "active") return { kind: "rejected", code: "PROJECTION_FAILED" };
+    return {
+      kind: "prepared",
+      candidate: Object.freeze({
+        operation: "enable",
+        scope,
+        plugin: installed.plugin,
+        normalized: normalizedLoaded,
+        compatibility,
+        revision: selected,
+        record,
+        projection: preparedProjection,
+        trust,
+      }),
+    };
+  } catch (error) {
+    if (signal.aborted) return { kind: "rejected", code: "ABORTED" };
+    return { kind: "rejected", code: mapFailure(error, "projection") };
+  }
+}
+
+/** Prepare the one canonical inactive projection used by disable/uninstall. */
+export async function prepareInactiveProjection(
+  dependencies: Pick<PluginCandidatePreparationDependencies, "projections" | "sha256">,
+  input: Readonly<{ scope: ScopeContext; plugin: PluginKey }>,
+  signal: AbortSignal,
+): Promise<Extract<ProjectionExpectation, { kind: "inactive" }>> {
+  const scope = createScopeContext(input.scope, dependencies.sha256);
+  const expectation = createInactiveProjectionExpectation({
+    scope: toScopeReference(scope),
+    plugin: PluginKeySchema.parse(input.plugin),
+    sha256: dependencies.sha256,
+  });
+  const prepared = await dependencies.projections.prepare(expectation, signal);
+  const verified = verifyProjectionExpectation(prepared, dependencies.sha256);
+  if (verified.kind !== "inactive" || !sameJson(verified, expectation)) throw new Error("inactive projection adapter returned different evidence");
+  return verified;
+}
+
+export type {
+  ConfigurationPathContext,
+  CompatibilityReport,
+  InstalledPluginRecord,
+  InstalledRevisionRecord,
+  NormalizedPlugin,
+  ProjectionExpectation,
+  ScopeContext,
+  TrustCandidate,
+};

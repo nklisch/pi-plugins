@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-operations-contracts-preparation
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-operations
 depends_on: []
@@ -49,3 +49,12 @@ Implement Unit 1 of the parent design. Add schema-derived whole-plugin operation
 - [ ] Enable verifies a loader handoff against the exact selected installed revision and reuses the same trust/configuration/projection checks.
 - [ ] Every pre-commit rejection, failure, or cancellation leaves state untouched and explicitly discards owned staging.
 - [ ] Focused contract/preparation tests protect these boundaries without duplicating source, trust, secret, compatibility, or promotion test matrices.
+
+## Implementation notes
+- Execution capability: direct host implementation; the contracts and preparation path share one portable application boundary and the caller prohibited agents.
+- Review weight: standard, caller did not override the project default.
+- Files changed: `src/application/plugin-lifecycle-contract.ts`, `src/application/plugin-candidate-preparation.ts`, `src/application/ports/installed-plugin-loader.ts`, `src/application/ports/runtime-projection.ts`, `src/application/ports/lifecycle-reload.ts`, `src/application/ports/lifecycle-transition-store.ts`, `src/application/ports/lifecycle-operation-id.ts`, `test/application/plugin-lifecycle-contract.test.ts`.
+- Tests added/removed: projection digest/reference, inactive tombstone, and transition-reference contract tests.
+- Simplification: one registry-backed contract surface and one preparation path; no component-specific activation or retry machinery.
+- Discrepancies from design: preparation returns typed rejection evidence and keeps successful staging ownership for the later guarded promotion window; concrete adapters remain unimplemented as designed.
+- Adjacent issues parked: none.
