@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-operations
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-trust-config-secrets, epic-transactional-plugin-lifecycle-generation-locking, epic-transactional-plugin-lifecycle-immutable-stores-promotion]
@@ -351,3 +351,11 @@ The chain is intentional. Contracts/preparation establish the only downstream se
 The design fails if a caller bypasses compatibility/trust, promotion occurs for stale state, reload success is assumed rather than observed, rollback reports success while the candidate remains live, uninstall deletes data before deactivation, or a scope-generation retry overwrites a changed target. One facade, opaque prepared evidence, the existing guarded coordinator, durable pending references, exact observation, verified compensating reload, deferred confirmed cleanup, and target-state preconditions directly address those failures.
 
 The fallback is deliberately visible: if state or runtime cannot prove success or restoration, leave the transition recoverable and return `recovery-required`. Do not add lock leases, broad retries, or destructive cleanup guesses to manufacture a cleaner result.
+
+## Implementation summary
+- Execution capability: direct host implementation; the caller explicitly prohibited agents and the three stories were serialized by dependency order.
+- Review weight: standard, caller did not override the project default.
+- Children advanced to `review`: contracts/preparation, guarded transitions, and integration hardening.
+- Delivered one registry-backed lifecycle contract set, logical active/inactive projections, durable pending-transition evidence, installed-revision loading, candidate preparation with exact trust/configuration readiness, one guarded five-operation facade, independent reload observation, verified rollback, recovery-required outcomes, and public/dependency boundaries.
+- Verification: `npm test` passed production/test typechecking, dependency-cruiser, 93 unit files / 561 tests, build, and exact compiled package import (360 exports).
+- Commits: `09a7692` contracts/preparation, `139a312` guarded transitions, `bc142da` integration hardening. Parent stage transition is committed separately.
