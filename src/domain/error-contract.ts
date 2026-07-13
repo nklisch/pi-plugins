@@ -20,6 +20,10 @@ export const ErrorCodeRegistry = {
   manifestRootInvalid: "MANIFEST_ROOT_INVALID",
   sourceResolutionFailed: "SOURCE_RESOLUTION_FAILED",
   pathContainmentFailed: "PATH_CONTAINMENT_FAILED",
+  stagingAllocationInvalid: "STAGING_ALLOCATION_INVALID",
+  contentVerificationFailed: "CONTENT_VERIFICATION_FAILED",
+  storeIdentityCollision: "STORE_IDENTITY_COLLISION",
+  durabilityUnavailable: "DURABILITY_UNAVAILABLE",
   adapterFailed: "ADAPTER_FAILED",
 } as const;
 

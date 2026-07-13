@@ -1,5 +1,8 @@
 import { z } from "zod";
 import { JsonValueSchema, type JsonValue } from "../schema.js";
+import { PluginKeySchema, type PluginKey } from "../identity.js";
+import { ContentDigestSchema, type ContentDigest } from "../content-manifest.js";
+import { ScopeReferenceSchema, type ScopeReference } from "./scope.js";
 import type { Sha256 } from "../source.js";
 
 /**
@@ -15,6 +18,7 @@ export const StateReferenceKindRegistry = {
   pluginConfiguration: { tag: "plugin-configuration-v1" },
   trustSubject: { tag: "trust-subject-v1" },
   pendingTransition: { tag: "pending-transition-v1" },
+  runtimeProjection: { tag: "runtime-projection-v1" },
 } as const;
 
 export type StateReferenceKind = keyof typeof StateReferenceKindRegistry;
@@ -71,6 +75,11 @@ export const PendingTransitionRefSchema = taggedSha256<"PendingTransitionRef">(
 );
 export type PendingTransitionRef = z.infer<typeof PendingTransitionRefSchema>;
 
+export const ProjectionRootRefSchema = taggedSha256<"ProjectionRootRef">(
+  StateReferenceKindRegistry.runtimeProjection.tag,
+);
+export type ProjectionRootRef = z.infer<typeof ProjectionRootRefSchema>;
+
 export const StateReferenceSchema = z.union([
   StateBlobRefSchema,
   MarketplaceContentRefSchema,
@@ -79,6 +88,7 @@ export const StateReferenceSchema = z.union([
   PluginConfigurationRefSchema,
   TrustSubjectRefSchema,
   PendingTransitionRefSchema,
+  ProjectionRootRefSchema,
 ]);
 export type StateReference = z.infer<typeof StateReferenceSchema>;
 
@@ -237,6 +247,24 @@ export function derivePendingTransitionRef(identity: ReferenceIdentity, sha256: 
   return deriveTaggedReference(StateReferenceKindRegistry.pendingTransition.tag, PendingTransitionRefSchema, identity, sha256, "derivePendingTransitionRef") as PendingTransitionRef;
 }
 
+export function deriveProjectionRootRef(
+  identity: Readonly<{ scope: ScopeReference; plugin: PluginKey; projectionDigest: ContentDigest }>,
+  sha256: Sha256,
+): ProjectionRootRef {
+  const value = {
+    scope: ScopeReferenceSchema.parse(identity.scope),
+    plugin: PluginKeySchema.parse(identity.plugin),
+    projectionDigest: ContentDigestSchema.parse(identity.projectionDigest),
+  };
+  return deriveTaggedReference(
+    StateReferenceKindRegistry.runtimeProjection.tag,
+    ProjectionRootRefSchema,
+    value,
+    sha256,
+    "deriveProjectionRootRef",
+  ) as ProjectionRootRef;
+}
+
 function verifyReference<T extends string>(
   schema: z.ZodType<T>,
   candidate: unknown,
@@ -276,4 +304,23 @@ export function verifyTrustSubjectRef(candidate: unknown, identity: ReferenceIde
 
 export function verifyPendingTransitionRef(candidate: unknown, identity: ReferenceIdentity, sha256: Sha256): PendingTransitionRef {
   return verifyReference(PendingTransitionRefSchema, candidate, identity, sha256, derivePendingTransitionRef, "pending transition reference does not match its identity") as PendingTransitionRef;
+}
+
+export function verifyProjectionRootRef(
+  candidate: unknown,
+  identity: Readonly<{ scope: ScopeReference; plugin: PluginKey; projectionDigest: ContentDigest }>,
+  sha256: Sha256,
+): ProjectionRootRef {
+  return verifyReference(
+    ProjectionRootRefSchema,
+    candidate,
+    identity,
+    sha256,
+    (value, hash) => deriveProjectionRootRef(value as {
+      scope: ScopeReference;
+      plugin: PluginKey;
+      projectionDigest: ContentDigest;
+    }, hash),
+    "projection root reference does not match its identity",
+  ) as ProjectionRootRef;
 }

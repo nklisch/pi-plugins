@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-immutable-stores-promotion-contracts
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 depends_on: []
@@ -46,4 +46,13 @@ Implement Unit 1 of the parent design. Add schema-derived marketplace/plugin phy
 - [ ] `PluginContentRef` remains revision-bound and existing installed-record verification still rejects mismatched refs.
 - [ ] `ProjectionRootRef` is registry-derived and cannot alias any existing reference family.
 - [ ] Application/domain files import no Node or infrastructure modules.
-- [ ] Unit/type/public-contract tests cover all variants and `npm run typecheck && npm run boundaries` pass.
+- [x] Unit/type/public-contract tests cover all variants and `npm run typecheck && npm run boundaries` pass.
+
+## Implementation notes
+- Execution capability: direct host implementation; the contract surface is cohesive and has no independent write owner.
+- Review weight: standard, with review intentionally left to the caller because agents were prohibited.
+- Files changed: `src/domain/content-store.ts`, `src/domain/state/references.ts`, `src/domain/state/installed-state.ts`, `src/domain/error-contract.ts`, `src/application/content-promotion.ts`, `src/application/ports/content-store.ts`, `src/index.ts`, and contract tests.
+- Tests added: `test/domain/content-store.test.ts`, `test/application/content-promotion.test.ts`; existing state/reference suites remain green.
+- Discrepancies from design: identity schemas use a small local key-schema registry helper rather than adding schema objects to `ContentStoreKindRegistry`; this keeps the registry's public tag vocabulary unchanged while retaining one source of truth for routing.
+- Adjacent issues parked: none.
+- Verification: `npm run typecheck`, `npm run boundaries`, and the focused domain/application/state Vitest suites pass.

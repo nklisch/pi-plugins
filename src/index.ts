@@ -349,6 +349,26 @@ export type {
 } from "./domain/content-manifest.js";
 
 export {
+  ContentStoreKindRegistry,
+  ContentStoreKeySchema,
+  ContentStoreIdentitySchema,
+  MarketplaceStoreIdentitySchema,
+  PluginStoreIdentitySchema,
+  createMarketplaceStoreIdentity,
+  createPluginStoreIdentity,
+  verifyContentStoreIdentity,
+  contentStoreKeyDigest,
+  contentStoreKeySchema,
+} from "./domain/content-store.js";
+export type {
+  ContentStoreKind,
+  ContentStoreKey,
+  ContentStoreIdentity,
+  MarketplaceStoreIdentity,
+  PluginStoreIdentity,
+} from "./domain/content-store.js";
+
+export {
   DEFAULT_MATERIALIZATION_LIMITS,
   SourceMaterializationError,
   createSourceMaterializers,
@@ -459,6 +479,7 @@ export {
   PluginConfigurationRefSchema,
   TrustSubjectRefSchema,
   PendingTransitionRefSchema,
+  ProjectionRootRefSchema,
   StateReferenceSchema,
   ReferenceIdentitySchema,
   deriveStateBlobRef,
@@ -468,6 +489,7 @@ export {
   derivePluginConfigurationRef,
   deriveTrustSubjectRef,
   derivePendingTransitionRef,
+  deriveProjectionRootRef,
   verifyStateBlobRef,
   verifyMarketplaceContentRef,
   verifyPluginContentRef,
@@ -475,6 +497,7 @@ export {
   verifyPluginConfigurationRef,
   verifyTrustSubjectRef,
   verifyPendingTransitionRef,
+  verifyProjectionRootRef,
 } from "./domain/state/references.js";
 export type {
   StateReferenceKind,
@@ -486,6 +509,7 @@ export type {
   PluginConfigurationRef,
   TrustSubjectRef,
   PendingTransitionRef,
+  ProjectionRootRef,
   StateReference,
   ReferenceIdentity,
 } from "./domain/state/references.js";
@@ -548,6 +572,7 @@ export {
   InstalledUserStateSchemaFamily,
   createMarketplaceSnapshotRecord,
   createInstalledRevisionRecord,
+  deriveStablePluginDataRef,
   verifyInstalledRevisionRecord,
   verifyInstalledPluginRecord,
   createInstalledPluginRecord,
@@ -695,6 +720,27 @@ export type {
   StateLoadResult,
 } from "./application/state-contract.js";
 export type { LifecycleStateStore } from "./application/ports/lifecycle-state-store.js";
+
+export {
+  createPromotionPlan,
+  assertVerifiedPromotionPlan,
+} from "./application/content-promotion.js";
+export type {
+  PromotionPlanInput,
+  VerifiedPromotionPlan,
+} from "./application/content-promotion.js";
+export type {
+  ContentStoreCapabilities,
+  ContentStorePort,
+  PromotionResult,
+  ResolvedContentRoot,
+  StableDataRootRequest,
+  WritableDataRoot,
+  ProjectionRootRequest,
+  ProjectionRootAllocation,
+  ResolvedProjectionRoot,
+  StagingAllocation,
+} from "./application/ports/content-store.js";
 
 // Mutation coordination is a portable application contract. The SQLite
 // adapter, physical lock roots, retry timers, and protocol schema remain an

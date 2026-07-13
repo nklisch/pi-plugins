@@ -373,13 +373,31 @@ function pluginRevisionIdentity(
   };
 }
 
+/**
+ * Persistent data belongs to the scope and plugin, not to an immutable
+ * revision. Updates therefore reuse the same logical data root while content
+ * references continue to identify one exact revision.
+ */
+export function deriveStablePluginDataRef(
+  input: Readonly<{ scope: ScopeReference; plugin: PluginKey }>,
+  sha256: Sha256,
+): PluginDataRef {
+  const scope = ScopeReferenceSchema.parse(input.scope);
+  const plugin = PluginKeySchema.parse(input.plugin);
+  return derivePluginDataRef({ scope, plugin, purpose: "persistent-plugin-data" }, sha256);
+}
+
 function pluginDataIdentity(
   scope: ScopeReference,
   evidence: InstalledEvidenceSummary,
-  contentDigest: ContentDigest,
-  binding: ContentDigest,
+  _contentDigest: ContentDigest,
+  _binding: ContentDigest,
 ): Record<string, JsonValue> {
-  return { ...pluginRevisionIdentity(scope, evidence, contentDigest, binding), purpose: "persistent-plugin-data" };
+  return {
+    scope,
+    plugin: evidence.plugin.key,
+    purpose: "persistent-plugin-data",
+  };
 }
 
 function pluginConfigurationIdentity(
@@ -521,7 +539,11 @@ export function createInstalledRevisionRecord(input: unknown, sha256: Sha256): I
   const scope = parseScope(value.scope);
   const evidence = createEvidenceSummary({ ...plugin, source }, compatibility, sha256);
   const revisionIdentity = pluginRevisionIdentity(scope, evidence, content.rootDigest, revision);
-  const dataIdentity = pluginDataIdentity(scope, evidence, content.rootDigest, revision);
+  const dataIdentity = {
+    scope,
+    plugin: evidence.plugin.key,
+    purpose: "persistent-plugin-data",
+  } satisfies Record<string, JsonValue>;
   const configurationIdentity = pluginConfigurationIdentity(scope, evidence, content.rootDigest, revision);
   const contentRef = derivePluginContentRef(revisionIdentity, sha256);
   const dataRef = derivePluginDataRef(dataIdentity, sha256);
