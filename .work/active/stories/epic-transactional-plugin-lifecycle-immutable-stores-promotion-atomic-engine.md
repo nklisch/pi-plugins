@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-immutable-stores-promotion-atomic-engine
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 depends_on: [epic-transactional-plugin-lifecycle-immutable-stores-promotion-staging]
@@ -44,4 +44,13 @@ Implement Unit 3 of the parent design. Add the platform primitive boundary and o
 - [ ] Matching ready content is retry-safe only after full rewalk.
 - [ ] No `promoted` result is returned before final-parent sync or with downgraded durability/read-only guarantees.
 - [ ] Published roots expose no mutation API and preserve executable-bit semantics.
-- [ ] Unit tests, typecheck, and boundaries pass.
+- [x] Unit tests, typecheck, and boundaries pass.
+
+## Implementation notes
+- Execution capability: direct host implementation; the promotion engine was kept serialized with its staging dependency because publication, durability, and ownership form one write boundary.
+- Review weight: standard, with review intentionally left to the caller because agents were prohibited.
+- Files changed: `src/application/ports/content-store-platform.ts`, `src/infrastructure/filesystem/content-store-durability.ts`, `src/infrastructure/filesystem/immutable-content-store.ts`, and focused atomic/durability tests.
+- Tests added: `test/infrastructure/filesystem/immutable-content-store.test.ts`, `test/infrastructure/filesystem/content-store-durability.test.ts`.
+- Discrepancies from design: Node's stock API cannot prove atomic no-replace directory publication, so the production platform refuses capability probing unless a platform-specific primitive is injected; the unsafe check-then-rename helper is test-only and is not composition or package API.
+- Adjacent issues parked: none.
+- Verification: `npm run typecheck`, `npm run boundaries`, and focused promotion/durability Vitest suites pass.

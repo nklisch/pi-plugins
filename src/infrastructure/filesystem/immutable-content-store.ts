@@ -1,0 +1,355 @@
+import { randomBytes as nodeRandomBytes } from "node:crypto";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  readlink,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { z } from "zod";
+import {
+  ContentStoreIdentitySchema,
+  createMarketplaceStoreIdentity,
+  createPluginStoreIdentity,
+  type ContentStoreIdentity,
+} from "../../domain/content-store.js";
+import {
+  ContentDigestSchema,
+  verifyContentManifest,
+  type ContentDigest,
+  type ContentManifest,
+} from "../../domain/content-manifest.js";
+import {
+  assertVerifiedPromotionPlan,
+  type VerifiedPromotionPlan,
+} from "../../application/content-promotion.js";
+import type { ContentStoreCapabilities } from "../../application/ports/content-store.js";
+import type { ContentStorePlatform } from "../../application/ports/content-store-platform.js";
+import { DomainContractError, ErrorCodeRegistry } from "../../domain/errors.js";
+import type { Sha256 } from "../../domain/source.js";
+import { verifyMaterializedContent } from "./secure-content-writer.js";
+import type { StagingAllocator } from "./staging-allocator.js";
+import type { ContentStoreLayout } from "./content-store-layout.js";
+
+const READY_TEXT = "content-store-ready-v1\n";
+const READY_TMP = "READY.tmp";
+const READY = "READY";
+const METADATA = "metadata.json";
+
+const PublishedMetadataSchema = z.object({
+  version: z.literal(1),
+  identity: ContentStoreIdentitySchema,
+  manifest: z.unknown(),
+  binding: ContentDigestSchema,
+}).strict().readonly();
+type PublishedMetadata = z.infer<typeof PublishedMetadataSchema>;
+
+export type PublishedRevision = Readonly<{
+  root: string;
+  identity: ContentStoreIdentity;
+  manifest: ContentManifest;
+  binding: ContentDigest;
+}>;
+
+export type ImmutableContentStore = Readonly<{
+  capabilities(signal: AbortSignal): Promise<ContentStoreCapabilities>;
+  promote(plan: VerifiedPromotionPlan, signal: AbortSignal): Promise<{
+    kind: "promoted" | "already-present";
+    identity: ContentStoreIdentity;
+    root: string;
+    manifest: ContentManifest;
+  }>;
+}>;
+
+export type ImmutableContentStoreOptions = Readonly<{
+  layout: ContentStoreLayout;
+  allocator: StagingAllocator & { assertOwned(allocation: unknown, operation?: string): Promise<{ readonly root: string }> };
+  platform: ContentStorePlatform;
+  sha256: Sha256;
+  randomBytes?: (size: number) => Uint8Array | Promise<Uint8Array>;
+}>;
+
+function storeError(
+  code: "contentVerificationFailed" | "storeIdentityCollision" | "durabilityUnavailable" | "adapterFailed",
+  operation: string,
+  message: string,
+  cause?: unknown,
+): DomainContractError {
+  return new DomainContractError({
+    code: ErrorCodeRegistry[code],
+    operation,
+    message,
+    details: { operation },
+    ...(cause === undefined ? {} : { cause }),
+  });
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function expectedContentRoot(slotRoot: string): string {
+  return join(slotRoot, "content");
+}
+
+function preparedId(bytes: Uint8Array): string {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength !== 16) throw new Error("prepared-id source must return 16 bytes");
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function writeSyncedFile(path: string, contents: string, platform: ContentStorePlatform): Promise<void> {
+  let handle;
+  try {
+    handle = await open(path, "wx", 0o600);
+    await handle.writeFile(contents, "utf8");
+    await handle.sync();
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+  await platform.syncFile(path);
+}
+
+async function copyManifestTree(
+  sourceRoot: string,
+  destinationRoot: string,
+  manifest: ContentManifest,
+): Promise<void> {
+  await mkdir(destinationRoot, { mode: 0o755 });
+  const entries = [...manifest.entries].sort((left, right) => {
+    const leftDepth = left.path.split("/").length;
+    const rightDepth = right.path.split("/").length;
+    if (leftDepth !== rightDepth) return leftDepth - rightDepth;
+    return left.path.localeCompare(right.path);
+  });
+  for (const entry of entries) {
+    const source = join(sourceRoot, ...entry.path.split("/"));
+    const destination = join(destinationRoot, ...entry.path.split("/"));
+    if (entry.kind === "directory") {
+      await mkdir(destination, { mode: 0o755 });
+      continue;
+    }
+    if (entry.kind === "file") {
+      const stat = await lstat(source);
+      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("source entry changed type");
+      const bytes = await readFile(source);
+      await writeFile(destination, bytes, { flag: "wx", mode: 0o600 });
+      await chmod(destination, entry.mode);
+      continue;
+    }
+    const target = await readlink(source);
+    if (target !== entry.target) throw new Error("source link changed target");
+    await symlink(target, destination);
+  }
+}
+
+async function syncManifestTree(
+  root: string,
+  manifest: ContentManifest,
+  platform: ContentStorePlatform,
+): Promise<void> {
+  const entries = [...manifest.entries].sort((left, right) => {
+    const leftDepth = left.path.split("/").length;
+    const rightDepth = right.path.split("/").length;
+    return rightDepth - leftDepth || right.path.localeCompare(left.path);
+  });
+  for (const entry of entries) {
+    const path = join(root, "content", ...entry.path.split("/"));
+    if (entry.kind !== "directory") await platform.syncFile(path);
+    else await platform.syncDirectory(path);
+  }
+  await platform.syncDirectory(join(root, "content"));
+}
+
+async function verifySealedModes(root: string, manifest: ContentManifest): Promise<void> {
+  const contentRoot = join(root, "content");
+  for (const entry of manifest.entries) {
+    const path = join(contentRoot, ...entry.path.split("/"));
+    const stat = await lstat(path);
+    if (entry.kind === "directory") {
+      if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode & 0o777) !== 0o555) throw new Error("published directory mode is mutable");
+    } else if (entry.kind === "file") {
+      const expected = entry.mode === 0o755 ? 0o555 : 0o444;
+      if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o777) !== expected) throw new Error("published file mode is mutable");
+    } else if (!stat.isSymbolicLink()) {
+      throw new Error("published link changed type");
+    }
+  }
+  const rootStat = await lstat(contentRoot);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || (rootStat.mode & 0o777) !== 0o555) throw new Error("published content root mode is mutable");
+  const metadataStat = await lstat(join(root, METADATA));
+  const readyStat = await lstat(join(root, READY));
+  if (!metadataStat.isFile() || (metadataStat.mode & 0o777) !== 0o444 || !readyStat.isFile() || (readyStat.mode & 0o777) !== 0o444) {
+    throw new Error("published metadata is mutable");
+  }
+  const revisionStat = await lstat(root);
+  if (!revisionStat.isDirectory() || revisionStat.isSymbolicLink() || (revisionStat.mode & 0o777) !== 0o555) throw new Error("published revision root mode is mutable");
+}
+
+async function readMetadataWithHash(root: string, sha256: Sha256): Promise<Readonly<{ metadata: PublishedMetadata; manifest: ContentManifest }>> {
+  const marker = await readFile(join(root, READY), "utf8").catch(() => undefined);
+  if (marker !== READY_TEXT) throw new Error("ready marker is invalid");
+  const metadata = PublishedMetadataSchema.parse(JSON.parse(await readFile(join(root, METADATA), "utf8")));
+  const manifest = verifyContentManifest(metadata.manifest, sha256);
+  if (metadata.binding !== metadata.identity.binding) {
+    throw new Error("metadata binding is invalid");
+  }
+  return { metadata, manifest };
+}
+
+export async function inspectPublishedRevision(root: string, sha256: Sha256): Promise<PublishedRevision> {
+  const stat = await lstat(root).catch((cause) => { throw storeError("contentVerificationFailed", "resolveContent", "published revision is unavailable", cause); });
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw storeError("contentVerificationFailed", "resolveContent", "published revision is not a real directory");
+  const { metadata, manifest } = await readMetadataWithHash(root, sha256);
+  const actual = await verifyMaterializedContent(join(root, "content"), manifest).catch((cause) => {
+    throw storeError("contentVerificationFailed", "resolveContent", "published revision content verification failed", cause);
+  });
+  if (!sameJson(actual, manifest)) throw storeError("contentVerificationFailed", "resolveContent", "published revision content does not match metadata");
+  await verifySealedModes(root, manifest).catch((cause) => {
+    throw storeError("contentVerificationFailed", "resolveContent", "published revision is not read-only", cause);
+  });
+  return { root, identity: metadata.identity, manifest: actual, binding: metadata.binding };
+}
+
+export function createImmutableContentStore(options: ImmutableContentStoreOptions): ImmutableContentStore {
+  let capabilityPromise: Promise<ContentStoreCapabilities> | undefined;
+  const loadCapabilities = (): Promise<ContentStoreCapabilities> => {
+    capabilityPromise ??= options.platform.probe(options.layout.hostRoot).then((capabilities) => {
+    if (!capabilities.atomicNoReplaceDirectory || !capabilities.fileSync || !capabilities.directorySync || capabilities.readOnlyModeEnforcement !== "posix-mode") {
+      throw storeError("durabilityUnavailable", "probeContentStore", "required immutable-store capabilities are unavailable");
+    }
+      return capabilities;
+    });
+    return capabilityPromise;
+  };
+  const randomBytes = options.randomBytes ?? ((size: number) => new Uint8Array(nodeRandomBytes(size)));
+
+  async function capabilities(signal: AbortSignal): Promise<ContentStoreCapabilities> {
+    throwIfAborted(signal);
+    return loadCapabilities();
+  }
+
+  async function inspectTarget(target: string, plan: VerifiedPromotionPlan): Promise<"absent" | "ready-match" | "collision"> {
+    let stat;
+    try {
+      stat = await lstat(target);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
+      throw storeError("adapterFailed", "promoteContent", "content store target could not be inspected", error);
+    }
+    if (!stat.isDirectory() || stat.isSymbolicLink()) return "collision";
+    try {
+      const inspected = await inspectPublishedRevision(target, options.sha256);
+      if (!sameJson(inspected.identity, plan.identity) || inspected.binding !== plan.binding || !sameJson(inspected.manifest, plan.manifest)) return "collision";
+      return "ready-match";
+    } catch {
+      // A target without a valid marker is inert but cannot be replaced under
+      // the requested identity. Recovery/GC owns abandoned-target decisions.
+      return "collision";
+    }
+  }
+
+  async function promote(planInput: VerifiedPromotionPlan, signal: AbortSignal) {
+    const plan = assertVerifiedPromotionPlan(planInput, options.sha256);
+    await capabilities(signal);
+    const record = await options.allocator.assertOwned(plan.allocation, "promoteContent");
+    const contentRoot = expectedContentRoot(record.root);
+    if (resolve(plan.root) !== resolve(contentRoot) || plan.root !== contentRoot) {
+      throw storeError("contentVerificationFailed", "promoteContent", "materialized content root is not the owned staging root");
+    }
+    const slotEntries = await readdir(record.root).catch((cause) => { throw storeError("contentVerificationFailed", "promoteContent", "staging allocation cannot be inspected", cause); });
+    if (slotEntries.length !== 1 || slotEntries[0] !== "content") {
+      throw storeError("contentVerificationFailed", "promoteContent", "staging allocation contains unexpected entries");
+    }
+    throwIfAborted(signal);
+    const sourceManifest = await verifyMaterializedContent(contentRoot, plan.manifest).catch((cause) => {
+      throw storeError("contentVerificationFailed", "promoteContent", "materialized content failed the promotion rewalk", cause);
+    });
+    if (!sameJson(sourceManifest, plan.manifest)) throw storeError("contentVerificationFailed", "promoteContent", "materialized content differs from its handoff manifest");
+    const recomputedIdentity = plan.kind === "marketplace"
+      ? createMarketplaceStoreIdentity(plan.source as import("../../domain/source.js").ResolvedMarketplaceSource, sourceManifest, plan.binding, options.sha256)
+      : createPluginStoreIdentity(plan.source as import("../../domain/source.js").ResolvedPluginSource, sourceManifest, plan.binding, options.sha256);
+    if (!sameJson(recomputedIdentity, plan.identity)) throw storeError("contentVerificationFailed", "promoteContent", "materialized source identity changed before publication");
+
+    const target = plan.identity.kind === "marketplace"
+      ? options.layout.marketplacePath(plan.identity)
+      : options.layout.pluginPath(plan.identity);
+    const storeRoot = plan.identity.kind === "marketplace"
+      ? options.layout.marketplaceStoreRoot
+      : options.layout.pluginStoreRoot;
+    const initialTarget = await inspectTarget(target, plan);
+    if (initialTarget === "ready-match") {
+      await options.allocator.discardStaging(plan.allocation, signal);
+      return { kind: "already-present" as const, identity: plan.identity, root: join(target, "content"), manifest: plan.manifest };
+    }
+    if (initialTarget === "collision") throw storeError("storeIdentityCollision", "promoteContent", "content store identity is already occupied by different content");
+
+    const prepared = join(storeRoot, `.pending-${preparedId(await randomBytes(16))}`);
+    let published = false;
+    try {
+      await mkdir(prepared, { mode: 0o700 });
+      await copyManifestTree(contentRoot, join(prepared, "content"), plan.manifest);
+      // Rewalk the source after copying: a handoff mutation during the copy is
+      // rejected instead of being smuggled into a sealed revision.
+      const afterCopy = await verifyMaterializedContent(contentRoot, plan.manifest).catch((cause) => {
+        throw storeError("contentVerificationFailed", "promoteContent", "materialized content changed during promotion", cause);
+      });
+      if (!sameJson(afterCopy, plan.manifest)) throw storeError("contentVerificationFailed", "promoteContent", "materialized content changed during promotion");
+      const preparedManifest = await verifyMaterializedContent(join(prepared, "content"), plan.manifest).catch((cause) => {
+        throw storeError("contentVerificationFailed", "promoteContent", "prepared content failed verification", cause);
+      });
+      if (!sameJson(preparedManifest, plan.manifest)) throw storeError("contentVerificationFailed", "promoteContent", "prepared content differs from the handoff");
+      const metadata = JSON.stringify({ version: 1, identity: plan.identity, manifest: plan.manifest, binding: plan.binding });
+      await writeSyncedFile(join(prepared, METADATA), metadata, options.platform);
+      await chmod(join(prepared, METADATA), 0o444);
+      await options.platform.syncFile(join(prepared, METADATA));
+      await writeSyncedFile(join(prepared, READY_TMP), READY_TEXT, options.platform);
+      await rename(join(prepared, READY_TMP), join(prepared, READY));
+      await chmod(join(prepared, READY), 0o444);
+      await syncManifestTree(prepared, plan.manifest, options.platform);
+      await options.platform.syncFile(join(prepared, METADATA));
+      await options.platform.syncFile(join(prepared, READY));
+      await options.platform.sealReadOnly(prepared, plan.manifest);
+      const sealed = await verifyMaterializedContent(join(prepared, "content"), plan.manifest).catch((cause) => {
+        throw storeError("contentVerificationFailed", "promoteContent", "sealed content failed verification", cause);
+      });
+      if (!sameJson(sealed, plan.manifest)) throw storeError("contentVerificationFailed", "promoteContent", "sealed content differs from the handoff");
+      await verifySealedModes(prepared, plan.manifest);
+      await options.platform.syncDirectory(prepared);
+      throwIfAborted(signal);
+      const publication = await options.platform.renameNoReplace(prepared, target);
+      if (publication === "exists") {
+        const winner = await inspectTarget(target, plan);
+        if (winner !== "ready-match") throw storeError("storeIdentityCollision", "promoteContent", "concurrent content store publication collides with different content");
+        await options.allocator.discardStaging(plan.allocation, new AbortController().signal);
+        return { kind: "already-present" as const, identity: plan.identity, root: join(target, "content"), manifest: plan.manifest };
+      }
+      published = true;
+      await options.platform.syncDirectory(storeRoot).catch((cause) => {
+        throw storeError("durabilityUnavailable", "promoteContent", "published content could not be made durable", cause);
+      });
+      await options.allocator.discardStaging(plan.allocation, new AbortController().signal);
+      return { kind: "promoted" as const, identity: plan.identity, root: join(target, "content"), manifest: plan.manifest };
+    } catch (error) {
+      if (!published) await rm(prepared, { recursive: true, force: true }).catch(() => undefined);
+      if (error instanceof DomainContractError) throw error;
+      throw storeError("adapterFailed", "promoteContent", "immutable content promotion failed", error);
+    }
+  }
+
+  return Object.freeze({ capabilities, promote });
+}
+
+// Keep the metadata schema available to neighboring adapters without making it
+// part of the package's public API.
+export { PublishedMetadataSchema };
