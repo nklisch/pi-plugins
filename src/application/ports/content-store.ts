@@ -113,7 +113,8 @@ export interface ContentStorePort {
   discardStaging(allocation: StagingAllocation, signal: AbortSignal): Promise<void>;
   promote(plan: VerifiedPromotionPlan, signal: AbortSignal): Promise<PromotionResult>;
   resolveMarketplace(record: MarketplaceSnapshotRecord, signal: AbortSignal): Promise<ResolvedContentRoot>;
-  resolvePlugin(record: InstalledRevisionRecord, signal: AbortSignal): Promise<ResolvedContentRoot>;
+  /** Scope is explicit because persisted revision records are scope-free envelopes. */
+  resolvePlugin(record: InstalledRevisionRecord, signal: AbortSignal, scope: ScopeReference): Promise<ResolvedContentRoot>;
   ensureDataRoot(input: StableDataRootRequest, signal: AbortSignal): Promise<WritableDataRoot>;
   allocateProjectionRoot(input: ProjectionRootRequest, signal: AbortSignal): Promise<ProjectionRootAllocation>;
   sealProjectionRoot(input: ProjectionRootAllocation, signal: AbortSignal): Promise<ResolvedProjectionRoot>;

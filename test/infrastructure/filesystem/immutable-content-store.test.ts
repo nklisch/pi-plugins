@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -54,6 +54,20 @@ async function makePlan(allocator: Awaited<ReturnType<typeof makeStore>>["alloca
 }
 
 describe("immutable content promotion", () => {
+  it("normalizes missing revision publication controls", async () => {
+    const { root, layout } = await makeStore();
+    try {
+      const missing = join(layout.pluginStoreRoot, "missing");
+      await mkdir(missing);
+      const error = await inspectPublishedRevision(missing, sha256).catch((cause: unknown) => cause);
+      expect(error).toMatchObject({ code: "CONTENT_VERIFICATION_FAILED" });
+      expect((error as Error).message).not.toContain("ENOENT");
+      expect(JSON.stringify((error as { toDiagnostic(): unknown }).toDiagnostic())).not.toContain(missing);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("publishes a complete read-only revision and is idempotent", async () => {
     const { root, allocator, store } = await makeStore();
     let publishedRoot: string | undefined;
@@ -73,6 +87,62 @@ describe("immutable content promotion", () => {
         await chmod(join(publishedRoot, "content"), 0o755).catch(() => undefined);
         await chmod(publishedRoot, 0o755).catch(() => undefined);
       }
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reclaims a prepared loser after an identical publication race", async () => {
+    const { root, layout, allocator } = await makeStore();
+    let publishedRoot: string | undefined;
+    try {
+      const base = createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe });
+      const platform = {
+        ...base,
+        async renameNoReplace(source: string, destination: string): Promise<"published" | "exists"> {
+          const winner = `${destination}.winner`;
+          await cp(source, winner, { recursive: true });
+          await rename(winner, destination);
+          return "exists";
+        },
+      };
+      const store = createImmutableContentStore({ layout, allocator, platform, sha256, randomBytes: () => Uint8Array.from({ length: 16 }, (_, i) => 31 - i) });
+      const plan = await makePlan(allocator, root, "race");
+      const result = await store.promote(plan, signal);
+      publishedRoot = result.root.replace(/[/\\\\]content$/, "");
+      expect(result.kind).toBe("already-present");
+      expect((await readdir(layout.pluginStoreRoot)).filter((entry) => entry.startsWith(".pending-")).length).toBe(0);
+    } finally {
+      if (publishedRoot !== undefined) {
+        await chmod(join(publishedRoot, "content", "plugin.txt"), 0o644).catch(() => undefined);
+        await chmod(join(publishedRoot, "content"), 0o755).catch(() => undefined);
+        await chmod(join(publishedRoot, "metadata.json"), 0o644).catch(() => undefined);
+        await chmod(join(publishedRoot, "READY"), 0o644).catch(() => undefined);
+        await chmod(publishedRoot, 0o755).catch(() => undefined);
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("removes a sealed prepared tree after cancellation", async () => {
+    const { root, layout, allocator } = await makeStore();
+    try {
+      const base = createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe });
+      const controller = new AbortController();
+      let preparedPath: string | undefined;
+      const platform = {
+        ...base,
+        async syncDirectory(path: string): Promise<void> {
+          await base.syncDirectory(path);
+          if (preparedPath !== undefined && path === preparedPath) controller.abort();
+        },
+      };
+      const store = createImmutableContentStore({ layout, allocator, platform, sha256, randomBytes: () => Uint8Array.from({ length: 16 }, (_, i) => 31 - i) });
+      const plan = await makePlan(allocator, root, "cancel");
+      // The allocator uses a fixed id and the store uses a fixed prepared id.
+      preparedPath = `${layout.pluginStoreRoot}/.pending-1f1e1d1c1b1a19181716151413121110`;
+      await expect(store.promote(plan, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+      expect((await readdir(layout.pluginStoreRoot)).filter((entry) => entry.startsWith(".pending-")).length).toBe(0);
+    } finally {
       await rm(root, { recursive: true, force: true });
     }
   });

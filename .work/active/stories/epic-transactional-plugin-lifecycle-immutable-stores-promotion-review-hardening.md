@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-immutable-stores-promotion-review-hardening
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 depends_on: [epic-transactional-plugin-lifecycle-immutable-stores-promotion-hardening]
@@ -32,9 +32,19 @@ Close confirmed promotion cleanup findings and execute every interrupted adversa
 
 ## Acceptance criteria
 
-- [ ] Identical concurrent promotions leave no loser-owned pending directory.
-- [ ] Every post-seal exit either removes prepared content or returns safe explicit cleanup evidence.
-- [ ] Projection sealing revalidates allocation identity/nofollow containment immediately before publication.
-- [ ] Nested control-name files are hashed and sealed immutable.
-- [ ] Content resolution preserves exact user/project scope.
-- [ ] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+- [x] Identical concurrent promotions leave no loser-owned pending directory.
+- [x] Every post-seal exit either removes prepared content or returns safe explicit cleanup evidence.
+- [x] Projection sealing revalidates allocation identity/nofollow containment immediately before publication.
+- [x] Nested control-name files are hashed and sealed immutable.
+- [x] Content resolution preserves exact user/project scope.
+- [x] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+
+## Implementation notes
+
+- Execution capability: direct host implementation; no agents or peer mechanisms were used, per caller instruction.
+- Review weight: standard; implementation stops at `stage: review` for the requested isolated-snapshot reviewer handoff.
+- Files changed: `src/infrastructure/filesystem/prepared-tree-cleanup.ts`, immutable promotion cleanup/marker verification, projection allocation verification/hash/sealing/cleanup, explicit scoped plugin resolution, and focused infrastructure tests.
+- Tests added: identical publication-race cleanup, post-seal cancellation and cleanup redaction, projection symlink-swap rejection, nested control-name hashing/sealing, normalized marker errors, and project-scope resolution regressions.
+- Discrepancies from design: persisted installed revision records remain scope-free envelopes, so `resolvePlugin` now requires the authoritative scope as an explicit argument rather than defaulting to user scope; the port contract was tightened accordingly.
+- Adjacent issues parked: none.
+- Verification: `npm test` passes with 90 test files / 539 tests, production typecheck, dependency boundaries, build, and compiled package import (319 exports).

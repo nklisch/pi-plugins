@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +16,21 @@ const sha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha
 const signal = new AbortController().signal;
 
 describe("runtime data and projection roots", () => {
+  it("normalizes missing projection publication controls", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-projection-marker-"));
+    try {
+      const layout = await createContentStoreLayout(join(root, "host"));
+      const missing = join(layout.generatedRoot, "missing");
+      await mkdir(missing);
+      const error = await inspectProjection(missing, sha256).catch((cause: unknown) => cause);
+      expect(error).toMatchObject({ code: "CONTENT_VERIFICATION_FAILED" });
+      expect((error as Error).message).not.toContain("ENOENT");
+      expect(JSON.stringify((error as { toDiagnostic(): unknown }).toDiagnostic())).not.toContain(missing);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps data stable and physically separate from immutable content", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-runtime-roots-"));
     try {
@@ -34,6 +49,156 @@ describe("runtime data and projection roots", () => {
       const projectRef = derivePluginDataRef({ scope: { kind: "project", projectKey: `project-v1:sha256:${"1".repeat(64)}` }, plugin: "demo@market", purpose: "persistent-plugin-data" }, sha256);
       const project = await runtime.ensureDataRoot({ scope: { kind: "project", projectKey: `project-v1:sha256:${"1".repeat(64)}` }, plugin: "demo@market", dataRef: projectRef }, signal);
       expect(project.root).not.toBe(first.root);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an allocation symlink swap before touching a foreign tree", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-projection-symlink-"));
+    let allocationRoot: string | undefined;
+    try {
+      const layout = await createContentStoreLayout(join(root, "host"));
+      const platform = createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe });
+      const runtime = createRuntimeRootStore({ layout, platform, sha256 });
+      const payload = await mkdtemp(join(root, "payload-"));
+      const projectionDigest = await hashProjectionRoot(payload, sha256);
+      const scope = { kind: "user" } as const;
+      const plugin = "demo@market" as const;
+      const projectionRef = deriveProjectionRootRef({ scope, plugin, projectionDigest }, sha256);
+      const allocation = await runtime.allocateProjectionRoot({ scope, plugin, projectionDigest, projectionRef }, signal);
+      allocationRoot = allocation.root;
+      const foreign = await mkdtemp(join(root, "foreign-"));
+      await writeFile(join(foreign, "foreign.txt"), "untouched");
+      const displaced = `${allocation.root}.displaced`;
+      await rename(allocation.root, displaced);
+      await symlink(foreign, allocation.root);
+
+      await expect(runtime.sealProjectionRoot(allocation, signal)).rejects.toMatchObject({ code: "STAGING_ALLOCATION_INVALID" });
+      expect(await readFile(join(foreign, "foreign.txt"), "utf8")).toBe("untouched");
+      await expect(lstat(join(foreign, "metadata.json"))).rejects.toMatchObject({ code: "ENOENT" });
+      await rm(displaced, { recursive: true, force: true });
+      await rm(allocation.root, { force: true });
+      await rm(payload, { recursive: true, force: true });
+    } finally {
+      if (allocationRoot !== undefined) {
+        await rm(allocationRoot, { recursive: true, force: true }).catch(() => undefined);
+        await rm(`${allocationRoot}.displaced`, { recursive: true, force: true }).catch(() => undefined);
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("hashes and seals nested control-name payload entries", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-projection-controls-"));
+    try {
+      const layout = await createContentStoreLayout(join(root, "host"));
+      const platform = createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe });
+      const runtime = createRuntimeRootStore({ layout, platform, sha256 });
+      const payload = await mkdtemp(join(root, "payload-"));
+      await mkdir(join(payload, "nested"));
+      await writeFile(join(payload, "nested", "READY"), "payload-ready");
+      await writeFile(join(payload, "nested", "metadata.json"), "payload-metadata");
+      const projectionDigest = await hashProjectionRoot(payload, sha256);
+      const scope = { kind: "user" } as const;
+      const plugin = "demo@market" as const;
+      const projectionRef = deriveProjectionRootRef({ scope, plugin, projectionDigest }, sha256);
+      const allocation = await runtime.allocateProjectionRoot({ scope, plugin, projectionDigest, projectionRef }, signal);
+      await mkdir(join(allocation.root, "nested"));
+      await writeFile(join(allocation.root, "nested", "READY"), "payload-ready");
+      await writeFile(join(allocation.root, "nested", "metadata.json"), "payload-metadata");
+      const resolved = await runtime.sealProjectionRoot(allocation, signal);
+
+      expect(await inspectProjection(resolved.root, sha256)).toMatchObject({ projectionRef, projectionDigest });
+      expect((await lstat(join(resolved.root, "nested", "READY"))).mode & 0o777).toBe(0o444);
+      expect((await lstat(join(resolved.root, "nested", "metadata.json"))).mode & 0o777).toBe(0o444);
+      expect((await lstat(join(resolved.root, "nested"))).mode & 0o777).toBe(0o555);
+      await chmod(join(resolved.root, "nested", "READY"), 0o644);
+      await chmod(join(resolved.root, "nested", "metadata.json"), 0o644);
+      await chmod(join(resolved.root, "nested"), 0o755);
+      await chmod(join(resolved.root, "descriptor.json"), 0o644).catch(() => undefined);
+      await chmod(join(resolved.root, "metadata.json"), 0o644);
+      await chmod(join(resolved.root, "READY"), 0o644);
+      await chmod(resolved.root, 0o755);
+      await rm(payload, { recursive: true, force: true });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("restores sealed permissions before removing a cancelled projection", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-projection-cancel-"));
+    try {
+      const layout = await createContentStoreLayout(join(root, "host"));
+      const base = createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe });
+      const controller = new AbortController();
+      let allocationRoot: string | undefined;
+      const platform = {
+        ...base,
+        async syncDirectory(path: string): Promise<void> {
+          await base.syncDirectory(path);
+          if (allocationRoot !== undefined && path === allocationRoot) controller.abort();
+        },
+      };
+      const runtime = createRuntimeRootStore({ layout, platform, sha256 });
+      const payload = await mkdtemp(join(root, "payload-"));
+      await writeFile(join(payload, "descriptor.json"), "cancel");
+      const projectionDigest = await hashProjectionRoot(payload, sha256);
+      const scope = { kind: "user" } as const;
+      const plugin = "demo@market" as const;
+      const projectionRef = deriveProjectionRootRef({ scope, plugin, projectionDigest }, sha256);
+      const allocation = await runtime.allocateProjectionRoot({ scope, plugin, projectionDigest, projectionRef }, signal);
+      allocationRoot = allocation.root;
+      await writeFile(join(allocation.root, "descriptor.json"), "cancel");
+
+      await expect(runtime.sealProjectionRoot(allocation, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+      await expect(lstat(allocation.root)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readdir(layout.projectionStagingRoot)).toEqual([]);
+      await rm(payload, { recursive: true, force: true });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("redacts cleanup failures when a sealed projection root is replaced", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-projection-cleanup-"));
+    try {
+      const layout = await createContentStoreLayout(join(root, "host"));
+      const base = createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe });
+      const foreign = await mkdtemp(join(root, "foreign-"));
+      await writeFile(join(foreign, "foreign.txt"), "untouched");
+      let allocationRoot: string | undefined;
+      const platform = {
+        ...base,
+        async syncDirectory(path: string): Promise<void> {
+          if (allocationRoot !== undefined && path === allocationRoot) {
+            await base.syncDirectory(path);
+            await rename(path, `${path}.displaced`);
+            await symlink(foreign, path);
+            throw new Error("/native/private/path cleanup failure");
+          }
+          await base.syncDirectory(path);
+        },
+      };
+      const runtime = createRuntimeRootStore({ layout, platform, sha256 });
+      const payload = await mkdtemp(join(root, "payload-"));
+      await writeFile(join(payload, "descriptor.json"), "cleanup");
+      const projectionDigest = await hashProjectionRoot(payload, sha256);
+      const scope = { kind: "user" } as const;
+      const plugin = "demo@market" as const;
+      const projectionRef = deriveProjectionRootRef({ scope, plugin, projectionDigest }, sha256);
+      const allocation = await runtime.allocateProjectionRoot({ scope, plugin, projectionDigest, projectionRef }, signal);
+      allocationRoot = allocation.root;
+      await writeFile(join(allocation.root, "descriptor.json"), "cleanup");
+
+      const error = await runtime.sealProjectionRoot(allocation, signal).catch((cause: unknown) => cause);
+      expect(error).toMatchObject({ code: "ADAPTER_FAILED", details: { cleanup: "incomplete" } });
+      expect((error as Error).message).not.toContain("private/path");
+      expect(JSON.stringify((error as { toDiagnostic(): unknown }).toDiagnostic())).not.toContain("private/path");
+      expect(await readFile(join(foreign, "foreign.txt"), "utf8")).toBe("untouched");
+      await rm(`${allocation.root}.displaced`, { recursive: true, force: true });
+      await rm(allocation.root, { force: true });
+      await rm(payload, { recursive: true, force: true });
     } finally {
       await rm(root, { recursive: true, force: true });
     }

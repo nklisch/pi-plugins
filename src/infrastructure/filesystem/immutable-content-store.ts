@@ -9,7 +9,6 @@ import {
   realpath,
   readlink,
   rename,
-  rm,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -38,6 +37,7 @@ import type { Sha256 } from "../../domain/source.js";
 import { verifyMaterializedContent } from "./secure-content-writer.js";
 import type { StagingAllocator } from "./staging-allocator.js";
 import type { ContentStoreLayout } from "./content-store-layout.js";
+import { removePreparedTree, type PreparedTreeIdentity } from "./prepared-tree-cleanup.js";
 
 const READY_TEXT = "content-store-ready-v1\n";
 const READY_TMP = "READY.tmp";
@@ -82,18 +82,25 @@ function storeError(
   operation: string,
   message: string,
   cause?: unknown,
+  cleanup?: "incomplete",
 ): DomainContractError {
   return new DomainContractError({
     code: ErrorCodeRegistry[code],
     operation,
     message,
-    details: { operation },
+    details: { operation, ...(cleanup === undefined ? {} : { cleanup }) },
     ...(cause === undefined ? {} : { cause }),
   });
 }
 
 function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+}
+
+function isIncompleteCleanup(error: unknown): boolean {
+  if (!(error instanceof DomainContractError)) return false;
+  const details = error.details;
+  return details !== null && typeof details === "object" && !Array.isArray(details) && "cleanup" in details && details.cleanup === "incomplete";
 }
 
 function sameJson(left: unknown, right: unknown): boolean {
@@ -204,17 +211,34 @@ async function verifySealedModes(root: string, manifest: ContentManifest): Promi
 }
 
 async function readMetadataWithHash(root: string, sha256: Sha256): Promise<Readonly<{ metadata: PublishedMetadata; manifest: ContentManifest }>> {
-  const markerStat = await lstat(join(root, READY));
-  const metadataStat = await lstat(join(root, METADATA));
-  if (!markerStat.isFile() || markerStat.isSymbolicLink() || !metadataStat.isFile() || metadataStat.isSymbolicLink()) {
-    throw new Error("publication metadata is not a regular file");
+  let markerStat;
+  let metadataStat;
+  try {
+    markerStat = await lstat(join(root, READY));
+    metadataStat = await lstat(join(root, METADATA));
+  } catch (cause) {
+    throw storeError("contentVerificationFailed", "resolveContent", "published revision marker or metadata is unavailable", cause);
   }
-  const marker = await readFile(join(root, READY), "utf8").catch(() => undefined);
-  if (marker !== READY_TEXT) throw new Error("ready marker is invalid");
-  const metadata = PublishedMetadataSchema.parse(JSON.parse(await readFile(join(root, METADATA), "utf8")));
-  const manifest = verifyContentManifest(metadata.manifest, sha256);
+  if (!markerStat.isFile() || markerStat.isSymbolicLink() || !metadataStat.isFile() || metadataStat.isSymbolicLink()) {
+    throw storeError("contentVerificationFailed", "resolveContent", "published revision marker or metadata is invalid");
+  }
+  let marker: string;
+  let metadata: PublishedMetadata;
+  try {
+    marker = await readFile(join(root, READY), "utf8");
+    if (marker !== READY_TEXT) throw new Error("marker content mismatch");
+    metadata = PublishedMetadataSchema.parse(JSON.parse(await readFile(join(root, METADATA), "utf8")));
+  } catch (cause) {
+    throw storeError("contentVerificationFailed", "resolveContent", "published revision marker or metadata is invalid", cause);
+  }
+  let manifest: ContentManifest;
+  try {
+    manifest = verifyContentManifest(metadata.manifest, sha256);
+  } catch (cause) {
+    throw storeError("contentVerificationFailed", "resolveContent", "published revision metadata manifest is invalid", cause);
+  }
   if (metadata.binding !== metadata.identity.binding) {
-    throw new Error("metadata binding is invalid");
+    throw storeError("contentVerificationFailed", "resolveContent", "published revision metadata binding is invalid");
   }
   return { metadata, manifest };
 }
@@ -311,8 +335,37 @@ export function createImmutableContentStore(options: ImmutableContentStoreOption
 
     const prepared = join(storeRoot, `.pending-${preparedId(await randomBytes(16))}`);
     let published = false;
+    let preparedCreated = false;
+    let preparedIdentity: PreparedTreeIdentity | undefined;
+    let cleanupAttempted = false;
+    let cleanupFailure: unknown;
+    const tryCleanupPrepared = async (): Promise<unknown> => {
+      if (cleanupAttempted || !preparedCreated) return cleanupFailure;
+      cleanupAttempted = true;
+      if (preparedIdentity === undefined) {
+        cleanupFailure = new Error("prepared cleanup identity is unavailable");
+        return cleanupFailure;
+      }
+      try {
+        await removePreparedTree(prepared, preparedIdentity);
+      } catch (cause) {
+        cleanupFailure = cause;
+      }
+      return cleanupFailure;
+    };
+    const cleanupError = (primary: unknown): DomainContractError => storeError(
+      "adapterFailed",
+      "promoteContent",
+      "immutable content promotion failed and prepared content cleanup was incomplete",
+      new AggregateError([primary, cleanupFailure], "promotion cleanup failed"),
+      "incomplete",
+    );
     try {
       await mkdir(prepared, { mode: 0o700 });
+      preparedCreated = true;
+      const preparedStat = await lstat(prepared);
+      if (!preparedStat.isDirectory() || preparedStat.isSymbolicLink()) throw new Error("prepared revision is not a real directory");
+      preparedIdentity = { dev: preparedStat.dev, ino: preparedStat.ino };
       await copyManifestTree(contentRoot, join(prepared, "content"), plan.manifest);
       // Rewalk the source after copying: a handoff mutation during the copy is
       // rejected instead of being smuggled into a sealed revision.
@@ -349,6 +402,7 @@ export function createImmutableContentStore(options: ImmutableContentStoreOption
       if (publication === "exists") {
         const winner = await inspectTarget(target, plan);
         if (winner !== "ready-match") throw storeError("storeIdentityCollision", "promoteContent", "concurrent content store publication collides with different content");
+        if (await tryCleanupPrepared() !== undefined) throw cleanupError(new Error("identical promotion lost publication race"));
         await options.allocator.discardStaging(plan.allocation, new AbortController().signal);
         return { kind: "already-present" as const, identity: plan.identity, root: join(target, "content"), manifest: plan.manifest };
       }
@@ -359,7 +413,11 @@ export function createImmutableContentStore(options: ImmutableContentStoreOption
       await options.allocator.discardStaging(plan.allocation, new AbortController().signal);
       return { kind: "promoted" as const, identity: plan.identity, root: join(target, "content"), manifest: plan.manifest };
     } catch (error) {
-      if (!published) await rm(prepared, { recursive: true, force: true }).catch(() => undefined);
+      if (!published && await tryCleanupPrepared() !== undefined) {
+        if (isIncompleteCleanup(error)) throw error;
+        throw cleanupError(error);
+      }
+      if (signal.aborted) throw error;
       if (error instanceof DomainContractError) throw error;
       throw storeError("adapterFailed", "promoteContent", "immutable content promotion failed", error);
     }

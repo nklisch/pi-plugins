@@ -378,7 +378,7 @@ The contracts story fixes identity and port vocabulary first. Staging and runtim
 
 ## Review findings
 
-Deep review confirmed two important cleanup defects: identical lost-race success leaked a sealed prepared directory, and post-seal error cleanup silently failed on read-only trees. An interrupted adversarial pass also supplied exact candidate reproducers for projection allocation symlink replacement, nested control-name mutability, and project-scope resolution. `epic-transactional-plugin-lifecycle-immutable-stores-promotion-review-hardening` tracks the confirmed fixes and requires every candidate to be executed and resolved; the feature remains at `stage: implementing` until it closes.
+Deep review confirmed two important cleanup defects: identical lost-race success leaked a sealed prepared directory, and post-seal error cleanup silently failed on read-only trees. An interrupted adversarial pass also supplied exact candidate reproducers for projection allocation symlink replacement, nested control-name mutability, and project-scope resolution. `epic-transactional-plugin-lifecycle-immutable-stores-promotion-review-hardening` implemented and tested the confirmed fixes, and is now at `stage: review` for the requested isolated-snapshot reviewer. The feature remains at `stage: implementing` until that review closes.
 
 ## Pre-mortem
 
