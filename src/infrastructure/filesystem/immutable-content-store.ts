@@ -6,6 +6,7 @@ import {
   open,
   readFile,
   readdir,
+  realpath,
   readlink,
   rename,
   rm,
@@ -103,6 +104,12 @@ function expectedContentRoot(slotRoot: string): string {
   return join(slotRoot, "content");
 }
 
+async function assertExactContentRoot(root: string): Promise<void> {
+  const stat = await lstat(root);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("content root is not a real directory");
+  if (await realpath(root) !== root) throw new Error("content root resolves through a symlink");
+}
+
 function preparedId(bytes: Uint8Array): string {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength !== 16) throw new Error("prepared-id source must return 16 bytes");
   return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -197,6 +204,11 @@ async function verifySealedModes(root: string, manifest: ContentManifest): Promi
 }
 
 async function readMetadataWithHash(root: string, sha256: Sha256): Promise<Readonly<{ metadata: PublishedMetadata; manifest: ContentManifest }>> {
+  const markerStat = await lstat(join(root, READY));
+  const metadataStat = await lstat(join(root, METADATA));
+  if (!markerStat.isFile() || markerStat.isSymbolicLink() || !metadataStat.isFile() || metadataStat.isSymbolicLink()) {
+    throw new Error("publication metadata is not a regular file");
+  }
   const marker = await readFile(join(root, READY), "utf8").catch(() => undefined);
   if (marker !== READY_TEXT) throw new Error("ready marker is invalid");
   const metadata = PublishedMetadataSchema.parse(JSON.parse(await readFile(join(root, METADATA), "utf8")));
@@ -272,6 +284,9 @@ export function createImmutableContentStore(options: ImmutableContentStoreOption
       throw storeError("contentVerificationFailed", "promoteContent", "staging allocation contains unexpected entries");
     }
     throwIfAborted(signal);
+    await assertExactContentRoot(contentRoot).catch((cause) => {
+      throw storeError("contentVerificationFailed", "promoteContent", "materialized content root is not a private real directory", cause);
+    });
     const sourceManifest = await verifyMaterializedContent(contentRoot, plan.manifest).catch((cause) => {
       throw storeError("contentVerificationFailed", "promoteContent", "materialized content failed the promotion rewalk", cause);
     });
@@ -320,6 +335,9 @@ export function createImmutableContentStore(options: ImmutableContentStoreOption
       await options.platform.syncFile(join(prepared, METADATA));
       await options.platform.syncFile(join(prepared, READY));
       await options.platform.sealReadOnly(prepared, plan.manifest);
+      await syncManifestTree(prepared, plan.manifest, options.platform);
+      await options.platform.syncFile(join(prepared, METADATA));
+      await options.platform.syncFile(join(prepared, READY));
       const sealed = await verifyMaterializedContent(join(prepared, "content"), plan.manifest).catch((cause) => {
         throw storeError("contentVerificationFailed", "promoteContent", "sealed content failed verification", cause);
       });

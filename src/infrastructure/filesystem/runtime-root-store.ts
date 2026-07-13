@@ -113,8 +113,7 @@ async function projectionEntriesWithHash(root: string, sha256: Sha256, prefix = 
       const bytes = await readFile(absolute);
       entries.push({ kind: "file", path, mode: stat.mode & 0o111 ? 0o755 : 0o644, size: bytes.byteLength, digest: hashContent(bytes, sha256) });
     } else if (stat.isSymbolicLink()) {
-      const target = await readlink(absolute);
-      entries.push({ kind: "symlink", path, mode: 0o777, target, digest: hashContent(new TextEncoder().encode(target.normalize("NFC")), sha256) });
+      throw new Error("projection root contains a symlink");
     } else {
       throw new Error("projection root contains a special file");
     }
@@ -263,6 +262,8 @@ export function createRuntimeRootStore(options: RuntimeRootStoreOptions): Runtim
       const publication = await options.platform.renameNoReplace(record.root, target);
       if (publication === "exists") {
         const existing = await inspectProjection(target, options.sha256);
+        await makeWritable(record.root);
+        await rm(record.root, { recursive: true, force: true });
         if (existing.projectionRef !== input.projectionRef || existing.projectionDigest !== input.projectionDigest) throw rootError("storeIdentityCollision", "sealProjectionRoot", "concurrent projection publication collides with different content");
         return { root: target, scope: input.scope, plugin: input.plugin, projectionDigest: input.projectionDigest, projectionRef: input.projectionRef };
       }
@@ -280,9 +281,21 @@ export function createRuntimeRootStore(options: RuntimeRootStoreOptions): Runtim
 }
 
 export async function inspectProjection(root: string, sha256: Sha256): Promise<ProjectionMetadata> {
+  const markerStat = await lstat(join(root, READY));
+  const metadataStat = await lstat(join(root, METADATA));
+  if (!markerStat.isFile() || markerStat.isSymbolicLink() || !metadataStat.isFile() || metadataStat.isSymbolicLink()) {
+    throw rootError("contentVerificationFailed", "resolveProjectionRoot", "projection publication metadata is invalid");
+  }
   const marker = await readFile(join(root, READY), "utf8").catch(() => undefined);
   if (marker !== READY_TEXT) throw rootError("contentVerificationFailed", "resolveProjectionRoot", "projection root is not ready");
   const metadata = ProjectionMetadataSchema.parse(JSON.parse(await readFile(join(root, METADATA), "utf8")));
+  if ((markerStat.mode & 0o777) !== 0o444 || (metadataStat.mode & 0o777) !== 0o444) {
+    throw rootError("contentVerificationFailed", "resolveProjectionRoot", "projection publication is not read-only");
+  }
+  const rootStat = await lstat(root);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || (rootStat.mode & 0o777) !== 0o555) {
+    throw rootError("contentVerificationFailed", "resolveProjectionRoot", "projection root is not read-only");
+  }
   const digest = await hashProjectionRoot(root, sha256);
   if (digest !== metadata.projectionDigest) throw rootError("contentVerificationFailed", "resolveProjectionRoot", "projection root digest does not match metadata");
   return metadata;

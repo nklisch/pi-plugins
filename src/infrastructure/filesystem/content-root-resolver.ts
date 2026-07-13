@@ -19,6 +19,7 @@ import type {
 import { ScopeReferenceSchema, type ScopeReference } from "../../domain/state/scope.js";
 import { DomainContractError, ErrorCodeRegistry } from "../../domain/errors.js";
 import type { Sha256 } from "../../domain/source.js";
+import { join } from "node:path";
 import type { ResolvedContentRoot } from "../../application/ports/content-store.js";
 import type { ContentStoreLayout } from "./content-store-layout.js";
 import { inspectPublishedRevision } from "./immutable-content-store.js";
@@ -77,7 +78,7 @@ async function verifyMarketplace(
   }
   return {
     kind: "marketplace",
-    root: `${published.root}/content`,
+    root: join(published.root, "content"),
     identity: published.identity as MarketplaceStoreIdentity,
     manifest: published.manifest,
     contentRef: validated.contentRef,
@@ -113,7 +114,7 @@ async function verifyPlugin(
   }
   return {
     kind: "plugin",
-    root: `${published.root}/content`,
+    root: join(published.root, "content"),
     identity: published.identity as PluginStoreIdentity,
     manifest: published.manifest,
     contentRef,

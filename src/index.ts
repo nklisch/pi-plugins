@@ -356,6 +356,8 @@ export {
   PluginStoreIdentitySchema,
   createMarketplaceStoreIdentity,
   createPluginStoreIdentity,
+  createMarketplaceStoreIdentityFromEvidence,
+  createPluginStoreIdentityFromEvidence,
   verifyContentStoreIdentity,
   contentStoreKeyDigest,
   contentStoreKeySchema,
@@ -392,8 +394,10 @@ export type {
 } from "./application/source-materialization.js";
 
 export { createNodeSourceMaterializers } from "./infrastructure/source/create-source-materializers.js";
+export { createNodeContentStore } from "./infrastructure/filesystem/create-content-store.js";
 export { verifyMaterializedContent } from "./infrastructure/filesystem/secure-content-writer.js";
 export type { NodeSourceMaterializerOptions } from "./infrastructure/source/create-source-materializers.js";
+export type { NodeContentStoreOptions } from "./infrastructure/filesystem/create-content-store.js";
 
 export {
   BundleDocumentLimits,

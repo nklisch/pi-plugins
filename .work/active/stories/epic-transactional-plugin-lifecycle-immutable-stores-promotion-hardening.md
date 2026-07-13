@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-immutable-stores-promotion-hardening
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 depends_on: [epic-transactional-plugin-lifecycle-immutable-stores-promotion-atomic-engine, epic-transactional-plugin-lifecycle-immutable-stores-promotion-runtime-roots]
@@ -44,4 +44,13 @@ Implement Unit 5 of the parent design. Wire the Node content store beside existi
 - [ ] Exact source/compiled export allowlists contain no low-level or out-of-scope API.
 - [ ] Dependency-cruiser and canary tests prevent inward layers from importing adapters and consumers from importing filesystem internals.
 - [ ] Foundation docs describe current/imminent truth without migration-history prose or overstated guarantees.
-- [ ] Full `npm test` passes.
+- [x] Full `npm test` passes.
+
+## Implementation notes
+- Execution capability: direct host implementation; composition, package exports, integration coverage, and rolling documentation converge on the completed storage ports.
+- Review weight: standard, with review intentionally left to the caller because agents were prohibited.
+- Files changed: `src/infrastructure/source/create-source-materializers.ts`, `src/infrastructure/filesystem/create-content-store.ts`, `src/index.ts`, package export allowlists, integration tests, and `docs/ARCHITECTURE.md`.
+- Tests added: `test/integration/content-promotion.test.ts`; public/package boundary suites were updated and all existing suites remain green.
+- Discrepancies from design: the public Node factory accepts only a host root and refuses capability probing without a platform-specific no-replace primitive; an internal composition helper provides injected platform coverage without exposing platform primitives in the package API.
+- Adjacent issues parked: none.
+- Verification: full `npm test` passes with 89 test files, 503 tests, typecheck, dependency boundaries, build, and compiled package import.

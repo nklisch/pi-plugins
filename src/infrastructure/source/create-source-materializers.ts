@@ -86,6 +86,9 @@ export function createNodeSourceMaterializers(
     ...limitOptions,
   });
 
+  // Source materializers remain independent from physical store layout. The
+  // lifecycle caller passes `allocation.slot` to this graph; no store factory,
+  // cache path, data root, or generated projection path is ever selected here.
   const materializers = createSourceMaterializers({
     git,
     npm,

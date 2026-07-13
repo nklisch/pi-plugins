@@ -55,8 +55,13 @@ component activates.
 
 ### Immutable revisions
 
-Installed plugin content is immutable. Updates create new revisions and move an
-active pointer only after validation and trust succeed.
+Installed plugin content is immutable. Updates create new revisions and commit
+selection through authoritative state only after validation and trust succeed.
+A revision becomes visible only after complete content, strict metadata, an
+exclusive `READY` marker, read-only sealing, and the required durability
+barriers. A platform without atomic no-replace directory publication, file and
+directory sync, or reliable POSIX-style mode enforcement fails the immutable
+store capability probe rather than claiming a weaker guarantee.
 
 ### Derived runtime projections
 
@@ -362,26 +367,22 @@ The source tree and archive are treated as malicious. The security boundary assu
 
 ### Marketplace store
 
-A marketplace is materialized by canonical source and immutable Git revision.
-
-```text
-marketplaces/<marketplace-source-hash>/<git-revision>/
-```
-
-A small active-pointer record selects the revision used for catalog browsing.
-Refreshing a marketplace creates another immutable snapshot.
+A marketplace is materialized by a content-addressed identity derived from its
+verified canonical source hash, immutable Git revision, and source/content
+binding. Its physical key is a validated `marketplace-store-v1` digest under
+`stores/marketplaces/v1/`. Authoritative marketplace snapshot state selects the
+revision used for catalog browsing; there is no filesystem `current` symlink or
+mutable store pointer. Refreshing a marketplace creates another immutable
+snapshot.
 
 ### Plugin store
 
-Plugin content is stored by canonical source, immutable revision, and plugin
-subpath.
-
-```text
-cache/<plugin-source-hash>/<revision>/<plugin-path-hash>/
-```
-
-Marketplace-relative plugins are copied from the immutable marketplace snapshot.
-External Git and npm plugins are materialized independently.
+Plugin content is stored by a validated `plugin-store-v1` key derived from its
+verified canonical source hash and source/content binding under
+`stores/plugins/v1/`. Marketplace-relative plugins are copied from the verified
+marketplace snapshot. External Git and npm plugins are materialized
+independently. Store keys never contain source URLs, display aliases, plugin
+names, project paths, or absolute filesystem paths.
 
 ### Secure copying
 
@@ -637,11 +638,16 @@ interface PluginRuntimeProjection {
 }
 ```
 
-Projection files under `generated/` are caches. They can be deleted and rebuilt
-from authoritative installed state.
+Projection roots under `generated/v1/` are scope/plugin/digest-bound caches
+outside immutable content and persistent data. They are prepared privately,
+sealed read-only, durably synchronized, and published behind an exclusive
+`READY` marker. They can be replaced and rebuilt from authoritative installed
+state; no projection path or active projection pointer is persisted in state.
 
 A projection hash participates in pending-transition verification and trust
-comparison.
+comparison. Persistent plugin data uses a stable scope/plugin reference under
+`data/v1/`, so updates resolve a new immutable content root while retaining the
+same writable data root.
 
 ## Trust
 
