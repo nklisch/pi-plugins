@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-generation-locking
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -342,4 +342,4 @@ The integration harness launches two real Node processes through the source load
 
 The second hardening pass is implemented and handed to review without advancing the parent. Recursive closure acquisition now carries held keys through a Node `AsyncLocalStorage` adapter and rejects overlap with a fixed typed error. Lazy SQLite initialization publishes owner PID/start-time markers and atomically linked claims, reclaims only proven-dead owners, and remains cancellable for live or unknown ownership. The coordinator validates complete user/project snapshots and reconciles against the exact expected document evidence from the pre-commit snapshot, preventing unrelated `expected + 1` false success. Each SQLite lease opens through a private hard-link alias bound to the durable inode and rereads marker/path identity before and during ownership. Cleanup composition retains commit-failed/ambiguous outcomes and observed snapshots when release fails.
 
-Exact closure, initializer kill/live-cancellation, malformed snapshot, unrelated advance, marker/path replacement, crash release, and release-after-ambiguity reproducers were added. Verification: `npm test` passed with 90 Vitest files / 530 tests, strict typechecking, clean dependency boundaries, build, and 319-export compiled package import. The parent feature remains `stage: implementing`.
+Exact closure, initializer kill/live-cancellation, malformed snapshot, unrelated advance, marker/path replacement, crash release, and release-after-ambiguity reproducers were added. Independent verification passes 90 Vitest files / 530 tests, strict production/test typechecking, clean dependency boundaries, build, and exact 319-export package import. The hardening story is done and the feature returns to `stage: review`.
