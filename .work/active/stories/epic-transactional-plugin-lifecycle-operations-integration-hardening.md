@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-operations-integration-hardening
 kind: story
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-operations
 depends_on: [epic-transactional-plugin-lifecycle-operations-guarded-transitions]
@@ -60,3 +60,9 @@ Implement Unit 3 of the parent design. Integrate the lifecycle facade against sc
 - Simplification: one exported facade and narrow evidence ports; preparation and guarded commit internals remain unexported.
 - Discrepancies from design: no foundation assertion required a wording update; existing docs already describe this feature as a future seam and continue to exclude concrete runtime, recovery, update policy, and UI adapters.
 - Adjacent issues parked: none.
+
+## Review (2026-07-13)
+
+**Verdict**: Approve
+
+**Review notes**: Substrate mode; caller's explicit story fast-advance policy; independent integrated verification. Full suite passes 561 tests with strict production/test typechecking, clean boundaries, build, and exact 360-export package import. Acceptance evidence is complete and no realistic normal-use blocker remains.
