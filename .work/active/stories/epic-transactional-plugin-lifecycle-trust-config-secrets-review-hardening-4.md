@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening-4
 kind: story
-stage: review
+stage: done
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-trust-config-secrets
 depends_on: [epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening-3]
@@ -52,3 +52,9 @@ Two concurrent saves can receive the same schema-valid write ID and derive the s
 ## Verification
 
 - `npm test` — passed: real production/test typechecking, dependency boundaries, 90 Vitest files / 552 tests with no type errors, clean build, and compiled ESM package import allowlist.
+
+## Review (2026-07-13)
+
+**Verdict**: Approve
+
+**Review notes**: Substrate mode; caller's explicit story fast-advance policy; independent integrated verification. Atomic create-only collision handling, owned cleanup evidence, winner resolution, and adapter-error redaction are covered. No realistic normal-use blockers or important findings remain.
