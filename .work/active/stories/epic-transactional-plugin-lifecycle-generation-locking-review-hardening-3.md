@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-generation-locking-review-hardening-3
 kind: story
-stage: implementing
+stage: review
 tags: [correctness, infra, tests]
 parent: epic-transactional-plugin-lifecycle-generation-locking
 depends_on: [epic-transactional-plugin-lifecycle-generation-locking-review-hardening-2]
@@ -37,9 +37,21 @@ Add a deterministic scheduling seam or stress fixture that forces marker-absent 
 
 ## Acceptance criteria
 
-- [ ] The exact stale-marker/fresh-database interleaving retries and succeeds safely.
-- [ ] Repeated two-process first initialization produces no fatal missing-marker adapter errors.
-- [ ] Stable orphan database without marker still fails closed.
-- [ ] Live/unknown and proven-dead initializer policies remain unchanged.
-- [ ] Replacement/tamper regressions remain green.
-- [ ] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+- [x] The exact stale-marker/fresh-database interleaving retries and succeeds safely.
+- [x] Repeated two-process first initialization produces no fatal missing-marker adapter errors.
+- [x] Stable orphan database without marker still fails closed.
+- [x] Live/unknown and proven-dead initializer policies remain unchanged.
+- [x] Replacement/tamper regressions remain green.
+- [x] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+
+## Implementation notes
+
+- Execution capability: direct inline implementation; the caller explicitly prohibited agents and requested this story advance only to `stage: review`.
+- Review weight: `standard` from project/default policy; independent review is intentionally deferred at the requested review boundary.
+- Files changed: `src/infrastructure/state/sqlite-scope-lock.ts`, `test/infrastructure/state/sqlite-scope-lock.test.ts`, `test/integration/generation-locking.test.ts`, and this story plus the parent feature summary.
+- Tests added/updated: deterministic marker-read interleaving seam proving `absent → ready` retry, stable orphan-marker regression, and 20 repeated real two-process first-use contentions with one committed and one stale result and no adapter failures. Child-process waiters now surface premature exits and stderr instead of hanging.
+- Simplification: reused the existing cancellable SQLite acquisition retry loop; no new lease, timer, or fallback path was introduced.
+- Discrepancies from design: the stress run also exposed a zero-byte root identity marker race during concurrent manager startup. Root marker publication now uses a complete temporary file plus exclusive hard-link, preserving the existing fail-closed identity contract.
+- Adjacent issues parked: none.
+
+Verification: `npm test` passed with strict production/test typechecking, dependency boundaries (124 modules / 676 dependencies), 90 Vitest files / 541 tests with no type errors, build, and compiled package import (319 exports).

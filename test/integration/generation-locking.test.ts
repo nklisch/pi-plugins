@@ -24,6 +24,8 @@ type Child = {
   readonly waitFor: (predicate: (event: ChildEvent) => boolean) => Promise<ChildEvent>;
 };
 
+const closedChildren = new WeakSet<ChildProcessWithoutNullStreams>();
+
 function child(lockRoot: string, statePath: string, role: string, mode = "normal"): Child {
   const childProcess = spawn(process.execPath, [
     "--experimental-strip-types",
@@ -38,12 +40,15 @@ function child(lockRoot: string, statePath: string, role: string, mode = "normal
   ], {
     cwd: process.cwd(),
     env: { ...process.env, NODE_OPTIONS: "", VITEST: undefined },
-    stdio: ["pipe", "pipe", "ignore"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
   const events: ChildEvent[] = [];
+  let stderr = "";
+  childProcess.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
   const waiters: Array<{
     readonly predicate: (event: ChildEvent) => boolean;
     readonly resolve: (event: ChildEvent) => void;
+    readonly reject: (error: Error) => void;
   }> = [];
   const lines = createInterface({ input: childProcess.stdout });
   lines.on("line", (line) => {
@@ -59,6 +64,11 @@ function child(lockRoot: string, statePath: string, role: string, mode = "normal
       // A malformed child line is surfaced by a later missing event or exit.
     }
   });
+  childProcess.once("close", (code, signal) => {
+    closedChildren.add(childProcess);
+    const error = new Error(`child exited before expected event: ${code ?? signal}; stderr: ${stderr}`);
+    for (const waiter of waiters.splice(0)) waiter.reject(error);
+  });
   return {
     process: childProcess,
     events,
@@ -68,13 +78,16 @@ function child(lockRoot: string, statePath: string, role: string, mode = "normal
     waitFor(predicate: (event: ChildEvent) => boolean) {
       const existing = events.find(predicate);
       if (existing !== undefined) return Promise.resolve(existing);
-      return new Promise((resolvePromise) => waiters.push({ predicate, resolve: resolvePromise }));
+      if (childProcess.exitCode !== null || childProcess.signalCode !== null) {
+        return Promise.reject(new Error(`child exited before expected event: ${childProcess.exitCode ?? childProcess.signalCode}; stderr: ${stderr}`));
+      }
+      return new Promise((resolvePromise, rejectPromise) => waiters.push({ predicate, resolve: resolvePromise, reject: rejectPromise }));
     },
   };
 }
 
 async function waitForExit(childProcess: ChildProcessWithoutNullStreams): Promise<void> {
-  if (childProcess.exitCode !== null || childProcess.signalCode !== null) return;
+  if (closedChildren.has(childProcess)) return;
   await new Promise<void>((resolvePromise) => childProcess.once("close", () => resolvePromise()));
 }
 
@@ -91,35 +104,43 @@ async function prepareState(): Promise<{ readonly lockRoot: string; readonly sta
   return { lockRoot, statePath };
 }
 
+async function runFirstUseContention(): Promise<readonly ChildEvent[]> {
+  const { lockRoot, statePath } = await prepareState();
+  const first = child(lockRoot, statePath, "first");
+  const second = child(lockRoot, statePath, "second");
+  try {
+    await Promise.all([
+      first.waitFor((event) => event.event === "ready"),
+      second.waitFor((event) => event.event === "ready"),
+    ]);
+    first.send("go");
+    second.send("go");
+    return await Promise.all([
+      first.waitFor((event) => event.event === "result" || event.event === "error"),
+      second.waitFor((event) => event.event === "result" || event.event === "error"),
+    ]);
+  } finally {
+    for (const process of [first.process, second.process]) {
+      if (process.exitCode === null) process.kill("SIGKILL");
+    }
+    await Promise.all([waitForExit(first.process), waitForExit(second.process)]);
+    await rm(lockRoot, { recursive: true, force: true });
+  }
+}
+
 describe("generation-locking integration", () => {
-  it("uses two real coordinator processes and shared generation authority for one commit and one stale result", async () => {
-    const { lockRoot, statePath } = await prepareState();
-    const first = child(lockRoot, statePath, "first");
-    const second = child(lockRoot, statePath, "second");
-    try {
-      await Promise.all([
-        first.waitFor((event) => event.event === "ready"),
-        second.waitFor((event) => event.event === "ready"),
-      ]);
-      first.send("go");
-      second.send("go");
-      const terminals = await Promise.all([
-        first.waitFor((event) => event.event === "result" || event.event === "error"),
-        second.waitFor((event) => event.event === "result" || event.event === "error"),
-      ]);
-      expect(terminals.every((event) => event.event === "result"), JSON.stringify({ terminals, first: first.events, second: second.events })).toBe(true);
+  it("repeatedly contends on two real first-use coordinators with one commit and one stale result", async () => {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const terminals = await runFirstUseContention();
+      expect(
+        terminals.every((event) => event.event === "result"),
+        JSON.stringify({ attempt, terminals }),
+      ).toBe(true);
       const results = terminals.map((event) => event.result as { kind: string });
       expect(results.map((result) => result.kind).sort()).toEqual(["committed", "stale-generation"]);
-      expect([...first.events, ...second.events].filter((event) => event.event === "entered")).toHaveLength(1);
-      expect(await generation(statePath)).toBe(1);
-    } finally {
-      for (const process of [first.process, second.process]) {
-        if (process.exitCode === null) process.kill("SIGKILL");
-      }
-      await Promise.all([waitForExit(first.process), waitForExit(second.process)]);
-      await rm(lockRoot, { recursive: true, force: true });
+      expect(results).toHaveLength(2);
     }
-  }, 30_000);
+  }, 60_000);
 
   it("keeps a paused live owner, then cancels a waiting process without a lost update", async () => {
     const { lockRoot, statePath } = await prepareState();

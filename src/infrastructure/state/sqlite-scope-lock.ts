@@ -27,11 +27,19 @@ const DATABASE_MARKER_PROTOCOL = "pi-plugin-host-scope-lock-database";
 const DEFAULT_RETRY_DELAY = Object.freeze({ minimum: 2, maximum: 25 });
 const SQLITE_BUSY = 5;
 
+type InitializationMarkerReadHook = (context: Readonly<{
+  path: string;
+  databaseName: string;
+  markerState: "absent" | "initializing" | "ready";
+}>) => Promise<void> | void;
+
 export type SqliteScopeLockOptions = Readonly<{
   lockRoot: string;
   retryDelayMs: Readonly<{ minimum: number; maximum: number }>;
   random?: () => number;
   verifyLocalFilesystem?: (root: string) => Promise<void>;
+  /** Test seam for forcing a cross-process marker/path interleaving. */
+  initializationMarkerRead?: InitializationMarkerReadHook;
 }>;
 
 type SqliteError = {
@@ -73,6 +81,13 @@ class DatabaseInitializationInProgress extends Error {
   constructor(readonly owner?: InitializationOwner) {
     super("scope lock database initialization is in progress");
     this.name = "DatabaseInitializationInProgress";
+  }
+}
+
+class DatabaseInitializationSnapshotChanged extends Error {
+  constructor() {
+    super("scope lock database initialization snapshot changed");
+    this.name = "DatabaseInitializationSnapshotChanged";
   }
 }
 
@@ -232,10 +247,24 @@ function ensureRootIdentityMarker(root: string): string {
       version: 1,
       identity: randomUUID(),
     };
+    // Exclusive creation exposes an empty file before writeFileSync has
+    // populated it. Publish a complete marker through a hard-link so another
+    // first-use process can never parse a partially-written identity.
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    writeFileSync(temporary, `${JSON.stringify(marker)}\n`, {
+      flag: "wx",
+      mode: LOCAL_LOCK_DATABASE_MODE,
+    });
     try {
-      writeFileSync(path, `${JSON.stringify(marker)}\n`, { flag: "wx", mode: LOCAL_LOCK_DATABASE_MODE });
+      linkSync(temporary, path);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    } finally {
+      try {
+        unlinkSync(temporary);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
     }
   }
   chmodSync(path, LOCAL_LOCK_DATABASE_MODE);
@@ -470,15 +499,22 @@ function validateOpenedDatabaseIdentity(
   }
 }
 
-function prepareDatabase(
+async function prepareDatabase(
   root: string,
   rootIdentity: string,
   path: string,
   databaseName: string,
-): PreparedDatabase {
+  retryingMissingMarkerDatabase = false,
+  initializationMarkerRead?: InitializationMarkerReadHook,
+): Promise<PreparedDatabase> {
   const owner = currentInitializationOwner();
   for (;;) {
     let marker = readDatabaseIdentityMarker(path);
+    await initializationMarkerRead?.({
+      path,
+      databaseName,
+      markerState: marker?.state ?? "absent",
+    });
     let existing = true;
     try {
       regularFileIdentity(path);
@@ -490,6 +526,21 @@ function prepareDatabase(
     if (marker?.state === "initializing") {
       reclaimDeadInitialization(path, marker, rootIdentity, databaseName);
       continue;
+    }
+    if (marker === undefined && existing) {
+      // The marker and database path are independent files. A first-use loser
+      // can read the old marker state, yield to the winner, then observe the
+      // newly-created database through its later path check. That combination
+      // is stale evidence, not proof of an orphan. Retry once through the
+      // caller's cancellable acquisition loop; if the same coherent state is
+      // still present, fail closed rather than adopting the database.
+      const claim = readInitializationClaim(path);
+      if (claim !== undefined) {
+        reclaimDeadInitialization(path, claim, rootIdentity, databaseName);
+        continue;
+      }
+      if (retryingMissingMarkerDatabase) throw new Error("scope lock database identity marker is missing");
+      throw new DatabaseInitializationSnapshotChanged();
     }
     if (marker === undefined) {
       if (existing) throw new Error("scope lock database identity marker is missing");
@@ -735,19 +786,28 @@ class SqliteScopeLockManager implements ScopeLockManager {
     private readonly rootIdentity: string,
     private readonly retryDelayMs: Readonly<{ minimum: number; maximum: number }>,
     private readonly random: () => number,
+    private readonly initializationMarkerRead?: InitializationMarkerReadHook,
   ) {}
 
   async acquire(input: ScopeReference, signal: AbortSignal): Promise<ScopeLockLease> {
     assertSignal(signal);
     const scope = ScopeReferenceSchema.parse(input);
     const path = databasePath(this.root, scope);
+    let retryingMissingMarkerDatabase = false;
 
     for (;;) {
       throwIfAborted(signal);
       let prepared: PreparedDatabase | undefined;
       try {
         const databaseName = scopeDatabaseName(scope);
-        prepared = prepareDatabase(this.root, this.rootIdentity, path, databaseName);
+        prepared = await prepareDatabase(
+          this.root,
+          this.rootIdentity,
+          path,
+          databaseName,
+          retryingMissingMarkerDatabase,
+          this.initializationMarkerRead,
+        );
         prepared.database.exec("BEGIN IMMEDIATE");
         if (signal.aborted) {
           await closeDatabase(prepared);
@@ -767,6 +827,12 @@ class SqliteScopeLockManager implements ScopeLockManager {
         }
         if (signal.aborted) throw signal.reason;
         if (error instanceof DatabaseInitializationInProgress) {
+          const delay = await this.retryDelay();
+          await waitForRetry(delay, signal);
+          continue;
+        }
+        if (error instanceof DatabaseInitializationSnapshotChanged) {
+          retryingMissingMarkerDatabase = true;
           const delay = await this.retryDelay();
           await waitForRetry(delay, signal);
           continue;
@@ -799,10 +865,10 @@ async function probeExclusion(root: string, rootIdentity: string): Promise<void>
   let contender: PreparedDatabase | undefined;
   let released: PreparedDatabase | undefined;
   try {
-    holder = prepareDatabase(root, rootIdentity, path, "probe.sqlite");
+    holder = await prepareDatabase(root, rootIdentity, path, "probe.sqlite");
     holder.database.exec("BEGIN IMMEDIATE");
     try {
-      contender = prepareDatabase(root, rootIdentity, path, "probe.sqlite");
+      contender = await prepareDatabase(root, rootIdentity, path, "probe.sqlite");
       contender.database.exec("BEGIN IMMEDIATE");
       throw new Error("SQLite did not exclude a second writer");
     } catch (error) {
@@ -814,7 +880,7 @@ async function probeExclusion(root: string, rootIdentity: string): Promise<void>
     await closeDatabase(holder);
     holder = undefined;
 
-    released = prepareDatabase(root, rootIdentity, path, "probe.sqlite");
+    released = await prepareDatabase(root, rootIdentity, path, "probe.sqlite");
     released.database.exec("BEGIN IMMEDIATE");
     released.database.exec("ROLLBACK");
     await closeDatabase(released);
@@ -851,7 +917,7 @@ export async function createSqliteScopeLockManager(
     const rootIdentity = ensureRootIdentityMarker(root);
     await (options.verifyLocalFilesystem ?? verifyLocalFilesystemCapability)(root);
     await probeExclusion(root, rootIdentity);
-    return new SqliteScopeLockManager(root, rootIdentity, retryDelayMs, random);
+    return new SqliteScopeLockManager(root, rootIdentity, retryDelayMs, random, options.initializationMarkerRead);
   } catch (error) {
     if (error instanceof BoundaryError) throw error;
     throw adapterFailure("scope-lock.initialize", error);

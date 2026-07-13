@@ -67,6 +67,33 @@ describe("SQLite scope lock adapter", () => {
     }
   });
 
+  it("retries a stale marker/database snapshot after a winner publishes first-use state", async () => {
+    const lockRoot = await root();
+    try {
+      const winnerLocks = await manager(lockRoot);
+      const observations: string[] = [];
+      const loserLocks = await createSqliteScopeLockManager({
+        lockRoot,
+        retryDelayMs: { minimum: 0, maximum: 0 },
+        random: () => 0,
+        verifyLocalFilesystem: async () => {},
+        initializationMarkerRead: async ({ databaseName, markerState }) => {
+          if (databaseName !== "user.sqlite") return;
+          observations.push(markerState);
+          if (observations.length !== 1) return;
+          const winner = await winnerLocks.acquire(user, new AbortController().signal);
+          await winner.release();
+        },
+      });
+
+      const loser = await loserLocks.acquire(user, new AbortController().signal);
+      await loser.release();
+      expect(observations).toEqual(["absent", "ready"]);
+    } finally {
+      await rm(lockRoot, { recursive: true, force: true });
+    }
+  });
+
   it("does not let a paused child owner expire, then acquires after SIGKILL", async () => {
     const lockRoot = await root();
     const dbPath = join(lockRoot, "user.sqlite");
@@ -176,6 +203,19 @@ describe("SQLite scope lock adapter", () => {
       const lease = await locks.acquire(user, new AbortController().signal);
       await lease.release();
       await rm(join(lockRoot, "user.sqlite"));
+      await expect(locks.acquire(user, new AbortController().signal)).rejects.toBeInstanceOf(BoundaryError);
+    } finally {
+      await rm(lockRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed for a stable orphan database without its identity marker", async () => {
+    const lockRoot = await root();
+    try {
+      const locks = await manager(lockRoot);
+      const lease = await locks.acquire(user, new AbortController().signal);
+      await lease.release();
+      await rm(join(lockRoot, "user.sqlite.identity"));
       await expect(locks.acquire(user, new AbortController().signal)).rejects.toBeInstanceOf(BoundaryError);
     } finally {
       await rm(lockRoot, { recursive: true, force: true });

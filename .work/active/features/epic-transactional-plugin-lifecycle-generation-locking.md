@@ -347,3 +347,9 @@ Exact closure, initializer kill/live-cancellation, malformed snapshot, unrelated
 ## Complementary review finding
 
 Phase-1 GLM review reproduced an intermittent two-process first-initialization TOCTOU: stale `marker === undefined` evidence combined with a newly published database was treated as fatal instead of retried. All other review dimensions passed. `epic-transactional-plugin-lifecycle-generation-locking-review-hardening-3` owns the bounded fix; the feature returns to `stage: implementing`. Adversarial phase is deferred until complementary review clears.
+
+## Review-hardening-3 implementation summary
+
+The first-use TOCTOU fix is implemented and the story is advanced to `stage: review`; this parent feature remains `stage: implementing` as requested. SQLite initialization now treats a marker-absent/database-present observation as stale evidence, retries through the caller's cancellable loop, and fails closed when the same coherent orphan state persists. Live, unknown, and proven-dead initializer handling plus replacement/tamper checks remain unchanged. A marker-read scheduling seam deterministically forces winner publication between the stale marker read and database observation, and the real child-process integration repeats first-use contention 20 times with one committed result, one stale result, and zero adapter failures. That stress also found a concurrent root identity marker partial-write race; complete temporary-file plus exclusive hard-link publication closes it without changing the root identity contract.
+
+Verification: `npm test` passed with strict production/test typechecking, dependency boundaries, 90 Vitest files / 541 tests, build, and compiled package import (319 exports).
