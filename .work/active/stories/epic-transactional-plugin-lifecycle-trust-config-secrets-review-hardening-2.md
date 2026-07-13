@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening-2
 kind: story
-stage: review
+stage: done
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-trust-config-secrets
 depends_on: [epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening]
@@ -28,11 +28,11 @@ Close three blockers discovered by adversarial confirmation after the first hard
 
 ## Acceptance criteria
 
-- [ ] Every accepted descriptor pattern has a bounded evaluation argument; the reproduced `{0,32}` chain is rejected before `RegExp` execution.
-- [ ] Ambiguous CAS completion never deletes a credential that an active document may reference.
-- [ ] No public or domain-level caller can mint trusted project-root authority.
-- [ ] Recovery results contain logical safe evidence only, never values, paths, native causes, or credentials.
-- [ ] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+- [x] Every accepted descriptor pattern has a bounded evaluation argument; the reproduced `{0,32}` chain is rejected before `RegExp` execution.
+- [x] Ambiguous CAS completion never deletes a credential that an active document may reference.
+- [x] No public or domain-level caller can mint trusted project-root authority.
+- [x] Recovery results contain logical safe evidence only, never values, paths, native causes, or credentials.
+- [x] Full real-typechecked suite, boundaries, build, and compiled package import pass.
 
 ## Implementation notes
 
@@ -47,3 +47,13 @@ Close three blockers discovered by adversarial confirmation after the first hard
 
 - `npm test` — passed: production typecheck, dependency boundaries, 90 Vitest files / 510 tests with no type errors, clean build, and compiled ESM import allowlist (318 exports).
 - `.work/bin/work-view` — preserved; its pre-existing working-tree modification was not staged.
+
+## Review (2026-07-13)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+
+**Notes**: Fast-lane independent verification confirmed all three adjacent adversarial regressions, 510 tests, real production/test typechecking, clean boundaries, build, and exact 318-export package import. Verdict: Approve - story verified by implement; fast-lane advance.
