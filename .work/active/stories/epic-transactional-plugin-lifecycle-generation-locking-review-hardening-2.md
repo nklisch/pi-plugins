@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-generation-locking-review-hardening-2
 kind: story
-stage: review
+stage: done
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-generation-locking
 depends_on: [epic-transactional-plugin-lifecycle-generation-locking-review-hardening]
@@ -48,3 +48,9 @@ Close five blocker/important findings from final adversarial generation-locking 
 - Exact reproducers cover synchronous/disjoint recursive closure, live and killed initializers, malformed snapshots, unrelated generation advance, marker/path replacement, multiprocess crash release, and ambiguous commit followed by failed release.
 
 Verification: `npm test` passed: production/test typechecking, dependency boundaries (123 modules / 672 dependencies), 90 Vitest files / 530 tests with no type errors, build, and compiled package import (319 exports).
+
+## Review (2026-07-13)
+
+**Verdict**: Approve
+
+**Review notes**: Substrate mode; caller's explicit story fast-advance policy; independent full-suite verification. Confirmed all acceptance criteria through 530 tests, real production/test typechecking, clean boundaries, build, and exact 319-export package import. No blockers, important findings, or nits.
