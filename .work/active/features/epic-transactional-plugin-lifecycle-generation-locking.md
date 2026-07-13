@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-generation-locking
 kind: feature
-stage: review
+stage: implementing
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -336,4 +336,4 @@ Deep review found a supported nested scheduler deadlock, missing real cross-proc
 
 The review-hardening story is done and independently verified; this feature returns to `stage: review`. The public scheduler now accepts a callback with no recursive-acquisition capability, removing the reproduced head-of-line deadlock rather than preserving an unused nested API. SQLite initialization binds a durable root marker and per-database device/inode marker, verifies identity before and during ownership, and fails closed on missing, mismatched, or replaced paths. The coordinator validates exact load/commit scope and generation contracts, requires expected-generation-plus-one committed snapshots, and reconciles commit errors or cancellation under the held lock into committed, explicit failure, or explicit ambiguity outcomes.
 
-The integration harness now launches two real Node processes through the source loader, exercises the real coordinator and SQLite transaction against a shared file-backed generation, and covers same-generation contention, a paused live owner with cancellation, and crash release. Platform filesystem support is an explicit per-platform allowlist with unknown pairs failing closed; project database names encode the complete validated key without relying on a hard-coded domain prefix. Full verification passed with 90 test files / 520 tests, strict production and test typechecking, dependency boundaries, build, and compiled package import (318 exports).
+The integration harness launches two real Node processes through the source loader, exercises the real coordinator and SQLite transaction against shared generation authority, and covers contention, pause/cancellation, and crash release. Final adversarial review nevertheless reproduced five adjacent gaps: closure-based recursive acquisition deadlock, stranded crash initializer, incomplete snapshot/false-commit acceptance, an open/begin/path-marker replacement window, and loss of durable-outcome classification when release also fails. `epic-transactional-plugin-lifecycle-generation-locking-review-hardening-2` tracks these; the feature remains at `stage: implementing` until they close.
