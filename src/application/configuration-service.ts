@@ -165,7 +165,12 @@ function verifyCurrentDocument(
 }
 
 type ReplaceReconciliation =
-  | Readonly<{ kind: "active"; document: PluginConfigurationDocument }>
+  | Readonly<{
+      kind: "active";
+      document: PluginConfigurationDocument;
+      /** Fresh locators that the current authority still references. */
+      liveFreshLocators: readonly SecretLocator[];
+    }>
   | Readonly<{ kind: "inactive"; actualRevision: ContentDigest | null }>
   | Readonly<{ kind: "unknown" }>;
 
@@ -174,11 +179,18 @@ type ReplaceReconciliation =
  * adapter can commit and then lose the response or observe cancellation. The
  * store's authoritative read boundary is therefore consulted with a fresh
  * recovery signal before any fresh locator is removed.
+ *
+ * Revision equality proves that the candidate is current, but revision
+ * inequality does not prove that its credentials are dead. A later writer can
+ * validly derive a document from the candidate while preserving all or some of
+ * its locators. Reconcile liveness per fresh locator so cleanup never relies on
+ * revision lineage that the state contract does not expose.
  */
 async function reconcileReplace(
   configurations: PluginConfigurationStore,
   ref: PluginConfigurationRef,
   candidate: PluginConfigurationDocument,
+  freshLocators: readonly SecretLocator[],
   request: Readonly<{ configurationRef: PluginConfigurationRef; plugin: PluginKey; scope: ScopeContext; descriptors: ConfigurationSubmission["descriptors"] }>,
   sha256: Sha256,
 ): Promise<ReplaceReconciliation> {
@@ -187,9 +199,12 @@ async function reconcileReplace(
     const raw = PluginConfigurationReadResultSchema.parse(await configurations.read(ref, recoverySignal));
     if (raw.kind === "missing") return { kind: "inactive", actualRevision: null };
     const current = verifyCurrentDocument(raw.document, request, sha256);
-    return current.revision === candidate.revision
-      ? { kind: "active", document: current }
-      : { kind: "inactive", actualRevision: current.revision };
+    const currentLocators = new Set(current.secrets.map((entry) => entry.locator));
+    const liveFreshLocators = freshLocators.filter((locator) => currentLocators.has(locator));
+    if (current.revision === candidate.revision || liveFreshLocators.length > 0) {
+      return { kind: "active", document: current, liveFreshLocators };
+    }
+    return { kind: "inactive", actualRevision: current.revision };
   } catch {
     // Do not guess from an adapter error or malformed read. The fresh
     // locators remain in custody and the caller receives locator-only recovery
@@ -374,6 +389,7 @@ export async function savePluginConfiguration(
       dependencies.configurations,
       request.configurationRef,
       document,
+      freshLocators,
       { ...request, scope: verifiedScope },
       dependencies.sha256,
     );
@@ -394,12 +410,17 @@ export async function savePluginConfiguration(
       throw adapterFailure("replacePluginConfiguration");
     }
 
-    // The replacement did commit. Treat it like a normal stored result and
-    // clean only superseded locators; cancellation cannot roll back authority.
+    // The replacement did commit, or a descendant now references at least one
+    // locator that only this candidate could have introduced. The descendant's
+    // revision is not a reason to delete the other candidate locators: clean
+    // only fresh locators absent from the validated authoritative document.
+    const liveFreshLocators = new Set(reconciliation.liveFreshLocators);
+    const inactiveFreshLocators = freshLocators.filter((locator) => !liveFreshLocators.has(locator));
     const activeLocators = new Set(reconciliation.document.secrets.map((entry) => entry.locator));
     const superseded = (current?.secrets.map((entry) => entry.locator) ?? [])
       .filter((locator) => !activeLocators.has(locator));
-    const failedCleanup = await cleanupLocators(dependencies.secrets, superseded);
+    const cleanupTargets: SecretLocator[] = [...new Set([...inactiveFreshLocators, ...superseded])];
+    const failedCleanup = await cleanupLocators(dependencies.secrets, cleanupTargets);
     const cleanup = cleanupResult(failedCleanup);
     return cleanup === undefined
       ? { kind: "stored", document: reconciliation.document }

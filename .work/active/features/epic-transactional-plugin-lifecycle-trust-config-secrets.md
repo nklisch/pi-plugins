@@ -530,7 +530,7 @@ Deep GLM 5.2 and GPT-5.6 Sol review accepted seven required fixes: stale removal
 
 ## Review-hardening implementation summary
 
-The first two hardening stories close all previously tracked findings. Final adversarial review reproduced one remaining CAS lineage race: a descendant authoritative document can preserve a candidate locator while changing revision, causing revision-only reconciliation to delete an active credential. `epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening-3` tracks locator-level liveness reconciliation; the feature remains at `stage: implementing` until it closes.
+The first two hardening stories close all previously tracked findings. Final adversarial review reproduced one remaining CAS lineage race: a descendant authoritative document can preserve a candidate locator while changing revision, causing revision-only reconciliation to delete an active credential. `epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening-3` now reconciles each fresh locator against the validated current authority, cleaning only proven-inactive credentials and retaining safe recovery evidence for unreadable or malformed authority. The feature remains at `stage: implementing` while its broader lifecycle work continues.
 
 ## Testing
 

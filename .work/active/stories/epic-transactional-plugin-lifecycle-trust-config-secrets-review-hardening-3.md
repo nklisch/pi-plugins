@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening-3
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-trust-config-secrets
 depends_on: [epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening-2]
@@ -25,10 +25,23 @@ When a configuration replacement may have committed before its response was lost
 
 ## Acceptance criteria
 
-- [ ] Exact candidate active: all referenced fresh locators are retained.
-- [ ] Descendant document preserving candidate locators: preserved locators remain stored.
-- [ ] Descendant replacing only some locators: cleanup removes only proven-unreferenced fresh locators.
-- [ ] Proven inactive candidate: unreachable fresh locators are cleaned.
-- [ ] Unreadable/malformed authority: credentials are retained with safe logical recovery evidence.
-- [ ] Results contain no values, paths, native causes, or credentials.
-- [ ] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+- [x] Exact candidate active: all referenced fresh locators are retained.
+- [x] Descendant document preserving candidate locators: preserved locators remain stored.
+- [x] Descendant replacing only some locators: cleanup removes only proven-unreferenced fresh locators.
+- [x] Proven inactive candidate: unreachable fresh locators are cleaned.
+- [x] Unreadable/malformed authority: credentials are retained with safe logical recovery evidence.
+- [x] Results contain no values, paths, native causes, or credentials.
+- [x] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+
+## Implementation notes
+
+- Execution capability: host-local inline implementation; the caller explicitly prohibited agents and worktree isolation, and the fix is one cohesive reconciliation/cleanup state machine.
+- Review weight: standard, source: caller request and story risk.
+- Files changed: `src/application/configuration-service.ts`, `test/application/configuration-service.test.ts`, and the parent feature summary.
+- Tests added: exact candidate liveness, descendant preservation of all fresh locators, descendant replacement of a subset, proven-inactive cleanup, and malformed-authority safe retention.
+- Discrepancies from design: revision-mismatched authority with at least one candidate locator live is reported through the existing stored result using the validated current document; only absent fresh locators and superseded old locators are cleanup candidates.
+- Adjacent issues parked: none.
+
+## Verification
+
+- `npm test` — passed: production/test typechecking, dependency boundaries (120 modules / 661 dependencies), 90 Vitest files / 524 tests with no type errors, clean build, and compiled ESM import allowlist (318 exports).

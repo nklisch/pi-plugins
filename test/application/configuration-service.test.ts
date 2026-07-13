@@ -7,7 +7,11 @@ import {
 } from "../../src/application/configuration-service.js";
 import { withSensitiveValue, SensitiveValue } from "../../src/application/sensitive-value.js";
 import { derivePluginConfigurationRef } from "../../src/domain/state/references.js";
-import { CanonicalConfigurationPathSchema } from "../../src/domain/configured-values.js";
+import {
+  CanonicalConfigurationPathSchema,
+  createPluginConfigurationDocument,
+  deriveSecretLocator,
+} from "../../src/domain/configured-values.js";
 import type { PluginConfigurationDocument } from "../../src/domain/configured-values.js";
 import type { PluginConfigurationStore } from "../../src/application/ports/plugin-configuration-store.js";
 import type { SecretStore } from "../../src/application/ports/secret-store.js";
@@ -32,17 +36,22 @@ class FakeConfigurationStore implements PluginConfigurationStore {
   stale = false;
   throwAfterReplace = false;
   failReconciliationRead = false;
+  malformedReconciliationRead = false;
+  afterReplace?: (document: PluginConfigurationDocument) => PluginConfigurationDocument;
   replacementCount = 0;
   abortAfterReplace?: AbortController;
   removeResult: "removed" | "stale" | "missing" = "removed";
   async read() {
     if (this.replacementCount > 1 && this.failReconciliationRead) throw new Error("CANARY_CONFIG_READ_FAILURE");
+    if (this.replacementCount > 1 && this.malformedReconciliationRead) {
+      return { kind: "found" as const, document: {} as PluginConfigurationDocument };
+    }
     return this.document === undefined ? { kind: "missing" as const } : { kind: "found" as const, document: this.document };
   }
   async replace(request: { expectedRevision: PluginConfigurationDocument["revision"] | null; document: PluginConfigurationDocument }) {
     if (this.stale) return { kind: "stale" as const, actualRevision: this.document?.revision ?? null };
     if ((this.document?.revision ?? null) !== request.expectedRevision) return { kind: "stale" as const, actualRevision: this.document?.revision ?? null };
-    this.document = request.document;
+    this.document = this.afterReplace?.(request.document) ?? request.document;
     this.replacementCount += 1;
     this.abortAfterReplace?.abort();
     if (this.throwAfterReplace) throw new Error("CANARY_COMMIT_THEN_THROW");
@@ -167,6 +176,111 @@ describe("configuration replacement service", () => {
     expect(secrets.values.size).toBe(1);
   });
 
+  it("retains every fresh locator when a descendant preserves the candidate credentials", async () => {
+    const configurations = new FakeConfigurationStore();
+    const secrets = new FakeSecretStore();
+    const initial = await savePluginConfiguration(request({ NAME: "demo", TOKEN: "first" }), deps(configurations, secrets), new AbortController().signal);
+    if (initial.kind !== "stored") throw new Error("expected stored");
+    const oldLocator = initial.document.secrets[0]!.locator;
+    let candidate: PluginConfigurationDocument | undefined;
+    configurations.throwAfterReplace = true;
+    configurations.afterReplace = (document) => {
+      candidate = document;
+      return createPluginConfigurationDocument({
+        schemaVersion: 1,
+        configurationRef: document.configurationRef,
+        plugin: document.plugin,
+        scope: document.scope,
+        descriptorDigest: document.descriptorDigest,
+        values: [{ key: "NAME", value: { kind: "string", value: "descendant" } }],
+        secrets: document.secrets,
+      }, sha256);
+    };
+
+    const result = await savePluginConfiguration(
+      request({ NAME: "demo", TOKEN: "second", OPTIONAL: "optional" }),
+      deps(configurations, secrets),
+      new AbortController().signal,
+    );
+
+    expect(result.kind).toBe("stored");
+    expect(candidate).toBeDefined();
+    for (const entry of candidate?.secrets ?? []) expect(secrets.values.has(entry.locator)).toBe(true);
+    expect(secrets.values.has(oldLocator)).toBe(false);
+    expect(configurations.document?.values[0]?.value).toEqual({ kind: "string", value: "descendant" });
+  });
+
+  it("cleans only fresh locators replaced by a descendant", async () => {
+    const configurations = new FakeConfigurationStore();
+    const secrets = new FakeSecretStore();
+    const initial = await savePluginConfiguration(request({ NAME: "demo", TOKEN: "first" }), deps(configurations, secrets), new AbortController().signal);
+    if (initial.kind !== "stored") throw new Error("expected stored");
+    const oldLocator = initial.document.secrets[0]!.locator;
+    let replacedOptionalLocator: string | undefined;
+    let candidateOptionalLocator: string | undefined;
+    let candidateTokenLocator: string | undefined;
+    configurations.throwAfterReplace = true;
+    configurations.afterReplace = (document) => {
+      candidateTokenLocator = document.secrets.find((entry) => entry.key === "TOKEN")?.locator;
+      candidateOptionalLocator = document.secrets.find((entry) => entry.key === "OPTIONAL")?.locator;
+      replacedOptionalLocator = deriveSecretLocator({
+        scope,
+        plugin: "demo@catalog",
+        configurationRef,
+        key: "OPTIONAL",
+        writeId: `config-write-v1:${"d".repeat(22)}`,
+      }, sha256);
+      secrets.values.set(replacedOptionalLocator, SensitiveValue.fromUnknown("descendant-optional"));
+      return createPluginConfigurationDocument({
+        schemaVersion: 1,
+        configurationRef: document.configurationRef,
+        plugin: document.plugin,
+        scope: document.scope,
+        descriptorDigest: document.descriptorDigest,
+        values: document.values,
+        secrets: [
+          { key: "TOKEN", locator: candidateTokenLocator },
+          { key: "OPTIONAL", locator: replacedOptionalLocator },
+        ],
+      }, sha256);
+    };
+
+    const result = await savePluginConfiguration(
+      request({ NAME: "demo", TOKEN: "second", OPTIONAL: "optional" }),
+      deps(configurations, secrets),
+      new AbortController().signal,
+    );
+
+    expect(result.kind).toBe("stored");
+    expect(candidateTokenLocator).toBeDefined();
+    expect(candidateOptionalLocator).toBeDefined();
+    expect(replacedOptionalLocator).toBeDefined();
+    expect(secrets.values.has(candidateTokenLocator!)).toBe(true);
+    expect(secrets.values.has(candidateOptionalLocator!)).toBe(false);
+    expect(secrets.values.has(replacedOptionalLocator!)).toBe(true);
+    expect(secrets.values.has(oldLocator)).toBe(false);
+  });
+
+  it("cleans fresh locators when authority proves the candidate inactive", async () => {
+    const configurations = new FakeConfigurationStore();
+    const secrets = new FakeSecretStore();
+    const initial = await savePluginConfiguration(request({ NAME: "demo", TOKEN: "first" }), deps(configurations, secrets), new AbortController().signal);
+    if (initial.kind !== "stored") throw new Error("expected stored");
+    const oldLocator = initial.document.secrets[0]!.locator;
+    configurations.throwAfterReplace = true;
+    configurations.afterReplace = () => initial.document!;
+
+    const error = await savePluginConfiguration(
+      request({ NAME: "demo", TOKEN: "second" }),
+      deps(configurations, secrets),
+      new AbortController().signal,
+    ).then(() => undefined, (value: unknown) => value);
+
+    expect(error).toMatchObject({ code: "ADAPTER_FAILED" });
+    expect(secrets.values.size).toBe(1);
+    expect(secrets.values.has(oldLocator)).toBe(true);
+  });
+
   it("retains fresh credentials and returns locator-only evidence when reconciliation is unavailable", async () => {
     const configurations = new FakeConfigurationStore();
     const secrets = new FakeSecretStore();
@@ -181,6 +295,22 @@ describe("configuration replacement service", () => {
     expect(result.recovery.code).toBe("CONFIGURATION_RECONCILIATION_REQUIRED");
     expect(result.recovery.locators).toHaveLength(1);
     expect(JSON.stringify(result)).not.toContain("second");
+    expect(secrets.values.size).toBe(2);
+  });
+
+  it("retains fresh credentials and returns safe evidence for malformed authority", async () => {
+    const configurations = new FakeConfigurationStore();
+    const secrets = new FakeSecretStore();
+    const initial = await savePluginConfiguration(request({ NAME: "demo", TOKEN: "first" }), deps(configurations, secrets), new AbortController().signal);
+    if (initial.kind !== "stored") throw new Error("expected stored");
+    configurations.throwAfterReplace = true;
+    configurations.malformedReconciliationRead = true;
+
+    const result = await savePluginConfiguration(request({ NAME: "demo", TOKEN: "second" }), deps(configurations, secrets), new AbortController().signal);
+
+    expect(result.kind).toBe("ambiguous-with-recovery-required");
+    expect(JSON.stringify(result)).not.toContain("second");
+    expect(JSON.stringify(result)).not.toContain("CANARY_CONFIG_READ_FAILURE");
     expect(secrets.values.size).toBe(2);
   });
 
