@@ -105,27 +105,50 @@ describe("trust-gated runtime configuration resolution", () => {
       expect(value.substitute("Bearer ${user_config.TOKEN}")).toBe("Bearer CANARY_SECRET");
       expect(value.environment()).toMatchObject({ CLAUDE_PLUGIN_OPTION_TOKEN: "CANARY_SECRET" });
       expect(JSON.stringify(value)).toBe('"[REDACTED]"');
-      return "ok";
+      return undefined;
     });
     expect(facade?.toString()).toBe("[REDACTED]");
     expect(() => facade?.has("TOKEN")).toThrow();
     expect(JSON.stringify(config.document)).not.toContain("CANARY_SECRET");
   });
 
+  it("discards callback completion values so plaintext cannot cross the resolver boundary", async () => {
+    const { current, config, secrets } = await setup();
+    const unsafeCompletion = async (resolved: import("../../src/application/resolved-configuration.js").ResolvedConfiguration) => ({
+      secret: resolved.substitute("${user_config.TOKEN}"),
+    });
+    const result = await withResolvedPluginConfiguration({ candidate: current, trustRecords: [grantTrust(current, sha256)], configurationRef, descriptors, pathContext }, dependencies(config, secrets), new AbortController().signal, unsafeCompletion as unknown as (configuration: import("../../src/application/resolved-configuration.js").ResolvedConfiguration) => Promise<void>);
+    expect(result).toBeUndefined();
+  });
+
   it("denies absent trust, required missing secrets, and adapter failures without fallback", async () => {
     const { current, config, secrets } = await setup();
-    await expect(withResolvedPluginConfiguration({ candidate: current, trustRecords: [], configurationRef, descriptors, pathContext }, dependencies(config, secrets), new AbortController().signal, async () => "unreachable"))
+    await expect(withResolvedPluginConfiguration({ candidate: current, trustRecords: [], configurationRef, descriptors, pathContext }, dependencies(config, secrets), new AbortController().signal, async () => undefined))
       .rejects.toMatchObject({ code: "TRUST_ABSENT" });
     secrets.missing.add(tokenLocator);
-    await expect(withResolvedPluginConfiguration({ candidate: current, trustRecords: [grantTrust(current, sha256)], configurationRef, descriptors, pathContext }, dependencies(config, secrets), new AbortController().signal, async () => "unreachable"))
+    await expect(withResolvedPluginConfiguration({ candidate: current, trustRecords: [grantTrust(current, sha256)], configurationRef, descriptors, pathContext }, dependencies(config, secrets), new AbortController().signal, async () => undefined))
       .rejects.toMatchObject({ code: "CONFIG_SECRET_MISSING" });
 
     const failure = new Secrets();
     failure.values.set(tokenLocator, SensitiveValue.fromUnknown("CANARY_SECRET"));
     failure.get = async () => { throw new Error("CANARY_SECRET_ADAPTER_ERROR"); };
-    const error = await withResolvedPluginConfiguration({ candidate: current, trustRecords: [grantTrust(current, sha256)], configurationRef, descriptors, pathContext }, dependencies(config, failure), new AbortController().signal, async () => "unreachable").catch((value: unknown) => value);
+    const error = await withResolvedPluginConfiguration({ candidate: current, trustRecords: [grantTrust(current, sha256)], configurationRef, descriptors, pathContext }, dependencies(config, failure), new AbortController().signal, async () => undefined).catch((value: unknown) => value);
     expect(error).toMatchObject({ code: "ADAPTER_FAILED" });
     expect(JSON.stringify(error)).not.toContain("CANARY_SECRET");
+  });
+
+  it("fails closed on malformed adapter results without serializing their payload", async () => {
+    const { current, config, secrets } = await setup();
+    config.read = async () => ({ kind: "found" as const, document: { malformed: "CANARY_ADAPTER_PAYLOAD" } as never });
+    const configError = await withResolvedPluginConfiguration({ candidate: current, trustRecords: [grantTrust(current, sha256)], configurationRef, descriptors, pathContext }, dependencies(config, secrets), new AbortController().signal, async () => undefined).catch((value: unknown) => value);
+    expect(configError).toMatchObject({ code: "ADAPTER_FAILED" });
+    expect(JSON.stringify(configError)).not.toContain("CANARY_ADAPTER_PAYLOAD");
+
+    const { current: second, config: secondConfig, secrets: secondSecrets } = await setup();
+    secondSecrets.get = async () => ({ kind: "found" as const, value: "CANARY_PLAINTEXT" as never });
+    const secretError = await withResolvedPluginConfiguration({ candidate: second, trustRecords: [grantTrust(second, sha256)], configurationRef, descriptors, pathContext }, dependencies(secondConfig, secondSecrets), new AbortController().signal, async () => undefined).catch((value: unknown) => value);
+    expect(secretError).toMatchObject({ code: "ADAPTER_FAILED" });
+    expect(JSON.stringify(secretError)).not.toContain("CANARY_PLAINTEXT");
   });
 
   it("omits optional missing secrets without empty/default substitution", async () => {
@@ -143,7 +166,7 @@ describe("trust-gated runtime configuration resolution", () => {
     config.document = document(current, true);
     const pathSecrets = new Secrets();
     pathSecrets.values.set(tokenLocator, SensitiveValue.fromUnknown("CANARY_SECRET"));
-    await expect(withResolvedPluginConfiguration({ candidate: current, trustRecords: [grantTrust(current, sha256)], configurationRef, descriptors, pathContext }, dependencies(config, pathSecrets), new AbortController().signal, async () => "unreachable"))
+    await expect(withResolvedPluginConfiguration({ candidate: current, trustRecords: [grantTrust(current, sha256)], configurationRef, descriptors, pathContext }, dependencies(config, pathSecrets), new AbortController().signal, async () => undefined))
       .rejects.toMatchObject({ code: "CONFIG_PATH_MISSING" });
     expect(pathSecrets.values.has(tokenLocator)).toBe(true);
   });

@@ -4,6 +4,7 @@ import {
   PluginConfigurationSchema,
   type ConfigurationOption,
   type PluginConfiguration,
+  testConfigurationPattern,
 } from "./configuration.js";
 import { ContentDigestSchema, hashContent, type ContentDigest } from "./content-manifest.js";
 import { PluginConfigurationRefSchema, type PluginConfigurationRef } from "./state/references.js";
@@ -300,7 +301,7 @@ function valueSatisfiesDescriptor(value: ConfiguredValue, option: ConfigurationO
   switch (option.value.kind) {
     case "string":
       return value.kind === "string" &&
-        (option.value.pattern === undefined || new RegExp(option.value.pattern).test(value.value));
+        (option.value.pattern === undefined || testConfigurationPattern(option.value.pattern, value.value));
     case "number":
       return value.kind === "number" &&
         (option.value.min === undefined || value.value >= option.value.min) &&

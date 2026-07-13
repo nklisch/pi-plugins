@@ -91,5 +91,5 @@ it("integrates validated non-secret state, opaque secret custody, exact trust, a
   await secrets.remove(locator, new AbortController().signal);
   await expect(withResolvedPluginConfiguration({ candidate, trustRecords: [grantTrust(candidate, sha256)], configurationRef, descriptors, pathContext }, {
     projectTrust: { assess: async () => ({ kind: "trusted" as const }) }, configurations, secrets, paths, sha256,
-  }, new AbortController().signal, async () => "unreachable")).rejects.toMatchObject({ code: "CONFIG_SECRET_MISSING" });
+  }, new AbortController().signal, async () => undefined)).rejects.toMatchObject({ code: "CONFIG_SECRET_MISSING" });
 });

@@ -1,28 +1,36 @@
-import type {
-  PluginConfigurationDocument,
-} from "../../domain/configured-values.js";
-import type { ContentDigest } from "../../domain/content-manifest.js";
+import { z } from "zod";
+import { PluginConfigurationDocumentSchemaV1, type PluginConfigurationDocument } from "../../domain/configured-values.js";
+import { ContentDigestSchema, type ContentDigest } from "../../domain/content-manifest.js";
 import type { PluginConfigurationRef } from "../../domain/state/references.js";
+
+export const PluginConfigurationReadResultSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("found"), document: PluginConfigurationDocumentSchemaV1 }).strict(),
+  z.object({ kind: z.literal("missing") }).strict(),
+]).readonly();
+export type PluginConfigurationReadResult = z.infer<typeof PluginConfigurationReadResultSchema>;
+
+export const PluginConfigurationReplaceResultSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("stored") }).strict(),
+  z.object({ kind: z.literal("stale"), actualRevision: ContentDigestSchema.nullable() }).strict(),
+]).readonly();
+export type PluginConfigurationReplaceResult = z.infer<typeof PluginConfigurationReplaceResultSchema>;
+
+export const PluginConfigurationRemoveResultSchema = z.enum(["removed", "stale", "missing"]);
+export type PluginConfigurationRemoveResult = z.infer<typeof PluginConfigurationRemoveResultSchema>;
 
 /** CAS storage for non-sensitive configuration documents only. */
 export interface PluginConfigurationStore {
   read(
     ref: PluginConfigurationRef,
     signal: AbortSignal,
-  ): Promise<
-    | Readonly<{ kind: "found"; document: PluginConfigurationDocument }>
-    | Readonly<{ kind: "missing" }>
-  >;
+  ): Promise<PluginConfigurationReadResult>;
   replace(
     request: Readonly<{
       expectedRevision: ContentDigest | null;
       document: PluginConfigurationDocument;
     }>,
     signal: AbortSignal,
-  ): Promise<
-    | Readonly<{ kind: "stored" }>
-    | Readonly<{ kind: "stale"; actualRevision: ContentDigest | null }>
-  >;
+  ): Promise<PluginConfigurationReplaceResult>;
   remove(
     request: Readonly<{
       ref: PluginConfigurationRef;
@@ -30,5 +38,5 @@ export interface PluginConfigurationStore {
       confirmedSecretDeletion: true;
     }>,
     signal: AbortSignal,
-  ): Promise<"removed" | "stale" | "missing">;
+  ): Promise<PluginConfigurationRemoveResult>;
 }

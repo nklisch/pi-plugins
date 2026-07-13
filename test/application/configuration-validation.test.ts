@@ -86,7 +86,9 @@ describe("configuration submission validation", () => {
       calls.push(input.value);
       return pathPort.normalizeAndInspect(input, new AbortController().signal);
     } };
-    await expect(validateConfigurationSubmission(base({ UNKNOWN: "x" }), port, new AbortController().signal)).rejects.toMatchObject({ code: "CONFIG_UNKNOWN_KEY" });
+    const unknown = await validateConfigurationSubmission(base({ UNKNOWN: "CANARY_UNKNOWN_SECRET_KEY" }), port, new AbortController().signal).catch((error: unknown) => error);
+    expect(unknown).toMatchObject({ code: "CONFIG_UNKNOWN_KEY" });
+    expect(JSON.stringify(unknown)).not.toContain("CANARY_UNKNOWN_SECRET_KEY");
     await expect(validateConfigurationSubmission({ ...base({ NAME: "bad-value", DIR: "x" }), values: { NAME: "safe", DIR: "x" }, unset: ["NAME"] }, port, new AbortController().signal)).rejects.toMatchObject({ code: "CONFIG_DUPLICATE_INPUT" });
     await expect(validateConfigurationSubmission(base({ NAME: "BAD", DIR: "x", TOKEN: "s" }), port, new AbortController().signal)).rejects.toMatchObject({ code: "CONFIG_PATTERN" });
     await expect(validateConfigurationSubmission(base({ NAME: "safe", DIR: "x", TOKEN: "s", COUNT: 99 }), port, new AbortController().signal)).rejects.toMatchObject({ code: "CONFIG_BOUNDS" });

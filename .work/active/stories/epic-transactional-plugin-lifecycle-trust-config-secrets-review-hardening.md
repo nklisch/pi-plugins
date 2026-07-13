@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-trust-config-secrets
 depends_on: [epic-transactional-plugin-lifecycle-trust-config-secrets-contract-hardening]
@@ -32,10 +32,23 @@ Close every blocker and important finding from deep trust/configuration/secrets 
 
 ## Acceptance criteria
 
-- [ ] Stale/failed removal CAS cannot delete a credential referenced by active configuration.
-- [ ] No public callback/result type can return or serialize plaintext secret values.
-- [ ] Project keys and trusted roots are cryptographically/capability bound to validated project identity.
-- [ ] Cancellation and post-commit cleanup expose complete safe recovery evidence.
-- [ ] Adapter output and error surfaces are runtime validated and secret-safe.
-- [ ] Untrusted patterns cannot cause catastrophic backtracking.
-- [ ] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+- [x] Stale/failed removal CAS cannot delete a credential referenced by active configuration.
+- [x] No public callback/result type can return or serialize plaintext secret values.
+- [x] Project keys and trusted roots are cryptographically/capability bound to validated project identity.
+- [x] Cancellation and post-commit cleanup expose complete safe recovery evidence.
+- [x] Adapter output and error surfaces are runtime validated and secret-safe.
+- [x] Untrusted patterns cannot cause catastrophic backtracking.
+- [x] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+
+## Implementation notes
+
+- Execution capability: host-local inline implementation; the caller explicitly prohibited agents and the changes share one transaction/port boundary.
+- Review weight: standard, with the requested stop at `stage: review`.
+- Files changed: configuration service/resolver/validation, adapter port response schemas, project scope capability, descriptor regex policy, package exports, and adversarial tests.
+- Tests added: stale removal CAS ordering, post-retirement cleanup evidence, cancellation cleanup, discarded resolver completion values, malformed adapter response redaction, unknown-key serialization, forged project-root capability, and catastrophic-regex rejection.
+- Discrepancies from design: the resolver consumer now enforces a `Promise<void>` completion contract and discards even adversarial runtime-cast values; project removal accepts an optional path context for user scope and requires the trusted-root capability for project scope.
+- Adjacent issues parked: none.
+
+## Verification
+
+- `npm test` — passed: production and test typechecking, dependency boundaries, 80 test files / 485 tests, build, and compiled-package import allowlist (300 exports).

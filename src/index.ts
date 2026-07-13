@@ -292,6 +292,7 @@ export type { ProjectTrustPort } from "./application/ports/project-trust.js";
 export {
   savePluginConfiguration,
   removePluginConfiguration,
+  ConfigurationCleanupError,
 } from "./application/configuration-service.js";
 export type {
   SavePluginConfigurationRequest,
@@ -437,6 +438,7 @@ export {
   ScopeContextSchema,
   deriveProjectKey,
   createScopeContext,
+  createTrustedProjectRoot,
   toScopeReference,
 } from "./domain/state/scope.js";
 export type {
@@ -445,6 +447,7 @@ export type {
   ProjectKey,
   ScopeReference,
   ScopeContext,
+  TrustedProjectRoot,
 } from "./domain/state/scope.js";
 
 export {

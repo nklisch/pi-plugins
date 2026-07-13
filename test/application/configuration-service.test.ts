@@ -49,9 +49,11 @@ class FakeSecretStore implements SecretStore {
   values = new Map<string, SensitiveValue>();
   failPut = false;
   failRemove = new Set<string>();
-  async put(locator: string, value: SensitiveValue) {
+  abortAfterPut?: AbortController;
+  async put(locator: string, value: SensitiveValue, _signal?: AbortSignal) {
     if (this.failPut) throw new Error("CANARY_SECRET_ADAPTER_FAILURE");
     this.values.set(locator, value);
+    this.abortAfterPut?.abort();
   }
   async get(locator: string) { return this.values.has(locator) ? { kind: "found" as const, value: this.values.get(locator)! } : { kind: "missing" as const }; }
   async remove(locator: string) {
@@ -114,6 +116,30 @@ describe("configuration replacement service", () => {
     expect(stale.kind).toBe("stale");
     expect(configurations.document?.secrets[0]?.locator).toBe(oldLocator);
     expect([...secrets.values.keys()]).toEqual([oldLocator]);
+  });
+
+  it("retires the document before deleting credentials and preserves active data on stale CAS", async () => {
+    const configurations = new FakeConfigurationStore();
+    const secrets = new FakeSecretStore();
+    await savePluginConfiguration(request({ NAME: "demo", TOKEN: "first" }), deps(configurations, secrets), new AbortController().signal);
+    const locator = [...secrets.values.keys()][0]!;
+    configurations.removeResult = "stale";
+    const result = await removePluginConfiguration({ configurationRef, plugin: "demo@catalog", scope, descriptors, confirmedSecretDeletion: true }, deps(configurations, secrets), new AbortController().signal);
+    expect(result).toEqual({ kind: "stale", removedLocators: [] });
+    expect(configurations.document?.secrets[0]?.locator).toBe(locator);
+    expect(secrets.values.has(locator)).toBe(true);
+  });
+
+  it("returns typed cleanup evidence when cancellation follows a secret write", async () => {
+    const configurations = new FakeConfigurationStore();
+    const secrets = new FakeSecretStore();
+    const controller = new AbortController();
+    secrets.abortAfterPut = controller;
+    const error = await savePluginConfiguration(request({ NAME: "demo", TOKEN: "first" }), deps(configurations, secrets), controller.signal)
+      .then(() => undefined, (value: unknown) => value);
+    expect(error).toMatchObject({ name: "AbortError" });
+    expect(secrets.values.size).toBe(0);
+    expect(configurations.document).toBeUndefined();
   });
 
   it("reports post-CAS cleanup failure without invalidating the active new document", async () => {

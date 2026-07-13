@@ -71,6 +71,70 @@ export const ConfigurationKeySchema = z
   .string()
   .regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
 
+/**
+ * Descriptor patterns are plugin-authored input, not trusted application code.
+ * The host deliberately accepts a conservative regular-expression subset:
+ * bounded descriptor size, no backreferences/lookarounds, no wildcard scans,
+ * and no quantifier applied to a group. This keeps validation fail-closed
+ * without pulling a regex engine into the domain layer.
+ */
+export const ConfigurationPatternPolicy = Object.freeze({
+  maxPatternLength: 256,
+  maxInputLength: 16_384,
+});
+
+export function isSafeConfigurationPattern(pattern: string): boolean {
+  if (typeof pattern !== "string" || pattern.length > ConfigurationPatternPolicy.maxPatternLength) return false;
+  // Backreferences and lookarounds require non-linear matching strategies.
+  if (/\\(?:[1-9]|k<)|\\p\{|\(\?[<!=]/.test(pattern)) return false;
+  // Wildcard repetition and repetition of a group are the common sources of
+  // catastrophic backtracking (for example ^(a+)+$).
+  if (pattern.includes(".*") || pattern.includes(".+")) return false;
+  if (/\)(?:[*+?]|\{)/.test(pattern)) return false;
+  if (/(?:[*+?]|\{[^}]*\})[*+?]/.test(pattern)) return false;
+  let quantifiers = 0;
+  let inCharacterClass = false;
+  let escaped = false;
+  for (let index = 0; index < pattern.length; index += 1) {
+    const character = pattern[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (character === "[") {
+      inCharacterClass = true;
+      continue;
+    }
+    if (character === "]") {
+      inCharacterClass = false;
+      continue;
+    }
+    if (!inCharacterClass && (character === "*" || character === "+" || character === "?")) quantifiers += 1;
+    if (quantifiers > 1) return false;
+  }
+  for (const match of pattern.matchAll(/\{(\d+)(?:,(\d*))?\}/g)) {
+    const upper = match[2];
+    if (upper === "" || (upper !== undefined && Number(upper) > 32) || Number(match[1]) > 32) return false;
+  }
+  try {
+    // Compilation is still required because the policy is intentionally only
+    // a safety filter, not a replacement for the JavaScript grammar.
+    new RegExp(pattern);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function testConfigurationPattern(pattern: string, input: string): boolean {
+  if (!isSafeConfigurationPattern(pattern) || input.length > ConfigurationPatternPolicy.maxInputLength) return false;
+  return new RegExp(pattern).test(input);
+}
+
 function hasDefault(value: ConfigurationValueDescriptor): boolean {
   return "default" in value && value.default !== undefined;
 }
@@ -92,15 +156,11 @@ function validatePattern(
     return;
   }
 
-  try {
-    // Validate the descriptor now rather than failing when a configured value
-    // is eventually substituted into a component.
-    new RegExp(value.pattern);
-  } catch {
+  if (!isSafeConfigurationPattern(value.pattern)) {
     addIssue(
       context,
       [...pathPrefix, "pattern"],
-      "pattern must be a valid regular expression",
+      "pattern must satisfy the bounded safe-regex policy",
     );
   }
 }

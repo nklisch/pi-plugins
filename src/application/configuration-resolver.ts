@@ -10,15 +10,25 @@ import {
   PluginConfigurationSchema,
   type ConfigurationOption,
   type PluginConfiguration,
+  testConfigurationPattern,
 } from "../domain/configuration.js";
 import { PluginConfigurationRefSchema, type PluginConfigurationRef } from "../domain/state/references.js";
-import { ScopeReferenceSchema, toScopeReference, type ScopeContext } from "../domain/state/scope.js";
+import {
+  createScopeContext,
+  ScopeReferenceSchema,
+  toScopeReference,
+  verifyTrustedProjectRoot,
+  type ScopeContext,
+} from "../domain/state/scope.js";
 import type { TrustCandidate } from "../domain/trust-policy.js";
 import { authorizeTrustCandidate } from "./trust-service.js";
 import type { ProjectTrustPort } from "./ports/project-trust.js";
-import type { PluginConfigurationStore } from "./ports/plugin-configuration-store.js";
-import type { SecretStore } from "./ports/secret-store.js";
-import type { ConfigurationPathContext, ConfigurationPathPort } from "./ports/configuration-path.js";
+import {
+  PluginConfigurationReadResultSchema,
+  type PluginConfigurationStore,
+} from "./ports/plugin-configuration-store.js";
+import { SecretStoreGetResultSchema, type SecretStore } from "./ports/secret-store.js";
+import { ConfigurationPathResultSchema, type ConfigurationPathContext, type ConfigurationPathPort } from "./ports/configuration-path.js";
 import { SensitiveValue, withSensitiveValue } from "./sensitive-value.js";
 import { createResolvedConfiguration, type ResolvedConfiguration } from "./resolved-configuration.js";
 import { validateConfigurationSubmission, type ValidatedConfigurationSubmission } from "./configuration-validation.js";
@@ -93,7 +103,7 @@ function mapValidationCode(error: unknown): ConfigurationResolutionError {
 function parseSecret(option: ConfigurationOption, plaintext: string): unknown {
   switch (option.value.kind) {
     case "string":
-      if (option.value.pattern !== undefined && !new RegExp(option.value.pattern).test(plaintext)) {
+      if (option.value.pattern !== undefined && !testConfigurationPattern(option.value.pattern, plaintext)) {
         throw new ConfigurationResolutionError("CONFIGURATION_INVALID");
       }
       return plaintext;
@@ -136,7 +146,7 @@ async function resolvePath(
   const expected = descriptor.kind === "file" ? "file" : "directory";
   let result: Awaited<ReturnType<ConfigurationPathPort["normalizeAndInspect"]>>;
   try {
-    result = await paths.normalizeAndInspect({ value, expected, mustExist: descriptor.mustExist, context }, signal);
+    result = ConfigurationPathResultSchema.parse(await paths.normalizeAndInspect({ value, expected, mustExist: descriptor.mustExist, context }, signal));
   } catch (error) {
     if (signal.aborted) throw signal.reason;
     if (isAbortRejection(error)) throw error;
@@ -158,7 +168,7 @@ async function readDocument(
   signal: AbortSignal,
 ): Promise<PluginConfigurationDocument | undefined> {
   try {
-    const result = await configurations.read(ref, signal);
+    const result = PluginConfigurationReadResultSchema.parse(await configurations.read(ref, signal));
     return result.kind === "found" ? result.document : undefined;
   } catch (error) {
     if (signal.aborted) throw signal.reason;
@@ -182,7 +192,7 @@ async function fetchSecrets(
     if (option === undefined || !option.sensitive) throw new ConfigurationResolutionError("CONFIGURATION_INVALID");
     let result: Awaited<ReturnType<SecretStore["get"]>>;
     try {
-      result = await dependencies.secrets.get(entry.locator, signal);
+      result = SecretStoreGetResultSchema.parse(await dependencies.secrets.get(entry.locator, signal));
     } catch (error) {
       if (signal.aborted) throw signal.reason;
       if (isAbortRejection(error)) throw error;
@@ -226,7 +236,7 @@ function validateDocumentValues(
 }
 
 /** Resolve secrets only inside the callback immediately before execution. */
-export async function withResolvedPluginConfiguration<T>(
+export async function withResolvedPluginConfiguration(
   request: Readonly<{
     candidate: TrustCandidate;
     trustRecords: readonly import("../domain/state/trust-state.js").TrustStateRecord[];
@@ -242,14 +252,29 @@ export async function withResolvedPluginConfiguration<T>(
     sha256: Sha256;
   }>,
   signal: AbortSignal,
-  use: (configuration: ResolvedConfiguration) => Promise<T>,
-): Promise<T> {
+  use: (configuration: ResolvedConfiguration) => Promise<void>,
+): Promise<void> {
   signal.throwIfAborted();
-  const authorization = await authorizeTrustCandidate({ candidate: request.candidate, records: request.trustRecords }, dependencies, signal);
+  let verifiedScope: ScopeContext;
+  try {
+    verifiedScope = createScopeContext(request.pathContext.scope, dependencies.sha256);
+    if (verifiedScope.kind === "project") {
+      verifyTrustedProjectRoot(request.pathContext.trustedProjectRoot, verifiedScope, dependencies.sha256);
+    }
+  } catch {
+    throw new ConfigurationResolutionError("CONFIGURATION_INVALID");
+  }
+  const verifiedPathContext: ConfigurationPathContext = { ...request.pathContext, scope: verifiedScope };
+  const authorization = await authorizeTrustCandidate({ candidate: request.candidate, records: request.trustRecords, scope: verifiedScope }, dependencies, signal);
   if (authorization.kind === "denied") throw new ConfigurationResolutionError(authorization.code);
-  const descriptors = PluginConfigurationSchema.parse(request.descriptors);
+  let descriptors: PluginConfiguration;
+  try {
+    descriptors = PluginConfigurationSchema.parse(request.descriptors);
+  } catch {
+    throw new ConfigurationResolutionError("CONFIGURATION_INVALID");
+  }
   const candidateScope = ScopeReferenceSchema.parse(request.candidate.evidence.scope);
-  if (!scopeMatches(request.pathContext.scope, candidateScope)) throw new ConfigurationResolutionError("CONFIGURATION_INVALID");
+  if (!scopeMatches(verifiedScope, candidateScope)) throw new ConfigurationResolutionError("CONFIGURATION_INVALID");
 
   let entries: Array<{ key: string; value: ConfiguredValue }> = [];
   if (request.configurationRef === undefined) {
@@ -259,7 +284,7 @@ export async function withResolvedPluginConfiguration<T>(
     const rawDocument = await readDocument(dependencies.configurations, ref, signal);
     if (rawDocument === undefined) throw new ConfigurationResolutionError("CONFIGURATION_MISSING");
     const document = PluginConfigurationDocumentSchemaV1.parse(rawDocument);
-    ensureDocumentIdentity(document, request.candidate, ref, request.pathContext);
+    ensureDocumentIdentity(document, request.candidate, ref, verifiedPathContext);
     let validated: ValidatedConfigurationSubmission;
     try {
       const verified = verifyPluginConfigurationDocument(document, descriptors, dependencies.sha256);
@@ -267,15 +292,15 @@ export async function withResolvedPluginConfiguration<T>(
       validated = await validateConfigurationSubmission({
         configurationRef: ref,
         plugin: request.candidate.evidence.plugin,
-        scope: request.pathContext.scope,
+        scope: verifiedScope,
         descriptors,
         values: rawValues,
         existing: verified,
-        pathContext: request.pathContext,
+        pathContext: verifiedPathContext,
       }, dependencies.paths, signal);
       validateDocumentValues(verified, validated);
       entries = validated.values.map((entry) => ({ key: entry.key, value: entry.value }));
-      const secrets = await fetchSecrets(verified, descriptors, dependencies, request.pathContext, signal);
+      const secrets = await fetchSecrets(verified, descriptors, dependencies, verifiedPathContext, signal);
       entries = [...entries, ...secrets];
     } catch (error) {
       if (error instanceof ConfigurationResolutionError || error instanceof BoundaryError) throw error;
@@ -287,7 +312,11 @@ export async function withResolvedPluginConfiguration<T>(
 
   const facade = createResolvedConfiguration(entries);
   try {
-    return await use(facade);
+    // The callback's completion value is intentionally discarded. Only the
+    // callback-scoped facade can observe plaintext; no generic result crosses
+    // this boundary.
+    await use(facade);
+    return undefined;
   } catch (error) {
     if (signal.aborted) throw signal.reason;
     if (isAbortRejection(error)) throw error;

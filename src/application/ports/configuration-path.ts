@@ -1,10 +1,22 @@
-import type { CanonicalConfigurationPath } from "../../domain/configured-values.js";
-import type { ScopeContext } from "../../domain/state/scope.js";
+import { z } from "zod";
+import { CanonicalConfigurationPathSchema, type CanonicalConfigurationPath } from "../../domain/configured-values.js";
+import type { ScopeContext, TrustedProjectRoot } from "../../domain/state/scope.js";
 
+/**
+ * User scope retains its adapter-owned base for compatibility. Project scope
+ * must use the opaque capability; a bare path is never accepted there.
+ */
 export type ConfigurationPathContext = Readonly<{
   scope: ScopeContext;
-  trustedBaseDirectory: string;
+  trustedBaseDirectory?: string;
+  trustedProjectRoot?: TrustedProjectRoot;
 }>;
+
+export const ConfigurationPathResultSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("valid"), canonicalPath: CanonicalConfigurationPathSchema }).strict(),
+  z.object({ kind: z.enum(["missing", "wrong-kind", "invalid"]) }).strict(),
+]).readonly();
+export type ConfigurationPathResult = z.infer<typeof ConfigurationPathResultSchema>;
 
 export interface ConfigurationPathPort {
   normalizeAndInspect(
@@ -15,8 +27,5 @@ export interface ConfigurationPathPort {
       context: ConfigurationPathContext;
     }>,
     signal: AbortSignal,
-  ): Promise<
-    | Readonly<{ kind: "valid"; canonicalPath: CanonicalConfigurationPath }>
-    | Readonly<{ kind: "missing" | "wrong-kind" | "invalid" }>
-  >;
+  ): Promise<ConfigurationPathResult>;
 }

@@ -10,11 +10,14 @@ import {
 } from "../domain/trust-policy.js";
 import type { ProjectTrustPort } from "./ports/project-trust.js";
 import type { Sha256 } from "../domain/source.js";
-import type {
-  ProjectKey,
-  ScopeReference,
+import {
+  createScopeContext,
+  type ProjectKey,
+  type ScopeContext,
+  type ScopeReference,
 } from "../domain/state/scope.js";
 import type { TrustStateRecord } from "../domain/state/trust-state.js";
+import { ProjectTrustAssessmentSchema } from "./ports/project-trust.js";
 
 export type TrustAuthorizationResult =
   | Readonly<{ kind: "authorized"; subject: TrustCandidate["subject"] }>
@@ -61,6 +64,8 @@ export async function authorizeTrustCandidate(
   request: Readonly<{
     candidate: TrustCandidate;
     records: readonly TrustStateRecord[];
+    /** Optional runtime provenance for callers that have a full project context. */
+    scope?: ScopeContext;
   }>,
   dependencies: Readonly<{
     projectTrust: ProjectTrustPort;
@@ -81,13 +86,24 @@ export async function authorizeTrustCandidate(
   if (projectKey !== undefined) {
     let assessment: Awaited<ReturnType<ProjectTrustPort["assess"]>>;
     try {
-      assessment = await dependencies.projectTrust.assess(projectKey, signal);
+      assessment = ProjectTrustAssessmentSchema.parse(await dependencies.projectTrust.assess(projectKey, signal));
     } catch (error) {
       if (signal.aborted) throw signal.reason;
       if (isAbortRejection(error)) throw error;
       throw adapterFailure();
     }
     signal.throwIfAborted();
+    if (request.scope !== undefined) {
+      let verifiedScope: ScopeContext;
+      try {
+        verifiedScope = createScopeContext(request.scope, dependencies.sha256);
+      } catch {
+        return { kind: "denied", code: "TRUST_EVIDENCE_INVALID" };
+      }
+      if (verifiedScope.kind !== "project" || verifiedScope.projectKey !== projectKey) {
+        return { kind: "denied", code: "TRUST_EVIDENCE_INVALID" };
+      }
+    }
     if (assessment.kind !== "trusted") {
       return { kind: "denied", code: "PROJECT_UNTRUSTED" };
     }

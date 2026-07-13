@@ -71,6 +71,8 @@ describe("configuration value schemas", () => {
     [{ kind: "strings", minItems: 2, default: ["one"] }, "string-array default below min"],
     [{ kind: "strings", maxItems: 1, default: ["one", "two"] }, "string-array default above max"],
     [{ kind: "string", pattern: "[" }, "invalid pattern"],
+    [{ kind: "string", pattern: "^(a+)+$" }, "catastrophic backtracking pattern"],
+    [{ kind: "string", pattern: ".*" }, "unbounded wildcard pattern"],
   ])("rejects inconsistent value descriptors (%s)", (value, _label) => {
     expect(ConfigurationValueSchema.safeParse(value).success).toBe(false);
   });

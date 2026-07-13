@@ -3,6 +3,7 @@ import {
   PluginConfigurationSchema,
   type ConfigurationOption,
   type PluginConfiguration,
+  testConfigurationPattern,
 } from "../domain/configuration.js";
 import {
   CanonicalConfigurationPathSchema,
@@ -17,8 +18,8 @@ import {
   type PluginConfigurationRef,
 } from "../domain/state/references.js";
 import { PluginKeySchema, type PluginKey } from "../domain/identity.js";
-import { ScopeContextSchema, type ScopeContext } from "../domain/state/scope.js";
-import type { ConfigurationPathContext, ConfigurationPathPort } from "./ports/configuration-path.js";
+import { isVerifiedScopeContext, ScopeContextSchema, type ScopeContext } from "../domain/state/scope.js";
+import { ConfigurationPathResultSchema, type ConfigurationPathContext, type ConfigurationPathPort } from "./ports/configuration-path.js";
 import { SensitiveValue, withSensitiveValue } from "./sensitive-value.js";
 
 export type ConfigurationSubmission = Readonly<{
@@ -71,13 +72,14 @@ export type ConfigurationValidationCode =
 
 export class ConfigurationValidationError extends Error {
   readonly code: ConfigurationValidationCode;
-  readonly key?: string;
 
-  constructor(code: ConfigurationValidationCode, key?: string) {
+  constructor(code: ConfigurationValidationCode, _untrustedKey?: string) {
+    // The offending key is intentionally not retained. Error objects are
+    // routinely serialized by hosts, and configuration keys can be attacker-
+    // controlled secret-shaped strings.
     super("configuration submission is invalid");
     this.name = "ConfigurationValidationError";
     this.code = code;
-    if (key !== undefined) this.key = key;
   }
 }
 
@@ -102,11 +104,21 @@ function parseSubmission(request: ConfigurationSubmission): ConfigurationSubmiss
   const plugin = PluginKeySchema.parse(request.plugin);
   const scope = ScopeContextSchema.parse(request.scope);
   const pathContext = request.pathContext;
-  if (pathContext === null || typeof pathContext !== "object" || typeof pathContext.trustedBaseDirectory !== "string" || pathContext.trustedBaseDirectory.length === 0) {
+  if (pathContext === null || typeof pathContext !== "object") {
     throw new ConfigurationValidationError("CONFIG_TYPE");
   }
   const pathScope = ScopeContextSchema.parse(pathContext.scope);
   if (pathScope.kind !== scope.kind || (pathScope.kind === "project" && scope.kind === "project" && pathScope.projectKey !== scope.projectKey)) {
+    throw new ConfigurationValidationError("CONFIG_TYPE");
+  }
+  if (pathScope.kind === "project") {
+    // The application service performs the cryptographic/capability check with
+    // its injected hash port. This structural gate ensures a project request
+    // cannot silently fall back to the legacy arbitrary base string.
+    if (!isVerifiedScopeContext(request.scope) || !isVerifiedScopeContext(pathContext.scope) || pathContext.trustedProjectRoot === undefined || pathContext.trustedBaseDirectory !== undefined) {
+      throw new ConfigurationValidationError("CONFIG_TYPE");
+    }
+  } else if (typeof pathContext.trustedBaseDirectory !== "string" || pathContext.trustedBaseDirectory.length === 0 || pathContext.trustedProjectRoot !== undefined) {
     throw new ConfigurationValidationError("CONFIG_TYPE");
   }
   const descriptors = PluginConfigurationSchema.parse(request.descriptors);
@@ -139,7 +151,11 @@ function parseSubmission(request: ConfigurationSubmission): ConfigurationSubmiss
     values,
     unset: parsedUnset,
     ...(existing === undefined ? {} : { existing }),
-    pathContext: { scope: pathScope, trustedBaseDirectory: pathContext.trustedBaseDirectory },
+    pathContext: {
+      scope: pathScope,
+      ...(pathContext.trustedBaseDirectory === undefined ? {} : { trustedBaseDirectory: pathContext.trustedBaseDirectory }),
+      ...(pathContext.trustedProjectRoot === undefined ? {} : { trustedProjectRoot: pathContext.trustedProjectRoot }),
+    },
   };
 }
 
@@ -163,7 +179,7 @@ function validateNonSensitiveValue(
   switch (option.value.kind) {
     case "string":
       if (typeof input !== "string") failType(key);
-      if (option.value.pattern !== undefined && !new RegExp(option.value.pattern).test(input)) {
+      if (option.value.pattern !== undefined && !testConfigurationPattern(option.value.pattern, input)) {
         throw new ConfigurationValidationError("CONFIG_PATTERN", key);
       }
       return { kind: "string", value: input } satisfies ConfiguredValue;
@@ -196,7 +212,7 @@ function validateNonSensitiveValue(
 function parseSensitiveText(option: ConfigurationOption, plaintext: string, key: string): unknown {
   switch (option.value.kind) {
     case "string":
-      if (option.value.pattern !== undefined && !new RegExp(option.value.pattern).test(plaintext)) {
+      if (option.value.pattern !== undefined && !testConfigurationPattern(option.value.pattern, plaintext)) {
         throw new ConfigurationValidationError("CONFIG_PATTERN", key);
       }
       return plaintext;
@@ -246,12 +262,12 @@ async function normalizePath(
   const expected = descriptor.kind === "file" ? "file" : "directory";
   let result: Awaited<ReturnType<ConfigurationPathPort["normalizeAndInspect"]>>;
   try {
-    result = await pathPort.normalizeAndInspect({
+    result = ConfigurationPathResultSchema.parse(await pathPort.normalizeAndInspect({
       value,
       expected,
       mustExist: descriptor.mustExist,
       context,
-    }, signal);
+    }, signal));
   } catch (error) {
     if (signal.aborted) throw signal.reason;
     if (error instanceof Error && (error.name === "AbortError" || (error as { code?: unknown }).code === "ABORT_ERR")) throw error;
