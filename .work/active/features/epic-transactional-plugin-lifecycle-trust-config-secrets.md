@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets
 kind: feature
-stage: review
+stage: implementing
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -530,7 +530,7 @@ Deep GLM 5.2 and GPT-5.6 Sol review accepted seven required fixes: stale removal
 
 ## Review-hardening implementation summary
 
-Both hardening stories are done. Bounded quantifiers count toward a one-quantifier fail-closed descriptor language, ambiguous CAS replacement reconciles through the authoritative mutation-linearized read and retains credentials unless proven inactive, and trusted project-root issuance lives behind an opaque adapter/composition port with no caller-selected root argument. Independent verification passes 510 tests, strict production/test typechecking, clean boundaries, build, and exact 318-export package import. The feature returns to `stage: review` for final confirmation.
+The first two hardening stories close all previously tracked findings. Final adversarial review reproduced one remaining CAS lineage race: a descendant authoritative document can preserve a candidate locator while changing revision, causing revision-only reconciliation to delete an active credential. `epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening-3` tracks locator-level liveness reconciliation; the feature remains at `stage: implementing` until it closes.
 
 ## Testing
 

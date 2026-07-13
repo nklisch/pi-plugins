@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 kind: feature
-stage: review
+stage: implementing
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-state-schemas-stores]
@@ -375,6 +375,10 @@ The contracts story fixes identity and port vocabulary first. Staging and runtim
 - Commits: `277cec5` contracts, `f4a277c` staging, `dfa8ee3` atomic engine, `eb170c0` runtime roots, `39f681b` hardening.
 - Scope delivered: capability-owned staging, content-addressed immutable identities/layout, bounded final rewalk, marker-gated read-only publication, explicit durability probing, idempotency/collision handling, state-derived resolution, stable data roots, replaceable projection roots, public Node composition, and rolling architecture documentation.
 - Review boundary: left at `stage: review` for the requested read-only review handoff; no self-approval or agent review was performed.
+
+## Review findings
+
+Deep review confirmed two important cleanup defects: identical lost-race success leaked a sealed prepared directory, and post-seal error cleanup silently failed on read-only trees. An interrupted adversarial pass also supplied exact candidate reproducers for projection allocation symlink replacement, nested control-name mutability, and project-scope resolution. `epic-transactional-plugin-lifecycle-immutable-stores-promotion-review-hardening` tracks the confirmed fixes and requires every candidate to be executed and resolved; the feature remains at `stage: implementing` until it closes.
 
 ## Pre-mortem
 
