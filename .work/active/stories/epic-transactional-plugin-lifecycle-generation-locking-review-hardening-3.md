@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-generation-locking-review-hardening-3
 kind: story
-stage: review
+stage: done
 tags: [correctness, infra, tests]
 parent: epic-transactional-plugin-lifecycle-generation-locking
 depends_on: [epic-transactional-plugin-lifecycle-generation-locking-review-hardening-2]
@@ -55,3 +55,9 @@ Add a deterministic scheduling seam or stress fixture that forces marker-absent 
 - Adjacent issues parked: none.
 
 Verification: `npm test` passed with strict production/test typechecking, dependency boundaries (124 modules / 676 dependencies), 90 Vitest files / 541 tests with no type errors, build, and compiled package import (319 exports).
+
+## Review (2026-07-13)
+
+**Verdict**: Approve
+
+**Review notes**: Substrate mode; caller's explicit story fast-advance policy; independent full-suite verification. Confirmed deterministic stale-marker/fresh-database retry, stable-orphan failure, initializer ownership policy, tamper behavior, and 20-round real multiprocess first-use stress. No blockers, important findings, or nits.
