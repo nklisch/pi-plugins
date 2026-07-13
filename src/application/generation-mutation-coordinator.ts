@@ -1,10 +1,19 @@
 import { BoundaryError } from "../domain/errors.js";
 import { PluginKeySchema, type PluginKey } from "../domain/identity.js";
+import { z } from "zod";
 import {
   GenerationSchema,
+  HostConfigDocumentSchemaV1,
   type Generation,
 } from "../domain/state/config-state.js";
+import { InstalledUserStateDocumentSchemaV1 } from "../domain/state/installed-state.js";
+import { ProjectLocalStateDocumentSchemaV1 } from "../domain/state/project-state.js";
+import { StatePointersDocumentSchemaV1 } from "../domain/state/pointers.js";
+import { TrustStateDocumentSchemaV1 } from "../domain/state/trust-state.js";
+import { StateCorruptionSchema } from "../domain/state/codec.js";
 import {
+  ProjectIdentitySchema,
+  ProjectKeySchema,
   ScopeContextSchema,
   ScopeReferenceSchema,
   toScopeReference,
@@ -71,13 +80,24 @@ export class MutationCleanupError extends Error {
   readonly operationError: unknown;
   readonly cleanupError: unknown;
   readonly causes: readonly [unknown, unknown];
+  readonly outcome: GenerationMutationResult<unknown> | undefined;
+  readonly observedSnapshot: GenerationSnapshot | undefined;
 
-  constructor(operationError: unknown, cleanupError: unknown) {
+  constructor(
+    operationError: unknown,
+    cleanupError: unknown,
+    evidence: Readonly<{
+      outcome?: GenerationMutationResult<unknown>;
+      observedSnapshot?: GenerationSnapshot;
+    }> = {},
+  ) {
     super("mutation failed and scope-lock cleanup also failed", { cause: operationError });
     this.name = "MutationCleanupError";
     this.operationError = operationError;
     this.cleanupError = cleanupError;
     this.causes = [operationError, cleanupError];
+    this.outcome = evidence.outcome;
+    this.observedSnapshot = evidence.observedSnapshot;
   }
 }
 
@@ -174,14 +194,66 @@ function subjects(scope: ScopeReference, plugins: readonly PluginKey[]): readonl
   return plugins.map((plugin) => ({ scope, plugin }));
 }
 
-function validateSnapshot(snapshot: GenerationSnapshot, scope: ScopeContext): GenerationSnapshot {
-  if (snapshot === null || typeof snapshot !== "object") throw new Error("state store returned an invalid generation snapshot");
-  const snapshotScope = ScopeContextSchema.parse(snapshot.scope);
-  if (!sameScopeContext(snapshotScope, scope) || !sameScopeReference(toScopeReference(snapshotScope), toScopeReference(scope))) {
+const UserGenerationSnapshotSchema = z.object({
+  scope: z.object({ kind: z.literal("user") }).strict().readonly(),
+  generation: GenerationSchema,
+  pointers: StatePointersDocumentSchemaV1,
+  config: HostConfigDocumentSchemaV1,
+  installed: InstalledUserStateDocumentSchemaV1,
+  trust: TrustStateDocumentSchemaV1,
+  corruptions: z.array(StateCorruptionSchema).readonly(),
+}).strict().readonly();
+
+const ProjectGenerationSnapshotSchema = z.object({
+  scope: z.object({
+    kind: z.literal("project"),
+    identity: ProjectIdentitySchema,
+    projectKey: ProjectKeySchema,
+  }).strict().readonly(),
+  generation: GenerationSchema,
+  pointers: StatePointersDocumentSchemaV1,
+  project: ProjectLocalStateDocumentSchemaV1,
+  corruptions: z.array(StateCorruptionSchema).readonly(),
+}).strict().readonly();
+
+function validateSnapshot(snapshot: unknown, scope: ScopeContext): GenerationSnapshot {
+  if (snapshot === null || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    throw new Error("state store returned an invalid generation snapshot");
+  }
+  const parsedScope = ScopeContextSchema.parse(scope);
+  const parsed = parsedScope.kind === "user"
+    ? UserGenerationSnapshotSchema.parse(snapshot)
+    : ProjectGenerationSnapshotSchema.parse(snapshot);
+  const snapshotScope = ScopeContextSchema.parse(parsed.scope);
+  if (!sameScopeContext(snapshotScope, parsedScope) || !sameScopeReference(toScopeReference(snapshotScope), toScopeReference(parsedScope))) {
     throw new Error("state store returned a snapshot for the wrong scope");
   }
-  GenerationSchema.parse(snapshot.generation);
-  return snapshot;
+  const generation = GenerationSchema.parse(parsed.generation);
+  const pointers = StatePointersDocumentSchemaV1.parse(parsed.pointers);
+  if (pointers.generation !== generation || !sameScopeReference(pointers.scope, toScopeReference(parsedScope))) {
+    throw new Error("state store returned pointers for the wrong scope or generation");
+  }
+  for (const corruption of parsed.corruptions) {
+    if (!sameScopeReference(corruption.scope, toScopeReference(parsedScope))) {
+      throw new Error("state store returned a corruption for the wrong scope");
+    }
+  }
+  if (parsedScope.kind === "user") {
+    const user = parsed as z.infer<typeof UserGenerationSnapshotSchema>;
+    if (user.config.generation !== generation || user.installed.generation !== generation || user.trust.generation !== generation) {
+      throw new Error("state store returned a user document for the wrong generation");
+    }
+    return user;
+  }
+  const project = parsed as z.infer<typeof ProjectGenerationSnapshotSchema>;
+  if (
+    project.project.generation !== generation ||
+    project.project.projectKey !== parsedScope.projectKey ||
+    !sameJson(project.project.identity, parsedScope.identity)
+  ) {
+    throw new Error("state store returned a project document for the wrong scope or generation");
+  }
+  return project;
 }
 
 function loadFailure(result: Extract<StateLoadResult, { ok: false }>): Error {
@@ -245,10 +317,64 @@ function validatePreparedMutation<T>(
   return prepared;
 }
 
+function nextGenerationDocument<T extends Readonly<{ generation: Generation }>>(
+  document: T,
+  generation: Generation,
+): T {
+  return { ...document, generation } as T;
+}
+
+function samePointerShape(
+  before: GenerationSnapshot,
+  after: GenerationSnapshot,
+  generation: Generation,
+): boolean {
+  if (after.pointers.generation !== generation || !sameScopeReference(after.pointers.scope, before.pointers.scope)) return false;
+  const beforeKinds = before.pointers.documents.map((pointer) => pointer.kind).sort();
+  const afterKinds = after.pointers.documents.map((pointer) => pointer.kind).sort();
+  return sameJson(beforeKinds, afterKinds) && after.pointers.documents.every((pointer) => pointer.generation === generation);
+}
+
+/**
+ * A generation increment alone is not proof that this mutation committed: a
+ * faulty or adversarial store could report an unrelated write at expected+1.
+ * Compare every snapshot document against the pre-commit snapshot with the
+ * verified replacement applied, while treating pointer digests as authority-
+ * owned implementation evidence (their schema/scope/generation are checked).
+ */
+function provesMutationResult(
+  before: GenerationSnapshot,
+  after: GenerationSnapshot,
+  mutation: VerifiedStateMutation,
+): boolean {
+  const next = GenerationSchema.parse(before.generation + 1);
+  if (after.generation !== next || !sameScopeContext(after.scope, before.scope) || !samePointerShape(before, after, next)) return false;
+  if (!sameJson(after.corruptions, before.corruptions)) return false;
+
+  if (
+    "config" in before && "config" in after &&
+    "installed" in before && "installed" in after &&
+    "trust" in before && "trust" in after &&
+    mutation.scope.kind === "user"
+  ) {
+    const replacement = mutation.replace;
+    if ("project" in replacement) return false;
+    return sameJson(after.config, nextGenerationDocument(replacement.config ?? before.config, next)) &&
+      sameJson(after.installed, nextGenerationDocument(replacement.installed ?? before.installed, next)) &&
+      sameJson(after.trust, nextGenerationDocument(replacement.trust ?? before.trust, next));
+  }
+  if ("project" in before && "project" in after && mutation.scope.kind === "project" && "project" in mutation.replace) {
+    return sameJson(after.project, nextGenerationDocument(mutation.replace.project, next));
+  }
+  return false;
+}
+
 function validateCommitResult(
   result: StateCommitResult,
   request: PreparedMutationRequest,
   scope: ScopeContext,
+  before: GenerationSnapshot,
+  mutation: VerifiedStateMutation,
 ): StateCommitResult {
   if (result === null || typeof result !== "object") throw new Error("state store returned an invalid commit result");
   if (result.kind === "stale-generation") {
@@ -262,8 +388,8 @@ function validateCommitResult(
   if (result.kind !== "committed") throw new Error("state store returned an unknown commit result");
   const snapshot = validateSnapshot(result.snapshot, scope);
   const expectedNext = GenerationSchema.parse(GenerationSchema.parse(request.expectedGeneration) + 1);
-  if (snapshot.generation !== expectedNext) {
-    throw new Error("state store committed a generation other than expectedGeneration + 1");
+  if (snapshot.generation !== expectedNext || !provesMutationResult(before, snapshot, mutation)) {
+    throw new Error("state store committed evidence does not prove this mutation");
   }
   return { kind: "committed", snapshot };
 }
@@ -271,6 +397,7 @@ function validateCommitResult(
 type CommitReconciliation<T> = Readonly<{
   outcome: GenerationMutationResult<T>;
   committed?: Readonly<{ value: T; snapshot: GenerationSnapshot }>;
+  observedSnapshot?: GenerationSnapshot;
 }>;
 
 async function reconcileCommitFailure<T>(
@@ -278,6 +405,8 @@ async function reconcileCommitFailure<T>(
   lease: ScopeLockLease,
   scope: ScopeContext,
   expectedGeneration: Generation,
+  before: GenerationSnapshot,
+  mutation: VerifiedStateMutation,
   value: T,
 ): Promise<CommitReconciliation<T>> {
   const recoverySignal = new AbortController().signal;
@@ -289,7 +418,7 @@ async function reconcileCommitFailure<T>(
     }
     const snapshot = loaded.snapshot;
     const expectedNext = GenerationSchema.parse(expectedGeneration + 1);
-    if (snapshot.generation === expectedNext) {
+    if (snapshot.generation === expectedNext && provesMutationResult(before, snapshot, mutation)) {
       const committed = { value, snapshot };
       return { outcome: { kind: "committed", ...committed }, committed };
     }
@@ -301,6 +430,7 @@ async function reconcileCommitFailure<T>(
           expected: expectedGeneration,
           actual: snapshot.generation,
         },
+        observedSnapshot: snapshot,
       };
     }
     return {
@@ -310,6 +440,7 @@ async function reconcileCommitFailure<T>(
         expected: expectedGeneration,
         actual: snapshot.generation,
       },
+      observedSnapshot: snapshot,
     };
   } catch {
     // A malformed or unavailable authority read cannot prove that the durable
@@ -358,6 +489,7 @@ class Coordinator implements GenerationMutationCoordinator {
     let failed = false;
     let committed: Readonly<{ value: T; snapshot: GenerationSnapshot }> | undefined;
     let outcome: GenerationMutationResult<T> | undefined;
+    let observedSnapshot: GenerationSnapshot | undefined;
 
     try {
       lease = await this.dependencies.locks.acquire(scopeReference, signal);
@@ -383,6 +515,8 @@ class Coordinator implements GenerationMutationCoordinator {
             await this.dependencies.state.commit(prepared.mutation, signal),
             request,
             scope,
+            snapshot,
+            prepared.mutation,
           );
           if (commitResult.kind === "stale-generation") {
             outcome = staleResult(commitResult.expected, commitResult.actual);
@@ -396,9 +530,12 @@ class Coordinator implements GenerationMutationCoordinator {
             lease,
             scope,
             expectedGeneration,
+            snapshot,
+            prepared.mutation,
             prepared.value,
           );
           outcome = reconciliation.outcome;
+          observedSnapshot = reconciliation.observedSnapshot;
           if (reconciliation.committed !== undefined) committed = reconciliation.committed;
           else primaryFailure = error;
         }
@@ -419,6 +556,12 @@ class Coordinator implements GenerationMutationCoordinator {
 
     if (cleanupFailure !== undefined) {
       if (committed !== undefined) throw new CommittedMutationCleanupError(committed, cleanupFailure);
+      if (outcome !== undefined) {
+        const evidence = observedSnapshot === undefined
+          ? { outcome }
+          : { outcome, observedSnapshot };
+        throw new MutationCleanupError(primaryFailure ?? outcome, cleanupFailure, evidence);
+      }
       if (failed || primaryFailure !== undefined) throw new MutationCleanupError(primaryFailure, cleanupFailure);
       throw cleanupFailure;
     }

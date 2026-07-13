@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   createKeyedMutationScheduler,
   canonicalSubjectKey,
-} from "../../src/application/keyed-mutation-scheduler.js";
+  RecursiveMutationAcquisitionError,
+} from "../../src/infrastructure/state/keyed-mutation-scheduler.js";
 import type { MutationSubject } from "../../src/application/mutation-coordination.js";
 import type { ScopeReference } from "../../src/domain/state/scope.js";
 
@@ -118,13 +119,32 @@ describe("scope-qualified keyed mutation scheduler", () => {
     expect(() => scheduler.run([subject("a"), subject("a")], async () => {}, new AbortController().signal)).toThrow(/duplicate/);
   });
 
-  it("does not expose recursive acquisition through the scheduler callback", async () => {
+  it("rejects overlapping closure recursion synchronously instead of deadlocking", async () => {
     const scheduler = createKeyedMutationScheduler();
-    let argumentCount = -1;
-    await scheduler.run([subject("a")], async function noNestedContext(...args: readonly unknown[]) {
-      argumentCount = args.length;
+    let recursiveError: unknown;
+    await scheduler.run([subject("a")], async () => {
+      expect(() => scheduler.run([subject("a")], async () => {}, new AbortController().signal)).toThrowError(RecursiveMutationAcquisitionError);
+      try {
+        scheduler.run([subject("a")], async () => {}, new AbortController().signal);
+      } catch (error) {
+        recursiveError = error;
+      }
     }, new AbortController().signal);
-    expect(argumentCount).toBe(0);
+    expect(recursiveError).toBeInstanceOf(RecursiveMutationAcquisitionError);
+    expect((recursiveError as RecursiveMutationAcquisitionError).code).toBe("RECURSIVE_MUTATION_ACQUISITION");
+  });
+
+  it("proves disjoint closure recursion safe by completing the nested request", async () => {
+    const scheduler = createKeyedMutationScheduler();
+    const events: string[] = [];
+    await scheduler.run([subject("a")], async () => {
+      events.push("outer-start");
+      await scheduler.run([subject("b")], async () => {
+        events.push("inner");
+      }, new AbortController().signal);
+      events.push("outer-end");
+    }, new AbortController().signal);
+    expect(events).toEqual(["outer-start", "inner", "outer-end"]);
   });
 
   it("uses an injective canonical key for distinct scope/plugin fields", () => {

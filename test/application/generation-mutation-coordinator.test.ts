@@ -4,7 +4,7 @@ import {
   MutationCleanupError,
   createGenerationMutationCoordinator,
 } from "../../src/application/generation-mutation-coordinator.js";
-import { createKeyedMutationScheduler } from "../../src/application/keyed-mutation-scheduler.js";
+import { createKeyedMutationScheduler } from "../../src/infrastructure/state/keyed-mutation-scheduler.js";
 import {
   parseStateMutation,
   type GenerationSnapshot,
@@ -15,9 +15,14 @@ import {
 } from "../../src/application/state-contract.js";
 import type { ScopeLockManager } from "../../src/application/ports/scope-lock.js";
 import type { LifecycleStateStore } from "../../src/application/ports/lifecycle-state-store.js";
-import { HostConfigDocumentSchemaV1 } from "../../src/domain/state/config-state.js";
+import { GenerationSchema, HostConfigDocumentSchemaV1 } from "../../src/domain/state/config-state.js";
+import { InstalledUserStateDocumentSchemaV1 } from "../../src/domain/state/installed-state.js";
+import { ProjectLocalStateDocumentSchemaV1 } from "../../src/domain/state/project-state.js";
+import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
+import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
 import type { ScopeContext, ScopeReference } from "../../src/domain/state/scope.js";
 import type { PluginKey } from "../../src/domain/identity.js";
+import { MarketplaceSourceSchema } from "../../src/domain/source.js";
 
 const user: ScopeContext = { kind: "user" };
 const otherProject: ScopeContext = {
@@ -33,8 +38,49 @@ const plugin = "demo@marketplace" as PluginKey;
 const sha256 = () => new Uint8Array(32);
 const config = HostConfigDocumentSchemaV1.parse({ schemaVersion: 1, generation: 0, records: [] });
 
+const digest = `sha256:${"0".repeat(64)}`;
+const stateBlob = `state-blob-v1:sha256:${"1".repeat(64)}`;
+
 function snapshot(scope: ScopeContext, generation: number): GenerationSnapshot {
-  return { scope, generation } as GenerationSnapshot;
+  const value = GenerationSchema.parse(generation);
+  const scopeReference = scope.kind === "user"
+    ? { kind: "user" as const }
+    : { kind: "project" as const, projectKey: scope.projectKey };
+  const documentKinds = scope.kind === "user"
+    ? ["hostConfig", "installedUser", "trust"] as const
+    : ["projectLocal"] as const;
+  const pointers = StatePointersDocumentSchemaV1.parse({
+    schemaVersion: 1,
+    scope: scopeReference,
+    generation: value,
+    documents: documentKinds.map((kind) => ({ kind, generation: value, blob: stateBlob, digest })),
+  });
+  if (scope.kind === "user") {
+    return {
+      scope,
+      generation: value,
+      pointers,
+      config: HostConfigDocumentSchemaV1.parse({ schemaVersion: 1, generation: value, records: [] }),
+      installed: InstalledUserStateDocumentSchemaV1.parse({ schemaVersion: 1, generation: value, marketplaces: [], plugins: [] }),
+      trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation: value, records: [] }),
+      corruptions: [],
+    };
+  }
+  return {
+    scope,
+    generation: value,
+    pointers,
+    project: ProjectLocalStateDocumentSchemaV1.parse({
+      schemaVersion: 1,
+      generation: value,
+      projectKey: scope.projectKey,
+      identity: scope.identity,
+      declarationDigest: digest,
+      marketplaces: [],
+      plugins: [],
+    }),
+    corruptions: [],
+  };
 }
 
 function mutation(expectedGeneration = 0, scope: ScopeContext = user): VerifiedStateMutation {
@@ -179,7 +225,7 @@ describe("generation-guarded prepared mutation coordinator", () => {
     const wrongGenerationEvents: string[] = [];
     const wrongGeneration = await coordinator(
       wrongGenerationEvents,
-      stateStore({ events: wrongGenerationEvents, loaded: { ok: true, snapshot: snapshot(user, "not-a-generation" as never) } }),
+      stateStore({ events: wrongGenerationEvents, loaded: { ok: true, snapshot: { scope: user, generation: "not-a-generation" } as never } }),
     ).runPreparedMutation(
       { scope: user, plugins: [plugin], expectedGeneration: 0 },
       async () => ({ mutation: mutation(), value: "wrong generation" }),
@@ -250,6 +296,75 @@ describe("generation-guarded prepared mutation coordinator", () => {
       async () => ({ mutation: mutation(), value: "cancel-reconciled" }),
       controller.signal,
     )).resolves.toEqual({ kind: "committed", value: "cancel-reconciled", snapshot: snapshot(user, 1) });
+  });
+
+  it("does not report an unrelated expected-plus-one advance as committed", async () => {
+    const events: string[] = [];
+    const before = snapshot(user, 0);
+    const unrelated = {
+      ...snapshot(user, 1),
+      config: HostConfigDocumentSchemaV1.parse({
+        schemaVersion: 1,
+        generation: 1,
+        records: [{
+          marketplace: "unrelated",
+          source: MarketplaceSourceSchema.parse({ kind: "github", repository: "example/unrelated" }),
+          updateApplication: "manual",
+        }],
+      }),
+    };
+    let current: GenerationSnapshot = before;
+    const commitError = new Error("response lost after unrelated write");
+    const service = coordinator(events, {
+      async read() {
+        return { ok: true, snapshot: current };
+      },
+      async commit() {
+        current = unrelated;
+        throw commitError;
+      },
+    });
+    const result = await service.runPreparedMutation(
+      { scope: user, plugins: [plugin], expectedGeneration: 0 },
+      async () => ({ mutation: mutation(), value: "not-proven" }),
+      new AbortController().signal,
+    );
+    expect(result).toEqual({ kind: "commit-ambiguous", value: "not-proven", expected: 0, actual: 1 });
+  });
+
+  it("preserves ambiguous evidence and classification when release also fails", async () => {
+    const events: string[] = [];
+    const before = snapshot(user, 0);
+    const unrelated = {
+      ...snapshot(user, 1),
+      config: HostConfigDocumentSchemaV1.parse({
+        schemaVersion: 1,
+        generation: 1,
+        records: [{
+          marketplace: "unrelated",
+          source: MarketplaceSourceSchema.parse({ kind: "github", repository: "example/unrelated" }),
+          updateApplication: "manual",
+        }],
+      }),
+    };
+    let current: GenerationSnapshot = before;
+    const commitError = new Error("ambiguous commit");
+    const releaseError = new Error("release also failed");
+    const service = coordinator(events, {
+      async read() { return { ok: true, snapshot: current }; },
+      async commit() { current = unrelated; throw commitError; },
+    }, lockManager({ events, releaseError }));
+    const error = await service.runPreparedMutation(
+      { scope: user, plugins: [plugin], expectedGeneration: 0 },
+      async () => ({ mutation: mutation(), value: "evidence" }),
+      new AbortController().signal,
+    ).then(() => undefined, (failure: unknown) => failure);
+    expect(error).toBeInstanceOf(MutationCleanupError);
+    const cleanup = error as MutationCleanupError;
+    expect(cleanup.operationError).toBe(commitError);
+    expect(cleanup.cleanupError).toBe(releaseError);
+    expect(cleanup.outcome?.kind).toBe("commit-ambiguous");
+    expect(cleanup.observedSnapshot).toEqual(unrelated);
   });
 
   it("does not turn an aborted commit with no durable write into a bare cancellation", async () => {

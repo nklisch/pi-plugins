@@ -4,6 +4,7 @@ import {
   type MutationSubject,
 } from "./mutation-coordination.js";
 import { ScopeReferenceSchema } from "../domain/state/scope.js";
+import type { MutationExecutionContext } from "./ports/mutation-execution-context.js";
 
 const encoder = new TextEncoder();
 
@@ -21,6 +22,20 @@ type KeyState = {
   readonly queue: Waiter[];
   owner: Waiter | undefined;
 };
+
+/**
+ * A callback can retain the scheduler and request another key while it is
+ * already holding one. Waiting for an overlapping key would deadlock forever,
+ * so this error is raised at the recursive call site before a waiter exists.
+ */
+export class RecursiveMutationAcquisitionError extends Error {
+  readonly code = "RECURSIVE_MUTATION_ACQUISITION" as const;
+
+  constructor() {
+    super("mutation scheduler does not permit overlapping recursive acquisition");
+    this.name = "RecursiveMutationAcquisitionError";
+  }
+}
 
 function assertSignal(signal: AbortSignal): void {
   if (
@@ -92,12 +107,34 @@ function removeWaiter(state: KeyState, waiter: Waiter): void {
   if (index !== -1) state.queue.splice(index, 1);
 }
 
+function createSynchronousExecutionContext(): MutationExecutionContext {
+  let currentKeys: ReadonlySet<string> | undefined;
+  return {
+    current: () => currentKeys,
+    run<T>(keys: ReadonlySet<string>, work: () => T): T {
+      const previous = currentKeys;
+      currentKeys = keys;
+      try {
+        return work();
+      } finally {
+        currentKeys = previous;
+      }
+    },
+  };
+}
+
 class Scheduler implements KeyedMutationScheduler {
   private readonly states = new Map<string, KeyState>();
+
+  constructor(private readonly execution: MutationExecutionContext) {}
 
   run<T>(subjects: readonly MutationSubject[], work: () => Promise<T>, signal: AbortSignal): Promise<T> {
     if (typeof work !== "function") throw new TypeError("mutation work must be a function");
     const validated = validateSubjects(subjects);
+    const heldKeys = this.execution.current();
+    if (heldKeys !== undefined && validated.some((subject) => heldKeys.has(canonicalSubjectKey(subject)))) {
+      throw new RecursiveMutationAcquisitionError();
+    }
     return this.runInternal(validated, work, signal);
   }
 
@@ -114,14 +151,16 @@ class Scheduler implements KeyedMutationScheduler {
     if (keys.length === 0) {
       return Promise.resolve().then(async () => {
         throwIfAborted(signal);
-        return work();
+        return this.execution.run(new Set(this.execution.current() ?? []), work);
       });
     }
 
     return this.acquire(keys, signal).then(async (waiter) => {
       try {
         throwIfAborted(signal);
-        return await work();
+        const heldKeys = new Set(this.execution.current() ?? []);
+        for (const key of keys) heldKeys.add(key);
+        return await this.execution.run(heldKeys, work);
       } finally {
         this.release(waiter);
       }
@@ -219,8 +258,12 @@ class Scheduler implements KeyedMutationScheduler {
   }
 }
 
-export function createKeyedMutationScheduler(): KeyedMutationScheduler {
-  return new Scheduler();
+export function createKeyedMutationScheduler(execution?: MutationExecutionContext): KeyedMutationScheduler {
+  const context = execution ?? createSynchronousExecutionContext();
+  if (context === null || typeof context !== "object" || typeof context.current !== "function" || typeof context.run !== "function") {
+    throw new TypeError("mutation scheduler execution context is required");
+  }
+  return new Scheduler(context);
 }
 
 export { canonicalSubjectKey };

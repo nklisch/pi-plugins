@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { createInterface } from "node:readline";
-import { createKeyedMutationScheduler } from "../../src/application/keyed-mutation-scheduler.js";
+import { createKeyedMutationScheduler } from "../../src/infrastructure/state/keyed-mutation-scheduler.js";
 import { createSqliteScopeLockManager } from "../../src/infrastructure/state/sqlite-scope-lock.js";
 import type { ScopeReference } from "../../src/domain/state/scope.js";
 

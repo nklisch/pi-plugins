@@ -755,7 +755,10 @@ export type {
   KeyedMutationScheduler,
   MutationSubject,
 } from "./application/mutation-coordination.js";
-export { createKeyedMutationScheduler } from "./application/keyed-mutation-scheduler.js";
+export {
+  createKeyedMutationScheduler,
+  RecursiveMutationAcquisitionError,
+} from "./infrastructure/state/keyed-mutation-scheduler.js";
 export type {
   ScopeLockLease,
   ScopeLockManager,

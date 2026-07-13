@@ -1,4 +1,4 @@
-import { copyFile, mkdtemp, rename, rm, symlink } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { describe, expect, it } from "vitest";
@@ -15,6 +15,7 @@ const project: ScopeReference = {
   projectKey: `project-v1:sha256:${"b".repeat(64)}` as never,
 };
 const child = resolve(process.cwd(), "test/fixtures/locking/child-lock-holder.mjs");
+const initializer = resolve(process.cwd(), "test/fixtures/locking/child-initializing-marker.mjs");
 
 async function root(): Promise<string> {
   return mkdtemp(join(process.cwd(), ".test-scope-lock-"));
@@ -101,6 +102,73 @@ describe("SQLite scope lock adapter", () => {
     }
   });
 
+  it("reclaims a marker stranded when an initializer dies before finalization", async () => {
+    const lockRoot = await root();
+    const dbPath = join(lockRoot, "user.sqlite");
+    const locks = await manager(lockRoot);
+    const initialized = await locks.acquire(user, new AbortController().signal);
+    await initialized.release();
+    const rootMarker = JSON.parse(await readFile(join(lockRoot, ".scope-lock-root.identity"), "utf8")) as { identity: string };
+    await rm(dbPath);
+    await rm(`${dbPath}.identity`);
+    const childProcess = spawn(process.execPath, [initializer, dbPath, rootMarker.identity, "user.sqlite"], {
+      cwd: process.cwd(),
+      env: { ...process.env, NODE_OPTIONS: "", VITEST: undefined },
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+    try {
+      await new Promise<void>((resolvePromise, reject) => {
+        childProcess.stdout.once("data", () => resolvePromise());
+        childProcess.once("error", reject);
+        childProcess.once("exit", (code, signal) => reject(new Error(`initializer exited before marker publication: ${code ?? signal}`)));
+      });
+      childProcess.kill("SIGKILL");
+      await waitForExit(childProcess);
+      const lease = await locks.acquire(user, new AbortController().signal);
+      await lease.release();
+    } finally {
+      if (childProcess.exitCode === null) childProcess.kill("SIGKILL");
+      await waitForExit(childProcess);
+      await rm(lockRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("does not steal a live initializer and remains cancellable", async () => {
+    const lockRoot = await root();
+    const dbPath = join(lockRoot, "user.sqlite");
+    const locks = await manager(lockRoot);
+    const initialized = await locks.acquire(user, new AbortController().signal);
+    await initialized.release();
+    const rootMarker = JSON.parse(await readFile(join(lockRoot, ".scope-lock-root.identity"), "utf8")) as { identity: string };
+    await rm(dbPath);
+    await rm(`${dbPath}.identity`);
+    const childProcess = spawn(process.execPath, [initializer, dbPath, rootMarker.identity, "user.sqlite"], {
+      cwd: process.cwd(),
+      env: { ...process.env, NODE_OPTIONS: "", VITEST: undefined },
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+    try {
+      await new Promise<void>((resolvePromise, reject) => {
+        childProcess.stdout.once("data", () => resolvePromise());
+        childProcess.once("error", reject);
+        childProcess.once("exit", (code, signal) => reject(new Error(`initializer exited before marker publication: ${code ?? signal}`)));
+      });
+      const controller = new AbortController();
+      const reason = new Error("initializer wait cancelled");
+      const waiting = locks.acquire(user, controller.signal);
+      setTimeout(() => controller.abort(reason), 15);
+      await expect(waiting).rejects.toBe(reason);
+      childProcess.kill("SIGKILL");
+      await waitForExit(childProcess);
+      const lease = await locks.acquire(user, new AbortController().signal);
+      await lease.release();
+    } finally {
+      if (childProcess.exitCode === null) childProcess.kill("SIGKILL");
+      await waitForExit(childProcess);
+      await rm(lockRoot, { recursive: true, force: true });
+    }
+  });
+
   it("never recreates a previously initialized missing database", async () => {
     const lockRoot = await root();
     try {
@@ -123,6 +191,22 @@ describe("SQLite scope lock adapter", () => {
       await copyFile(join(lockRoot, "user.sqlite"), replacement);
       await rm(join(lockRoot, "user.sqlite"));
       await rename(replacement, join(lockRoot, "user.sqlite"));
+      await expect(lease.assertOwned(new AbortController().signal)).rejects.toBeInstanceOf(BoundaryError);
+      await lease.release();
+      await expect(locks.acquire(user, new AbortController().signal)).rejects.toBeInstanceOf(BoundaryError);
+    } finally {
+      await rm(lockRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a durable marker replacement before ownership is accepted", async () => {
+    const lockRoot = await root();
+    try {
+      const locks = await manager(lockRoot);
+      const lease = await locks.acquire(user, new AbortController().signal);
+      const markerPath = join(lockRoot, "user.sqlite.identity");
+      const marker = JSON.parse(await readFile(markerPath, "utf8")) as Record<string, unknown>;
+      await writeFile(markerPath, JSON.stringify({ ...marker, identity: { device: "replaced", inode: "marker" } }), "utf8");
       await expect(lease.assertOwned(new AbortController().signal)).rejects.toBeInstanceOf(BoundaryError);
       await lease.release();
       await expect(locks.acquire(user, new AbortController().signal)).rejects.toBeInstanceOf(BoundaryError);

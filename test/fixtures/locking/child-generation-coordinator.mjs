@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
-import { createKeyedMutationScheduler } from "../../../src/application/keyed-mutation-scheduler.js";
+import { createKeyedMutationScheduler } from "../../../src/infrastructure/state/keyed-mutation-scheduler.js";
 import { createGenerationMutationCoordinator } from "../../../src/application/generation-mutation-coordinator.js";
 import { parseStateMutation } from "../../../src/application/state-contract.js";
 import { HostConfigDocumentSchemaV1 } from "../../../src/domain/state/config-state.js";
@@ -54,7 +54,27 @@ function event(value) {
 async function stateSnapshot() {
   const raw = JSON.parse(await readFile(statePath, "utf8"));
   if (!Number.isSafeInteger(raw.generation) || raw.generation < 0) throw new Error("shared generation file is invalid");
-  return { scope, generation: raw.generation };
+  const generation = raw.generation;
+  const pointer = (kind) => ({
+    kind,
+    generation,
+    blob: `state-blob-v1:sha256:${"1".repeat(64)}`,
+    digest: `sha256:${"0".repeat(64)}`,
+  });
+  return {
+    scope,
+    generation,
+    pointers: {
+      schemaVersion: 1,
+      scope,
+      generation,
+      documents: [pointer("hostConfig"), pointer("installedUser"), pointer("trust")],
+    },
+    config: { schemaVersion: 1, generation, records: [] },
+    installed: { schemaVersion: 1, generation, marketplaces: [], plugins: [] },
+    trust: { schemaVersion: 1, generation, records: [] },
+    corruptions: [],
+  };
 }
 
 const locks = await createSqliteScopeLockManager({

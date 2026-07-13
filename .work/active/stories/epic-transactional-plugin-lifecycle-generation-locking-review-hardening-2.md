@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-generation-locking-review-hardening-2
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-generation-locking
 depends_on: [epic-transactional-plugin-lifecycle-generation-locking-review-hardening]
@@ -30,10 +30,21 @@ Close five blocker/important findings from final adversarial generation-locking 
 
 ## Acceptance criteria
 
-- [ ] Recursive same-key scheduler acquisition fails immediately without deadlock.
-- [ ] Killed initializer cannot permanently strand a scope and live initializer cannot be stolen.
-- [ ] Only complete validated snapshots are accepted.
-- [ ] Reconciliation never reports committed for an unrelated generation advance.
-- [ ] Database replacement cannot produce two accepted leases across any acquisition boundary.
-- [ ] Cleanup failure preserves durable commit classification/evidence.
-- [ ] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+- [x] Recursive same-key scheduler acquisition fails immediately without deadlock.
+- [x] Killed initializer cannot permanently strand a scope and live initializer cannot be stolen.
+- [x] Only complete validated snapshots are accepted.
+- [x] Reconciliation never reports committed for an unrelated generation advance.
+- [x] Database replacement cannot produce two accepted leases across any acquisition boundary.
+- [x] Cleanup failure preserves durable commit classification/evidence.
+- [x] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+
+## Implementation notes
+
+- Execution capability: direct inline implementation; the caller explicitly prohibited agents and requested the story advance to `stage: review` while its parent remains `stage: implementing`.
+- Files changed: `src/application/keyed-mutation-scheduler.ts`, `src/application/ports/mutation-execution-context.ts`, `src/infrastructure/state/keyed-mutation-scheduler.ts`, `src/application/generation-mutation-coordinator.ts`, `src/infrastructure/state/sqlite-scope-lock.ts`, `src/index.ts`, `test/application/keyed-mutation-scheduler.test.ts`, `test/application/generation-mutation-coordinator.test.ts`, `test/infrastructure/state/sqlite-scope-lock.test.ts`, `test/integration/generation-locking.test.ts`, `test/fixtures/locking/child-generation-coordinator.mjs`, `test/fixtures/locking/child-initializing-marker.mjs`, and `test/compiled-package-import.mjs`.
+- Recursive closure ownership now travels through an injected execution-context port; the Node adapter uses `AsyncLocalStorage`, keeping application policy portable while rejecting overlapping recursive keys at entry.
+- Initialization markers and claims carry PID plus `/proc` start-time identity; only a proven-dead owner permits reclaim. A private hard-link alias binds each opened SQLite handle to the marked inode, with marker/path checks before `BEGIN IMMEDIATE` and throughout lease ownership.
+- Store snapshots are strict complete user/project envelopes. Reconciliation applies the verified mutation to the pre-commit snapshot and compares all state documents, rather than treating `expectedGeneration + 1` as proof. Cleanup errors retain non-committed outcome classification and observed safe snapshots.
+- Exact reproducers cover synchronous/disjoint recursive closure, live and killed initializers, malformed snapshots, unrelated generation advance, marker/path replacement, multiprocess crash release, and ambiguous commit followed by failed release.
+
+Verification: `npm test` passed: production/test typechecking, dependency boundaries (123 modules / 672 dependencies), 90 Vitest files / 530 tests with no type errors, build, and compiled package import (319 exports).

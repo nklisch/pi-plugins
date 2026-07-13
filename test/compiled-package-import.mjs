@@ -98,6 +98,7 @@ const expectedExports = [
   "PluginStoreIdentitySchema",
   "ProvenanceSchema",
   "ReadResultSchema",
+  "RecursiveMutationAcquisitionError",
   "ResolvedMarketplaceSourceSchema",
   "ResolvedPluginSourceSchema",
   "ResolvedPluginSourceVariantRegistry",
