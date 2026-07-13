@@ -22,6 +22,14 @@ Use kebab-case. Child item slugs qualify themselves with their parent or capabil
 
 None. Use the standard agile-workflow stage flows.
 
+## Review policy
+
+review_weight: standard
+
+Apply a practical plugin-installer bar. Block completion for realistic normal-use data loss, broken installation or activation, secret exposure, scope confusion, or concurrency failures between ordinary Pi sessions. Same-user malicious filesystem replacement, deliberately contract-violating adapters, cryptographically improbable identifier collisions, and unsupported recursive use of internal coordination APIs are non-blocking residual risks unless they reproduce in normal operation or have a small simplifying fix.
+
+Feature and epic review uses one complementary pass followed by one focused adversarial pass when a different model class is available. Do not repeat convergence loops for theoretical edge cases; record residuals as review comments or backlog ideas and favor understandable, maintainable code over bulletproof machinery.
+
 ## Terminal-tier retention
 
 delete-refs
