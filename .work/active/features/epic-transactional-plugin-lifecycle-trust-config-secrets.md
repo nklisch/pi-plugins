@@ -530,7 +530,7 @@ Deep GLM 5.2 and GPT-5.6 Sol review accepted seven required fixes: stale removal
 
 ## Review-hardening implementation summary
 
-The first hardening story closes its seven original findings. Final adversarial confirmation found three adjacent blockers: bounded `{m,n}` chains bypassed regex complexity policy, ambiguous commit-then-throw CAS cleanup could delete active credentials, and the exported trusted-root constructor allowed public self-issuance. `epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening-2` tracks these; the feature remains at `stage: implementing` until they close.
+The first hardening story closed its seven original findings. The second hardening story closes the three adjacent blockers: bounded quantifiers now count toward a one-quantifier fail-closed descriptor language, including pre-compilation rejection of the reproduced eight-fold `a{0,32}` chain; ambiguous CAS replacement reconciles through the authoritative mutation-linearized read and retains fresh credentials unless the candidate is proven inactive; and trusted project-root issuance moved out of the domain/public barrel into an opaque adapter/composition port with no caller-selected root argument. It advanced to `stage: review` after `npm test`, dependency boundaries, build, and compiled import verification passed. The feature remains at `stage: implementing` pending review of this story.
 
 ## Testing
 

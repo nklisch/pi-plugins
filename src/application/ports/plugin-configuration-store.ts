@@ -18,7 +18,13 @@ export type PluginConfigurationReplaceResult = z.infer<typeof PluginConfiguratio
 export const PluginConfigurationRemoveResultSchema = z.enum(["removed", "stale", "missing"]);
 export type PluginConfigurationRemoveResult = z.infer<typeof PluginConfigurationRemoveResultSchema>;
 
-/** CAS storage for non-sensitive configuration documents only. */
+/**
+ * CAS storage for non-sensitive configuration documents only.
+ *
+ * `read` is the authoritative mutation-boundary read: an adapter must
+ * linearize it with its own replace operation so callers can reconcile a
+ * response lost after durable commit without deleting an active locator.
+ */
 export interface PluginConfigurationStore {
   read(
     ref: PluginConfigurationRef,

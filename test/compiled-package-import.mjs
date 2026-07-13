@@ -276,7 +276,6 @@ const expectedExports = [
   "createScopeContext",
   "createStatePointersDocument",
   "createTrustCandidate",
-  "createTrustedProjectRoot",
   "createTrustStateDocument",
   "createTrustStateRecord",
   "decodeInstalledPluginRecords",

@@ -298,10 +298,12 @@ export type {
   SavePluginConfigurationRequest,
   RemovePluginConfigurationRequest,
   ConfigurationCleanup,
+  ConfigurationReconciliation,
   ConfigurationSaveResult,
   ConfigurationRemovalResult,
 } from "./application/configuration-service.js";
 export type { ConfigurationPathContext, ConfigurationPathPort } from "./application/ports/configuration-path.js";
+export type { ProjectRootAuthorityPort, TrustedProjectRoot } from "./application/ports/project-root-authority.js";
 export type { PluginConfigurationStore } from "./application/ports/plugin-configuration-store.js";
 export type { SecretStore } from "./application/ports/secret-store.js";
 export type { ConfigurationWriteIdPort } from "./application/ports/configuration-write-id.js";
@@ -462,7 +464,6 @@ export {
   ScopeContextSchema,
   deriveProjectKey,
   createScopeContext,
-  createTrustedProjectRoot,
   toScopeReference,
 } from "./domain/state/scope.js";
 export type {
@@ -471,8 +472,8 @@ export type {
   ProjectKey,
   ScopeReference,
   ScopeContext,
-  TrustedProjectRoot,
 } from "./domain/state/scope.js";
+export type { ProjectRootResolutionPort } from "./application/ports/project-root-authority.js";
 
 export {
   StateReferenceKindRegistry,

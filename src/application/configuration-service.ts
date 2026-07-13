@@ -12,7 +12,6 @@ import { PluginConfigurationRefSchema, type PluginConfigurationRef } from "../do
 import {
   createScopeContext,
   toScopeReference,
-  verifyTrustedProjectRoot,
   type ScopeContext,
 } from "../domain/state/scope.js";
 import { PluginKeySchema, type PluginKey } from "../domain/identity.js";
@@ -24,6 +23,7 @@ import {
   type ValidatedConfigurationSubmission,
 } from "./configuration-validation.js";
 import type { ConfigurationPathContext, ConfigurationPathPort } from "./ports/configuration-path.js";
+import type { ProjectRootAuthorityPort } from "./ports/project-root-authority.js";
 import type { ConfigurationWriteIdPort } from "./ports/configuration-write-id.js";
 import {
   PluginConfigurationReadResultSchema,
@@ -44,6 +44,12 @@ export type ConfigurationCleanup = Readonly<{
   locators: readonly SecretLocator[];
 }>;
 
+/** Safe evidence for a replace whose durable outcome could not be reconciled. */
+export type ConfigurationReconciliation = Readonly<{
+  code: "CONFIGURATION_RECONCILIATION_REQUIRED";
+  locators: readonly SecretLocator[];
+}>;
+
 export type ConfigurationSaveResult =
   | Readonly<{ kind: "stored"; document: PluginConfigurationDocument }>
   | Readonly<{
@@ -59,6 +65,10 @@ export type ConfigurationSaveResult =
       kind: "stale-with-cleanup-required";
       actualRevision: ContentDigest | null;
       cleanup: ConfigurationCleanup;
+    }>
+  | Readonly<{
+      kind: "ambiguous-with-recovery-required";
+      recovery: ConfigurationReconciliation;
     }>;
 
 export type RemovePluginConfigurationRequest = Readonly<{
@@ -154,6 +164,40 @@ function verifyCurrentDocument(
   return verified;
 }
 
+type ReplaceReconciliation =
+  | Readonly<{ kind: "active"; document: PluginConfigurationDocument }>
+  | Readonly<{ kind: "inactive"; actualRevision: ContentDigest | null }>
+  | Readonly<{ kind: "unknown" }>;
+
+/**
+ * A replace rejection is not proof that the document stayed unchanged: an
+ * adapter can commit and then lose the response or observe cancellation. The
+ * store's authoritative read boundary is therefore consulted with a fresh
+ * recovery signal before any fresh locator is removed.
+ */
+async function reconcileReplace(
+  configurations: PluginConfigurationStore,
+  ref: PluginConfigurationRef,
+  candidate: PluginConfigurationDocument,
+  request: Readonly<{ configurationRef: PluginConfigurationRef; plugin: PluginKey; scope: ScopeContext; descriptors: ConfigurationSubmission["descriptors"] }>,
+  sha256: Sha256,
+): Promise<ReplaceReconciliation> {
+  const recoverySignal = new AbortController().signal;
+  try {
+    const raw = PluginConfigurationReadResultSchema.parse(await configurations.read(ref, recoverySignal));
+    if (raw.kind === "missing") return { kind: "inactive", actualRevision: null };
+    const current = verifyCurrentDocument(raw.document, request, sha256);
+    return current.revision === candidate.revision
+      ? { kind: "active", document: current }
+      : { kind: "inactive", actualRevision: current.revision };
+  } catch {
+    // Do not guess from an adapter error or malformed read. The fresh
+    // locators remain in custody and the caller receives locator-only recovery
+    // evidence instead of a result that could break an active reference.
+    return { kind: "unknown" };
+  }
+}
+
 async function cleanupLocators(
   secrets: SecretStore,
   locators: readonly SecretLocator[],
@@ -193,6 +237,7 @@ function ensureWriteId(value: unknown): ReturnType<typeof ConfigurationWriteIdSc
 function ensureRequestIdentity(
   request: SavePluginConfigurationRequest,
   sha256: Sha256,
+  projectRoots: ProjectRootAuthorityPort | undefined,
 ): ScopeContext {
   PluginConfigurationRefSchema.parse(request.configurationRef);
   PluginKeySchema.parse(request.plugin);
@@ -202,7 +247,8 @@ function ensureRequestIdentity(
     throw new Error("configuration path scope does not match request");
   }
   if (scope.kind === "project") {
-    verifyTrustedProjectRoot(request.pathContext.trustedProjectRoot, pathScope, sha256);
+    if (projectRoots === undefined) throw new Error("project configuration requires the project-root authority port");
+    projectRoots.verify(request.pathContext.trustedProjectRoot, pathScope);
   }
   return scope;
 }
@@ -236,6 +282,7 @@ export async function savePluginConfiguration(
     secrets: SecretStore;
     paths: ConfigurationPathPort;
     writeIds: ConfigurationWriteIdPort;
+    projectRoots?: ProjectRootAuthorityPort;
     sha256: Sha256;
   }>,
   signal: AbortSignal,
@@ -243,7 +290,7 @@ export async function savePluginConfiguration(
   signal.throwIfAborted();
   let verifiedScope: ScopeContext;
   try {
-    verifiedScope = ensureRequestIdentity(request, dependencies.sha256);
+    verifiedScope = ensureRequestIdentity(request, dependencies.sha256, dependencies.projectRoots);
   } catch {
     throw new ConfigurationValidationError("CONFIG_TYPE");
   }
@@ -323,11 +370,40 @@ export async function savePluginConfiguration(
       document,
     }, signal));
   } catch (error) {
-    const failedCleanup = await cleanupLocators(dependencies.secrets, freshLocators);
-    const cleanupError = cleanupFailure("save", failedCleanup, signal.aborted || isAbortRejection(error));
-    if (cleanupError !== undefined) throw cleanupError;
-    if (signal.aborted || isAbortRejection(error)) return assertAbort(signal, error);
-    throw adapterFailure("replacePluginConfiguration");
+    const reconciliation = await reconcileReplace(
+      dependencies.configurations,
+      request.configurationRef,
+      document,
+      { ...request, scope: verifiedScope },
+      dependencies.sha256,
+    );
+    if (reconciliation.kind === "unknown") {
+      return {
+        kind: "ambiguous-with-recovery-required",
+        recovery: { code: "CONFIGURATION_RECONCILIATION_REQUIRED", locators: [...freshLocators] },
+      };
+    }
+
+    // The authoritative read proved the candidate inactive, so and only so is
+    // it safe to delete fresh credentials after an ambiguous replace.
+    if (reconciliation.kind === "inactive") {
+      const failedCleanup = await cleanupLocators(dependencies.secrets, freshLocators);
+      const cleanupError = cleanupFailure("save", failedCleanup, signal.aborted || isAbortRejection(error));
+      if (cleanupError !== undefined) throw cleanupError;
+      if (signal.aborted || isAbortRejection(error)) return assertAbort(signal, error);
+      throw adapterFailure("replacePluginConfiguration");
+    }
+
+    // The replacement did commit. Treat it like a normal stored result and
+    // clean only superseded locators; cancellation cannot roll back authority.
+    const activeLocators = new Set(reconciliation.document.secrets.map((entry) => entry.locator));
+    const superseded = (current?.secrets.map((entry) => entry.locator) ?? [])
+      .filter((locator) => !activeLocators.has(locator));
+    const failedCleanup = await cleanupLocators(dependencies.secrets, superseded);
+    const cleanup = cleanupResult(failedCleanup);
+    return cleanup === undefined
+      ? { kind: "stored", document: reconciliation.document }
+      : { kind: "stored-with-cleanup-required", document: reconciliation.document, cleanup };
   }
 
   if (replacement.kind === "stale") {
@@ -361,6 +437,7 @@ export async function removePluginConfiguration(
   dependencies: Readonly<{
     configurations: PluginConfigurationStore;
     secrets: SecretStore;
+    projectRoots?: ProjectRootAuthorityPort;
     sha256: Sha256;
   }>,
   signal: AbortSignal,
@@ -376,7 +453,8 @@ export async function removePluginConfiguration(
     if (pathScope.kind !== "project" || pathScope.projectKey !== verifiedScope.projectKey) {
       throw new Error("configuration path scope does not match request");
     }
-    verifyTrustedProjectRoot(pathContext.trustedProjectRoot, pathScope, dependencies.sha256);
+    if (dependencies.projectRoots === undefined) throw new Error("project configuration removal requires the project-root authority port");
+    dependencies.projectRoots.verify(pathContext.trustedProjectRoot, pathScope);
   }
   const verifiedRequest = { ...request, scope: verifiedScope };
   const currentRaw = await readConfiguration(dependencies.configurations, ref, signal);

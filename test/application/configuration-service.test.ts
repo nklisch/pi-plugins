@@ -30,12 +30,22 @@ const paths: ConfigurationPathPort = { normalizeAndInspect: async () => ({ kind:
 class FakeConfigurationStore implements PluginConfigurationStore {
   document: PluginConfigurationDocument | undefined;
   stale = false;
+  throwAfterReplace = false;
+  failReconciliationRead = false;
+  replacementCount = 0;
+  abortAfterReplace?: AbortController;
   removeResult: "removed" | "stale" | "missing" = "removed";
-  async read() { return this.document === undefined ? { kind: "missing" as const } : { kind: "found" as const, document: this.document }; }
+  async read() {
+    if (this.replacementCount > 1 && this.failReconciliationRead) throw new Error("CANARY_CONFIG_READ_FAILURE");
+    return this.document === undefined ? { kind: "missing" as const } : { kind: "found" as const, document: this.document };
+  }
   async replace(request: { expectedRevision: PluginConfigurationDocument["revision"] | null; document: PluginConfigurationDocument }) {
     if (this.stale) return { kind: "stale" as const, actualRevision: this.document?.revision ?? null };
     if ((this.document?.revision ?? null) !== request.expectedRevision) return { kind: "stale" as const, actualRevision: this.document?.revision ?? null };
     this.document = request.document;
+    this.replacementCount += 1;
+    this.abortAfterReplace?.abort();
+    if (this.throwAfterReplace) throw new Error("CANARY_COMMIT_THEN_THROW");
     return { kind: "stored" as const };
   }
   async remove() {
@@ -140,6 +150,53 @@ describe("configuration replacement service", () => {
     expect(error).toMatchObject({ name: "AbortError" });
     expect(secrets.values.size).toBe(0);
     expect(configurations.document).toBeUndefined();
+  });
+
+  it("retains fresh credentials when CAS commits before throwing", async () => {
+    const configurations = new FakeConfigurationStore();
+    const secrets = new FakeSecretStore();
+    const initial = await savePluginConfiguration(request({ NAME: "demo", TOKEN: "first" }), deps(configurations, secrets), new AbortController().signal);
+    if (initial.kind !== "stored") throw new Error("expected stored");
+    const oldLocator = initial.document.secrets[0]!.locator;
+    configurations.throwAfterReplace = true;
+
+    const result = await savePluginConfiguration(request({ NAME: "demo", TOKEN: "second" }), deps(configurations, secrets), new AbortController().signal);
+    expect(result.kind).toBe("stored");
+    expect(configurations.document?.secrets[0]?.locator).not.toBe(oldLocator);
+    expect(secrets.values.has(oldLocator)).toBe(false);
+    expect(secrets.values.size).toBe(1);
+  });
+
+  it("retains fresh credentials and returns locator-only evidence when reconciliation is unavailable", async () => {
+    const configurations = new FakeConfigurationStore();
+    const secrets = new FakeSecretStore();
+    const initial = await savePluginConfiguration(request({ NAME: "demo", TOKEN: "first" }), deps(configurations, secrets), new AbortController().signal);
+    if (initial.kind !== "stored") throw new Error("expected stored");
+    configurations.throwAfterReplace = true;
+    configurations.failReconciliationRead = true;
+
+    const result = await savePluginConfiguration(request({ NAME: "demo", TOKEN: "second" }), deps(configurations, secrets), new AbortController().signal);
+    expect(result.kind).toBe("ambiguous-with-recovery-required");
+    if (result.kind !== "ambiguous-with-recovery-required") return;
+    expect(result.recovery.code).toBe("CONFIGURATION_RECONCILIATION_REQUIRED");
+    expect(result.recovery.locators).toHaveLength(1);
+    expect(JSON.stringify(result)).not.toContain("second");
+    expect(secrets.values.size).toBe(2);
+  });
+
+  it("reconciles a commit followed by abort without deleting the active credential", async () => {
+    const configurations = new FakeConfigurationStore();
+    const secrets = new FakeSecretStore();
+    const initial = await savePluginConfiguration(request({ NAME: "demo", TOKEN: "first" }), deps(configurations, secrets), new AbortController().signal);
+    if (initial.kind !== "stored") throw new Error("expected stored");
+    const controller = new AbortController();
+    configurations.throwAfterReplace = true;
+    configurations.abortAfterReplace = controller;
+
+    const result = await savePluginConfiguration(request({ NAME: "demo", TOKEN: "second" }), deps(configurations, secrets), controller.signal);
+    expect(result.kind).toBe("stored");
+    expect(secrets.values.size).toBe(1);
+    expect(configurations.document?.secrets).toHaveLength(1);
   });
 
   it("reports post-CAS cleanup failure without invalidating the active new document", async () => {

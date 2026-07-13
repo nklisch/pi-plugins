@@ -8,9 +8,7 @@ import {
   ScopeContextSchema,
   ScopeReferenceSchema,
   createScopeContext,
-  createTrustedProjectRoot,
   deriveProjectKey,
-  verifyTrustedProjectRoot,
   toScopeReference,
   type ProjectIdentity,
   type ScopeContext,
@@ -115,18 +113,6 @@ describe("project scope identity", () => {
       projectKey,
       extra: true,
     }, sha256)).toThrow();
-  });
-
-  it("binds path authority to a validated identity and rejects forged copies", () => {
-    const project = createScopeContext({
-      kind: "project",
-      identity: repositoryIdentity,
-      projectKey: deriveProjectKey(repositoryIdentity, sha256),
-    }, sha256);
-    const capability = createTrustedProjectRoot(project, sha256);
-    expect(verifyTrustedProjectRoot(capability, project, sha256)).toEqual(project);
-    expect(() => verifyTrustedProjectRoot({ ...capability }, project, sha256)).toThrow(/capability/);
-    expect(() => verifyTrustedProjectRoot(capability, { ...project, projectKey: deriveProjectKey(pathOnlyIdentity, sha256) }, sha256)).toThrow(/project key|identity/);
   });
 
   it("reduces contexts to path-free persisted references", () => {

@@ -1,10 +1,11 @@
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { z } from "zod";
 import {
   ConfigurationOptionSchema,
   ConfigurationValueKindRegistry,
   ConfigurationValueSchema,
   PluginConfigurationSchema,
+  isSafeConfigurationPattern,
   type ConfigurationOption,
   type ConfigurationValue,
   type PluginConfiguration,
@@ -73,6 +74,8 @@ describe("configuration value schemas", () => {
     [{ kind: "string", pattern: "[" }, "invalid pattern"],
     [{ kind: "string", pattern: "^(a+)+$" }, "catastrophic backtracking pattern"],
     [{ kind: "string", pattern: ".*" }, "unbounded wildcard pattern"],
+    [{ kind: "string", pattern: "a{0,}" }, "unbounded bounded-quantifier spelling"],
+    [{ kind: "string", pattern: "a{0,32}a{0,32}a{0,32}a{0,32}a{0,32}a{0,32}a{0,32}a{0,32}" }, "bounded quantifier chain"],
   ])("rejects inconsistent value descriptors (%s)", (value, _label) => {
     expect(ConfigurationValueSchema.safeParse(value).success).toBe(false);
   });
@@ -166,6 +169,17 @@ describe("configuration options", () => {
         label: { ...label, secret: "secret" },
       }).success,
     ).toBe(false);
+  });
+
+  it("rejects the bounded-quantifier chain before dynamic regexp compilation", () => {
+    const pattern = "a{0,32}".repeat(8);
+    const compile = vi.spyOn(globalThis, "RegExp");
+    try {
+      expect(isSafeConfigurationPattern(pattern)).toBe(false);
+      expect(compile).not.toHaveBeenCalled();
+    } finally {
+      compile.mockRestore();
+    }
   });
 
   it("derives the option and plugin configuration types from schemas", () => {

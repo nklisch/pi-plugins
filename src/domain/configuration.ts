@@ -73,25 +73,53 @@ export const ConfigurationKeySchema = z
 
 /**
  * Descriptor patterns are plugin-authored input, not trusted application code.
- * The host deliberately accepts a conservative regular-expression subset:
- * bounded descriptor size, no backreferences/lookarounds, no wildcard scans,
- * and no quantifier applied to a group. This keeps validation fail-closed
- * without pulling a regex engine into the domain layer.
+ * The accepted language has one quantifier budget: at most one repetition
+ * operator per pattern. Bounded `{m,n}` operators count toward that budget and
+ * have a maximum repeat of 32. Together with the pattern/input limits this
+ * gives a finite evaluation bound and rejects a chain such as eight
+ * `a{0,32}` operators before the JavaScript regexp engine is reached.
  */
 export const ConfigurationPatternPolicy = Object.freeze({
   maxPatternLength: 256,
   maxInputLength: 16_384,
+  maxQuantifiers: 1,
+  maxBoundedRepeat: 32,
 });
+
+type BoundedQuantifier = Readonly<{ end: number; lower: number; upper: number }>;
+
+type BoundedQuantifierScan = BoundedQuantifier | false | undefined;
+
+function boundedQuantifierAt(pattern: string, index: number): BoundedQuantifierScan {
+  if (pattern[index] !== "{") return undefined;
+  let cursor = index + 1;
+  const lowerStart = cursor;
+  while (cursor < pattern.length && pattern[cursor] !== "}" && pattern[cursor] !== ",") cursor += 1;
+  if (cursor === lowerStart || !/^\d+$/.test(pattern.slice(lowerStart, cursor))) return undefined;
+  const lower = Number(pattern.slice(lowerStart, cursor));
+  if (!Number.isSafeInteger(lower) || lower > ConfigurationPatternPolicy.maxBoundedRepeat) return { end: cursor, lower, upper: lower };
+  if (pattern[cursor] === "}") return { end: cursor, lower, upper: lower };
+  cursor += 1;
+  const upperStart = cursor;
+  while (cursor < pattern.length && pattern[cursor] !== "}") cursor += 1;
+  if (cursor === upperStart) return false;
+  if (!/^\d+$/.test(pattern.slice(upperStart, cursor))) return undefined;
+  const upper = Number(pattern.slice(upperStart, cursor));
+  if (!Number.isSafeInteger(upper) || upper > ConfigurationPatternPolicy.maxBoundedRepeat || lower > upper) {
+    return { end: cursor, lower, upper };
+  }
+  return { end: cursor, lower, upper };
+}
 
 export function isSafeConfigurationPattern(pattern: string): boolean {
   if (typeof pattern !== "string" || pattern.length > ConfigurationPatternPolicy.maxPatternLength) return false;
-  // Backreferences and lookarounds require non-linear matching strategies.
+  // Backreferences, Unicode property escapes, and lookarounds require
+  // matching strategies outside this deliberately bounded language.
   if (/\\(?:[1-9]|k<)|\\p\{|\(\?[<!=]/.test(pattern)) return false;
-  // Wildcard repetition and repetition of a group are the common sources of
-  // catastrophic backtracking (for example ^(a+)+$).
+  // Wildcard repetition is both unnecessary for descriptors and a common
+  // source of catastrophic backtracking.
   if (pattern.includes(".*") || pattern.includes(".+")) return false;
-  if (/\)(?:[*+?]|\{)/.test(pattern)) return false;
-  if (/(?:[*+?]|\{[^}]*\})[*+?]/.test(pattern)) return false;
+
   let quantifiers = 0;
   let inCharacterClass = false;
   let escaped = false;
@@ -113,16 +141,44 @@ export function isSafeConfigurationPattern(pattern: string): boolean {
       inCharacterClass = false;
       continue;
     }
-    if (!inCharacterClass && (character === "*" || character === "+" || character === "?")) quantifiers += 1;
-    if (quantifiers > 1) return false;
+    if (inCharacterClass) continue;
+    // Groups and alternation let a backtracking engine revisit an unbounded
+    // number of ambiguous paths even without a second repetition operator.
+    // The descriptor language is therefore concatenative: atoms, anchors, and
+    // at most one atom quantifier only.
+    if (character === "(" || character === ")" || character === "|") return false;
+
+    if (character === "{") {
+      const quantifier = boundedQuantifierAt(pattern, index);
+      if (quantifier === false) return false;
+      if (quantifier === undefined) continue;
+      // Reject malformed/oversized bounds without compiling the pattern. The
+      // `end` cursor still lets this scanner continue in linear time.
+      if (pattern[index - 1] === ")") return false;
+      if (
+        !Number.isSafeInteger(quantifier.lower) ||
+        !Number.isSafeInteger(quantifier.upper) ||
+        quantifier.lower < 0 ||
+        quantifier.upper > ConfigurationPatternPolicy.maxBoundedRepeat ||
+        quantifier.lower > quantifier.upper
+      ) return false;
+      quantifiers += 1;
+      if (quantifiers > ConfigurationPatternPolicy.maxQuantifiers) return false;
+      index = quantifier.end;
+      continue;
+    }
+    if (character === "*" || character === "+" || character === "?") {
+      // A group repetition would make the single-quantifier bound misleading:
+      // the group may contain alternatives with different lengths.
+      if (pattern[index - 1] === ")") return false;
+      quantifiers += 1;
+      if (quantifiers > ConfigurationPatternPolicy.maxQuantifiers) return false;
+    }
   }
-  for (const match of pattern.matchAll(/\{(\d+)(?:,(\d*))?\}/g)) {
-    const upper = match[2];
-    if (upper === "" || (upper !== undefined && Number(upper) > 32) || Number(match[1]) > 32) return false;
-  }
+
   try {
-    // Compilation is still required because the policy is intentionally only
-    // a safety filter, not a replacement for the JavaScript grammar.
+    // The scan above is the safety gate. Compilation only checks that the
+    // already-bounded language is valid JavaScript regexp syntax.
     new RegExp(pattern);
     return true;
   } catch {

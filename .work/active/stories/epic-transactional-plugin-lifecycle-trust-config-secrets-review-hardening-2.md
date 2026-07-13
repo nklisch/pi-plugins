@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening-2
 kind: story
-stage: implementing
+stage: review
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-trust-config-secrets
 depends_on: [epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening]
@@ -33,3 +33,17 @@ Close three blockers discovered by adversarial confirmation after the first hard
 - [ ] No public or domain-level caller can mint trusted project-root authority.
 - [ ] Recovery results contain logical safe evidence only, never values, paths, native causes, or credentials.
 - [ ] Full real-typechecked suite, boundaries, build, and compiled package import pass.
+
+## Implementation notes
+
+- Execution capability: host-local inline implementation; the caller explicitly prohibited agents and worktree isolation.
+- Review weight: standard, source: caller request and story risk.
+- Files changed: `src/domain/configuration.ts`, `src/application/configuration-service.ts`, `src/application/ports/plugin-configuration-store.ts`, `src/application/ports/project-root-authority.ts`, `src/composition/create-project-root-authority.ts`, `src/application/ports/configuration-path.ts`, `src/application/configuration-resolver.ts`, `src/domain/state/scope.ts`, `src/index.ts`, and adjacent regression tests.
+- Tests added: eight-fold bounded-quantifier rejection before dynamic compilation; commit-then-throw, commit-then-abort, and unreconcilable read-after-CAS recovery; opaque project-root issuance/spread-copy rejection and package/domain self-issuer absence.
+- Discrepancies from design: the existing authoritative configuration-store `read` port is the reconciliation boundary; its adapter contract now explicitly requires mutation-linearized reads, avoiding a second recovery API.
+- Adjacent issues parked: none.
+
+## Verification
+
+- `npm test` — passed: production typecheck, dependency boundaries, 90 Vitest files / 510 tests with no type errors, clean build, and compiled ESM import allowlist (318 exports).
+- `.work/bin/work-view` — preserved; its pre-existing working-tree modification was not staged.

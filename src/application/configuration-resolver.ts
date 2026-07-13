@@ -17,12 +17,12 @@ import {
   createScopeContext,
   ScopeReferenceSchema,
   toScopeReference,
-  verifyTrustedProjectRoot,
   type ScopeContext,
 } from "../domain/state/scope.js";
 import type { TrustCandidate } from "../domain/trust-policy.js";
 import { authorizeTrustCandidate } from "./trust-service.js";
 import type { ProjectTrustPort } from "./ports/project-trust.js";
+import type { ProjectRootAuthorityPort } from "./ports/project-root-authority.js";
 import {
   PluginConfigurationReadResultSchema,
   type PluginConfigurationStore,
@@ -249,6 +249,7 @@ export async function withResolvedPluginConfiguration(
     configurations: PluginConfigurationStore;
     secrets: SecretStore;
     paths: ConfigurationPathPort;
+    projectRoots?: ProjectRootAuthorityPort;
     sha256: Sha256;
   }>,
   signal: AbortSignal,
@@ -259,7 +260,8 @@ export async function withResolvedPluginConfiguration(
   try {
     verifiedScope = createScopeContext(request.pathContext.scope, dependencies.sha256);
     if (verifiedScope.kind === "project") {
-      verifyTrustedProjectRoot(request.pathContext.trustedProjectRoot, verifiedScope, dependencies.sha256);
+      if (dependencies.projectRoots === undefined) throw new Error("project configuration requires the project-root authority port");
+      dependencies.projectRoots.verify(request.pathContext.trustedProjectRoot, verifiedScope);
     }
   } catch {
     throw new ConfigurationResolutionError("CONFIGURATION_INVALID");

@@ -190,19 +190,7 @@ export const ScopeContextSchema = z.discriminatedUnion("kind", [
 ]);
 export type ScopeContext = z.infer<typeof ScopeContextSchema>;
 
-/**
- * A project-root capability is intentionally not a branded string. The
- * module-private membership set makes copying its visible fields insufficient
- * to manufacture authority, while the embedded identity lets adapters resolve
- * the same root without accepting an unrelated caller-provided base path.
- */
-export type TrustedProjectRoot = Readonly<{
-  kind: "trusted-project-root-v1";
-  identity: Extract<ProjectIdentity, { kind: "repository" | "path-only" }>;
-  projectKey: ProjectKey;
-  canonicalRoot: CanonicalProjectRoot;
-}>;
-const trustedProjectRoots = new WeakSet<object>();
+/** Scope contexts are verified by identity/key recomputation before they cross into application code. */
 const verifiedScopeContexts = new WeakSet<object>();
 
 function assertSha256(sha256: Sha256, operation: string): void {
@@ -301,47 +289,6 @@ export function createScopeContext(input: unknown, sha256: Sha256): ScopeContext
 /** True only for a scope object produced by the hash-verifying factory. */
 export function isVerifiedScopeContext(value: unknown): value is ScopeContext {
   return typeof value === "object" && value !== null && verifiedScopeContexts.has(value);
-}
-
-/** Create the only project-root authority accepted by configuration path ports. */
-export function createTrustedProjectRoot(input: unknown, sha256: Sha256): TrustedProjectRoot {
-  const scope = createScopeContext(input, sha256);
-  if (scope.kind !== "project") throw new Error("trusted project root requires project scope");
-  const capability: TrustedProjectRoot = Object.freeze({
-    kind: "trusted-project-root-v1",
-    identity: scope.identity,
-    projectKey: scope.projectKey,
-    canonicalRoot: scope.identity.canonicalRoot,
-  });
-  trustedProjectRoots.add(capability);
-  return capability;
-}
-
-/**
- * Verify both halves of a path authority: the scope key is recomputed and the
- * root capability must be the one issued for that exact identity. This is kept
- * as an assertion rather than a schema so a caller cannot forge it by parsing
- * a structurally identical object.
- */
-export function verifyTrustedProjectRoot(
-  capability: unknown,
-  scopeInput: unknown,
-  sha256: Sha256,
-): ScopeContext {
-  const scope = createScopeContext(scopeInput, sha256);
-  if (scope.kind !== "project" || typeof capability !== "object" || capability === null || !trustedProjectRoots.has(capability)) {
-    throw new Error("trusted project root capability is invalid");
-  }
-  const root = capability as TrustedProjectRoot;
-  const sameIdentity = root.projectKey === scope.projectKey &&
-    root.canonicalRoot === scope.identity.canonicalRoot &&
-    root.identity.kind === scope.identity.kind &&
-    (root.identity.kind === "path-only" || (
-      scope.identity.kind === "repository" &&
-      root.identity.repositoryFingerprint === scope.identity.repositoryFingerprint
-    ));
-  if (!sameIdentity) throw new Error("trusted project root capability does not match project identity");
-  return scope;
 }
 
 /** Reduce a runtime context to the path-free reference persisted in records. */
