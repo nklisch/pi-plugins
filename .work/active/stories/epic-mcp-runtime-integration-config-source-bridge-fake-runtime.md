@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-config-source-bridge-fake-runtime
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-config-source-bridge
 depends_on: [epic-mcp-runtime-integration-config-source-bridge-portable-contract]
@@ -72,3 +72,14 @@ A fake can become more permissive than production and hide integration defects. 
 ## Blocker ownership
 
 None. Plugin Host maintainers own implementation. Sibling projection/launch-context tests may consume the fake once verified without waiting for the external package.
+
+## Implementation notes
+
+- Execution capability: Luna xhigh; the fake is an adversarial authority model for atomic ownership, cancellation, and secret-callback tests rather than a permissive mock.
+- Review weight: standard (caller explicitly requested no feature review; focused fake tests and typecheck are the checkpoint evidence).
+- Files changed: `test/support/fakes/mcp-runtime.ts`, `test/support/fakes/mcp-runtime.test.ts`.
+- Tests added: six focused cases covering complete capabilities, scope/plugin collision isolation, atomic stale/injected/cancelled replacement, exact removal, late callback disposal, deterministic redaction/order, and copied authority.
+- Simplification: one in-memory owner map models replacement/removal; no transport, process, filesystem, or package behavior is reimplemented.
+- Discrepancies from design: `FakeMcpRuntimeOptions` only overrides the complete capability snapshot; failure injection uses the existing stable diagnostic-code registry and never echoes arbitrary caller codes.
+- Adjacent issues parked: none.
+- Verification: `npm run typecheck` and `npm run test:unit -- --run test/support/fakes/mcp-runtime.test.ts` passed (6 tests, no type errors).
