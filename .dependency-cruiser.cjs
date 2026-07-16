@@ -115,6 +115,13 @@ module.exports = {
       to: { path: "^src/(?:formats|runtime|pi)(?:/|$)" },
     },
     {
+      name: "recovery-deletion-adapters-stay-in-recovery",
+      comment: "Ordinary filesystem, source, and runtime adapters cannot reach recovery-only deletion capabilities.",
+      severity: "error",
+      from: { path: "^src/infrastructure/(?:archive|filesystem|git|http|npm|process|source|state)(?:/|$)" },
+      to: { path: "^src/infrastructure/recovery/(?:revision-artifact-store|process-revision-leases)\\.ts$" },
+    },
+    {
       name: "formats-no-infrastructure-imports",
       comment: "Format readers emit domain declarations and do not acquire or materialize content.",
       severity: "error",

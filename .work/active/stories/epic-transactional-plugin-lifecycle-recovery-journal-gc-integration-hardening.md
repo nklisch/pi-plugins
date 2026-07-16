@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-recovery-journal-gc-integration-hardening
 kind: story
-stage: implementing
+stage: done
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-recovery-journal-gc
 depends_on: [epic-transactional-plugin-lifecycle-recovery-journal-gc-startup-recovery, epic-transactional-plugin-lifecycle-recovery-journal-gc-retention-collection]
@@ -49,3 +49,13 @@ Compose Node recovery adapters, prove restart/crash/concurrency/retention behavi
 ## Ordering
 
 Final convergence checkpoint after startup recovery and retention collection. The feature becomes eligible for feature-level review only after both predecessors and this integration evidence are complete.
+
+## Implementation notes
+
+Added the Node composition root that keeps recovery filesystem, SQLite journal/retention, process leases, immutable artifact scanning, and application service construction behind one typed factory. Extended the explicit package barrel with recovery/collection contracts and policy values while keeping SQLite handles, SQL, path codecs, owner evidence, scanner capabilities, and raw deletion private. Added a dependency canary preventing ordinary infrastructure adapters from importing recovery-only deletion adapters. The rolling foundation assertions already describe local recovery, conservative rollback, lease retention, and persistent-data separation accurately, so no prose correction was needed.
+
+Verification evidence:
+
+- `npm test` — passed: typecheck, dependency boundaries, 104 files / 582 tests, build, and compiled package import (389 exports).
+- Integration tests cover per-scope journal composition, empty immutable artifact inventory, and the absence of persistent-data artifacts.
+- The pre-existing uncommitted `.work/bin/work-view` change was preserved and was not staged.

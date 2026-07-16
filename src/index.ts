@@ -353,6 +353,8 @@ export type {
 export {
   ContentStoreKindRegistry,
   ContentStoreKeySchema,
+  MarketplaceStoreKeySchema,
+  PluginStoreKeySchema,
   ContentStoreIdentitySchema,
   MarketplaceStoreIdentitySchema,
   PluginStoreIdentitySchema,
@@ -370,6 +372,8 @@ export type {
   ContentStoreIdentity,
   MarketplaceStoreIdentity,
   PluginStoreIdentity,
+  MarketplaceStoreKey,
+  PluginStoreKey,
 } from "./domain/content-store.js";
 
 export {
@@ -845,16 +849,22 @@ export type {
 
 export {
   LifecycleTransitionRecordSchemaV1,
+  LifecycleTransitionStatusSchema,
+  LifecycleTransitionJournalEntrySchemaV1,
   LifecycleTransitionPrepareResultSchema,
   LifecycleTransitionOutcomeSchema,
   LifecycleTransitionSettleRequestSchema,
+  TransitionJournalReadResultSchema,
   createLifecycleTransitionRecord,
 } from "./application/ports/lifecycle-transition-store.js";
 export type {
   LifecycleTransitionRecord,
   LifecycleTransitionPrepareResult,
+  LifecycleTransitionStatus,
+  LifecycleTransitionJournalEntry,
   LifecycleTransitionOutcome,
   LifecycleTransitionSettleRequest,
+  TransitionJournalReadResult,
   LifecycleTransitionStore,
 } from "./application/ports/lifecycle-transition-store.js";
 
@@ -894,3 +904,59 @@ export type {
   PluginLifecycleService,
   PluginLifecycleServiceDependencies,
 } from "./application/plugin-lifecycle-service.js";
+
+export { EpochMillisecondsSchema } from "./application/ports/lifecycle-clock.js";
+export type { EpochMilliseconds, LifecycleClock } from "./application/ports/lifecycle-clock.js";
+
+export {
+  DefaultLifecycleRecoveryPolicy,
+  RecoveryDiagnosticCodeSchema,
+  RecoveryPolicySchema,
+  TransitionRecoveryResultSchema,
+  LifecycleRecoveryResultSchema,
+  RecoveryEvidenceSchema,
+  RecoveryClassificationSchema,
+} from "./application/recovery-contract.js";
+export type {
+  RecoveryDiagnosticCode,
+  RecoveryPolicy,
+  TransitionRecoveryResult,
+  LifecycleRecoveryResult,
+  RecoveryEvidence,
+  RecoveryClassification,
+} from "./application/recovery-contract.js";
+export { createLifecycleRecoveryService } from "./application/recovery-service.js";
+export type {
+  LifecycleRecoveryService,
+  LifecycleRecoveryServiceDependencies,
+  LifecycleRecoveryServiceRequest,
+} from "./application/recovery-service.js";
+
+export {
+  RetainedArtifactRefSchema,
+  RevisionArtifactKindSchema,
+} from "./application/ports/revision-artifact-store.js";
+export type {
+  RetainedArtifactRef,
+  RevisionArtifactKind,
+  RevisionArtifactCandidate,
+  RevisionArtifactCollection,
+  RevisionArtifactStore,
+} from "./application/ports/revision-artifact-store.js";
+export { DefaultRevisionCollectionPolicy, RevisionCollectionPolicySchema, RevisionCollectionResultSchema } from "./application/revision-collection-service.js";
+export {
+  RevisionLeaseSchema,
+  RevisionLeaseOwnerStatusSchema,
+  RevisionLeaseCollectionSchema,
+} from "./application/ports/revision-lease-store.js";
+export type { RevisionLease, RevisionLeaseOwnerStatus, RevisionLeaseCollection, RevisionLeaseStore } from "./application/ports/revision-lease-store.js";
+export { RevisionRetentionMarkSchema, RevisionRetentionSnapshotSchema } from "./application/ports/revision-retention-store.js";
+export type { RevisionRetentionMark, RevisionRetentionSnapshot, RevisionRetentionStore } from "./application/ports/revision-retention-store.js";
+export { PersistentDataRemovalPlanSchema } from "./application/ports/persistent-data-removal.js";
+export type { PersistentDataRemovalPlan, PersistentDataRemovalPort } from "./application/ports/persistent-data-removal.js";
+export { createRevisionCollectionService } from "./application/revision-collection-service.js";
+export type { RevisionCollectionPolicy, RevisionCollectionResult, RevisionCollectionDependencies } from "./application/revision-collection-service.js";
+export { ConfirmedUninstallCleanupResultSchema, createConfirmedUninstallCleanup } from "./application/confirmed-uninstall-cleanup.js";
+export type { ConfirmedUninstallCleanupResult, ConfirmedUninstallCleanupDependencies, ConfirmedUninstallCleanupRequest } from "./application/confirmed-uninstall-cleanup.js";
+export { createNodeRecoveryAdapters } from "./infrastructure/recovery/create-node-recovery-adapters.js";
+export type { NodeRecoveryAdapterOptions, NodeRecoveryAdapters } from "./infrastructure/recovery/create-node-recovery-adapters.js";
