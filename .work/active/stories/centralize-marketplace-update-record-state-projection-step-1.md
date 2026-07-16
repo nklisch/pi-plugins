@@ -1,7 +1,7 @@
 ---
 id: centralize-marketplace-update-record-state-projection-step-1
 kind: story
-stage: implementing
+stage: done
 tags: [refactor, infra]
 parent: centralize-marketplace-update-record-state-projection
 depends_on: []
@@ -244,3 +244,14 @@ npm run test:package
 ## Dependencies and Cycle Check
 
 `depends_on: []`. Before creation, `.work/bin/work-view --blocking centralize-marketplace-update-record-state-projection` and `--parent centralize-marketplace-update-record-state-projection` returned no items. This story adds only a parent hierarchy link and no dependency edge, so it cannot create a dependency cycle. It consumes existing host-config v2 compatibility behavior but does not depend on the archived feature as active work.
+
+## Implementation notes
+
+- Execution capability: inline direct-read implementation; the bounded extraction had one cohesive owner and nested agents were prohibited.
+- Review weight: standard from project conventions; child checkpoint is verified directly and does not enter review.
+- Files changed: `src/application/marketplace-update-state.ts`, `src/application/marketplace-refresh-service.ts`, `src/application/marketplace-update-policy-service.ts`, `test/application/marketplace-update-state.test.ts`.
+- Tests added/removed: added focused reader and mutation-projection contract coverage for user v1-compatible/v2 and project v2 snapshots; no tests removed.
+- Simplification: consolidated duplicate scope-local record selection and verified mutation projection while retaining marketplace and policy decisions in their services.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+- Verification: focused Vitest selection, `npm run typecheck`, `npm run boundaries`, `npm run test:unit`, and `npm run test:package` passed; compiled package verification reported 437 exports.

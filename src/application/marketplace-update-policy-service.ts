@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { deriveMarketplaceSourceIdentity, MarketplaceUpdateRecordSchema, UpdateApplicationPreferenceSchema, parseMarketplaceUpdateRecord, type MarketplaceUpdateRecord, type UpdateApplicationPreference } from "../domain/update-policy.js";
+import { deriveMarketplaceSourceIdentity, MarketplaceUpdateRecordSchema, UpdateApplicationPreferenceSchema, type UpdateApplicationPreference } from "../domain/update-policy.js";
 import { MarketplaceNameSchema, type MarketplaceName } from "../domain/identity.js";
 import { ScopeContextSchema, type ScopeContext } from "../domain/state/scope.js";
-import { parseStateMutation, type GenerationSnapshot } from "./state-contract.js";
+import { marketplaceUpdateRecords, createMarketplaceUpdateRecordsMutation } from "./marketplace-update-state.js";
+import type { GenerationSnapshot } from "./state-contract.js";
 import type { GenerationMutationCoordinator } from "./generation-mutation-coordinator.js";
 import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
 import { SourceHashSchema, type Sha256, type SourceHash } from "../domain/source.js";
@@ -13,23 +14,6 @@ export const MarketplaceUpdatePreferenceResultSchema = z.discriminatedUnion("kin
 ]);
 export type MarketplaceUpdatePreferenceResult = z.infer<typeof MarketplaceUpdatePreferenceResultSchema>;
 
-function recordsFor(snapshot: GenerationSnapshot): readonly MarketplaceUpdateRecord[] {
-  if ("config" in snapshot) return snapshot.config.records.map((record: unknown) => parseMarketplaceUpdateRecord(record));
-  return snapshot.project.marketplaceUpdates.map((record: unknown) => parseMarketplaceUpdateRecord(record));
-}
-
-function replaceSnapshot(snapshot: GenerationSnapshot, records: readonly MarketplaceUpdateRecord[], sha256: Sha256): ReturnType<typeof parseStateMutation> {
-  if ("config" in snapshot) {
-    // A compatibility store may return a v1 envelope, but a policy mutation
-    // must always carry the complete v2 records forward. Leaving the envelope
-    // at v1 routes through the migration defaults and erases claims, backoff,
-    // and notification memory.
-    const config = { ...snapshot.config, schemaVersion: 2 as const, generation: snapshot.generation, records };
-    return parseStateMutation({ scope: snapshot.scope, expectedGeneration: snapshot.generation, replace: { config } }, sha256);
-  }
-  const project = { ...snapshot.project, schemaVersion: 2 as const, generation: snapshot.generation, marketplaceUpdates: records };
-  return parseStateMutation({ scope: snapshot.scope, expectedGeneration: snapshot.generation, replace: { project } }, sha256);
-}
 
 export interface MarketplaceUpdatePolicyService {
   setApplicationPreference(request: Readonly<{
@@ -54,7 +38,7 @@ export function createMarketplaceUpdatePolicyService(dependencies: Readonly<{
       const preference = UpdateApplicationPreferenceSchema.parse(request.preference);
       const loaded = await dependencies.state.read(scope, signal);
       if (!loaded.ok) return { kind: "rejected", code: "STATE_STALE" };
-      const record = recordsFor(loaded.snapshot).find((candidate) => candidate.marketplace === marketplace);
+      const record = marketplaceUpdateRecords(loaded.snapshot).find((candidate) => candidate.marketplace === marketplace);
       if (record === undefined) return { kind: "rejected", code: "NOT_CONFIGURED" };
       if (deriveMarketplaceSourceIdentity(record.source, dependencies.sha256) !== sourceIdentity) return { kind: "rejected", code: "SOURCE_CHANGED" };
       if (record.source.kind === "local-git" && preference === "automatic") return { kind: "rejected", code: "LOCAL_AUTOMATIC_FORBIDDEN" };
@@ -64,12 +48,12 @@ export function createMarketplaceUpdatePolicyService(dependencies: Readonly<{
         const result = await dependencies.mutations.runPreparedMutation(
           { scope, plugins: [], expectedGeneration: loaded.snapshot.generation },
           async (context) => {
-            const current = recordsFor(context.snapshot).find((candidate) => candidate.marketplace === marketplace);
+            const current = marketplaceUpdateRecords(context.snapshot).find((candidate) => candidate.marketplace === marketplace);
             if (current === undefined) throw new Error("NOT_CONFIGURED");
             if (deriveMarketplaceSourceIdentity(current.source, dependencies.sha256) !== sourceIdentity) throw new Error("SOURCE_CHANGED");
             const next = MarketplaceUpdateRecordSchema.parse({ ...current, updateApplication: preference });
-            const records = recordsFor(context.snapshot).map((candidate) => candidate.marketplace === marketplace ? next : candidate);
-            return { mutation: replaceSnapshot(context.snapshot, records, dependencies.sha256), value: preference };
+            const records = marketplaceUpdateRecords(context.snapshot).map((candidate) => candidate.marketplace === marketplace ? next : candidate);
+            return { mutation: createMarketplaceUpdateRecordsMutation(context.snapshot, records, dependencies.sha256), value: preference };
           },
           signal,
         );

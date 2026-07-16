@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
   MarketplaceUpdateRecordSchema,
-  parseMarketplaceUpdateRecord,
   deriveMarketplaceSourceIdentity,
   backoffDelayMs,
   type MarketplaceUpdateRecord,
@@ -19,7 +18,11 @@ import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
 import type { MarketplaceMaterializer, MaterializedMarketplace, PluginMaterializer, SourceContext } from "./source-materialization.js";
 import type { PluginLifecycleService } from "./plugin-lifecycle-service.js";
 import type { LifecycleRejectionCode } from "./plugin-lifecycle-contract.js";
-import { parseStateMutation, type GenerationSnapshot } from "./state-contract.js";
+import type { GenerationSnapshot, StateMutation } from "./state-contract.js";
+import {
+  createMarketplaceUpdateRecordsMutation,
+  marketplaceUpdateRecords,
+} from "./marketplace-update-state.js";
 import {
   MarketplaceRefreshRequestSchema,
   MarketplaceRefreshResultSchema,
@@ -68,23 +71,13 @@ function scopeSort(left: ScopeContext, right: ScopeContext): number {
   return left.projectKey.localeCompare(right.projectKey);
 }
 
-function recordsFor(snapshot: GenerationSnapshot): readonly MarketplaceUpdateRecord[] {
-  if ("config" in snapshot) return snapshot.config.records.map((record: unknown) => parseMarketplaceUpdateRecord(record));
-  return snapshot.project.marketplaceUpdates.map((record: unknown) => parseMarketplaceUpdateRecord(record));
-}
-
 function recordFor(snapshot: GenerationSnapshot, marketplace: MarketplaceName): MarketplaceUpdateRecord | undefined {
-  return recordsFor(snapshot).find((record) => record.marketplace === marketplace);
+  return marketplaceUpdateRecords(snapshot).find((record) => record.marketplace === marketplace);
 }
 
-function replaceRecord(snapshot: GenerationSnapshot, marketplace: MarketplaceName, replacement: MarketplaceUpdateRecord, sha256: Sha256): ReturnType<typeof parseStateMutation> {
-  const records = recordsFor(snapshot).map((record) => record.marketplace === marketplace ? replacement : record);
-  if ("config" in snapshot) {
-    const config = { ...snapshot.config, schemaVersion: 2 as const, generation: snapshot.generation, records };
-    return parseStateMutation({ scope: snapshot.scope, expectedGeneration: snapshot.generation, replace: { config } }, sha256);
-  }
-  const project = { ...snapshot.project, schemaVersion: 2 as const, generation: snapshot.generation, marketplaceUpdates: records };
-  return parseStateMutation({ scope: snapshot.scope, expectedGeneration: snapshot.generation, replace: { project } }, sha256);
+function replaceRecord(snapshot: GenerationSnapshot, marketplace: MarketplaceName, replacement: MarketplaceUpdateRecord, sha256: Sha256): StateMutation {
+  const records = marketplaceUpdateRecords(snapshot).map((record) => record.marketplace === marketplace ? replacement : record);
+  return createMarketplaceUpdateRecordsMutation(snapshot, records, sha256);
 }
 
 function outcomeFailed(marketplace: MarketplaceName, code: string): MarketplaceRefreshOutcome {
@@ -371,7 +364,7 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
       for (const scope of scopes) {
         const loaded = await dependencies.state.read(scope, signal);
         if (!loaded.ok) continue;
-        for (const record of [...recordsFor(loaded.snapshot)].sort((a, b) => a.marketplace.localeCompare(b.marketplace))) {
+        for (const record of [...marketplaceUpdateRecords(loaded.snapshot)].sort((a, b) => a.marketplace.localeCompare(b.marketplace))) {
           if (parsed.marketplace !== undefined && record.marketplace !== parsed.marketplace) continue;
           jobs.push({ scope, marketplace: record.marketplace });
         }
@@ -391,7 +384,7 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
       for (const scope of inventory.scopes.map((value) => ScopeContextSchema.parse(value))) {
         const loaded = await dependencies.state.read(scope, signal);
         if (!loaded.ok) continue;
-        for (const record of recordsFor(loaded.snapshot)) {
+        for (const record of marketplaceUpdateRecords(loaded.snapshot)) {
           if (record.source.kind === "local-git") continue;
           const at = record.refresh.nextScheduledAt;
           if (earliest === undefined || at < earliest) earliest = at;
