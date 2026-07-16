@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-skill-discovery
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime
 depends_on: [epic-skills-hook-runtime-projection-reload-evidence]
@@ -434,3 +434,10 @@ Effective weight: `standard`; one fresh-context Umans GLM 5.2 pass. The reviewer
 - Add a true same-canonical-file test proving one emitted path and ready logical observations for every target; correct the misleading existing test coverage.
 
 Tracked by `epic-skills-hook-runtime-skill-discovery-review-hardening`. Result types remain barrel-exported because they name the return contract of the public final participant factory. Close-error shadowing, stale checkpoint narration, and unrelated style changes remain out of scope. No second independent pass after fixes under standard review.
+
+## Review hardening completion
+- Removed only the named dead ownership registry, target path retention, empty-skill constant, and local abort helper; atomic complete registry replacement is unchanged.
+- Added non-vacuous project trust-denial and project identity-mismatch evidence proving failed project observations do not suppress valid user resources.
+- Replaced the misleading dedup test with a true same-canonical-file case that emits one Pi path while both logical targets retain ready observations.
+- Verification: focused resource-discovery tests passed; full `npm test` passed with 138 test files and 713 tests, including typecheck, boundaries, build, and compiled package import.
+- Child story `epic-skills-hook-runtime-skill-discovery-review-hardening` advanced to `stage: done`; feature advanced from `implementing` to `review`.
