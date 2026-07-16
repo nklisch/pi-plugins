@@ -32,7 +32,7 @@ This epic does not add new foreign component types or weaken compatibility valid
 
 ## Anticipated child features
 
-- `/plugin` command grammar and application-service composition
+- `/plugin` command grammar and application-service composition, including concrete `LifecycleStateStore`, credential/secret, configuration-path/write-id, inventory, recovery-artifact, and project-root adapters required for packaged operation
 - marketplace registration, listing, refresh, browsing, and inspection
 - compatibility, capability, source, and revision detail views
 - trust and plugin `userConfig` collection flows

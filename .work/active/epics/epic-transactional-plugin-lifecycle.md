@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle
 kind: epic
-stage: review
+stage: implementing
 tags: [security, infra]
 parent: null
 depends_on: [epic-foreign-plugin-model]
@@ -95,6 +95,16 @@ These guarantees constrain every child feature. Feature design may choose concre
 
 All eight child capability arcs are `done`: versioned state/stores, trust/config/secrets, cross-process generation locking, immutable promotion, lifecycle operations, recovery/journal/GC, read-only foreign adoption, and refresh/update policy. Each feature completed its own review boundary; material review blockers were fixed and verified before closure.
 
-The integrated package now provides the authoritative user/project state model; source-bound trust and secret references; short compare-and-commit mutation authority; immutable content promotion; one install/enable/disable/update/uninstall transaction path with projection/reload evidence; durable recovery/retention/collection; read-only Claude/Codex declaration adoption; and explicit offline-safe refresh/scheduling/policy services. No runtime skill/hook/MCP adapters or native manager UI were introduced.
+The integrated package now provides the authoritative user/project state contracts and application services; source-bound trust and secret references; short compare-and-commit mutation authority; immutable content promotion; one install/enable/disable/update/uninstall application path with projection/reload evidence; durable recovery/retention/collection; read-only Claude/Codex declaration adoption; and explicit offline-safe refresh/scheduling/policy services. Concrete host state, credential, configuration-path, and Pi composition adapters remain assigned to `epic-native-plugin-management`, consistent with this epic's contracts-and-fakes boundary. No runtime skill/hook/MCP adapters or native manager UI were introduced.
 
 Latest integrated verification passes `npm test`: typecheck, dependency boundaries, 121 files / 648 tests, build/package import, and 437 intentional exports. Real process-crash, concurrent-lock, recovery-retention, adoption, automatic-authority, scheduler, notification, and v1/v2 compatibility evidence are included. The pre-existing dirty `.work/bin/work-view` remains untouched.
+
+## Aggregate review findings (2026-07-16)
+
+Effective review weight: `standard`; one deep fresh-context Umans GLM 5.2 pass. The reviewer found no correctness, security, trust, crash-recovery, concurrency, scope, secret, or startup-network defect. Receiver-confirmed fix set:
+
+- Export the lifecycle transition reconciler factory/interface/dependencies required to assemble the already-public recovery service.
+- Export the lifecycle state inventory and optional recovery-artifacts ports for a complete named host boundary.
+- Resolve adapter-ownership ambiguity without expanding this explicitly adapter-neutral epic: name `epic-native-plugin-management` as owner of concrete state/credential/configuration-path composition and describe this epic as contracts/application services rather than a packaged concrete store.
+
+Tracked by `epic-transactional-plugin-lifecycle-review-hardening`. The proposal to implement a concrete durable state store here is rejected as outside the epic's explicit “contracts and fakes only” boundary (`StateDocumentRegistry`/`LifecycleStateStore` intentionally do not prescribe physical storage); its legitimate composition need is assigned to the native packaged-operation epic. No second independent pass is permitted after the exact fix set under standard review.

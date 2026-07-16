@@ -478,10 +478,13 @@ bindings before branding that value. Mutations replace one or more documents
 against an expected generation and return a typed stale-generation result
 rather than overwriting newer state. The port does not prescribe storage,
 paths, locks, transaction callbacks, fsync/rename, secret storage, trust
-policy, promotion, generated projections, operations, or recovery. Those are
-late-bound seams for later features and adapters. No current state schema
-contains secret values, expanded environment, absolute installed/data paths,
-projection contents, timestamps in portable intent, or native error causes.
+policy, promotion, generated projections, operations, or recovery. Lifecycle
+features provide these schema and application contracts; the packaged
+`epic-native-plugin-management` composition owns concrete authoritative-state,
+credential, configuration-path/write-id, inventory, recovery-artifact, and
+project-root adapters. No current state schema contains secret values, expanded
+environment, absolute installed/data paths, projection contents, timestamps in
+portable intent, or native error causes.
 
 ## Installation transaction
 
