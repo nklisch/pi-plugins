@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-projection-reload-evidence-cache-contract
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-projection-reload-evidence
 depends_on: []
@@ -51,3 +51,13 @@ This checkpoint implements the existing `RuntimeProjectionPort.prepare` seam. It
 ## Ordering
 
 No child dependency. This contract must finish before snapshot resolution can consume a verified cache or resolved generated root.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna xhigh; one cohesive feature-owner pass because cache publication, generated-root integrity, and lifecycle preparation share one write boundary.
+- Review weight: standard, from project convention; this child checkpoint is verified directly and does not enter review.
+- Files changed: `src/application/runtime-projection-cache.ts`, `src/application/ports/content-store.ts`, `src/infrastructure/filesystem/runtime-projection-cache.ts`, `src/infrastructure/filesystem/runtime-root-store.ts`, `src/infrastructure/filesystem/create-content-store.ts`.
+- Tests added/updated: canonical cache codec and filesystem prepare/read coverage; existing generated-root suite remains green (13 focused tests total).
+- Simplification: retained one generated-root publication path and one complete `projection.json`; no component cache or runtime pointer was introduced.
+- Discrepancies from design: legacy lifecycle-only generated-root requests may omit `payloadDigest`; the filesystem adapter normalizes that input for existing callers, while all newly published metadata and cache paths carry and verify distinct `projectionDigest` and `payloadDigest` fields.
+- Adjacent issues parked: none.
+- Verification: `npm run typecheck`; focused Vitest suites for cache codec, filesystem cache, and generated roots — 3 files / 13 tests passed.

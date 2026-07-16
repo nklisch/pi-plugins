@@ -76,6 +76,8 @@ export type ProjectionRootRequest = Readonly<{
   scope: ScopeReference;
   plugin: PluginKey;
   projectionDigest: ContentDigest;
+  /** Exact generated-tree integrity; it is never used to derive projectionRef. */
+  payloadDigest?: ContentDigest;
   projectionRef: ProjectionRootRef;
 }>;
 
@@ -84,6 +86,7 @@ export type ProjectionRootAllocation = Readonly<{
   scope: ScopeReference;
   plugin: PluginKey;
   projectionDigest: ContentDigest;
+  payloadDigest: ContentDigest;
   projectionRef: ProjectionRootRef;
   allocationId: string;
 }>;
@@ -93,6 +96,7 @@ export type ResolvedProjectionRoot = Readonly<{
   scope: ScopeReference;
   plugin: PluginKey;
   projectionDigest: ContentDigest;
+  payloadDigest: ContentDigest;
   projectionRef: ProjectionRootRef;
 }>;
 
@@ -118,4 +122,8 @@ export interface ContentStorePort {
   ensureDataRoot(input: StableDataRootRequest, signal: AbortSignal): Promise<WritableDataRoot>;
   allocateProjectionRoot(input: ProjectionRootRequest, signal: AbortSignal): Promise<ProjectionRootAllocation>;
   sealProjectionRoot(input: ProjectionRootAllocation, signal: AbortSignal): Promise<ResolvedProjectionRoot>;
+  /** Runtime projection cache lifecycle; optional for legacy lifecycle-only adapters. */
+  discardProjectionRoot?(input: ProjectionRootAllocation, signal: AbortSignal): Promise<void>;
+  /** Resolve an already-published generated root without reading authoritative state. */
+  resolveProjectionRoot?(input: ProjectionRootRequest, signal: AbortSignal): Promise<ResolvedProjectionRoot>;
 }

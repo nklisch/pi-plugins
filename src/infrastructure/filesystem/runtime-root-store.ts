@@ -53,7 +53,10 @@ const METADATA = "metadata.json";
 const ProjectionMetadataSchema = z.object({
   version: z.literal(1),
   projectionRef: ProjectionRootRefSchema,
+  /** Complete logical lifecycle identity. */
   projectionDigest: ContentDigestSchema,
+  /** Exact generated payload-tree integrity, independent of projectionDigest. */
+  payloadDigest: ContentDigestSchema,
   scope: ScopeReferenceSchema,
   plugin: PluginKeySchema,
 }).strict().readonly();
@@ -71,6 +74,8 @@ export type RuntimeRootStore = Readonly<{
   ensureDataRoot(input: StableDataRootRequest, signal: AbortSignal): Promise<WritableDataRoot>;
   allocateProjectionRoot(input: ProjectionRootRequest, signal: AbortSignal): Promise<ProjectionRootAllocation>;
   sealProjectionRoot(input: ProjectionRootAllocation, signal: AbortSignal): Promise<ResolvedProjectionRoot>;
+  discardProjectionRoot(input: ProjectionRootAllocation, signal: AbortSignal): Promise<void>;
+  resolveProjectionRoot(input: ProjectionRootRequest, signal: AbortSignal): Promise<ResolvedProjectionRoot>;
 }>;
 
 export type RuntimeRootStoreOptions = Readonly<{
@@ -115,7 +120,7 @@ function sameJson(left: unknown, right: unknown): boolean {
 
 function projectionMetadataMatches(
   metadata: ProjectionMetadata,
-  identity: Readonly<{ scope: ScopeReference; plugin: PluginKey; projectionDigest: ContentDigest; projectionRef: ProjectionRootRef }>,
+  identity: Readonly<{ scope: ScopeReference; plugin: PluginKey; projectionDigest: ContentDigest; payloadDigest: ContentDigest; projectionRef: ProjectionRootRef }>,
   sha256: Sha256,
 ): boolean {
   const expectedRef = deriveProjectionRootRef({
@@ -126,6 +131,7 @@ function projectionMetadataMatches(
   return metadata.version === 1 &&
     metadata.projectionRef === identity.projectionRef &&
     metadata.projectionDigest === identity.projectionDigest &&
+    metadata.payloadDigest === identity.payloadDigest &&
     metadata.projectionRef === expectedRef &&
     sameJson(metadata.scope, identity.scope) &&
     metadata.plugin === identity.plugin;
@@ -256,6 +262,10 @@ export function createRuntimeRootStore(options: RuntimeRootStoreOptions): Runtim
     const scope = ScopeReferenceSchema.parse(input.scope);
     const plugin = PluginKeySchema.parse(input.plugin);
     const projectionDigest = ContentDigestSchema.parse(input.projectionDigest);
+    // Older lifecycle-only callers did not carry a payload digest. Keep their
+    // request shape readable while ensuring every published v1 root stores the
+    // two identities separately once a cache supplies the exact payload hash.
+    const payloadDigest = ContentDigestSchema.parse(input.payloadDigest ?? projectionDigest);
     const projectionRef = ProjectionRootRefSchema.parse(input.projectionRef);
     const expected = deriveProjectionRootRef({ scope, plugin, projectionDigest }, options.sha256);
     if (projectionRef !== expected) throw rootError("contentVerificationFailed", "allocateProjectionRoot", "projection reference does not match its identity");
@@ -280,7 +290,7 @@ export function createRuntimeRootStore(options: RuntimeRootStoreOptions): Runtim
           throw new Error("projection root allocation is not a private real directory");
         }
         await assertOwnedDirectory(root, "allocateProjectionRoot", allocationIdentity, options.layout.rootCapabilities.projectionStagingRoot);
-        const allocation = Object.freeze({ root, scope, plugin, projectionDigest, projectionRef, allocationId: id });
+        const allocation = Object.freeze({ root, scope, plugin, projectionDigest, payloadDigest, projectionRef, allocationId: id });
         projectionAllocations.set(allocation, { allocation, root, identity: { dev: stat.dev, ino: stat.ino } });
         return allocation;
       } catch (error) {
@@ -316,9 +326,9 @@ export function createRuntimeRootStore(options: RuntimeRootStoreOptions): Runtim
     await assertProjectionAllocation(record, options.layout, "sealProjectionRoot");
     const expected = deriveProjectionRootRef({ scope: input.scope, plugin: input.plugin, projectionDigest: input.projectionDigest }, options.sha256);
     if (expected !== input.projectionRef) throw rootError("contentVerificationFailed", "sealProjectionRoot", "projection root identity changed");
-    const digest = await hashProjectionRoot(record.root, options.sha256).catch((cause) => { throw rootError("contentVerificationFailed", "sealProjectionRoot", "projection payload could not be verified", cause); });
+    const payloadDigest = await hashProjectionRoot(record.root, options.sha256).catch((cause) => { throw rootError("contentVerificationFailed", "sealProjectionRoot", "projection payload could not be verified", cause); });
     await assertProjectionAllocation(record, options.layout, "sealProjectionRoot");
-    if (digest !== input.projectionDigest) throw rootError("contentVerificationFailed", "sealProjectionRoot", "projection payload digest does not match its reference");
+    if (payloadDigest !== input.payloadDigest) throw rootError("contentVerificationFailed", "sealProjectionRoot", "projection payload digest does not match its integrity reference");
     const target = options.layout.projectionPath(input.projectionRef);
     await assertLayoutRoot(options.layout, "generatedRoot", "sealProjectionRoot");
     let targetStat;
@@ -335,7 +345,7 @@ export function createRuntimeRootStore(options: RuntimeRootStoreOptions): Runtim
         } catch (cause) {
           throw rootError("adapterFailed", "sealProjectionRoot", "projection allocation cleanup was incomplete", cause, "incomplete");
         }
-        return { root: join(target), scope: input.scope, plugin: input.plugin, projectionDigest: input.projectionDigest, projectionRef: input.projectionRef };
+        return { root: join(target), scope: input.scope, plugin: input.plugin, projectionDigest: input.projectionDigest, payloadDigest: input.payloadDigest, projectionRef: input.projectionRef };
       }
       throw rootError("storeIdentityCollision", "sealProjectionRoot", "projection identity is already occupied by different content");
     }
@@ -365,7 +375,7 @@ export function createRuntimeRootStore(options: RuntimeRootStoreOptions): Runtim
     );
     try {
       await assertProjectionBeforeEffect();
-      const metadata: ProjectionMetadata = { version: 1, projectionRef: input.projectionRef, projectionDigest: input.projectionDigest, scope: input.scope, plugin: input.plugin };
+      const metadata: ProjectionMetadata = { version: 1, projectionRef: input.projectionRef, projectionDigest: input.projectionDigest, payloadDigest: input.payloadDigest, scope: input.scope, plugin: input.plugin };
       await assertProjectionBeforeEffect();
       await writeFile(join(record.root, METADATA), JSON.stringify(metadata), { flag: "wx", mode: 0o600 });
       await assertProjectionBeforeEffect();
@@ -406,7 +416,7 @@ export function createRuntimeRootStore(options: RuntimeRootStoreOptions): Runtim
           throw rootError("storeIdentityCollision", "sealProjectionRoot", "concurrent projection publication collides with different content");
         }
         if (await tryCleanup() !== undefined) throw cleanupError(new Error("identical projection lost publication race"));
-        return { root: target, scope: input.scope, plugin: input.plugin, projectionDigest: input.projectionDigest, projectionRef: input.projectionRef };
+        return { root: target, scope: input.scope, plugin: input.plugin, projectionDigest: input.projectionDigest, payloadDigest: input.payloadDigest, projectionRef: input.projectionRef };
       }
       published = true;
       await assertLayoutRoot(options.layout, "generatedRoot", "sealProjectionRoot");
@@ -420,7 +430,7 @@ export function createRuntimeRootStore(options: RuntimeRootStoreOptions): Runtim
       await assertLayoutRoot(options.layout, "generatedRoot", "sealProjectionRoot");
       await options.platform.syncDirectory(options.layout.generatedRoot);
       await assertLayoutRoot(options.layout, "generatedRoot", "sealProjectionRoot");
-      return { root: target, scope: input.scope, plugin: input.plugin, projectionDigest: input.projectionDigest, projectionRef: input.projectionRef };
+      return { root: target, scope: input.scope, plugin: input.plugin, projectionDigest: input.projectionDigest, payloadDigest: input.payloadDigest, projectionRef: input.projectionRef };
     } catch (error) {
       if (!published && await tryCleanup() !== undefined) {
         if (isIncompleteCleanup(error)) throw error;
@@ -432,7 +442,54 @@ export function createRuntimeRootStore(options: RuntimeRootStoreOptions): Runtim
     }
   }
 
-  return Object.freeze({ ensureDataRoot, allocateProjectionRoot, sealProjectionRoot });
+  async function discardProjectionRoot(input: ProjectionRootAllocation, signal: AbortSignal): Promise<void> {
+    throwIfAborted(signal);
+    const record = input !== null && typeof input === "object" ? projectionAllocations.get(input) : undefined;
+    if (record === undefined || record.allocation.root !== input.root || record.allocation.allocationId !== input.allocationId) {
+      throw rootError("stagingAllocationInvalid", "discardProjectionRoot", "projection root allocation capability is invalid");
+    }
+    await assertProjectionAllocation(record, options.layout, "discardProjectionRoot");
+    try {
+      await removePreparedTree(record.root, record.identity, options.layout.rootCapabilities.projectionStagingRoot);
+      await assertLayoutRoot(options.layout, "projectionStagingRoot", "discardProjectionRoot");
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw rootError("adapterFailed", "discardProjectionRoot", "projection root allocation could not be discarded", cause);
+    }
+  }
+
+  async function resolveProjectionRoot(input: ProjectionRootRequest, signal: AbortSignal): Promise<ResolvedProjectionRoot> {
+    throwIfAborted(signal);
+    const scope = ScopeReferenceSchema.parse(input.scope);
+    const plugin = PluginKeySchema.parse(input.plugin);
+    const projectionDigest = ContentDigestSchema.parse(input.projectionDigest);
+    const projectionRef = ProjectionRootRefSchema.parse(input.projectionRef);
+    const expectedRef = deriveProjectionRootRef({ scope, plugin, projectionDigest }, options.sha256);
+    if (projectionRef !== expectedRef) throw rootError("contentVerificationFailed", "resolveProjectionRoot", "projection reference does not match its identity");
+    await assertLayoutRoot(options.layout, "generatedRoot", "resolveProjectionRoot");
+    const root = options.layout.projectionPath(projectionRef);
+    const metadata = await inspectProjection(root, options.sha256);
+    if (!projectionMetadataMatches(metadata, {
+      scope,
+      plugin,
+      projectionDigest,
+      payloadDigest: metadata.payloadDigest,
+      projectionRef,
+    }, options.sha256) || (input.payloadDigest !== undefined && metadata.payloadDigest !== input.payloadDigest)) {
+      throw rootError("contentVerificationFailed", "resolveProjectionRoot", "projection root evidence does not match its identity");
+    }
+    await assertLayoutRoot(options.layout, "generatedRoot", "resolveProjectionRoot");
+    return {
+      root,
+      scope,
+      plugin,
+      projectionDigest,
+      payloadDigest: metadata.payloadDigest,
+      projectionRef,
+    };
+  }
+
+  return Object.freeze({ ensureDataRoot, allocateProjectionRoot, sealProjectionRoot, discardProjectionRoot, resolveProjectionRoot });
 }
 
 export async function inspectProjection(root: string, sha256: Sha256): Promise<ProjectionMetadata> {
@@ -455,8 +512,8 @@ export async function inspectProjection(root: string, sha256: Sha256): Promise<P
     if ((rootStat.mode & 0o777) !== 0o555) {
       throw new Error("projection root is not read-only");
     }
-    const digest = await hashProjectionRoot(root, sha256);
-    if (digest !== metadata.projectionDigest) throw new Error("projection root digest does not match metadata");
+    const payloadDigest = await hashProjectionRoot(root, sha256);
+    if (payloadDigest !== metadata.payloadDigest) throw new Error("projection root payload digest does not match metadata");
     const expectedRef = deriveProjectionRootRef({
       scope: metadata.scope,
       plugin: metadata.plugin,

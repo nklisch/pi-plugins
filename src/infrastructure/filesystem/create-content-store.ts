@@ -51,5 +51,7 @@ export async function createNodeContentStoreWithPlatform(options: InternalNodeCo
     ensureDataRoot: roots.ensureDataRoot,
     allocateProjectionRoot: roots.allocateProjectionRoot,
     sealProjectionRoot: roots.sealProjectionRoot,
+    discardProjectionRoot: roots.discardProjectionRoot,
+    resolveProjectionRoot: roots.resolveProjectionRoot,
   });
 }
