@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-guarded-command-hooks
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, security, infra]
 parent: epic-skills-hook-runtime
 depends_on: [epic-skills-hook-runtime-hook-event-adaptation]
@@ -548,3 +548,14 @@ Rollback is migration-free. Remove ordinary callback registration/decision adapt
 This design fails if a raw hook array can bypass the planner, roots are trusted because they are strings, config plaintext outlives the resolver callback, Node silently picks a shell/PATH result, a child survives timeout, stderr grows without bound, malformed JSON is treated as plain context, concurrent completion chooses precedence, ask defaults to allow without UI, Pi receives a partial mutation after one handler error, or Stop can recursively trigger forever. Selected-plan-only ingress, callback capability verification, explicit executable/environment policy, one tree-killing runner, strict byte/schema bounds, source-order slots, event-aware fail-closed aggregation, mode-aware deny, separate all-or-nothing Pi application, and the three-step continuation guard address those failures.
 
 The fallback is honest non-activation or a safe per-event diagnostic. No path responds to execution uncertainty by using an unbounded Pi helper, re-reading a raw manifest, dropping a handler silently, or accepting an unsupported decision as a no-op.
+
+## Integrated implementation summary
+- Execution capability: GPT-5.6 Luna xhigh, one cohesive owner over the full five-story DAG; direct-read only, no nested agents, questions, peer review, UI surface, MCP manager, native state authority, or subagent callback registration.
+- Review weight: standard by project convention; caller explicitly requested no review, so the feature remains at `stage: review`.
+- Child checkpoints: all five advanced directly to `stage: done` in DAG order: execution contracts, bounded execution, decision aggregation, Pi application, and integration hardening.
+- Commits: `b4b4f60` + `f2a9ccc` execution contracts; `186f1ff` + `d7a3265` bounded execution; `b2bfa8a` + `2f75e1a` decision aggregation; `93f3971` + `456215d` Pi application; `38e6bbf` + `aa07d10` integration hardening; this feature transition is committed separately as `implement: epic-skills-hook-runtime-guarded-command-hooks`.
+- Security behavior: only schema-validated `HookEventPlan` values enter execution; active scope/plugin/revision/projection/contribution/component/root/cwd/project-trust evidence is rechecked before callback-scoped configuration resolution. Exact Bash/PowerShell/exec launch identity, explicit host inheritance, five path variables, bounded stdin/output, process-tree timeout/abort, and fixed concurrency are enforced. Secrets and raw process data stay inside the resolver callback; accepted decisions are redacted and diagnostics are fixed-code only.
+- Decision/application behavior: strict event-aware JSON/plain parsing rejects unsupported fields and malformed bytes; source-order aggregation is all-or-nothing and deterministic. Pi mutation is isolated to ordinary 0.80.8 callbacks with mode-aware fail-closed ask, hidden context delivery, exact tool-input/details mutation, compact cancellation, title, abort, and a non-persisted three-use Stop guard. No SubagentStart/Stop callback is registered.
+- Verification: full `npm test` passed on the immediate rerun — typecheck, dependency boundaries (209 modules / 1,263 dependencies), 148 test files / 774 tests, build, and compiled public import (459 exports). The first final suite attempt hit the already-known unrelated recovery-review-hardening concurrency flake; no unrelated code changed and the immediate rerun passed. Supplied branch start was 141 / 744 / 459; final additions are 7 test files, 30 tests, and no public exports. Existing source acquisition and all completed event/projection/discovery contracts remain green.
+- Foundation/docs: no assertion became false or misleading; no foundation document changed. Rollback remains migration-free and leaves state, projection cache, trust, configuration, credentials, content/data roots, lifecycle transitions, and subagent interception untouched.
+- Deviations: the installed Pi 0.80.8 package root does not export `SessionBeforeCompactResult` or `ToolResultEventResult` aliases; their exact declaration shapes are kept local while all available event/context types remain type-imported from Pi. No blockers.

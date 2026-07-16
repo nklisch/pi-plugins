@@ -23,7 +23,8 @@ export type CommandRunnerErrorCode =
   | "OUTPUT_LIMIT"
   | "TIMEOUT"
   | "CANCELLED"
-  | "STDIN_FAILED";
+  | "STDIN_FAILED"
+  | "NULL_EXIT";
 
 export class CommandRunnerError extends Error {
   readonly command: ReturnType<typeof redactCommand>;
@@ -322,7 +323,7 @@ export function createNodeCommandRunner(options: RunnerOptions = {}): CommandRun
           failure.code,
           failure.cause,
         ));
-        if (closeCode === null) return reject(new CommandRunnerError("command exited without a status", request.executable, request.args, "SPAWN_FAILED"));
+        if (closeCode === null) return reject(new CommandRunnerError("command exited without a status", request.executable, request.args, "NULL_EXIT"));
         resolve({
           exitCode: closeCode,
           stdout: request.capture.stdout.mode === "capture" ? chunksToBytes(stdoutChunks, stdoutLength) : stream(),

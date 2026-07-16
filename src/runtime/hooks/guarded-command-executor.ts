@@ -156,7 +156,14 @@ export function createGuardedCommandHookExecutor(dependencies: Readonly<{
         unique.push(hook);
       }
     }
-    const stdin = encodeInput(plan.input);
+    if (unique.length === 0) return { kind: "completed", handlers: Object.freeze([]) };
+    let stdin: Uint8Array;
+    try {
+      stdin = encodeInput(plan.input);
+    } catch {
+      const first = unique[0]!;
+      return { kind: "failed", diagnostics: [createHookRuntimeDiagnostic(bindingOf(first), plan.event, "HOOK_INVALID_PLAN")] };
+    }
     const outcomes: Array<HookHandlerOutcome | undefined> = new Array(unique.length);
     const callerSignal = plan.cancellation.kind === "available"
       ? combineSignals(plan.cancellation.signal, invocation.runtimeSignal)
