@@ -46,6 +46,13 @@ module.exports = {
       to: { path: "^src/(?:formats|infrastructure|runtime|pi)(?:/|$)" },
     },
     {
+      name: "adoption-policy-no-lifecycle-or-state-writer-imports",
+      comment: "Read-only adoption stops at its registration port and cannot become a lifecycle/state mutation path.",
+      severity: "error",
+      from: { path: "^src/application/adoption(?:-contract|-service)\\.ts$|^src/application/ports/(?:foreign-state-files|marketplace-registration)\\.ts$" },
+      to: { path: "^src/application/(?:plugin-lifecycle|state-contract|ports/lifecycle-state-store)(?:/|\\.ts$)" },
+    },
+    {
       name: "inspection-contracts-no-compatibility-policy",
       comment: "Inspection contracts and content indexing stop before compatibility policy.",
       severity: "error",

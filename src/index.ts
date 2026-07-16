@@ -73,6 +73,22 @@ export type {
 } from "./domain/provenance.js";
 
 export {
+  AdoptionDocumentKindRegistry,
+  AdoptionDocumentKindSchema,
+  AdoptionCandidateIdSchema,
+  AdoptionDeclarationSchema,
+  AdoptionCandidateSchema,
+  deriveAdoptionCandidateId,
+  reconcileAdoptionDeclarations,
+} from "./domain/adoption.js";
+export type {
+  AdoptionDocumentKind,
+  AdoptionCandidateId,
+  AdoptionDeclaration,
+  AdoptionCandidate,
+} from "./domain/adoption.js";
+
+export {
   ConfigurationValueKindRegistry,
   ConfigurationValueSchema,
   ConfigurationOptionSchema,
@@ -320,6 +336,7 @@ export {
   FatalBoundaryCodeSchema,
   DiagnosticSchema,
   ReadResultSchema,
+  CollectionReadResultSchema,
   DomainContractError,
   BoundaryError,
   ClaimConflictError,
@@ -332,6 +349,38 @@ export type {
   ReadResult,
   CollectionReadResult,
 } from "./domain/errors.js";
+
+export {
+  ForeignStateFileObservationSchema,
+  AdoptionDocumentStatusSchema,
+  AdoptionDiscoveryResultSchema,
+  MarketplaceRegistrationRequestSchema,
+  MarketplaceRegistrationResultSchema,
+  AdoptionSelectionRequestSchema,
+  AdoptionImportOutcomeSchema,
+  AdoptionImportResultSchema,
+} from "./application/adoption-contract.js";
+export type {
+  ForeignStateFileObservation,
+  AdoptionDocumentStatus,
+  AdoptionDiscoveryResult,
+  MarketplaceRegistrationRequest,
+  MarketplaceRegistrationResult,
+  AdoptionSelectionRequest,
+  AdoptionImportOutcome,
+  AdoptionImportResult,
+  AdoptionReader,
+  AdoptionReaderRegistry,
+} from "./application/adoption-contract.js";
+export { createAdoptionService } from "./application/adoption-service.js";
+export type {
+  AdoptionService,
+  AdoptionServiceDependencies,
+} from "./application/adoption-service.js";
+export type { ForeignStateFilesPort } from "./application/ports/foreign-state-files.js";
+export type { MarketplaceRegistrationPort } from "./application/ports/marketplace-registration.js";
+export { createNodeAdoptionService } from "./composition/create-adoption-service.js";
+export type { NodeAdoptionServiceOptions } from "./composition/create-adoption-service.js";
 
 export {
   ContentDigestSchema,

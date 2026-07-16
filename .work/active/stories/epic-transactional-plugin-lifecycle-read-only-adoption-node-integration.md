@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-read-only-adoption-node-integration
 kind: story
-stage: implementing
+stage: done
 tags: [security, compatibility, infra]
 parent: epic-transactional-plugin-lifecycle-read-only-adoption
 depends_on: [epic-transactional-plugin-lifecycle-read-only-adoption-application-import]
@@ -43,3 +43,16 @@ The adapter must never inspect Claude/Codex marketplace install roots, plugin ca
 ## Ordering constraint
 
 Depends on application orchestration. This is the final integration checkpoint before feature-level verification and one standard review pass.
+
+## Implementation notes
+
+- Added the fixed three-path Node adapter. It performs bounded `stat`/open/read operations, accepts regular symlink targets, rejects non-regular/oversized/invalid-UTF-8 files safely, and never enumerates or writes foreign state. It follows the injected user home, Claude root, Codex root, and `CODEX_HOME` default only.
+- Added the Node composition root with an explicit normal marketplace registration port, private reader registry, and injected SHA-256. There is no direct state, trust, cache, activation, or installation fallback.
+- Added public stable adoption contracts/factories, the TOML runtime dependency, and an adoption-specific dependency boundary rule. Private parser and filesystem helpers remain unexported.
+
+## Verification
+
+- `npm run typecheck` — passed.
+- `npm run boundaries` — passed (143 modules, 836 dependencies).
+- `npx vitest run test/infrastructure/adoption/node-foreign-state-files.test.ts test/integration/adoption.test.ts test/application/adoption-contract.test.ts test/application/adoption-service.test.ts test/formats/claude/state-reader.test.ts` — 20 tests passed.
+- `npm run test:package` — build and exact compiled import passed (378 exports).
