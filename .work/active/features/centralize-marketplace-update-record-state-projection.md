@@ -1,7 +1,7 @@
 ---
 id: centralize-marketplace-update-record-state-projection
 kind: feature
-stage: implementing
+stage: review
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -315,6 +315,18 @@ Create `test/application/marketplace-update-state.test.ts` as the contract-level
 - The sole child story has `depends_on: []`; there is no sibling sequence to encode.
 - `.work/bin/work-view --blocking centralize-marketplace-update-record-state-projection` and `--parent centralize-marketplace-update-record-state-projection` returned no items before story creation. Adding a parent link from the story creates hierarchy, not a dependency edge, so no cycle is introduced.
 - This design does not depend on or recreate archived `centralize-host-config-v2-compatibility-projection`; it consumes that existing `parseStateMutation`/`projectHostConfigV1ToV2` behavior. The separate composition-ownership finding neither imports nor is imported by this helper.
+
+## Implementation notes
+
+- Execution capability: inline direct-read implementation; the feature was one cohesive, behavior-preserving extraction and nested agents were prohibited.
+- Review weight: standard from project conventions; feature is intentionally left at `stage: review` for the requested downstream review boundary.
+- Files changed: `src/application/marketplace-update-state.ts`, `src/application/marketplace-refresh-service.ts`, `src/application/marketplace-update-policy-service.ts`, `test/application/marketplace-update-state.test.ts`, and the child story checkpoint.
+- Tests added/removed: added internal state-projection contract coverage for user v1-compatible/v2 and project v2 snapshots; no tests removed.
+- Simplification: refresh and policy now share one record reader and one verified scope projection while retaining their distinct marketplace policy behavior.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+- Integrated verification: focused projection/service/state/public-boundary tests passed; `npm test` passed with 122 test files and 652 tests, dependency boundaries clean, and compiled-package verification passed with exactly 437 exports.
+- Child checkpoint: `centralize-marketplace-update-record-state-projection-step-1` advanced directly to `stage: done` in the implementation commit.
 
 ## Implementation Order
 
