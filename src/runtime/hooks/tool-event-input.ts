@@ -15,6 +15,7 @@ import {
   PreToolUseHookInputSchema,
   PostToolUseHookInputSchema,
   PostToolUseFailureHookInputSchema,
+  HookPiContentSchema,
   cloneJson,
   type HookSessionEvidence,
   type ForeignHookInput,
@@ -76,6 +77,24 @@ function jsonDetails(value: unknown): JsonValue | undefined {
   return result.success ? cloneJson(result.data) : undefined;
 }
 
+function snapshotPiContent(content: readonly unknown[]): readonly HookPiContent[] {
+  const projected = content.map((item) => {
+    if (item === null || typeof item !== "object") throw new TypeError("tool result content item must be an object");
+    const value = item as Record<string, unknown>;
+    if (value.type === "text") return { type: "text" as const, text: z.string().parse(value.text) };
+    if (value.type === "image") {
+      return {
+        type: "image" as const,
+        data: z.string().parse(value.data),
+        mimeType: z.string().min(1).parse(value.mimeType),
+      };
+    }
+    throw new TypeError("unsupported tool result content item");
+  });
+  const validated = HookPiContentSchema.array().parse(projected);
+  return cloneJson(validated as unknown as JsonValue) as unknown as readonly HookPiContent[];
+}
+
 function resultText(content: readonly HookPiContent[]): string | undefined {
   const text = content.filter((item): item is Extract<HookPiContent, { type: "text" }> => item.type === "text").map((item) => item.text).filter((value) => value.length > 0).join("\n");
   return text.length === 0 ? undefined : text;
@@ -111,6 +130,7 @@ export function buildPostToolInput(sessionInput: HookSessionEvidence, evidenceIn
     isError: z.boolean().parse(evidenceInput.isError),
     signal: evidenceInput.signal,
   };
+  const content = snapshotPiContent(evidence.content);
   const response = jsonDetails(evidence.details);
   const identity = identityInput ?? defaultToolIdentityResolver.resolve(evidence.toolName);
   const common = {
@@ -124,13 +144,13 @@ export function buildPostToolInput(sessionInput: HookSessionEvidence, evidenceIn
   };
   const pi = {
     toolResult: {
-      content: evidence.content,
+      content,
       ...(response === undefined ? {} : { details: response }),
       isError: evidence.isError,
     },
   };
   if (!evidence.isError) return PostToolUseHookInputSchema.parse({ ...common, hook_event_name: "PostToolUse", pi });
-  const error = resultText(evidence.content);
+  const error = resultText(content);
   const interrupted = evidence.signal?.aborted === true;
   return PostToolUseFailureHookInputSchema.parse({
     ...common,
