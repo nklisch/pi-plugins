@@ -1,7 +1,7 @@
 ---
 id: centralize-host-config-v2-compatibility-projection
 kind: feature
-stage: review
+stage: done
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -220,3 +220,15 @@ This is an atomic source refactor even though each caller remains independently 
 - Full verification passed: 117 test files / 637 tests, typecheck, dependency boundaries, build, compiled package import, and 434 exports.
 - No public exports, schemas, defaults, installed-user/project-local compatibility paths, or update-policy behavior changed.
 - No deviations or blockers remain. The isolated worktree had no dependency directory, so verification used a temporary symlink to the existing repository dependencies; it was removed before commit.
+
+## Review (2026-07-16)
+
+**Weight**: standard — one independent fresh-context Umans GLM 5.2 pass
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+**Rejected**: none
+
+The reviewer verified the helper is shape-only, strict local-source normalization remains local, tolerant corruption isolation is preserved, verified mutations remain strict/frozen/branded, v1 adapter evidence remains non-vacuously comparable, and package exports remain unchanged. Reproduced focused 26 tests, full 117 files / 637 tests, typecheck, 177-module dependency boundaries, build/package import, and 434 exports.
