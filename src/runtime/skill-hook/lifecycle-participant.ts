@@ -6,12 +6,6 @@ import {
   ProjectionExpectationSchema,
   type ProjectionExpectation,
 } from "../../application/ports/runtime-projection.js";
-import {
-  RuntimeContributionObservationSchema,
-  SkillHookContributionObservationSchema,
-  type RuntimeContributionObservation,
-  type SkillHookContributionObservation,
-} from "../../application/ports/lifecycle-reload.js";
 import type { Sha256 } from "../../domain/source.js";
 import {
   createSkillHookRuntimeCatalog,
@@ -29,22 +23,41 @@ import {
   type SkillHookRuntimeSnapshot,
   type SkillHookSnapshotResult,
 } from "./runtime-snapshot.js";
+import {
+  SkillHookSnapshotObservationSchema,
+  type SkillHookSnapshotObservation,
+} from "../skills/contribution-observation.js";
 
-export type SkillHookContributionObservationResult =
-  | Readonly<{ kind: "ready"; observation: SkillHookContributionObservation }>
+export type SkillHookSnapshotObservationResult =
+  | Readonly<{ kind: "ready"; observation: SkillHookSnapshotObservation }>
   | Readonly<{ kind: "failed"; code: "CATALOG_UNINITIALIZED" | "OBSERVATION_MISMATCH" | "PROJECT_UNTRUSTED" | "ADAPTER_FAILED" }>
   | Readonly<{ kind: "cancelled" }>;
 
-export interface SkillHookLifecycleParticipant {
+/** The source participant is deliberately not final lifecycle evidence. */
+export interface SkillHookSnapshotParticipant {
   reconcile(request: SkillHookRuntimeSetRequest, signal: AbortSignal): Promise<SkillHookReconcileResult>;
-  observe(expectation: ProjectionExpectation, signal: AbortSignal): Promise<SkillHookContributionObservationResult>;
+  observe(expectation: ProjectionExpectation, signal: AbortSignal): Promise<SkillHookSnapshotObservationResult>;
 }
+
+export type SkillHookLifecycleParticipant = SkillHookSnapshotParticipant;
 
 function abortRequested(signal: AbortSignal): boolean {
   return signal.aborted;
 }
 
-function scopeOrder(snapshot: SkillHookRuntimeSnapshot): string {
+function compareCodePoint(left: string, right: string): number {
+  const leftPoints = [...left];
+  const rightPoints = [...right];
+  const length = Math.min(leftPoints.length, rightPoints.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftPoint = leftPoints[index]!.codePointAt(0)!;
+    const rightPoint = rightPoints[index]!.codePointAt(0)!;
+    if (leftPoint !== rightPoint) return leftPoint < rightPoint ? -1 : 1;
+  }
+  return leftPoints.length - rightPoints.length;
+}
+
+function snapshotOrder(snapshot: SkillHookRuntimeSnapshot): string {
   return runtimeTargetKey(snapshot.scope, snapshot.plugin);
 }
 
@@ -56,13 +69,27 @@ function snapshotCurrentProject(snapshot: SkillHookRuntimeSnapshot): CurrentProj
   return CurrentProjectRuntimeContextSchema.parse(snapshot.currentProject);
 }
 
-function failed(code: "CATALOG_UNINITIALIZED" | "OBSERVATION_MISMATCH" | "PROJECT_UNTRUSTED" | "ADAPTER_FAILED"): SkillHookContributionObservationResult {
+function failure(code: "CATALOG_UNINITIALIZED" | "OBSERVATION_MISMATCH" | "PROJECT_UNTRUSTED" | "ADAPTER_FAILED"): SkillHookSnapshotObservationResult {
   return { kind: "failed", code };
 }
 
-function isProjectEvidenceUsable(snapshot: SkillHookRuntimeSnapshot): boolean {
+function isProjectEvidenceUsable(snapshot: SkillHookRuntimeSnapshot, currentProject: CurrentProjectRuntimeContext): boolean {
   return snapshot.scope.kind !== "project" ||
-    (snapshot.currentProject.projectKey === snapshot.scope.projectKey && snapshot.currentProject.trust.kind === "trusted");
+    (snapshot.scope.projectKey === currentProject.projectKey && currentProject.trust.kind === "trusted");
+}
+
+function sameExpectation(snapshot: SkillHookRuntimeSnapshot, expectation: ProjectionExpectation): boolean {
+  if (expectation.kind === "active") {
+    return snapshot.scope.kind === expectation.projection.scope.kind &&
+      (snapshot.scope.kind === "user" || expectation.projection.scope.kind === "user" || snapshot.scope.projectKey === expectation.projection.scope.projectKey) &&
+      snapshot.plugin === expectation.projection.plugin &&
+      snapshot.revision === expectation.projection.revision &&
+      snapshot.projectionDigest === expectation.projection.digest &&
+      snapshot.projectionRef === expectation.projectionRef;
+  }
+  return snapshot.scope.kind === expectation.scope.kind &&
+    (snapshot.scope.kind === "user" || expectation.scope.kind === "user" || snapshot.scope.projectKey === expectation.scope.projectKey) &&
+    snapshot.plugin === expectation.plugin;
 }
 
 export function createSkillHookRuntimeParticipant(dependencies: Readonly<{
@@ -76,16 +103,17 @@ export function createSkillHookRuntimeParticipant(dependencies: Readonly<{
   const owned = createSkillHookRuntimeCatalog();
 
   async function reconcile(request: SkillHookRuntimeSetRequest, signal: AbortSignal): Promise<SkillHookReconcileResult> {
-    if (abortRequested(signal)) return { kind: "cancelled" };
-    const seen = new Set<string>();
-    for (const selection of request.active) {
-      const snapshot = selection.prepared.projection;
-      const key = runtimeTargetKey(snapshot.scope, snapshot.plugin);
-      if (seen.has(key)) return { kind: "failed", code: "TARGET_COLLISION" };
-      seen.add(key);
-    }
-    const loaded: SkillHookRuntimeSnapshot[] = [];
     try {
+      if (abortRequested(signal)) return { kind: "cancelled" };
+      const currentProject = CurrentProjectRuntimeContextSchema.parse(request.currentProject);
+      const seen = new Set<string>();
+      for (const selection of request.active) {
+        const projection = selection.prepared.projection;
+        const key = runtimeTargetKey(projection.scope, projection.plugin);
+        if (seen.has(key)) return { kind: "failed", code: "TARGET_COLLISION" };
+        seen.add(key);
+      }
+      const loaded: SkillHookRuntimeSnapshot[] = [];
       for (const selection of request.active) {
         if (abortRequested(signal)) return { kind: "cancelled" };
         const result = await dependencies.loader.load(selection, signal);
@@ -97,24 +125,19 @@ export function createSkillHookRuntimeParticipant(dependencies: Readonly<{
             result.snapshot.plugin !== expected.plugin ||
             result.snapshot.revision !== expected.revision ||
             result.snapshot.projectionDigest !== expected.digest ||
-            result.snapshot.projectionRef !== selection.prepared.expectation.projectionRef) {
+            result.snapshot.projectionRef !== selection.prepared.expectation.projectionRef ||
+            !hasSameCurrentProject(result.snapshot.currentProject, currentProject)) {
           return { kind: "failed", code: "SNAPSHOT_FAILED" };
         }
         loaded.push(result.snapshot);
       }
       if (abortRequested(signal)) return { kind: "cancelled" };
-      let currentProject = loaded[0]?.currentProject;
       for (const snapshot of loaded) {
-        if (!isProjectEvidenceUsable(snapshot)) return { kind: "failed", code: "SNAPSHOT_FAILED" };
-        if (currentProject !== undefined && !hasSameCurrentProject(currentProject, snapshot.currentProject)) {
-          return { kind: "failed", code: "SNAPSHOT_FAILED" };
-        }
-        currentProject ??= snapshot.currentProject;
+        if (!isProjectEvidenceUsable(snapshot, currentProject)) return { kind: "failed", code: "SNAPSHOT_FAILED" };
       }
-      loaded.sort((left, right) => scopeOrder(left).localeCompare(scopeOrder(right)));
-      // The final abort check is immediately before the synchronous swap. No
-      // await occurs after this point, so a successful result identifies the
-      // exact in-memory set that was installed.
+      loaded.sort((left, right) => compareCodePoint(snapshotOrder(left), snapshotOrder(right)));
+      // No await occurs after this check. A successful result identifies the
+      // exact context and target set installed by the synchronous publication.
       if (abortRequested(signal)) return { kind: "cancelled" };
       owned.publish(loaded, currentProject);
       return { kind: "applied", count: loaded.length };
@@ -124,41 +147,42 @@ export function createSkillHookRuntimeParticipant(dependencies: Readonly<{
     }
   }
 
-  async function observe(expectationInput: ProjectionExpectation, signal: AbortSignal): Promise<SkillHookContributionObservationResult> {
+  async function observe(expectationInput: ProjectionExpectation, signal: AbortSignal): Promise<SkillHookSnapshotObservationResult> {
     try {
       if (abortRequested(signal)) return { kind: "cancelled" };
       const expectation = ProjectionExpectationSchema.parse(expectationInput);
       const state = owned.state();
-      if (!state.initialized || state.currentProject === undefined) return failed("CATALOG_UNINITIALIZED");
       const currentProject = state.currentProject;
+      if (!state.initialized || currentProject === undefined) return failure("CATALOG_UNINITIALIZED");
       if (expectation.kind === "active") {
         const snapshot = owned.lookup(expectation.projection.scope, expectation.projection.plugin);
-        if (snapshot === undefined || !isProjectEvidenceUsable(snapshot) || !hasSameCurrentProject(snapshotCurrentProject(snapshot), currentProject) ||
-            snapshot.revision !== expectation.projection.revision ||
-            snapshot.projectionDigest !== expectation.projection.digest ||
-            snapshot.projectionRef !== expectation.projectionRef) {
-          return failed(snapshot?.scope.kind === "project" && snapshot.currentProject.trust.kind !== "trusted" ? "PROJECT_UNTRUSTED" : "OBSERVATION_MISMATCH");
+        if (snapshot === undefined || !sameExpectation(snapshot, expectation) ||
+            !hasSameCurrentProject(snapshotCurrentProject(snapshot), currentProject) ||
+            !isProjectEvidenceUsable(snapshot, currentProject)) {
+          return failure(snapshot?.scope.kind === "project" && currentProject.trust.kind !== "trusted" ? "PROJECT_UNTRUSTED" : "OBSERVATION_MISMATCH");
         }
-        const observation = SkillHookContributionObservationSchema.parse({
-          kind: "active",
-          participant: "skills-hooks",
-          scope: snapshot.scope,
-          plugin: snapshot.plugin,
-          revision: snapshot.revision,
-          projectionDigest: snapshot.projectionDigest,
-          currentProject,
-          contributionDigest: snapshot.contributionDigest,
-          skillComponentIds: componentIds(snapshot.skills),
-          hookComponentIds: componentIds(snapshot.hooks),
-        });
-        return { kind: "ready", observation };
+        return {
+          kind: "ready",
+          observation: SkillHookSnapshotObservationSchema.parse({
+            kind: "active",
+            participant: "skills-hooks-snapshot",
+            scope: snapshot.scope,
+            plugin: snapshot.plugin,
+            revision: snapshot.revision,
+            projectionDigest: snapshot.projectionDigest,
+            currentProject,
+            contributionDigest: snapshot.contributionDigest,
+            skillComponentIds: componentIds(snapshot.skills),
+            hookComponentIds: componentIds(snapshot.hooks),
+          }),
+        };
       }
       if (expectation.scope.kind === "project" &&
           (currentProject.projectKey !== expectation.scope.projectKey || currentProject.trust.kind !== "trusted")) {
-        return failed(currentProject.trust.kind === "trusted" ? "OBSERVATION_MISMATCH" : "PROJECT_UNTRUSTED");
+        return failure(currentProject.trust.kind === "trusted" ? "OBSERVATION_MISMATCH" : "PROJECT_UNTRUSTED");
       }
       const target = owned.lookup(expectation.scope, expectation.plugin);
-      if (target !== undefined) return failed("OBSERVATION_MISMATCH");
+      if (target !== undefined) return failure("OBSERVATION_MISMATCH");
       const contributionDigest = digestSkillHookContribution({
         scope: expectation.scope,
         plugin: expectation.plugin,
@@ -166,22 +190,24 @@ export function createSkillHookRuntimeParticipant(dependencies: Readonly<{
         skills: [],
         hooks: [],
       }, dependencies.sha256);
-      const observation = SkillHookContributionObservationSchema.parse({
-        kind: "inactive",
-        participant: "skills-hooks",
-        scope: expectation.scope,
-        plugin: expectation.plugin,
-        projectionDigest: expectation.digest,
-        currentProject,
-        contributionDigest,
-        skillComponentIds: [],
-        hookComponentIds: [],
-      });
-      return { kind: "ready", observation };
+      return {
+        kind: "ready",
+        observation: SkillHookSnapshotObservationSchema.parse({
+          kind: "inactive",
+          participant: "skills-hooks-snapshot",
+          scope: expectation.scope,
+          plugin: expectation.plugin,
+          projectionDigest: expectation.digest,
+          currentProject,
+          contributionDigest,
+          skillComponentIds: [],
+          hookComponentIds: [],
+        }),
+      };
     } catch (error) {
       if (abortRequested(signal) || (error !== null && typeof error === "object" && "name" in error && (error as { name?: unknown }).name === "AbortError")) return { kind: "cancelled" };
-      if (error instanceof Error && error.name === "ZodError") return failed("OBSERVATION_MISMATCH");
-      return failed("ADAPTER_FAILED");
+      if (error instanceof Error && error.name === "ZodError") return failure("OBSERVATION_MISMATCH");
+      return failure("ADAPTER_FAILED");
     }
   }
 
@@ -190,8 +216,6 @@ export function createSkillHookRuntimeParticipant(dependencies: Readonly<{
 }
 
 export type {
-  RuntimeContributionObservation,
-  SkillHookContributionObservation,
   SkillHookRuntimeCatalog,
   SkillHookRuntimeSetRequest,
   SkillHookReconcileResult,

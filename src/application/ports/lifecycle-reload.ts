@@ -174,7 +174,7 @@ function projectEvidenceIsUsable(observation: RuntimeContributionObservation): b
 
 export function composeActivationObservation(input: Readonly<{
   expectation: ProjectionExpectation;
-  skillsHooks: RuntimeContributionObservation | SkillHookContributionObservation;
+  skillsHooks: SkillHookContributionObservation;
   mcp: RuntimeContributionObservation;
 }>): ActivationObservation {
   const expectation = ProjectionExpectationSchema.parse(input.expectation);

@@ -6,11 +6,15 @@ import {
   ScopeReferenceSchema,
   type ScopeReference,
 } from "../../domain/state/scope.js";
-import type { CurrentProjectRuntimeContext } from "../../application/ports/project-trust.js";
+import {
+  CurrentProjectRuntimeContextSchema,
+  type CurrentProjectRuntimeContext,
+} from "../../application/ports/project-trust.js";
 import type { SkillHookRuntimeSnapshot } from "./runtime-snapshot.js";
 
 export type SkillHookRuntimeSetRequest = Readonly<{
   active: readonly import("./runtime-snapshot.js").RuntimeProjectionSelection[];
+  currentProject: CurrentProjectRuntimeContext;
 }>;
 
 export type SkillHookReconcileResult =
@@ -21,6 +25,7 @@ export type SkillHookReconcileResult =
 export interface SkillHookRuntimeCatalog {
   list(): readonly SkillHookRuntimeSnapshot[];
   get(scope: ScopeReference, plugin: PluginKey): SkillHookRuntimeSnapshot | undefined;
+  currentProject(): CurrentProjectRuntimeContext | undefined;
 }
 
 export type RuntimeCatalogState = Readonly<{
@@ -37,15 +42,24 @@ function targetKey(scope: ScopeReference, plugin: PluginKey): string {
   return `${scopeKey(scope)}\0${PluginKeySchema.parse(plugin)}`;
 }
 
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value !== null && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(Object.keys(record).sort().map((key) => [key, canonicalize(record[key])]));
+  }
+  return value;
+}
+
 function sameProject(left: CurrentProjectRuntimeContext, right: CurrentProjectRuntimeContext): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
 }
 
 export type MutableSkillHookRuntimeCatalog = Readonly<{
   catalog: SkillHookRuntimeCatalog;
   state(): RuntimeCatalogState;
   lookup(scope: ScopeReference, plugin: PluginKey): SkillHookRuntimeSnapshot | undefined;
-  publish(snapshots: readonly SkillHookRuntimeSnapshot[], currentProject?: CurrentProjectRuntimeContext): void;
+  publish(snapshots: readonly SkillHookRuntimeSnapshot[], currentProject: CurrentProjectRuntimeContext): void;
 }>;
 
 export function createSkillHookRuntimeCatalog(): MutableSkillHookRuntimeCatalog {
@@ -58,19 +72,29 @@ export function createSkillHookRuntimeCatalog(): MutableSkillHookRuntimeCatalog 
     return values.get(targetKey(scope, plugin));
   }
 
-  function publish(next: readonly SkillHookRuntimeSnapshot[], nextProject?: CurrentProjectRuntimeContext): void {
+  function publish(next: readonly SkillHookRuntimeSnapshot[], nextProject: CurrentProjectRuntimeContext): void {
+    const parsedProject = CurrentProjectRuntimeContextSchema.parse(nextProject);
     const map = new Map<string, SkillHookRuntimeSnapshot>();
-    for (const snapshot of next) map.set(targetKey(snapshot.scope, snapshot.plugin), snapshot);
+    for (const snapshot of next) {
+      const parsed = snapshot;
+      if (!hasSameCurrentProject(parsed.currentProject, parsedProject)) {
+        throw new Error("runtime snapshot current-project context disagrees with the catalog");
+      }
+      const key = targetKey(parsed.scope, parsed.plugin);
+      if (map.has(key)) throw new Error("runtime catalog target collision");
+      map.set(key, parsed);
+    }
     values.clear();
     for (const [key, snapshot] of map) values.set(key, snapshot);
     snapshots = Object.freeze([...next]);
-    if (nextProject !== undefined) currentProject = nextProject;
+    currentProject = parsedProject;
     initialized = true;
   }
 
   const catalog: SkillHookRuntimeCatalog = Object.freeze({
     list: () => snapshots,
     get: (scope: ScopeReference, plugin: PluginKey) => lookup(scope, plugin),
+    currentProject: () => currentProject,
   });
 
   return Object.freeze({

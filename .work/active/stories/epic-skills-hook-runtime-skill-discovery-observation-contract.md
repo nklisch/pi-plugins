@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-skill-discovery-observation-contract
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-skill-discovery
 depends_on: []
@@ -48,3 +48,14 @@ Evolve the completed skill/hook snapshot catalog so a reconcile carries exact cu
 ## Ordering
 
 No sibling dependency. This contract can be implemented in parallel with physical path verification. Resource-set assembly depends on both.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna, high; cohesive contract change across the existing source participant and lifecycle evidence seam.
+- Review weight: standard, source: project convention; child checkpoints do not enter review.
+- Files changed: `src/runtime/skill-hook/runtime-catalog.ts`, `src/runtime/skill-hook/lifecycle-participant.ts`, `src/application/ports/lifecycle-reload.ts`, `src/runtime/skills/contribution-observation.ts`, and the focused runtime observation tests.
+- Tests added/updated: current-project retention on empty reconcile, source-only observation, inactive tombstones, exact resource/source binding, and mismatch rejection.
+- Simplification: source snapshot evidence is no longer accepted as final skills-hooks evidence; no second lifecycle state or path authority was introduced.
+- Discrepancies from design: the verifier/final participant is composed in the dependent resource-set checkpoint; this story keeps the source participant host-neutral.
+- Adjacent issues parked: none.
+- Verification: focused Vitest observation suites pass with runtime typechecking disabled because the design branch's pre-existing test typecheck baseline is already non-green under TypeScript 7.
+- Stage transition: implementing -> done; implementation commit `implement: epic-skills-hook-runtime-skill-discovery-observation-contract`.
