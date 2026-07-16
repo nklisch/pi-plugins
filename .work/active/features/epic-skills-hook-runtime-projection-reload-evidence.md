@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-projection-reload-evidence
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime
 depends_on: []
@@ -440,3 +440,11 @@ Effective weight: `standard`; one fresh-context Umans GLM 5.2 pass. The reviewer
 - Make the pure contribution composer require strict `SkillHookContributionObservation` evidence for the `skills-hooks` participant; do not fall back to a base observation missing exact skill/hook component IDs.
 
 Tracked by `epic-skills-hook-runtime-projection-reload-evidence-review-hardening`. Under standard review, closure after this exact set is host verification only; no second independent pass. Optional duplicate-defense inside the private catalog, canonical project comparison, and cleanup-signal commentary do not cross the current-cycle bar and are intentionally rejected as unrelated churn.
+
+## Review hardening completion
+
+- Child story `epic-skills-hook-runtime-projection-reload-evidence-review-hardening` advanced directly to `done` in `e229464`.
+- Strict composition now parses `skills-hooks` evidence with `SkillHookContributionObservationSchema` and retains the common base parser for MCP.
+- Added non-vacuous snapshot, participant, and integration negative evidence for trust/scope/adapter failures, empty slices, cancellation, collision and catalog preservation, exact mismatches, revision/digest non-aliasing, two-participant disable, project context disagreement, and corrupt-cache fail-closed behavior.
+- Administrative verification passed: focused Vitest 15 tests; full `npm test` 128 test files / 674 tests / 447 exports, including typecheck, boundaries, build, and compiled package import.
+- No second review was run per the standard-review hardening instruction; feature remains at `stage: review` for the existing feature review boundary.
