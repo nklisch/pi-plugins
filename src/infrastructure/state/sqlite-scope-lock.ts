@@ -14,6 +14,7 @@ import {
   LOCAL_LOCK_DATABASE_MODE,
   verifyLocalFilesystemCapability,
 } from "./local-lock-filesystem.js";
+import { classifyProcessIdentity, readLinuxProcessStartToken } from "../process/process-identity.js";
 
 const PROTOCOL = "pi-plugin-host-scope-lock";
 const PROTOCOL_VERSION = 1;
@@ -165,37 +166,14 @@ function regularFileIdentity(path: string): FileIdentity {
   return { device: String(stats.dev), inode: String(stats.ino) };
 }
 
-/** Linux exposes a stable process-start token, preventing PID-reuse theft. */
-function processStartTime(pid: number): string | undefined {
-  try {
-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    const closingParenthesis = stat.lastIndexOf(")");
-    if (closingParenthesis === -1) return undefined;
-    const fields = stat.slice(closingParenthesis + 2).trim().split(/\s+/);
-    const start = fields[19];
-    return start !== undefined && /^\d+$/.test(start) ? start : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function currentInitializationOwner(): InitializationOwner {
-  const startTime = processStartTime(process.pid);
+  const startTime = readLinuxProcessStartToken(process.pid);
   if (startTime === undefined) throw new Error("scope lock cannot establish process identity");
   return { pid: process.pid, startTime };
 }
 
 function ownerStatus(owner: InitializationOwner): "dead" | "live" | "unknown" {
-  try {
-    process.kill(owner.pid, 0);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "ESRCH") return "dead";
-    return "unknown";
-  }
-  const startTime = processStartTime(owner.pid);
-  if (startTime === undefined) return "unknown";
-  return startTime === owner.startTime ? "live" : "dead";
+  return classifyProcessIdentity({ pid: owner.pid, startToken: owner.startTime });
 }
 
 function parseInitializationOwner(input: unknown): InitializationOwner {

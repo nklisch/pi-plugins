@@ -1,13 +1,11 @@
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ensurePrivateLockRoot, verifyLocalFilesystemCapability } from "../state/local-lock-filesystem.js";
 import { RevisionLeaseCollectionSchema, RevisionLeaseSchema, type RevisionLease, type RevisionLeaseCollection, type RevisionLeaseStore } from "../../application/ports/revision-lease-store.js";
 import { RetainedArtifactRefSchema, type RetainedArtifactRef } from "../../application/ports/revision-artifact-store.js";
+import { classifyProcessIdentity, readLinuxProcessStartToken } from "../process/process-identity.js";
 
-function startToken(pid: number): string | undefined { try { const text = readFileSync(`/proc/${pid}/stat`, "utf8"); const close = text.lastIndexOf(")"); const value = text.slice(close + 2).trim().split(/\s+/)[19]; return value !== undefined && /^\d+$/.test(value) ? value : undefined; } catch { return undefined; } }
-function ownerStatus(pid: number, token: string): "live" | "dead" | "unknown" { try { process.kill(pid, 0); } catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH" ? "dead" : "unknown"; } const actual = startToken(pid); return actual === undefined ? "unknown" : actual === token ? "live" : "dead"; }
 function json(value: unknown): string { return JSON.stringify(value); }
 function abort(signal: AbortSignal): void { if (signal.aborted) throw signal.reason; }
 
@@ -25,7 +23,7 @@ export async function createProcessRevisionLeaseStore(options: Readonly<{ hostRo
   const store: RevisionLeaseStore = {
     async acquire(request, signal) {
       abort(signal);
-      const token = startToken(process.pid); if (token === undefined) throw new Error("revision lease process identity unavailable");
+      const token = readLinuxProcessStartToken(process.pid); if (token === undefined) throw new Error("revision lease process identity unavailable");
       const leaseId = randomUUID();
       const artifacts = request.artifacts.map((ref) => RetainedArtifactRefSchema.parse(ref));
       database.prepare("INSERT INTO revision_leases(lease_id, session_id, artifacts_json, acquired_at, owner_pid, owner_start_token, owner_nonce) VALUES (?, ?, ?, ?, ?, ?, ?)").run(leaseId, request.sessionId, json(artifacts), request.at, process.pid, token, randomUUID());
@@ -51,7 +49,7 @@ export async function createProcessRevisionLeaseStore(options: Readonly<{ hostRo
       const leases: RevisionLease[] = [];
       const owners: Array<{ leaseId: string; status: "live" | "dead" | "unknown" | "released" }> = [];
       for (const row of rows) {
-        try { leases.push(issue(row)); owners.push({ leaseId: row.lease_id, status: ownerStatus(row.owner_pid, row.owner_start_token) }); }
+        try { leases.push(issue(row)); owners.push({ leaseId: row.lease_id, status: classifyProcessIdentity({ pid: row.owner_pid, startToken: row.owner_start_token }) }); }
         catch { return { complete: false, leases: [], owners: [] }; }
       }
       return RevisionLeaseCollectionSchema.parse({ complete: true, leases, owners });

@@ -23,6 +23,7 @@ import {
 } from "../../application/ports/lifecycle-transition-store.js";
 import { EpochMillisecondsSchema, type EpochMilliseconds } from "../../application/ports/lifecycle-clock.js";
 import { createLocalRecoveryFilesystem, digestJournalBytes, type RecoveryFilesystem } from "./local-recovery-filesystem.js";
+import { classifyProcessIdentity, readLinuxProcessStartToken } from "../process/process-identity.js";
 
 const PROTOCOL = "pi-plugin-host-recovery-journal";
 const VERSION = 1;
@@ -51,18 +52,7 @@ function identity(path: string): FileIdentity { const value = lstatSync(path); i
 function dbError(operation: string, cause: unknown): BoundaryError { return new BoundaryError({ code: "ADAPTER_FAILED", operation, message: "recovery journal adapter failed", details: { operation }, cause }); }
 function corruptError(operation: string): DomainContractError { return new DomainContractError({ code: ErrorCodeRegistry.transitionJournalCorrupt, operation, message: "transition journal evidence is corrupt", details: { operation } }); }
 function conflictError(operation: string): DomainContractError { return new DomainContractError({ code: ErrorCodeRegistry.recoveryConflict, operation, message: "transition journal status or evidence conflicts", details: { operation } }); }
-function ownerStartToken(pid: number): string | undefined {
-  try { const text = readFileSync(`/proc/${pid}/stat`, "utf8"); const close = text.lastIndexOf(")"); const fields = text.slice(close + 2).trim().split(/\s+/); return /^\d+$/.test(fields[19] ?? "") ? fields[19] : undefined; } catch { return undefined; }
-}
-function currentOwner(): Owner { const startToken = ownerStartToken(process.pid); if (startToken === undefined) throw new Error("process start identity is unavailable"); return { pid: process.pid, startToken, nonce: randomUUID() }; }
-export function classifyOwner(owner: Readonly<{ pid: number; startToken: string; nonce?: string }> | null): OwnerStatus {
-  if (owner === null) return "released";
-  try { process.kill(owner.pid, 0); } catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH" ? "dead" : "unknown"; }
-  const current = ownerStartToken(owner.pid);
-  if (current === undefined) return "unknown";
-  return current === owner.startToken ? "live" : "dead";
-}
-
+function currentOwner(): Owner { const startToken = readLinuxProcessStartToken(process.pid); if (startToken === undefined) throw new Error("process start identity is unavailable"); return { pid: process.pid, startToken, nonce: randomUUID() }; }
 function parseStatus(kind: unknown, generation: unknown): LifecycleTransitionJournalEntry["status"] {
   if (kind === "prepared") return { kind: "prepared" };
   if (kind === "recovery-required") return { kind, ...(typeof generation === "number" ? { generation: EpochMillisecondsSchema.parse(generation) as never } : {}) } as LifecycleTransitionJournalEntry["status"];
@@ -329,7 +319,7 @@ export function createSqliteTransitionJournal(options: SqliteTransitionJournalOp
         if (row === undefined) return "released";
         if (row.status !== "prepared") return "released";
         if (typeof row.owner_pid !== "number" || typeof row.owner_start_token !== "string" || typeof row.owner_nonce !== "string") return "unknown";
-        return classifyOwner({ pid: row.owner_pid, startToken: row.owner_start_token, nonce: row.owner_nonce });
+        return classifyProcessIdentity({ pid: row.owner_pid, startToken: row.owner_start_token });
       });
     } catch (error) { throw dbError("ownerStatus", error); }
   }

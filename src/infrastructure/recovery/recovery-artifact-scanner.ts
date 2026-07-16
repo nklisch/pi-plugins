@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { ContentStoreLayout, RootCapability } from "../filesystem/content-store-layout.js";
 import { assertLayoutRoot } from "../filesystem/content-store-layout.js";
 import { removePreparedTree, type PreparedTreeIdentity } from "../filesystem/prepared-tree-cleanup.js";
-import { classifyOwner } from "./sqlite-transition-journal.js";
+import { classifyProcessIdentity } from "../process/process-identity.js";
 import type { RecoveryArtifactCandidate, RecoveryArtifactScan, RecoveryArtifactsPort } from "../../application/ports/recovery-artifacts.js";
 
  type Sidecar = Readonly<{ protocol: "pi-plugin-host-staging-owner"; version: 1; pid: number; startToken: string; nonce: string; createdAt: number }>;
@@ -32,8 +32,7 @@ export function createRecoveryArtifactScanner(layout: ContentStoreLayout): Recov
         const stat = await lstat(path);
         const sidecar = parseSidecar(JSON.parse(await readFile(sidecarPath, "utf8")));
         if (!stat.isDirectory() || stat.isSymbolicLink()) continue;
-        const owner = classifyOwner({ pid: sidecar.pid, startToken: sidecar.startToken, nonce: sidecar.nonce });
-        const status = owner === "released" ? "unknown" : owner;
+        const status = classifyProcessIdentity({ pid: sidecar.pid, startToken: sidecar.startToken });
         const capability = Object.freeze({});
         const candidate = Object.freeze({ kind, key: name, owner: status, createdAt: sidecar.createdAt, capability });
         capabilities.set(capability, { candidate, root: path, identity: { dev: stat.dev, ino: stat.ino }, parent, sidecar });
@@ -64,7 +63,7 @@ export function createRecoveryArtifactScanner(layout: ContentStoreLayout): Recov
     if (current === undefined) return "already-absent";
     if (!current.isDirectory() || current.isSymbolicLink() || current.dev !== record.identity.dev || current.ino !== record.identity.ino) throw new Error("recovery artifact identity changed");
     const sidecar = parseSidecar(JSON.parse(await readFile(`${record.root}.owner`, "utf8")));
-    if (sidecar.pid !== record.sidecar.pid || sidecar.startToken !== record.sidecar.startToken || sidecar.nonce !== record.sidecar.nonce || classifyOwner(sidecar) !== "dead") throw new Error("recovery artifact ownership changed");
+    if (sidecar.pid !== record.sidecar.pid || sidecar.startToken !== record.sidecar.startToken || sidecar.nonce !== record.sidecar.nonce || classifyProcessIdentity({ pid: sidecar.pid, startToken: sidecar.startToken }) !== "dead") throw new Error("recovery artifact ownership changed");
     await assertLayoutRoot(layout, record.candidate.kind === "staging" ? "stagingRoot" : "projectionStagingRoot", "removeRecoveryArtifact");
     const result = await removePreparedTree(record.root, record.identity, record.parent);
     await import("node:fs/promises").then(({ unlink }) => unlink(`${record.root}.owner`).catch((error: unknown) => { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }));

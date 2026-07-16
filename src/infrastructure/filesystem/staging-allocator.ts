@@ -1,5 +1,4 @@
 import { randomBytes as nodeRandomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { lstat, mkdir, chmod, realpath, readdir, writeFile, rename, unlink } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { DomainContractError, ErrorCodeRegistry } from "../../domain/errors.js";
@@ -12,6 +11,7 @@ import {
   type ContentStoreLayout,
 } from "./content-store-layout.js";
 import { removePreparedTree, type PreparedTreeIdentity } from "./prepared-tree-cleanup.js";
+import { readLinuxProcessStartToken } from "../process/process-identity.js";
 
 export type RandomBytes = (size: number) => Uint8Array | Promise<Uint8Array>;
 
@@ -48,21 +48,11 @@ function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw signal.reason ?? new DOMException("The operation was aborted", "AbortError");
 }
 
-function processStartToken(pid: number): string | undefined {
-  try {
-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    const close = stat.lastIndexOf(")");
-    const token = stat.slice(close + 2).trim().split(/\s+/)[19];
-    return token !== undefined && /^\d+$/.test(token) ? token : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 export function stagingOwnerSidecarPath(root: string): string { return `${root}.owner`; }
 
 async function writeOwnerSidecar(root: string): Promise<void> {
-  const startToken = processStartToken(process.pid);
+  const startToken = readLinuxProcessStartToken(process.pid);
   if (startToken === undefined) throw new Error("staging allocation cannot establish process identity");
   const sidecar = stagingOwnerSidecarPath(root);
   const temporary = `${sidecar}.${nodeRandomBytes(8).toString("hex")}.tmp`;

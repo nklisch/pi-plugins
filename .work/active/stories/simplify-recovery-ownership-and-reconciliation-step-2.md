@@ -1,7 +1,7 @@
 ---
 id: simplify-recovery-ownership-and-reconciliation-step-2
 kind: story
-stage: implementing
+stage: done
 tags: [refactor, infra]
 parent: simplify-recovery-ownership-and-reconciliation
 depends_on: []
@@ -118,3 +118,21 @@ Production callers import those two functions directly. The module stays interna
 ## Risk and Rollback
 
 This is atomic across the new module and all callers because a partial move does not build. The main risk is accidentally collapsing `released`/`unknown`/`dead`; the matrix and focused tests are the gate. Revert the whole story commit to restore adapter-local implementations. No journal, sidecar, lease, or lock-marker shape changes.
+
+## Implementation Notes
+
+- Added the internal infrastructure-only `src/infrastructure/process/process-identity.ts` module as the sole production reader of Linux `/proc/<pid>/stat` start tokens and classifier of `live | dead | unknown`.
+- Routed staging allocation, transition journal preparation, revision lease acquisition/listing, recovery artifact scanning/revalidation, and scope-lock initialization ownership through the neutral utility. Persisted sidecar, journal, lease, and scope-lock marker shapes are unchanged.
+- Kept journal-only `released` handling before shared classification and retained the scanner's opaque capability, identity checks, second dead-owner check, and deletion gate. The utility is not exported from `src/index.ts`.
+- Added focused tests for live evidence, PID reuse/token mismatch, ESRCH, non-ESRCH signal failure, and unreadable process-token evidence.
+
+## Verification
+
+- Production search confirms one `/proc/${pid}/stat` reader and one owner-status `process.kill(pid, 0)` classifier, both in `src/infrastructure/process/process-identity.ts`.
+- Focused recovery/identity tests: `npm run test:unit -- test/infrastructure/process/process-identity.test.ts test/infrastructure/recovery/process-revision-leases.test.ts test/infrastructure/recovery/recovery-artifact-scanner.test.ts test/infrastructure/recovery/sqlite-transition-journal.test.ts test/infrastructure/state/sqlite-scope-lock.test.ts test/integration/generation-locking.test.ts test/integration/lifecycle-recovery.test.ts test/integration/revision-collection.test.ts test/application/recovery-service.test.ts test/application/revision-collection-service.test.ts` (10 files, 32 tests passed).
+- `npm run typecheck` passed.
+- `npm run boundaries` passed (163 modules, 987 dependencies).
+
+## Completion
+
+Step 2 is complete and preserves live, dead, unknown, and journal-owned released distinctions.
