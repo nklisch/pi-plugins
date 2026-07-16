@@ -1006,6 +1006,14 @@ export type {
 export type { RefreshClaimIdPort } from "./application/ports/refresh-claim-id.js";
 export type { UpdateDelayPort } from "./application/ports/update-delay.js";
 export {
+  MarketplaceUpdatePreferenceResultSchema,
+  createMarketplaceUpdatePolicyService,
+} from "./application/marketplace-update-policy-service.js";
+export type {
+  MarketplaceUpdatePreferenceResult,
+  MarketplaceUpdatePolicyService,
+} from "./application/marketplace-update-policy-service.js";
+export {
   DefaultMarketplaceUpdatePolicy,
   createMarketplaceRefreshService,
 } from "./application/marketplace-refresh-service.js";
@@ -1030,6 +1038,11 @@ export type {
   NodeMarketplaceRefreshServices,
   NodeMarketplaceRefreshServicesOptions,
 } from "./composition/create-marketplace-refresh-services.js";
+export { createNodeMarketplaceUpdateServices } from "./composition/create-marketplace-update-services.js";
+export type {
+  NodeMarketplaceUpdateServices,
+  NodeMarketplaceUpdateServicesOptions,
+} from "./composition/create-marketplace-update-services.js";
 
 export {
   DefaultLifecycleRecoveryPolicy,

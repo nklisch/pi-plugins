@@ -1,0 +1,146 @@
+import { createHash } from "node:crypto";
+import { describe, expect, it } from "vitest";
+import {
+  createMarketplaceConfigurationRecord,
+  deriveMarketplaceSourceIdentity,
+  derivePluginSourceIdentity,
+  deriveUpdateCandidateKey,
+  type MarketplaceUpdateRecord,
+} from "../../src/domain/update-policy.js";
+import { HostConfigDocumentSchemaV2, GenerationSchema } from "../../src/domain/state/config-state.js";
+import { InstalledUserStateDocumentSchemaV2 } from "../../src/domain/state/installed-state.js";
+import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
+import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
+import { deriveStateBlobRef } from "../../src/domain/state/references.js";
+import type { GenerationSnapshot } from "../../src/application/state-contract.js";
+import type { GenerationMutationCoordinator } from "../../src/application/generation-mutation-coordinator.js";
+import type { LifecycleStateStore } from "../../src/application/ports/lifecycle-state-store.js";
+import { createMarketplaceUpdatePolicyService } from "../../src/application/marketplace-update-policy-service.js";
+
+const sha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(bytes).digest());
+const digest = (value: string) => `sha256:${value.repeat(64 / value.length)}` as `sha256:${string}`;
+const source = { kind: "github" as const, repository: "example/community" };
+const pluginSource = { kind: "git" as const, url: "https://example.com/demo.git", ref: "main" };
+
+function snapshot(record: MarketplaceUpdateRecord): Extract<GenerationSnapshot, { scope: { kind: "user" } }> {
+  const generation = GenerationSchema.parse(0);
+  return {
+    scope: { kind: "user" },
+    generation,
+    pointers: StatePointersDocumentSchemaV1.parse({
+      schemaVersion: 1,
+      scope: { kind: "user" },
+      generation,
+      documents: ["hostConfig", "installedUser", "trust"].map((document) => ({
+        kind: document,
+        generation,
+        blob: deriveStateBlobRef({ document, scope: "user", generation }, sha256),
+        digest: digest("a"),
+      })),
+    }),
+    config: HostConfigDocumentSchemaV2.parse({ schemaVersion: 2, generation, records: [record] }),
+    installed: InstalledUserStateDocumentSchemaV2.parse({ schemaVersion: 2, generation, marketplaces: [], plugins: [] }),
+    trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation, records: [] }),
+    corruptions: [],
+  };
+}
+
+function coordinatorFor(
+  current: Extract<GenerationSnapshot, { scope: { kind: "user" } }>,
+  capture: (mutation: unknown) => void,
+): GenerationMutationCoordinator {
+  return {
+    async runPreparedMutation(request, prepare) {
+      if (request.expectedGeneration !== current.generation) {
+        return { kind: "stale-generation", expected: request.expectedGeneration, actual: current.generation };
+      }
+      const prepared = await prepare({ snapshot: current, assertOwned: async () => undefined });
+      capture(prepared.mutation);
+      return { kind: "committed", value: prepared.value, snapshot: current };
+    },
+  };
+}
+
+describe("marketplace update policy service", () => {
+  it("changes policy without network or trust work and preserves v2 memory through a v1-compatible envelope", async () => {
+    const marketplaceSourceIdentity = deriveMarketplaceSourceIdentity(source, sha256);
+    const pluginSourceIdentity = derivePluginSourceIdentity(pluginSource, sha256);
+    const candidate = deriveUpdateCandidateKey({
+      scope: { kind: "user" },
+      plugin: "demo@community",
+      marketplaceSourceIdentity,
+      pluginSourceIdentity,
+      immutableRevision: digest("b"),
+    }, sha256);
+    const record = createMarketplaceConfigurationRecord({
+      marketplace: "community",
+      source,
+      refresh: {
+        claim: { id: "refresh-claim-v1:uuid:123e4567-e89b-42d3-a456-426614174000", startedAt: 10, expiresAt: 20 },
+        lastCompletedAt: 9,
+        nextScheduledAt: 200,
+        consecutiveFailures: 3,
+      },
+      notifications: [{
+        scope: { kind: "user" },
+        plugin: "demo@community",
+        candidate,
+        display: { installed: "1.0.0", available: "1.1.0" },
+        phase: "discovered",
+      }],
+    });
+    // Model a compatibility adapter that retains the v1 envelope while
+    // exposing the richer v2 record payload to the application boundary.
+    const current = {
+      ...snapshot(record),
+      config: { schemaVersion: 1 as const, generation: 0, records: [record] },
+    } as unknown as Extract<GenerationSnapshot, { scope: { kind: "user" } }>;
+    let mutation: unknown;
+    let reads = 0;
+    const state: LifecycleStateStore = { read: async () => { reads += 1; return { ok: true, snapshot: current }; }, commit: async () => { throw new Error("coordinator owns commits"); } };
+    const mutations = coordinatorFor(current, (value) => { mutation = value; });
+    const service = createMarketplaceUpdatePolicyService({ state, mutations, sha256 });
+
+    const result = await service.setApplicationPreference({
+      scope: { kind: "user" },
+      marketplace: "community",
+      sourceIdentity: marketplaceSourceIdentity,
+      preference: "automatic",
+    }, new AbortController().signal);
+
+    expect(result).toEqual({ kind: "changed", preference: "automatic" });
+    expect(reads).toBe(1);
+    const replacement = (mutation as { replace: { config: { schemaVersion: number; records: readonly MarketplaceUpdateRecord[] } } }).replace.config;
+    expect(replacement.schemaVersion).toBe(2);
+    expect(replacement.records[0]!.refresh).toEqual(record.refresh);
+    expect(replacement.records[0]!.notifications).toEqual(record.notifications);
+  });
+
+  it("rejects local automatic policy and source races before mutation", async () => {
+    const local = createMarketplaceConfigurationRecord({ marketplace: "local", source: { kind: "local-git", path: "/workspace/marketplace" } });
+    const current = snapshot(local);
+    let mutations = 0;
+    const state: LifecycleStateStore = { read: async () => ({ ok: true, snapshot: current }), commit: async () => { throw new Error("not used"); } };
+    const coordinator: GenerationMutationCoordinator = {
+      async runPreparedMutation() { mutations += 1; throw new Error("not expected"); },
+    };
+    const service = createMarketplaceUpdatePolicyService({ state, mutations: coordinator, sha256 });
+    const localResult = await service.setApplicationPreference({
+      scope: { kind: "user" }, marketplace: "local",
+      sourceIdentity: deriveMarketplaceSourceIdentity(local.source, sha256), preference: "automatic",
+    }, new AbortController().signal);
+    expect(localResult).toEqual({ kind: "rejected", code: "LOCAL_AUTOMATIC_FORBIDDEN" });
+
+    const remote = createMarketplaceConfigurationRecord({ marketplace: "remote", source });
+    const sourceRace = await createMarketplaceUpdatePolicyService({
+      state: { read: async () => ({ ok: true, snapshot: snapshot(remote) }), commit: async () => { throw new Error("not used"); } },
+      mutations: coordinator,
+      sha256,
+    }).setApplicationPreference({
+      scope: { kind: "user" }, marketplace: "remote",
+      sourceIdentity: deriveMarketplaceSourceIdentity({ kind: "github", repository: "example/old" }, sha256), preference: "automatic",
+    }, new AbortController().signal);
+    expect(sourceRace).toEqual({ kind: "rejected", code: "SOURCE_CHANGED" });
+    expect(mutations).toBe(0);
+  });
+});

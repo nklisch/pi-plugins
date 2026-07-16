@@ -35,8 +35,17 @@ export function createMarketplaceUpdateScheduler(
       if (signal === null || typeof signal !== "object") throw new TypeError("scheduler signal is required");
       for (;;) {
         signal.throwIfAborted();
-        await dependencies.refresh.refresh({ trigger: "scheduled" }, signal);
-        signal.throwIfAborted();
+        try {
+          await dependencies.refresh.refresh({ trigger: "scheduled" }, signal);
+          signal.throwIfAborted();
+        } catch (error) {
+          // A failed marketplace must not stop checks for unrelated marketplaces.
+          // Abort is different: callers use it to settle the scheduler, so never
+          // turn cancellation into a successful continuation.
+          if (signal.aborted) throw signal.reason ?? error;
+          await dependencies.delay.wait(inventoryPollMs, signal);
+          continue;
+        }
 
         const scheduledAt = await dependencies.refresh.nextScheduledAt(signal);
         const now = dependencies.clock.nowEpochMilliseconds();

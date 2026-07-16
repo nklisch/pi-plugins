@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-refresh-update-policy-review-hardening
 kind: story
-stage: implementing
+stage: done
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-refresh-update-policy
 depends_on: [epic-transactional-plugin-lifecycle-refresh-update-policy-scheduled-composition-hardening]
@@ -40,15 +40,25 @@ The cadence's standalone `remove-dead-marketplace-refresh-scaffolding` story alr
 
 ## Acceptance evidence
 
-- [ ] Public source/compiled API exposes the update policy factory/type and Node composition returns it, while private authorization/claim/timer/state internals remain absent.
-- [ ] Policy tests prove manual→automatic, source race, local automatic rejection, project binding, and no network/trust mutation.
-- [ ] Two refresh instances over shared state coalesce/converge and emit exactly one intent per candidate for manual and automatic policy.
-- [ ] Manual policy emits a notification intent without automatic lifecycle application; automatic failures preserve discovery and do not duplicate/loss intents.
-- [ ] Forged automatic origin, absent/revoked baseline trust, source identity change, project distrust, and moved expected revision cannot promote or activate.
-- [ ] Table-driven disposition tests cover every lifecycle result/rejection category.
-- [ ] Scheduler continues after one non-abort refresh failure and propagates abort.
-- [ ] A later-plugin throw returns earlier durably committed intents rather than losing them.
-- [ ] Source-change candidate keys differ across exact changed identities/revisions and never use a constant digest.
-- [ ] Refresh/policy mutation through v1-envelope state preserves non-default v2 claim/backoff/notification memory.
-- [ ] Concurrent refresh calls keep completeness local; incomplete inventory cannot gain automatic eligibility from another call.
-- [ ] Full `npm test`, boundaries, build, and compiled export allowlist pass.
+- [x] Public source/compiled API exposes the update policy factory/type and Node composition returns it, while private authorization/claim/timer/state internals remain absent.
+- [x] Policy tests prove manual→automatic, source race, local automatic rejection, project binding, and no network/trust mutation.
+- [x] Two refresh instances over shared state coalesce/converge and emit exactly one intent per candidate for manual and automatic policy.
+- [x] Manual policy emits a notification intent without automatic lifecycle application; automatic failures preserve discovery and do not duplicate/loss intents.
+- [x] Forged automatic origin, absent/revoked baseline trust, source identity change, project distrust, and moved expected revision cannot promote or activate.
+- [x] Table-driven disposition tests cover every lifecycle result/rejection category.
+- [x] Scheduler continues after one non-abort refresh failure and propagates abort.
+- [x] A later-plugin throw returns earlier durably committed intents rather than losing them.
+- [x] Source-change candidate keys differ across exact changed identities/revisions and never use a constant digest.
+- [x] Refresh/policy mutation through v1-envelope state preserves non-default v2 claim/backoff/notification memory.
+- [x] Concurrent refresh calls keep completeness local; incomplete inventory cannot gain automatic eligibility from another call.
+- [x] Full `npm test`, boundaries, build, and compiled export allowlist pass.
+
+## Implementation notes
+
+- Execution capability: GPT-5.6 Luna xhigh, direct feature-owner implementation; the requested fix set crosses the policy, refresh, lifecycle, scheduler, composition, and public-contract seams.
+- Review weight: standard, caller policy; the independent feature pass already ran and this story only verifies its receiver-confirmed fixes.
+- Files changed: update-policy comparison/compatibility parser; policy service; refresh service; scheduler; project lifecycle/reconciliation state writers; Node composition and update composition alias; public source and compiled allowlists; focused policy, authority, scheduler, disposition, domain, and shared-state integration tests.
+- Tests added/updated: policy CAS/memory-preservation tests, automatic authority tests, table-driven disposition tests, scheduler continuation test, source-change identity vectors, and two-service/manual/automatic/inventory-local integration coverage.
+- Simplification: removed pure-comparison candidate-key construction and the fake all-zero recovery transition; lifecycle failures now map to typed retryable notification disposition without manufacturing recovery evidence.
+- Discrepancies from design: the existing refresh composition file remains the compatibility implementation and a thin `create-marketplace-update-services.ts` alias supplies the named update composition surface; no second runtime authority was introduced.
+- Adjacent issues parked: `42268f4` notification pruning and `7a278af` source-equality cleanup remain out of scope.

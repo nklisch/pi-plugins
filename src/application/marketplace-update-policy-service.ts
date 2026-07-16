@@ -1,11 +1,11 @@
 import { z } from "zod";
-import { deriveMarketplaceSourceIdentity, MarketplaceUpdateRecordSchema, UpdateApplicationPreferenceSchema, type MarketplaceUpdateRecord, type UpdateApplicationPreference, type SourceHash } from "../domain/update-policy.js";
+import { deriveMarketplaceSourceIdentity, MarketplaceUpdateRecordSchema, UpdateApplicationPreferenceSchema, parseMarketplaceUpdateRecord, type MarketplaceUpdateRecord, type UpdateApplicationPreference } from "../domain/update-policy.js";
 import { MarketplaceNameSchema, type MarketplaceName } from "../domain/identity.js";
 import { ScopeContextSchema, type ScopeContext } from "../domain/state/scope.js";
 import { parseStateMutation, type GenerationSnapshot } from "./state-contract.js";
 import type { GenerationMutationCoordinator } from "./generation-mutation-coordinator.js";
 import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
-import type { Sha256 } from "../domain/source.js";
+import { SourceHashSchema, type Sha256, type SourceHash } from "../domain/source.js";
 
 export const MarketplaceUpdatePreferenceResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.enum(["changed", "unchanged"]), preference: UpdateApplicationPreferenceSchema }).strict().readonly(),
@@ -14,13 +14,17 @@ export const MarketplaceUpdatePreferenceResultSchema = z.discriminatedUnion("kin
 export type MarketplaceUpdatePreferenceResult = z.infer<typeof MarketplaceUpdatePreferenceResultSchema>;
 
 function recordsFor(snapshot: GenerationSnapshot): readonly MarketplaceUpdateRecord[] {
-  if ("config" in snapshot) return snapshot.config.records.map((record: unknown) => MarketplaceUpdateRecordSchema.parse(record));
-  return snapshot.project.marketplaceUpdates.map((record: unknown) => MarketplaceUpdateRecordSchema.parse(record));
+  if ("config" in snapshot) return snapshot.config.records.map((record: unknown) => parseMarketplaceUpdateRecord(record));
+  return snapshot.project.marketplaceUpdates.map((record: unknown) => parseMarketplaceUpdateRecord(record));
 }
 
 function replaceSnapshot(snapshot: GenerationSnapshot, records: readonly MarketplaceUpdateRecord[], sha256: Sha256): ReturnType<typeof parseStateMutation> {
   if ("config" in snapshot) {
-    const config = { ...snapshot.config, generation: snapshot.generation, records };
+    // A compatibility store may return a v1 envelope, but a policy mutation
+    // must always carry the complete v2 records forward. Leaving the envelope
+    // at v1 routes through the migration defaults and erases claims, backoff,
+    // and notification memory.
+    const config = { ...snapshot.config, schemaVersion: 2 as const, generation: snapshot.generation, records };
     return parseStateMutation({ scope: snapshot.scope, expectedGeneration: snapshot.generation, replace: { config } }, sha256);
   }
   const project = { ...snapshot.project, schemaVersion: 2 as const, generation: snapshot.generation, marketplaceUpdates: records };
@@ -46,7 +50,7 @@ export function createMarketplaceUpdatePolicyService(dependencies: Readonly<{
     async setApplicationPreference(request, signal) {
       const scope = ScopeContextSchema.parse(request.scope);
       const marketplace = MarketplaceNameSchema.parse(request.marketplace);
-      const sourceIdentity = z.string().regex(/^sha256:[0-9a-f]{64}$/).parse(request.sourceIdentity) as SourceHash;
+      const sourceIdentity = SourceHashSchema.parse(request.sourceIdentity) as SourceHash;
       const preference = UpdateApplicationPreferenceSchema.parse(request.preference);
       const loaded = await dependencies.state.read(scope, signal);
       if (!loaded.ok) return { kind: "rejected", code: "STATE_STALE" };

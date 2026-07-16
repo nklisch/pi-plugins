@@ -9,6 +9,10 @@ import {
   type MarketplaceUpdateScheduler,
 } from "../application/marketplace-update-scheduler.js";
 import type { UpdateDelayPort } from "../application/ports/update-delay.js";
+import {
+  createMarketplaceUpdatePolicyService,
+  type MarketplaceUpdatePolicyService,
+} from "../application/marketplace-update-policy-service.js";
 
 const nodeDelay: UpdateDelayPort = Object.freeze({
   async wait(milliseconds: number, signal: AbortSignal) {
@@ -23,6 +27,7 @@ export type NodeMarketplaceRefreshServicesOptions = Readonly<{
 
 export type NodeMarketplaceRefreshServices = Readonly<{
   refresh: MarketplaceRefreshService;
+  policy: MarketplaceUpdatePolicyService;
   scheduler: MarketplaceUpdateScheduler;
 }>;
 
@@ -37,10 +42,15 @@ export function createNodeMarketplaceRefreshServices(
     throw new TypeError("marketplace refresh composition requires refresh dependencies");
   }
   const refresh = createMarketplaceRefreshService(options.refresh);
+  const policy = createMarketplaceUpdatePolicyService({
+    state: options.refresh.state,
+    mutations: options.refresh.mutations,
+    sha256: options.refresh.sha256,
+  });
   const scheduler = createMarketplaceUpdateScheduler({
     refresh,
     clock: options.refresh.clock,
     delay: options.delay ?? nodeDelay,
   });
-  return Object.freeze({ refresh, scheduler });
+  return Object.freeze({ refresh, policy, scheduler });
 }

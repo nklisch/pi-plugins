@@ -90,6 +90,7 @@ import {
   MarketplaceInstallationPolicySchema,
   MarketplaceNameSchema,
   MarketplaceReadResultSchema,
+  MarketplaceUpdatePreferenceResultSchema,
   MarketplaceSourceSchema,
   MarketplaceSourceVariantRegistry,
   McpServerComponentSchema,
@@ -136,6 +137,8 @@ import {
   createContentManifest,
   createMarketplaceStoreIdentity,
   createMarketplaceStoreIdentityFromEvidence,
+  createMarketplaceUpdatePolicyService,
+  createNodeMarketplaceUpdateServices,
   createNodeContentStore,
   createNodeSourceMaterializers,
   createPluginIdentity,
@@ -362,6 +365,7 @@ import {
   type MarketplaceInstallationPolicy,
   type MarketplaceName,
   type MarketplaceReadResult,
+  type MarketplaceUpdatePolicyService,
   type MarketplaceSource,
   type McpServerComponent,
   type NativeHost,
@@ -504,6 +508,7 @@ describe("explicit package API", () => {
       MarketplaceInstallationPolicySchema,
       MarketplaceNameSchema,
       MarketplaceReadResultSchema,
+      MarketplaceUpdatePreferenceResultSchema,
       MarketplaceSourceSchema,
       MarketplaceSourceVariantRegistry,
       McpServerComponentSchema,
@@ -550,6 +555,8 @@ describe("explicit package API", () => {
       createContentManifest,
       createMarketplaceStoreIdentity,
       createMarketplaceStoreIdentityFromEvidence,
+      createMarketplaceUpdatePolicyService,
+      createNodeMarketplaceUpdateServices,
       createNodeContentStore,
       createNodeSourceMaterializers,
       createPluginIdentity,
@@ -776,6 +783,7 @@ describe("explicit package API", () => {
     expectTypeOf<MarketplaceInstallationPolicy>().toEqualTypeOf<z.infer<typeof MarketplaceInstallationPolicySchema>>();
     expectTypeOf<MarketplaceName>().toEqualTypeOf<z.infer<typeof MarketplaceNameSchema>>();
     expectTypeOf<MarketplaceReadResult>().toEqualTypeOf<z.infer<typeof MarketplaceReadResultSchema>>();
+    expectTypeOf<MarketplaceUpdatePolicyService>().toMatchTypeOf<{ setApplicationPreference: Function }>();
     expectTypeOf<MarketplaceSource>().toEqualTypeOf<z.infer<typeof MarketplaceSourceSchema>>();
     expectTypeOf<McpServerComponent>().toEqualTypeOf<z.infer<typeof McpServerComponentSchema>>();
     expectTypeOf<NativeHost>().toEqualTypeOf<z.infer<typeof NativeHostSchema>>();

@@ -67,6 +67,7 @@ describe("update policy domain contracts", () => {
       available: candidate,
     });
     expect(marketplaceChanged).toMatchObject({ kind: "approval-required", reason: "MARKETPLACE_SOURCE_CHANGED" });
+    expect(marketplaceChanged).not.toHaveProperty("candidate");
 
     const pluginChanged = compareInstalledRevision({
       installed: {
@@ -78,6 +79,7 @@ describe("update policy domain contracts", () => {
       available: candidate,
     });
     expect(pluginChanged).toMatchObject({ kind: "approval-required", reason: "PLUGIN_SOURCE_CHANGED" });
+    expect(pluginChanged).not.toHaveProperty("candidate");
   });
 
   it("creates deterministic candidate keys and validates claims", () => {
@@ -94,6 +96,11 @@ describe("update policy domain contracts", () => {
       marketplaceSourceIdentity: deriveMarketplaceSourceIdentity(marketplace, sha256),
       pluginSourceIdentity: derivePluginSourceIdentity(plugin, sha256), immutableRevision: revision("a"),
     }, sha256)).toBe(key);
+    expect(deriveUpdateCandidateKey({
+      scope: { kind: "user" }, plugin: "demo@community",
+      marketplaceSourceIdentity: deriveMarketplaceSourceIdentity({ kind: "github", repository: "other/plugins" }, sha256),
+      pluginSourceIdentity: derivePluginSourceIdentity(plugin, sha256), immutableRevision: revision("a"),
+    }, sha256)).not.toBe(key);
     expect(() => RefreshClaimIdSchema.parse("refresh-claim-v1:uuid:not-a-uuid")).toThrow();
   });
 

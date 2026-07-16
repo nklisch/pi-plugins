@@ -118,7 +118,8 @@ export type RevisionComparison =
   | Readonly<{
       kind: "approval-required";
       reason: "MARKETPLACE_SOURCE_CHANGED" | "PLUGIN_SOURCE_CHANGED" | "LEGACY_SOURCE_IDENTITY";
-      candidate: UpdateCandidateKey;
+      installed: InstalledRevisionDescriptor;
+      available: AvailableRevision;
     }>;
 
 export type InstalledRevisionDescriptor = Readonly<{
@@ -191,22 +192,13 @@ export function compareInstalledRevision(input: Readonly<{
   } satisfies InstalledRevisionDescriptor;
   const available = AvailableRevisionSchema.parse(input.available);
   if (installed.marketplaceSourceIdentity === "legacy-unavailable" || installed.pluginSourceIdentity === "legacy-unavailable") {
-    return { kind: "approval-required", reason: "LEGACY_SOURCE_IDENTITY", candidate: deriveUpdateCandidateKey({
-      scope: { kind: "user" }, plugin: PluginKeySchema.parse("legacy@legacy"), marketplaceSourceIdentity: available.marketplaceSourceIdentity,
-      pluginSourceIdentity: available.pluginSourceIdentity, immutableRevision: available.immutableRevision,
-    }, (_bytes) => new Uint8Array(32)) };
+    return { kind: "approval-required", reason: "LEGACY_SOURCE_IDENTITY", installed, available };
   }
   if (installed.marketplaceSourceIdentity !== available.marketplaceSourceIdentity) {
-    return { kind: "approval-required", reason: "MARKETPLACE_SOURCE_CHANGED", candidate: deriveUpdateCandidateKey({
-      scope: { kind: "user" }, plugin: PluginKeySchema.parse("legacy@legacy"), marketplaceSourceIdentity: available.marketplaceSourceIdentity,
-      pluginSourceIdentity: available.pluginSourceIdentity, immutableRevision: available.immutableRevision,
-    }, (_bytes) => new Uint8Array(32)) };
+    return { kind: "approval-required", reason: "MARKETPLACE_SOURCE_CHANGED", installed, available };
   }
   if (installed.pluginSourceIdentity !== available.pluginSourceIdentity) {
-    return { kind: "approval-required", reason: "PLUGIN_SOURCE_CHANGED", candidate: deriveUpdateCandidateKey({
-      scope: { kind: "user" }, plugin: PluginKeySchema.parse("legacy@legacy"), marketplaceSourceIdentity: available.marketplaceSourceIdentity,
-      pluginSourceIdentity: available.pluginSourceIdentity, immutableRevision: available.immutableRevision,
-    }, (_bytes) => new Uint8Array(32)) };
+    return { kind: "approval-required", reason: "PLUGIN_SOURCE_CHANGED", installed, available };
   }
   if (installed.immutableRevision === available.immutableRevision) return { kind: "current", installed };
   return {
@@ -240,6 +232,19 @@ export function createMarketplaceConfigurationRecord(input: Readonly<{
   const refresh = MarketplaceRefreshMemorySchema.parse({ nextScheduledAt: 0, consecutiveFailures: 0, ...input.refresh });
   const updateApplication = source.kind === "local-git" ? "manual" : input.updateApplication ?? "manual";
   return MarketplaceUpdateRecordSchema.parse({ marketplace: MarketplaceNameSchema.parse(input.marketplace), source, updateApplication, refresh, notifications: input.notifications ?? [] });
+}
+
+/** Normalize a current or v1-compatible marketplace record before policy work. */
+export function parseMarketplaceUpdateRecord(input: unknown): MarketplaceUpdateRecord {
+  const current = MarketplaceUpdateRecordSchema.safeParse(input);
+  if (current.success) return current.data;
+  if (input === null || typeof input !== "object" || Array.isArray(input)) throw current.error;
+  const value = input as Record<string, unknown>;
+  return createMarketplaceConfigurationRecord({
+    marketplace: MarketplaceNameSchema.parse(value.marketplace),
+    source: MarketplaceSourceSchema.parse(value.source),
+    updateApplication: UpdateApplicationPreferenceSchema.parse(value.updateApplication),
+  });
 }
 
 export function replaceMarketplaceConfigurationSource(record: MarketplaceUpdateRecord, source: MarketplaceSource): MarketplaceUpdateRecord {

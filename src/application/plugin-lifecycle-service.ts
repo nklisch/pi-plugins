@@ -68,7 +68,7 @@ import {
 import {
   createInstalledUserStateDocument,
 } from "../domain/state/installed-state.js";
-import { createProjectLocalStateDocument } from "../domain/state/project-state.js";
+import { createProjectLocalStateDocumentV2 } from "../domain/state/project-state.js";
 import {
   ScopeContextSchema,
   createScopeContext,
@@ -245,7 +245,7 @@ function replaceTarget(
       replace: { installed },
     }, sha256);
   }
-  const project = createProjectLocalStateDocument({
+  const project = createProjectLocalStateDocumentV2({
     ...snapshot.project,
     generation: snapshot.generation,
     plugins: records,

@@ -79,6 +79,32 @@ describe("marketplace update scheduler", () => {
     expect(nextCalls).toBe(0);
   });
 
+  it("continues after a non-abort refresh failure and still stops on a later abort", async () => {
+    const controller = new AbortController();
+    let refreshes = 0;
+    let waits = 0;
+    const refresh: MarketplaceRefreshService = {
+      async refresh(_request, signal) {
+        refreshes += 1;
+        if (refreshes === 1) throw new Error("one marketplace failed");
+        controller.abort(new Error("stop after retry"));
+        signal.throwIfAborted();
+        return { outcomes: [], notifications: [] };
+      },
+      async nextScheduledAt() { return undefined; },
+    };
+    const scheduler = createMarketplaceUpdateScheduler({
+      refresh,
+      clock: { nowEpochMilliseconds: () => 0 },
+      delay: { async wait() { waits += 1; } },
+      inventoryPollMs: 1,
+    });
+
+    await expect(scheduler.run(controller.signal)).rejects.toThrow("stop after retry");
+    expect(refreshes).toBe(2);
+    expect(waits).toBe(1);
+  });
+
   it("constructs the Node composition without starting refresh work", () => {
     let calls = 0;
     const dependencies = {
@@ -95,6 +121,7 @@ describe("marketplace update scheduler", () => {
 
     const services = createNodeMarketplaceRefreshServices({ refresh: dependencies });
     expect(services.refresh).toBeDefined();
+    expect(services.policy).toBeDefined();
     expect(services.scheduler).toBeDefined();
     expect(calls).toBe(0);
   });
