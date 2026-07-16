@@ -326,11 +326,48 @@ export type { CompatibilityEvaluationInput } from "./domain/compatibility-evalua
 
 export { createCompatibilityService } from "./application/compatibility-service.js";
 export { createMcpRuntimeCapabilityProbe } from "./application/mcp-runtime-capability-probe.js";
+export { createSubagentLifecycleCapabilityProbe } from "./application/subagent-lifecycle-capability-probe.js";
 export type {
   CompatibilityAssessmentRequest,
   CompatibilityService,
 } from "./application/compatibility-service.js";
 export type { RuntimeCapabilityProbe } from "./application/ports/runtime-capability-probe.js";
+
+export {
+  SUBAGENT_LIFECYCLE_CAPABILITY_ID,
+  SUBAGENT_LIFECYCLE_CONTRACT_VERSION,
+  SUBAGENT_LIFECYCLE_CONFORMANCE_SUITE_VERSION,
+  SubagentExecutionIdentitySchemaV1,
+  SubagentExecutionPathSchemaV1,
+  SubagentStartDecisionSchemaV1,
+  SubagentCompletionDecisionSchemaV1,
+  SubagentLifecycleSemanticsSchemaV1,
+  SubagentLifecycleCoverageSchemaV1,
+  SubagentLifecycleConformanceReceiptSchemaV1,
+  SubagentLifecycleProviderSchemaV1,
+  SubagentLifecycleCapabilitiesSchemaV1,
+  SubagentLifecycleRegistrationEvidenceSchemaV1,
+} from "./application/ports/subagent-lifecycle.js";
+export type {
+  SubagentExecutionIdentity,
+  SubagentExecutionPath,
+  SubagentStartRequest,
+  SubagentStartDecision,
+  SubagentCompletionOutcome,
+  SubagentCompletionRequest,
+  SubagentCompletionDecision,
+  SubagentLifecycleSemantics,
+  SubagentLifecycleCoverage,
+  SubagentLifecycleConformanceReceipt,
+  SubagentLifecycleProvider,
+  SubagentLifecycleCapabilities,
+  SubagentLifecycleRegistrationEvidence,
+  SubagentLifecycleInterceptor,
+  SubagentLifecycleRegistrationRequest,
+  SubagentLifecycleRegistration,
+  SubagentLifecyclePort,
+} from "./application/ports/subagent-lifecycle.js";
+export { HOOK_SUBAGENT_CONTINUATION_BUDGET } from "./domain/hook-runtime-limits.js";
 
 export {
   McpBridgeTransportSchema,

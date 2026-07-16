@@ -9,6 +9,7 @@ export const HOOK_MAX_CONCURRENCY = 8;
 export const HOOK_MAX_AGGREGATED_TEXT_BYTES = 256 * 1024;
 export const HOOK_ASK_TIMEOUT_MS = 30_000;
 export const HOOK_STOP_CONTINUATION_BUDGET = 3;
+export const HOOK_SUBAGENT_CONTINUATION_BUDGET = 3;
 
 export const HookRuntimeLimits = Object.freeze({
   stdinMaxBytes: HOOK_STDIN_MAX_BYTES,
@@ -21,4 +22,5 @@ export const HookRuntimeLimits = Object.freeze({
   maxAggregatedTextBytes: HOOK_MAX_AGGREGATED_TEXT_BYTES,
   askTimeoutMs: HOOK_ASK_TIMEOUT_MS,
   stopContinuationBudget: HOOK_STOP_CONTINUATION_BUDGET,
+  subagentContinuationBudget: HOOK_SUBAGENT_CONTINUATION_BUDGET,
 });
