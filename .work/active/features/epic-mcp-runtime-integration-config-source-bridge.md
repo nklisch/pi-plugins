@@ -7,7 +7,9 @@ parent: epic-mcp-runtime-integration
 depends_on: []
 release_binding: null
 gate_origin: null
-research_refs: []
+research_refs:
+  - docs/research/pi-mcp-adapter-config-source.md
+  - .agents/skills/pi-mcp-adapter-v2/SKILL.md
 research_origin: null
 created: 2026-07-16
 updated: 2026-07-16
@@ -50,6 +52,13 @@ This feature does not translate a particular plugin bundle, expand configured va
 - `docs/SPEC.md` — MCP servers; Component compatibility verdicts; Performance and availability
 - `docs/ARCHITECTURE.md` — MCP adapter; Alternatives rejected; Pi integration
 - `docs/COMPATIBILITY.md` — MCP server compatibility; MCP configuration shapes
+
+## Research
+
+- [`docs/research/pi-mcp-adapter-config-source.md`](../../../docs/research/pi-mcp-adapter-config-source.md) — grounded review of npm `pi-mcp-adapter@2.11.0` and upstream `main` at `82724dccc13a49310530898f922bafff12b7f3fe`, including package health, exact load timing, current API gaps, option evaluation, and the minimum upstream/fork contract.
+- [`.agents/skills/pi-mcp-adapter-v2/SKILL.md`](../../../.agents/skills/pi-mcp-adapter-v2/SKILL.md) — auto-loading version/API reference for implementation and review.
+- **External blocker:** no qualifying released upstream configuration-source API or declared maintained fork currently exists. Package-independent bridge ports/contracts/fakes can proceed; the production adapter and truthful MCP-runtime availability remain blocked until an upstream release or narrow maintained fork implements the researched contract.
+- This research adds evidence only. The feature remains at `stage: drafting`; design, decomposition, and stage advancement are intentionally deferred.
 
 ## UI alignment
 
