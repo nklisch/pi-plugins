@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-recovery-journal-gc
 kind: feature
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-operations]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-12
-updated: 2026-07-17
+updated: 2026-07-16
 ---
 
 # Recovery Journal and Revision Collection
@@ -463,3 +463,14 @@ The named standard-review fix set is complete in child commits `e35a24b` and `d2
 Integrated verification after the fix: `npm test` passed — strict production/test typechecking, dependency boundaries, 114 test files / 623 tests, build, and compiled package import with 407 exports. Public exports and dependency boundaries are unchanged.
 
 The child checkpoint is `stage: done`; this parent feature is returned to `stage: review` for host administrative closure. The one permitted standard review pass is satisfied; no second independent review was run.
+
+## Review (2026-07-17)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: scoped journal settlement I/O was valid but below the current-cycle blocker bar; parked as `idea-recovery-scoped-journal-settlement`.
+**Nits**: low-value diagnostic/style and first-creation race observations remain non-blocking under the project risk bar.
+**Rejected**: no material proposals rejected; platform-unsupported liveness intentionally retains content rather than weakening ownership proof.
+
+**Notes**: Effective weight `standard` from project policy. One cross-model balanced pass by Umans GLM 5.2 found two receiver-confirmed blockers. The named fix set added real crash/restart, concurrent prepare, second-process lease, and state-prune-before-delete acceptance plus refreshed state/lease pins before physical removal. Host administrative fix verification ran without a second independent pass, as required by standard. Final integrated `npm test`: typecheck, boundaries, 114 files / 623 tests, build, and unchanged 407 compiled exports.
