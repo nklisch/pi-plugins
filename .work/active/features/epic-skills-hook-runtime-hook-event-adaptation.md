@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-hook-event-adaptation
 kind: feature
-stage: review
+stage: implementing
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime
 depends_on: [epic-skills-hook-runtime-projection-reload-evidence]
@@ -478,3 +478,13 @@ The fallback for every planning error is non-activation or an explicit runtime c
 - Documentation: `docs/COMPATIBILITY.md` now states that ephemeral sessions omit `transcript_path` and keep Pi-only evidence under `pi`.
 - Rollback: remove the derived registry/planner/adapter and exact Pi type dependency; no state, projection, trust, revision, transition, or persistent-data migration was introduced.
 - Deviations: none. Blockers: none.
+
+## Review findings (2026-07-16)
+
+Effective weight: `standard`; one fresh-context Umans GLM 5.2 pass. The reviewer approved the event registry, Pi boundary mapping, trust/catalog checks, pure-planning separation, compatibility alignment, ordering, cancellation, and package boundaries. The receiver confirmed one bounded mutation-safety fix before closure:
+
+- Snapshot and normalize Pi `tool_result.content` before placing it under `pi.toolResult.content`; no live Pi array/object reference may survive into an immutable plan.
+- Preserve only the namespaced content fields the hook contract understands (text/image payload fields), intentionally dropping opaque Pi-only `textSignature` so strict plan parsing cannot fail on a normal optional Pi field.
+- Add a test that mutates the original array and nested content after planning and proves the plan remains unchanged and frozen/validated.
+
+Tracked by `epic-skills-hook-runtime-hook-event-adaptation-review-hardening`. Under standard review, closure after this exact fix is administrative verification only; no second pass. Loose ingress/test casts are bounded adapter/test implementation details and remain non-blocking.
