@@ -178,6 +178,7 @@ const expectedExports = [
   "createCompatibilityReport",
   "createCompatibilityService",
   "createLifecycleRecoveryService",
+  "createLifecycleTransitionReconciler",
   "createGenerationMutationCoordinator",
   "createKeyedMutationScheduler",
   "createContentIndex",

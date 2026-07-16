@@ -809,6 +809,14 @@ export type {
 } from "./application/state-contract.js";
 export type { LifecycleStateStore } from "./application/ports/lifecycle-state-store.js";
 
+export { createLifecycleTransitionReconciler } from "./application/lifecycle-transition-reconciler.js";
+export type {
+  LifecycleTransitionReconciler,
+  LifecycleTransitionReconcilerDependencies,
+} from "./application/lifecycle-transition-reconciler.js";
+export type { LifecycleStateInventoryPort } from "./application/ports/lifecycle-state-inventory.js";
+export type { RecoveryArtifactsPort } from "./application/ports/recovery-artifacts.js";
+
 export {
   createPromotionPlan,
   assertVerifiedPromotionPlan,

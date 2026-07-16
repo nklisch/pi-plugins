@@ -275,6 +275,8 @@ import {
   CommittedMutationCleanupError,
   MutationCleanupError,
   createGenerationMutationCoordinator,
+  createLifecycleRecoveryService,
+  createLifecycleTransitionReconciler,
   parseStateMutation,
   stateDocumentKinds,
   toScopeReference,
@@ -291,6 +293,11 @@ import {
   verifyTrustSubjectRef,
   type AgentSkillReader,
   type LifecycleStateStore,
+  type LifecycleStateInventoryPort,
+  type RecoveryArtifactsPort,
+  type LifecycleTransitionReconciler,
+  type LifecycleTransitionReconcilerDependencies,
+  type LifecycleRecoveryServiceDependencies,
   type ScopeLockLease,
   type ScopeLockManager,
   type KeyedMutationScheduler,
@@ -655,6 +662,8 @@ describe("explicit package API", () => {
       CommittedMutationCleanupError,
       MutationCleanupError,
       createGenerationMutationCoordinator,
+      createLifecycleRecoveryService,
+      createLifecycleTransitionReconciler,
       StateMutationInputSchema,
       StateMutationSchema,
       StatePointersDocumentSchema,
@@ -730,6 +739,8 @@ describe("explicit package API", () => {
 
   it("exposes one lifecycle facade and narrow evidence ports", () => {
     expect(sourceApi.createPluginLifecycleService).toBeDefined();
+    expect(sourceApi.createLifecycleRecoveryService).toBe(createLifecycleRecoveryService);
+    expect(sourceApi.createLifecycleTransitionReconciler).toBe(createLifecycleTransitionReconciler);
     expect(sourceApi.PluginRuntimeProjectionSchemaV1).toBeDefined();
     expect(sourceApi.LifecycleTransitionRecordSchemaV1).toBeDefined();
     expect(sourceApi.ActivationObservationSchema).toBeDefined();
@@ -845,6 +856,17 @@ describe("explicit package API", () => {
     expectTypeOf<UserGenerationSnapshot>().toMatchTypeOf<{ generation: Generation }>();
     expectTypeOf<ProjectGenerationSnapshot>().toMatchTypeOf<{ generation: Generation }>();
     expectTypeOf<LifecycleStateStore>().toMatchTypeOf<{ read: Function; commit: Function }>();
+    expectTypeOf<LifecycleStateInventoryPort>().toMatchTypeOf<{ discover: Function }>();
+    expectTypeOf<RecoveryArtifactsPort>().toMatchTypeOf<{ scan: Function; remove: Function }>();
+    expectTypeOf<LifecycleTransitionReconciler>().toMatchTypeOf<{ completeCommittedTransition: Function; recoverInterruptedTransition: Function }>();
+    expectTypeOf<LifecycleTransitionReconcilerDependencies>().toMatchTypeOf<{
+      mutations: { runPreparedMutation: Function };
+      state: { read: Function };
+      reload: { reload: Function; observe: Function };
+      transitions: { prepare: Function; settle: Function };
+      sha256: Function;
+    }>();
+    expectTypeOf<LifecycleRecoveryServiceDependencies["reconciler"]>().toEqualTypeOf<LifecycleTransitionReconciler>();
     expectTypeOf<ScopeLockLease>().toMatchTypeOf<{ assertOwned: Function; release: Function }>();
     expectTypeOf<ScopeLockManager>().toMatchTypeOf<{ acquire: Function }>();
     expectTypeOf<KeyedMutationScheduler>().toMatchTypeOf<{ run: Function }>();
