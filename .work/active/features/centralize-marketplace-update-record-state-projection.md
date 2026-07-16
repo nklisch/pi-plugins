@@ -1,7 +1,7 @@
 ---
 id: centralize-marketplace-update-record-state-projection
 kind: feature
-stage: review
+stage: done
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -331,3 +331,15 @@ Create `test/application/marketplace-update-state.test.ts` as the contract-level
 ## Implementation Order
 
 1. `centralize-marketplace-update-record-state-projection-step-1` — extract the internal helper, adopt it in both services, add focused projection coverage, and run focused plus full verification as one atomic checkpoint.
+
+## Review (2026-07-16)
+
+**Weight**: standard — one independent fresh-context pass
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none material to the refactor
+**Rejected**: broadening the helper into generic mutation machinery or a public API.
+
+The reviewer verified byte-for-byte v1/v2 and user/project behavior, strict malformed-record rejection, rich claim/backoff/notification preservation, delegated mutation branding/deep-freezing, unchanged service authority, and private 437-export boundaries. Focused 27 tests pass; full verification passes at 122 files / 652 tests after removing stale recovery fixture files. The unrelated repeat-run fixture flake is parked separately.
