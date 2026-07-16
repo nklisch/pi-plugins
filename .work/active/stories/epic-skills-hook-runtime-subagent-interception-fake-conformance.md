@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-subagent-interception-fake-conformance
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-subagent-interception
 depends_on: [epic-skills-hook-runtime-subagent-interception-lifecycle-contract-probe]
@@ -87,3 +87,16 @@ None. The fake reports `provider.kind: test`; it proves behavior but cannot make
 ## Risk and rollback
 
 The risk is overfitting to fake internals. Keep assertions entirely on the public decisions and symbolic forbidden/required order, and require broken harnesses. Package construction and real Pi event ordering remain explicit production tests. Rollback replaces the harness without weakening the public port.
+
+## Implementation summary
+
+- Added a deterministic test-only lifecycle state machine with stable per-boundary interceptor snapshots, awaited registration order, replacement piping, exact run-id uniqueness, bounded same-session continuation, caller/runtime cancellation, idempotent unregister, and exactly-once session/runtime disposal accounting.
+- Added the reusable package-independent contract suite over all 32 initial/resume, tool/service, foreground/background, and immediate/queued path combinations, plus parent-present/parentless evidence, start/completion cancellation, replacement order, continuation bounds, unregister snapshots, and secret-free symbolic traces.
+- Added negative trace evidence for event approximation, post-finalization completion interception, and unbounded continuation. Fake qualification remains `provider.kind: test`, and integration proves it cannot make production compatibility available.
+
+## Implementation record
+
+- Execution capability: `xhigh feature owner`; dependency-ordered direct implementation with no nested agents.
+- Commit ref: `17cb656` (`implement: subagent lifecycle fake and conformance`).
+- Verification: `npm run typecheck`; 11 focused Vitest tests passed, including the 32-vector parameterized path matrix and fake/negative/integration suites.
+- Production boundary: the fake owns no provider, model, tool, queue, workspace, persistence, steering, or real subagent-service behavior and is absent from package exports.
