@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-hook-event-adaptation
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime
 depends_on: [epic-skills-hook-runtime-projection-reload-evidence]
@@ -488,3 +488,11 @@ Effective weight: `standard`; one fresh-context Umans GLM 5.2 pass. The reviewer
 - Add a test that mutates the original array and nested content after planning and proves the plan remains unchanged and frozen/validated.
 
 Tracked by `epic-skills-hook-runtime-hook-event-adaptation-review-hardening`. Under standard review, closure after this exact fix is administrative verification only; no second pass. Loose ingress/test casts are bounded adapter/test implementation details and remain non-blocking.
+
+## Review hardening completion
+- Snapshot and normalize Pi `tool_result.content` at the tool-result planning boundary into fresh deeply frozen text/image items.
+- Retain only `type` plus text or image payload fields; omit opaque `textSignature` and other Pi-only item fields from namespaced plan evidence.
+- Preserve the source event/content untouched; post-plan array replacement, item mutation, and append regressions prove byte-for-byte plan stability and frozen content identity.
+- Focused verification: 2 files, 11 tests passed.
+- Full `npm test`: typecheck, boundaries (194 modules / 1,187 dependencies), 141 test files / 744 tests, build, and compiled package import (459 exports) passed. The first full-suite attempt hit the already-known unrelated concurrent recovery test flake; the immediate rerun passed without unrelated changes.
+- Review handling: standard review had already completed; this exact bounded blocker is fixed and no second independent pass was run.
