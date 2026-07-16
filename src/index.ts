@@ -327,6 +327,8 @@ export type { CompatibilityEvaluationInput } from "./domain/compatibility-evalua
 export { createCompatibilityService } from "./application/compatibility-service.js";
 export { createMcpRuntimeCapabilityProbe } from "./application/mcp-runtime-capability-probe.js";
 export { createSubagentLifecycleCapabilityProbe } from "./application/subagent-lifecycle-capability-probe.js";
+export { registerSubagentHookRuntime } from "./application/subagent-hook-runtime.js";
+export type { RegisteredSubagentHookRuntime } from "./application/subagent-hook-runtime.js";
 export type {
   CompatibilityAssessmentRequest,
   CompatibilityService,

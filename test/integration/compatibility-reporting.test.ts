@@ -221,6 +221,19 @@ describe("compatibility reporting integration", () => {
     expect(unavailable.activatable).toBe(false);
     expect(available.activatable).toBe(true);
 
+    const ordinaryPlugin = await inspectNormalizedBundle({
+      hooks: {
+        hooks: Object.fromEntries(Object.entries(hookIngestionFixtures.supported.hooks.hooks)
+          .filter(([event]) => event !== "SubagentStart" && event !== "SubagentStop")),
+      },
+    });
+    const ordinaryUnavailable = await serviceFor(capabilities({
+      "pi.subagents.lifecycle-interception": "unavailable",
+    })).service.assess({ plugin: ordinaryPlugin }, new AbortController().signal);
+    expect(ordinaryUnavailable.requirements.some((item) =>
+      item.requirement.capability === "pi.subagents.lifecycle-interception")).toBe(false);
+    expect(ordinaryUnavailable.activatable).toBe(true);
+
     const irrelevant = await serviceFor(capabilities({ "platform.shell.powershell": "unavailable" })).service
       .assess({ plugin }, new AbortController().signal);
     expect(irrelevant.requirements.some((item) => item.requirement.capability === "platform.shell.powershell")).toBe(false);

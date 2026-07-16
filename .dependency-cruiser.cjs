@@ -85,6 +85,20 @@ module.exports = {
       to: { dependencyTypes: ["core"] },
     },
     {
+      name: "subagent-lifecycle-application-boundary-is-adapter-neutral",
+      comment: "The public lifecycle port, qualification probe, and registration factory cannot depend on Pi, runtime implementations, composition, or a concrete subagent package.",
+      severity: "error",
+      from: { path: "^src/application/(?:ports/subagent-lifecycle|subagent-lifecycle-capability-probe|subagent-hook-runtime)\\.ts$" },
+      to: { path: "^(?:src/(?:runtime|pi|infrastructure|composition)(?:/|$)|@gotgenes/pi-subagents(?:/|$)|node:)" },
+    },
+    {
+      name: "subagent-package-import-only-in-production-adapter",
+      comment: "Only the future objectively qualified production wrapper may import the selected subagent package.",
+      severity: "error",
+      from: { path: "^src/(?!runtime/subagents/pi-subagents-lifecycle\\.ts$)" },
+      to: { path: "^@gotgenes/pi-subagents(?:/|$)" },
+    },
+    {
       name: "lifecycle-policy-no-host-adapters",
       comment: "Whole-plugin lifecycle policy is portable; reload, projection, storage, and Pi adapters remain injected ports.",
       severity: "error",

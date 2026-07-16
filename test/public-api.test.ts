@@ -809,6 +809,19 @@ describe("explicit package API", () => {
     expect(sourceApi).not.toHaveProperty("registerSkillResourceDiscovery");
   });
 
+  it("exposes only the portable subagent lifecycle contract and registration boundary", () => {
+    expect(sourceApi.SubagentExecutionIdentitySchemaV1).toBeDefined();
+    expect(sourceApi.SubagentExecutionPathSchemaV1).toBeDefined();
+    expect(sourceApi.SubagentLifecycleCapabilitiesSchemaV1).toBeDefined();
+    expect(sourceApi.SubagentLifecycleRegistrationEvidenceSchemaV1).toBeDefined();
+    expect(sourceApi.createSubagentLifecycleCapabilityProbe).toBeDefined();
+    expect(sourceApi.registerSubagentHookRuntime).toBeDefined();
+    expect(sourceApi).not.toHaveProperty("FakeSubagentLifecycle");
+    expect(sourceApi).not.toHaveProperty("defineSubagentLifecycleContract");
+    expect(sourceApi).not.toHaveProperty("createSubagentHookCoordinator");
+    expect(sourceApi).not.toHaveProperty("createPiSubagentsLifecyclePort");
+  });
+
   it("keeps secret custody and policy boundaries out of the public surface", () => {
     expect(sourceApi.SensitiveValue).toBeDefined();
     expect(sourceApi.withResolvedPluginConfiguration).toBeDefined();

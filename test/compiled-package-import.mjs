@@ -255,6 +255,7 @@ const expectedExports = [
   "nonEmptyReadonly",
   "parsePluginKey",
   "reconcilePluginBundle",
+  "registerSubagentHookRuntime",
   "removePluginConfiguration",
   "replaceMarketplaceConfigurationSource",
   "revokeTrust",
