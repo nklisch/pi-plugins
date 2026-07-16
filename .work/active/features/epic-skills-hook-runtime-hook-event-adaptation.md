@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-hook-event-adaptation
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime
 depends_on: [epic-skills-hook-runtime-projection-reload-evidence]
@@ -465,3 +465,16 @@ Rollback is straightforward because the capability is entirely derived and proce
 This design fails if one event invents a field, a runtime selector accepts syntax compatibility rejected (or vice versa), a project hook runs under stale/untrusted context, a tool result is classified from completion timing instead of `isError`, compaction emits compact start before post-compact, parallel completion order becomes handler precedence, Stop fires at `agent_end`, or the planner begins executing commands to make tests pass. Strict schemas, one compiler/registry, catalog/current-project validation, exact Pi boundary imports, explicit source ordinals, ordered compact plans, settled-only Stop, process canaries, and public-boundary assertions address those failure modes.
 
 The fallback for every planning error is non-activation or an explicit runtime contract failure consumed by existing lifecycle observation/compensation. There is no partial plugin mode and no nearby Pi event is substituted.
+
+## Implementation summary
+- Execution capability: GPT-5.6 Luna inline, one cohesive feature owner; no nested agents, questions, peer review, UI/process execution, subagent interception, MCP/native manager, or unrelated work.
+- Review weight: standard by project convention; caller explicitly requested no review, so the feature is left at `stage: review`.
+- Child checkpoints completed directly to `done` in dependency order: contract registry, session/input contracts, tool-event planning, Pi lifecycle bridge, and integration hardening.
+- Commits: `2ed0e92` (`implement: epic-skills-hook-runtime-hook-event-adaptation-contract-registry`), `77c1298` (`implement: epic-skills-hook-runtime-hook-event-adaptation-session-input-contracts`), `054cf53` (`implement: epic-skills-hook-runtime-hook-event-adaptation-tool-event-planning`), `02538c9` (`implement: epic-skills-hook-runtime-hook-event-adaptation-pi-lifecycle-bridge`), `deb8006` (`implement: epic-skills-hook-runtime-hook-event-adaptation-integration-hardening`).
+- Integrated behavior: one registry/compiler now drives compatibility and runtime; strict immutable event plans preserve exact Pi lifecycle order, foreign field allowlists, preferred tool aliases, source ordinals, trust/scope/projection evidence, cancellation availability, and namespaced Pi-only evidence. Command handlers are selected but never spawned or interpreted.
+- Full verification: `npm test` passed — 141 test files, 742 tests, 0 type errors, 459 compiled public exports. Boundaries passed (194 modules, 1,187 dependencies); compiled package import passed.
+- Count record: supplied branch baseline was 128/674/447 and combined-main reference 133/696/459; this implementation's actual final count is 141/742/459.
+- First full-suite attempt exposed one concurrent recovery hardening flake (1 failure among 141/742); the isolated test passed and the final full suite passed without touching that unrelated area.
+- Documentation: `docs/COMPATIBILITY.md` now states that ephemeral sessions omit `transcript_path` and keep Pi-only evidence under `pi`.
+- Rollback: remove the derived registry/planner/adapter and exact Pi type dependency; no state, projection, trust, revision, transition, or persistent-data migration was introduced.
+- Deviations: none. Blockers: none.
