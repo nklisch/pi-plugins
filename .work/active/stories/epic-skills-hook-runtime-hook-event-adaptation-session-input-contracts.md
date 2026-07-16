@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-hook-event-adaptation-session-input-contracts
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-hook-event-adaptation
 depends_on: [epic-skills-hook-runtime-hook-event-adaptation-contract-registry]
@@ -38,3 +38,13 @@ Define strict schema-derived session, transcript, cancellation, foreign input, s
 ## Ordering constraint
 
 Depends on `epic-skills-hook-runtime-hook-event-adaptation-contract-registry`. It may proceed in parallel with the tool-event checkpoint once the registry is complete.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna inline; strict event contracts and host-neutral planning share one cohesive boundary.
+- Review weight: standard (caller explicitly prohibited review for this delegated run).
+- Files changed: `src/runtime/hooks/event-contract.ts`, `src/runtime/hooks/event-input.ts`, `src/runtime/hooks/hook-event-planner.ts`, `test/runtime/hooks/fixtures.ts`, `test/runtime/hooks/event-contract.test.ts`, `test/runtime/hooks/hook-event-planner.test.ts`.
+- Tests added/removed: strict field rejection, source/trigger mapping, compact order, cancellation absence, catalog order, trust mismatch, and selector corruption tests.
+- Simplification: one immutable plan shape and one catalog selection path serve every ordinary lifecycle event; no execution or second runtime state was introduced.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+- Verification: `npm run typecheck`, focused runtime contract/planner suites green.
