@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-config-source-bridge-conformance-suite
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-config-source-bridge
 depends_on: [epic-mcp-runtime-integration-config-source-bridge-fake-runtime]
@@ -71,3 +71,14 @@ The risk is testing only the fake's implementation choices. Keep assertions at p
 ## Blocker ownership
 
 None. Plugin Host maintainers own the shared suite. A future production package owner must make its wrapper pass rather than weakening assertions.
+
+## Implementation notes
+
+- Execution capability: Luna xhigh; the suite is the qualification seam for atomic ownership and callback custody, so it deliberately includes adversarial negative evidence.
+- Review weight: standard (caller explicitly requested no feature review; fake contract and negative-harness tests are the checkpoint evidence).
+- Files changed: `test/contract/mcp-runtime.contract.ts`, `test/contract/mcp-runtime.contract.test.ts`, `test/integration/mcp-runtime-port.test.ts`.
+- Tests added: one reusable lifecycle matrix plus four deliberately broken harnesses covering early provider resolution, pre-publication deletion, global-name removal, and unsafe inspection.
+- Simplification: future adapters register one `McpRuntimeContractHarness`; package-specific factory/order tests remain outside the portable contract.
+- Discrepancies from design: the reusable assertion helper is exported from the test-only contract module so negative harnesses and future adapter tests can invoke the same matrix; no production barrel export was added.
+- Adjacent issues parked: none.
+- Verification: `npm run typecheck` and the two contract test files passed (5 tests, no type errors). The fake passed the unchanged shared suite; every broken harness was rejected by the same assertions.
