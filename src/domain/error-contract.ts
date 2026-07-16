@@ -28,6 +28,7 @@ export const ErrorCodeRegistry = {
   recoveryConflict: "RECOVERY_CONFLICT",
   collectionDeferred: "COLLECTION_DEFERRED",
   adapterFailed: "ADAPTER_FAILED",
+  foreignStateRootInvalid: "FOREIGN_STATE_ROOT_INVALID",
 } as const;
 
 type ErrorCodeValue =

@@ -10,6 +10,7 @@ export const SourceDocumentKindSchema = z.enum([
   "mcp",
   "skill",
   "convention",
+  "foreign-state",
 ]);
 export type SourceDocumentKind = z.infer<typeof SourceDocumentKindSchema>;
 

@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-read-only-adoption-contracts-readers
 kind: story
-stage: implementing
+stage: done
 tags: [security, compatibility]
 parent: epic-transactional-plugin-lifecycle-read-only-adoption
 depends_on: []
@@ -44,3 +44,14 @@ The readers accept only source fields Pi can preserve exactly. They must never e
 ## Ordering constraint
 
 This checkpoint defines the only values later application and filesystem units may consume. Complete it before implementing selection/import orchestration.
+
+## Implementation notes
+
+- Added schema-derived adoption declaration/candidate contracts and versioned SHA-256 candidate identity. Extended provenance to identify foreign-state documents and added a stable foreign-state root diagnostic code.
+- Added pure Claude JSON and Codex TOML readers. Claude reads only known marketplace source objects and `extraKnownMarketplaces`; Codex reads only `[marketplaces.*]` source fields plus the explicitly tolerated operational fields. Unsupported source semantics are entry-local diagnostics, and parser causes/raw operational records do not cross the boundary.
+- Added deterministic reconciliation keyed by canonical marketplace-source bytes. Equal declarations merge provenance and aliases; contradictory source declarations at the same host/document/path/alias are all omitted with `CLAIM_CONFLICT`.
+
+## Verification
+
+- `npm run typecheck` — passed.
+- `npx vitest run test/domain/adoption.test.ts test/formats/claude/state-reader.test.ts test/formats/codex/state-reader.test.ts test/formats/adoption-reconciler.test.ts` — 12 tests passed.

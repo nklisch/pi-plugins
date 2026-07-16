@@ -100,6 +100,16 @@ export type ReadResult<T> =
     }>;
 
 /** A collection can retain valid siblings while reporting invalid entries. */
+export function CollectionReadResultSchema<T extends z.ZodTypeAny>(value: T) {
+  return z
+    .object({
+      items: z.array(value).readonly(),
+      diagnostics: z.array(DiagnosticSchema).readonly(),
+    })
+    .strict()
+    .readonly();
+}
+
 export type CollectionReadResult<T> = Readonly<{
   items: readonly T[];
   diagnostics: readonly Diagnostic[];
