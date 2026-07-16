@@ -57,6 +57,7 @@ export type HookPiContent = z.infer<typeof HookPiContentSchema>;
 const PiEvidenceSchema = z.object({
   session: z.object({ persistence: z.enum(["persisted", "ephemeral"]) }).strict().readonly().optional(),
   sessionStart: z.object({ reason: z.enum(["startup", "reload", "new", "resume", "fork"]) }).strict().readonly().optional(),
+  sessionEnd: z.object({ reason: z.enum(["quit", "reload", "new", "resume", "fork"]) }).strict().readonly().optional(),
   sessionShutdown: z.object({ reason: z.enum(["quit", "reload", "new", "resume", "fork"]) }).strict().readonly().optional(),
   input: z.object({ source: z.enum(["interactive", "rpc", "extension"]), streamingBehavior: z.enum(["steer", "followUp"]).optional() }).strict().readonly().optional(),
   compact: z.object({ reason: z.enum(["manual", "threshold", "overflow"]), willRetry: z.boolean(), fromExtension: z.boolean().optional() }).strict().readonly().optional(),

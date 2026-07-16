@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-hook-event-adaptation-pi-lifecycle-bridge
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-hook-event-adaptation
 depends_on: [epic-skills-hook-runtime-hook-event-adaptation-session-input-contracts, epic-skills-hook-runtime-hook-event-adaptation-tool-event-planning]
@@ -39,3 +39,13 @@ Create the thin Pi-specific ingress that imports current Pi event/context types,
 ## Ordering constraint
 
 Depends on both session/input and tool-event planning checkpoints. The integrated golden/public-boundary checkpoint follows this one.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna inline; the Pi boundary is a thin type-only ingress over the completed host-neutral planner.
+- Review weight: standard (caller explicitly prohibited review for this delegated run).
+- Files changed: `src/pi/hooks/pi-session-evidence.ts`, `src/pi/hooks/pi-hook-event-adapter.ts`, `src/runtime/hooks/event-contract.ts`, `package.json`, `package-lock.json`, `.dependency-cruiser.cjs`, `test/pi/hooks/fake-pi.ts`, `test/pi/hooks/pi-hook-event-adapter.test.ts`.
+- Tests added/removed: typed Pi 0.80.8 fake lifecycle events, replacement mapping, raw input/mutation preservation, dedicated compaction signal, ordered post-compaction plans, settled Stop, and type-only boundary checks.
+- Simplification: Pi types are imported only at the adapter ingress; no runtime Pi manager, registration, process, output, or decision path was introduced.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+- Verification: `npm run typecheck`, `npm run boundaries`, focused Pi adapter suite green.

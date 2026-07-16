@@ -2,6 +2,13 @@
 module.exports = {
   forbidden: [
     {
+      name: "pi-types-only-in-pi-adapter",
+      comment: "The Pi package is a type-only ingress dependency; portable layers cannot import it.",
+      severity: "error",
+      from: { path: "^src/(?!pi/)(?:domain|application|formats|infrastructure|runtime)(?:/|$)" },
+      to: { path: "^@earendil-works/pi-coding-agent(?:/|$)" },
+    },
+    {
       name: "domain-no-outer-layer-imports",
       comment: "Domain contracts must remain independent of adapters and runtime integrations.",
       severity: "error",
