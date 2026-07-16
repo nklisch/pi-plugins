@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-hook-event-adaptation
 kind: feature
-stage: review
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime
 depends_on: [epic-skills-hook-runtime-projection-reload-evidence]
@@ -496,3 +496,9 @@ Tracked by `epic-skills-hook-runtime-hook-event-adaptation-review-hardening`. Un
 - Focused verification: 2 files, 11 tests passed.
 - Full `npm test`: typecheck, boundaries (194 modules / 1,187 dependencies), 141 test files / 744 tests, build, and compiled package import (459 exports) passed. The first full-suite attempt hit the already-known unrelated concurrent recovery test flake; the immediate rerun passed without unrelated changes.
 - Review handling: standard review had already completed; this exact bounded blocker is fixed and no second independent pass was run.
+
+## Review closure
+
+**Verdict**: Approve after fixes
+
+The sole reviewer approved the feature except for the namespaced content snapshot gap. That gap is fixed with deep mutation/signature evidence, and administrative verification passes at 141 files / 744 tests, clean typecheck/boundaries/build, and 459 exports. No material blocker remains; no second review was commissioned.
