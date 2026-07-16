@@ -1,7 +1,7 @@
 ---
 id: make-update-services-canonical-node-composition
 kind: feature
-stage: review
+stage: done
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -251,3 +251,15 @@ The update module receives the existing `node:timers/promises` and application i
 - Package verification remained exact: `compiled package import passed (437 exports)`.
 - Review weight: standard (project convention). Per the delegated instruction, the feature is left at `stage: review` and feature review was not invoked.
 - Deviations and blockers: none.
+
+## Review (2026-07-16)
+
+**Weight**: standard — one independent fresh-context pass
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: no actionable nits; preserving the refresh-worded validation text is required observable compatibility.
+**Rejected**: renaming validation text or replacing the named wrapper with a direct re-export would change behavior/function identity.
+
+The reviewer verified one-way import ownership, exact type aliases, distinct function names, inert construction, preserved validation/freeze/result behavior, clean no-circular boundaries, and unchanged public/compiled API. Reproduced focused 12 tests, typecheck, 178-module boundaries, build/package import, and exactly 437 exports.
