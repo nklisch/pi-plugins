@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-read-only-adoption
 kind: feature
-stage: review
+stage: done
 tags: [security, compatibility, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-operations]
@@ -403,3 +403,14 @@ The fallback is deliberately narrow: unsupported or drifted declarations remain 
 ## Integrated verification
 
 - `npm test` — passed: strict source/test typechecking, dependency boundaries (143 modules / 836 dependencies), 101 test files / 594 tests with no type errors, build, and compiled package import (378 exports).
+
+## Review (2026-07-16)
+
+**Verdict**: Approve with comments
+
+**Blockers**: none
+**Important**: multi-way source-conflict diagnostics report only the first conflicting pair while correctly omitting every conflicting declaration; parked as `idea-adoption-conflict-diagnostics` because authority remains fail-closed and operator impact is reporting-only.
+**Nits**: defensive throwing-reader and present-without-marketplaces paths lack dedicated tests; `stableJson(undefined)` is theoretical because adoption provenance always carries a raw declaration; empty `CODEX_HOME` intentionally fails closed.
+**Rejected**: no findings rejected. Accepted limitations include private host readers, bounded re-discovery on selection, and the maintained `smol-toml` boundary.
+
+**Notes**: Substrate feature review at effective weight `standard` (project source), one cross-model balanced pass by Umans GLM 5.2. The pass traced fixed-file access, unsupported-semantics rejection, alias non-authority, deterministic reconciliation, freshness, project portability, registrar narrowing, public exports, dependency boundaries, and foundation alignment. No receiver-confirmed material current-cycle blocker remained, so standard closes after this single pass without re-review. Integrated verification remains `npm test`: 101 files / 594 tests, clean typecheck and boundaries, build, and 378-export compiled import.
