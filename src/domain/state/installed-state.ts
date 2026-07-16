@@ -59,6 +59,10 @@ import {
   type Sha256,
 } from "../source.js";
 import { defineVersionedSchemaFamily } from "./versioning.js";
+import {
+  StableSourceIdentitySchema,
+  type StableSourceIdentity,
+} from "../update-policy.js";
 
 // Generation is shared by every state family. It is defined with host config,
 // rather than copied here, so compare-and-swap values cannot drift by scope.
@@ -103,26 +107,19 @@ const ComponentEvidenceKindSchema = z.enum([
 export type ComponentEvidenceKind = z.infer<typeof ComponentEvidenceKindSchema>;
 
 /** The only source facts retained in an installed record. No URL, declaration, or path is stored. */
+const InstalledSourceEvidenceMetadataSchema = {
+  /** Optional on v1 records; v2 migration fills unknown identity explicitly. */
+  marketplaceSourceIdentity: StableSourceIdentitySchema.optional(),
+  pluginSourceIdentity: StableSourceIdentitySchema.optional(),
+  declaredVersion: z.string().min(1).optional(),
+  sourceRevision: z.string().min(1).optional(),
+} as const;
+
 export const InstalledSourceEvidenceSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("marketplace-path"),
-    sourceHash: SourceHashSchema,
-    marketplaceRevision: GitRevisionSchema,
-  }).strict().readonly(),
-  z.object({
-    kind: z.literal("git"),
-    sourceHash: SourceHashSchema,
-    revision: GitRevisionSchema,
-  }).strict().readonly(),
-  z.object({
-    kind: z.literal("git-subdir"),
-    sourceHash: SourceHashSchema,
-    revision: GitRevisionSchema,
-  }).strict().readonly(),
-  z.object({
-    kind: z.literal("npm"),
-    sourceHash: SourceHashSchema,
-  }).strict().readonly(),
+  z.object({ kind: z.literal("marketplace-path"), sourceHash: SourceHashSchema, marketplaceRevision: GitRevisionSchema, ...InstalledSourceEvidenceMetadataSchema }).strict().readonly(),
+  z.object({ kind: z.literal("git"), sourceHash: SourceHashSchema, revision: GitRevisionSchema, ...InstalledSourceEvidenceMetadataSchema }).strict().readonly(),
+  z.object({ kind: z.literal("git-subdir"), sourceHash: SourceHashSchema, revision: GitRevisionSchema, ...InstalledSourceEvidenceMetadataSchema }).strict().readonly(),
+  z.object({ kind: z.literal("npm"), sourceHash: SourceHashSchema, ...InstalledSourceEvidenceMetadataSchema }).strict().readonly(),
 ]);
 export type InstalledSourceEvidence = z.infer<typeof InstalledSourceEvidenceSchema>;
 
@@ -246,16 +243,10 @@ function validateMarketplaceCoverage(
       addIssue(context, ["plugins", index, "plugin"], "installed plugin must have a corresponding marketplace snapshot");
       continue;
     }
-    for (const [revisionIndex, revision] of plugin.revisions.entries()) {
-      if (revision.evidence.source.kind === "marketplace-path" &&
-          revision.evidence.source.marketplaceRevision !== snapshot.source.revision) {
-        addIssue(
-          context,
-          ["plugins", index, "revisions", revisionIndex, "evidence", "source", "marketplaceRevision"],
-          "marketplace-relative plugin source must match the marketplace snapshot revision",
-        );
-      }
-    }
+    // A marketplace snapshot is the catalog selected for discovery, not the
+    // source of truth for already-installed marketplace-relative content.
+    // Each installed revision carries its own immutable source/content binding.
+    void snapshot;
   }
 }
 
@@ -271,13 +262,50 @@ export const InstalledUserStateDocumentSchemaV1 = z.object({
 });
 export type InstalledUserStateDocumentV1 = z.infer<typeof InstalledUserStateDocumentSchemaV1>;
 
-export const InstalledUserStateSchemaFamily = defineVersionedSchemaFamily({
-  latestVersion: 1,
-  versions: new Map([[1, InstalledUserStateDocumentSchemaV1]]),
-  migrations: new Map(),
+export const InstalledUserStateDocumentSchemaV2 = z.object({
+  schemaVersion: z.literal(2),
+  generation: GenerationSchema,
+  marketplaces: z.array(MarketplaceSnapshotRecordSchema).readonly(),
+  plugins: z.array(InstalledPluginRecordSchema).readonly(),
+}).strict().readonly().superRefine((document, context) => {
+  addDuplicateMarketplaceIssues(document.marketplaces, context);
+  addDuplicatePluginIssues(document.plugins, context);
+  // Historical marketplace-relative revisions are intentionally independent of
+  // the newest selected catalog snapshot; coverage by marketplace name remains.
+  const snapshots = new Set(document.marketplaces.map((record) => record.marketplace));
+  for (const [index, plugin] of document.plugins.entries()) {
+    const marketplace = plugin.plugin.slice(plugin.plugin.lastIndexOf("@") + 1);
+    if (!snapshots.has(MarketplaceNameSchema.parse(marketplace))) addIssue(context, ["plugins", index, "plugin"], "installed plugin must have a corresponding marketplace snapshot");
+  }
 });
-export const InstalledUserStateDocumentSchema = InstalledUserStateDocumentSchemaV1;
-export type InstalledUserStateDocument = InstalledUserStateDocumentV1;
+export type InstalledUserStateDocumentV2 = z.infer<typeof InstalledUserStateDocumentSchemaV2>;
+
+function migrateInstalledV1(input: unknown): InstalledUserStateDocumentV2 {
+  const value = InstalledUserStateDocumentSchemaV1.parse(input);
+  const plugins = value.plugins.map((plugin) => ({
+    ...plugin,
+    revisions: plugin.revisions.map((revision) => ({
+      ...revision,
+      evidence: {
+        ...revision.evidence,
+        marketplaceSourceIdentity: "legacy-unavailable",
+        pluginSourceIdentity: "legacy-unavailable",
+        sourceRevision: revision.evidence.source.kind === "marketplace-path"
+          ? revision.evidence.source.marketplaceRevision
+          : revision.evidence.source.kind === "npm" ? "legacy-unavailable" : revision.evidence.source.revision,
+      },
+    })),
+  }));
+  return InstalledUserStateDocumentSchemaV2.parse({ ...value, schemaVersion: 2, plugins });
+}
+
+export const InstalledUserStateSchemaFamily = defineVersionedSchemaFamily({
+  latestVersion: 2,
+  versions: new Map<number, z.ZodTypeAny>([[1, InstalledUserStateDocumentSchemaV1], [2, InstalledUserStateDocumentSchemaV2]]),
+  migrations: new Map([[1, migrateInstalledV1]]),
+});
+export const InstalledUserStateDocumentSchema = InstalledUserStateDocumentSchemaV2;
+export type InstalledUserStateDocument = InstalledUserStateDocumentV2;
 
 function isRecord(input: unknown): input is Record<string, unknown> {
   return input !== null && typeof input === "object" && !Array.isArray(input);
@@ -307,15 +335,22 @@ function evidenceFingerprint(tag: string, value: JsonValue, sha256: Sha256): Con
   return hashContent(new TextEncoder().encode(`${tag}\0${JSON.stringify(canonicalize(value))}`), sha256);
 }
 
-function sourceEvidence(source: ResolvedPluginSource): InstalledSourceEvidence {
+function sourceEvidence(source: ResolvedPluginSource, input: Readonly<{
+  marketplaceSourceIdentity?: StableSourceIdentity;
+  pluginSourceIdentity?: StableSourceIdentity;
+  declaredVersion?: string;
+}> = {}): InstalledSourceEvidence {
+  const metadata = {
+    ...(input.marketplaceSourceIdentity === undefined ? {} : { marketplaceSourceIdentity: input.marketplaceSourceIdentity }),
+    ...(input.pluginSourceIdentity === undefined ? {} : { pluginSourceIdentity: input.pluginSourceIdentity }),
+    ...(input.declaredVersion === undefined ? {} : { declaredVersion: input.declaredVersion }),
+    sourceRevision: source.kind === "marketplace-path" ? source.marketplaceRevision : source.kind === "npm" ? source.version : source.revision,
+  };
   switch (source.kind) {
-    case "marketplace-path":
-      return { kind: source.kind, sourceHash: source.hash, marketplaceRevision: source.marketplaceRevision };
+    case "marketplace-path": return { kind: source.kind, sourceHash: source.hash, marketplaceRevision: source.marketplaceRevision, ...metadata };
     case "git":
-    case "git-subdir":
-      return { kind: source.kind, sourceHash: source.hash, revision: source.revision };
-    case "npm":
-      return { kind: source.kind, sourceHash: source.hash };
+    case "git-subdir": return { kind: source.kind, sourceHash: source.hash, revision: source.revision, ...metadata };
+    case "npm": return { kind: source.kind, sourceHash: source.hash, ...metadata };
   }
 }
 
@@ -324,7 +359,7 @@ function marketplaceSourceEvidence(source: ResolvedMarketplaceSource): Marketpla
 }
 
 function sourceIdentity(source: InstalledSourceEvidence): JsonValue {
-  return source;
+  return JSON.parse(JSON.stringify(source)) as JsonValue;
 }
 
 function componentEvidence(plugin: NormalizedPlugin): InstalledComponentEvidence[] {
@@ -455,9 +490,16 @@ const InstalledRevisionRawInputSchema = z.object({
   dataRef: PluginDataRefSchema.optional(),
   configurationRef: PluginConfigurationRefSchema.optional(),
   scope: ScopeReferenceSchema.optional(),
+  marketplaceSourceIdentity: StableSourceIdentitySchema.optional(),
+  pluginSourceIdentity: StableSourceIdentitySchema.optional(),
+  declaredVersion: z.string().min(1).optional(),
 }).strict();
 
-function createEvidenceSummary(plugin: NormalizedPlugin, compatibility: CompatibilityReport, sha256: Sha256): InstalledEvidenceSummary {
+function createEvidenceSummary(plugin: NormalizedPlugin, compatibility: CompatibilityReport, sha256: Sha256, input: Readonly<{
+  marketplaceSourceIdentity?: StableSourceIdentity;
+  pluginSourceIdentity?: StableSourceIdentity;
+  declaredVersion?: string;
+}> = {}): InstalledEvidenceSummary {
   const components = componentEvidence(plugin);
   const componentIds = new Set(components.map((component) => component.id));
   const assessedIds = new Set(compatibility.components.map((component) => component.componentId));
@@ -470,7 +512,7 @@ function createEvidenceSummary(plugin: NormalizedPlugin, compatibility: Compatib
       marketplaceName: plugin.identity.marketplaceName,
       marketplaceEntryName: plugin.identity.marketplaceEntryName,
     },
-    source: sourceEvidence(plugin.source),
+    source: sourceEvidence(plugin.source, input),
     components,
     compatibility: {
       activatable: compatibility.activatable,
@@ -537,7 +579,11 @@ export function createInstalledRevisionRecord(input: unknown, sha256: Sha256): I
   const revision = createMaterializationBinding(source.hash, content.rootDigest, sha256);
   if (value.revision !== undefined && value.revision !== revision) throw new Error("installed revision does not match the source/content materialization binding");
   const scope = parseScope(value.scope);
-  const evidence = createEvidenceSummary({ ...plugin, source }, compatibility, sha256);
+  const evidence = createEvidenceSummary({ ...plugin, source }, compatibility, sha256, {
+    ...(value.marketplaceSourceIdentity === undefined ? {} : { marketplaceSourceIdentity: value.marketplaceSourceIdentity }),
+    ...(value.pluginSourceIdentity === undefined ? {} : { pluginSourceIdentity: value.pluginSourceIdentity }),
+    ...(value.declaredVersion === undefined ? {} : { declaredVersion: value.declaredVersion }),
+  });
   const revisionIdentity = pluginRevisionIdentity(scope, evidence, content.rootDigest, revision);
   const dataIdentity = {
     scope,
@@ -604,6 +650,15 @@ export function createInstalledUserStateDocument(input: unknown, sha256: Sha256)
     createInstalledPluginRecord({ ...(plugin as Record<string, unknown>), scope: { kind: "user" } }, sha256),
   );
   return InstalledUserStateDocumentSchemaV1.parse({ schemaVersion: 1, generation: value.generation, marketplaces, plugins });
+}
+
+/** Build the current v2 envelope without weakening the v1 constructor used by migration fixtures. */
+export function createInstalledUserStateDocumentV2(input: unknown, sha256: Sha256): InstalledUserStateDocumentV2 {
+  if (isRecord(input) && input.schemaVersion === 2) {
+    const { schemaVersion: _version, ...legacyInput } = input;
+    return migrateInstalledV1(createInstalledUserStateDocument({ ...legacyInput, schemaVersion: 1 }, sha256));
+  }
+  return migrateInstalledV1(createInstalledUserStateDocument(input, sha256));
 }
 
 export type InstalledRecordQuarantine = Readonly<{

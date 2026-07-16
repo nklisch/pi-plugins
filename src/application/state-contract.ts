@@ -1,17 +1,20 @@
 import { z } from "zod";
 import {
   HostConfigDocumentSchemaV1,
-  type HostConfigDocumentV1,
+  HostConfigDocumentSchema,
+  type HostConfigDocument,
 } from "../domain/state/config-state.js";
 import {
   InstalledUserStateDocumentSchemaV1,
-  createInstalledUserStateDocument,
-  type InstalledUserStateDocumentV1,
+  InstalledUserStateDocumentSchema,
+  createInstalledUserStateDocumentV2,
+  type InstalledUserStateDocument,
 } from "../domain/state/installed-state.js";
 import {
   ProjectLocalStateDocumentSchemaV1,
-  createProjectLocalStateDocument,
-  type ProjectLocalStateDocumentV1,
+  ProjectLocalStateDocumentSchema,
+  createProjectLocalStateDocumentV2,
+  type ProjectLocalStateDocument,
 } from "../domain/state/project-state.js";
 import {
   StatePointersDocumentSchemaV1,
@@ -47,8 +50,8 @@ export type UserGenerationSnapshot = Readonly<{
   scope: UserScopeContext;
   generation: Generation;
   pointers: StatePointersDocumentV1;
-  config: HostConfigDocumentV1;
-  installed: InstalledUserStateDocumentV1;
+  config: HostConfigDocument;
+  installed: InstalledUserStateDocument;
   trust: TrustStateDocumentV1;
   corruptions: readonly StateCorruption[];
 }>;
@@ -58,7 +61,7 @@ export type ProjectGenerationSnapshot = Readonly<{
   scope: ProjectScopeContext;
   generation: Generation;
   pointers: StatePointersDocumentV1;
-  project: ProjectLocalStateDocumentV1;
+  project: ProjectLocalStateDocument;
   corruptions: readonly StateCorruption[];
 }>;
 
@@ -66,15 +69,15 @@ export type GenerationSnapshot = UserGenerationSnapshot | ProjectGenerationSnaps
 
 const UserReplacementSchema = z
   .object({
-    config: HostConfigDocumentSchemaV1.optional(),
-    installed: InstalledUserStateDocumentSchemaV1.optional(),
+    config: z.union([HostConfigDocumentSchema, HostConfigDocumentSchemaV1]).optional(),
+    installed: z.union([InstalledUserStateDocumentSchema, InstalledUserStateDocumentSchemaV1]).optional(),
     trust: TrustStateDocumentSchemaV1.optional(),
   })
   .strict();
 
 const ProjectReplacementSchema = z
   .object({
-    project: ProjectLocalStateDocumentSchemaV1,
+    project: z.union([ProjectLocalStateDocumentSchema, ProjectLocalStateDocumentSchemaV1]),
   })
   .strict();
 
@@ -257,7 +260,7 @@ export function parseStateMutation(input: unknown, sha256: Sha256): StateMutatio
       ...mutation,
       scope,
       replace: {
-        project: createProjectLocalStateDocument(mutation.replace.project, scope, sha256),
+        project: createProjectLocalStateDocumentV2(mutation.replace.project, scope, sha256),
       },
     });
   }
@@ -269,8 +272,12 @@ export function parseStateMutation(input: unknown, sha256: Sha256): StateMutatio
     ...mutation,
     scope,
     replace: {
-      ...(replace.config === undefined ? {} : { config: HostConfigDocumentSchemaV1.parse(replace.config) }),
-      ...(replace.installed === undefined ? {} : { installed: createInstalledUserStateDocument(replace.installed, sha256) }),
+      ...(replace.config === undefined ? {} : { config: HostConfigDocumentSchema.parse(replace.config.schemaVersion === 1 ? {
+        ...replace.config,
+        schemaVersion: 2,
+        records: replace.config.records.map((record) => ({ ...record, refresh: { nextScheduledAt: 0, consecutiveFailures: 0 }, notifications: [] })),
+      } : replace.config) }),
+      ...(replace.installed === undefined ? {} : { installed: createInstalledUserStateDocumentV2(replace.installed, sha256) }),
       ...(replace.trust === undefined ? {} : {
         trust: TrustStateDocumentSchemaV1.parse({
           ...replace.trust,
@@ -296,9 +303,9 @@ export const StateLoadFailureSchema = z
 
 export type {
   Generation,
-  HostConfigDocumentV1,
-  InstalledUserStateDocumentV1,
-  ProjectLocalStateDocumentV1,
+  HostConfigDocument,
+  InstalledUserStateDocument,
+  ProjectLocalStateDocument,
   StateCorruption,
   StatePointersDocumentV1,
   TrustStateDocumentV1,

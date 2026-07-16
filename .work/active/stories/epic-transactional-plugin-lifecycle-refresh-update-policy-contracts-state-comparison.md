@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-refresh-update-policy-contracts-state-comparison
 kind: story
-stage: implementing
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-refresh-update-policy
 depends_on: []
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-17
 ---
 
 # Define durable update evidence and comparison
@@ -43,3 +43,17 @@ Evolve the existing host-config, installed-user, and project-local state familie
 ## Ordering
 
 This is the root checkpoint. Refresh must not publish network evidence or schedule work until these durable identities and memory transitions exist.
+
+## Implementation notes
+
+- Added `src/domain/time.ts` as the inward owner of persisted epoch timestamps and kept the lifecycle clock as a type/schema re-export.
+- Added portable update-policy contracts for stable declared-source identity, immutable candidate comparison, candidate keys, refresh claims/backoff, notification memory, manual defaults, and source-replacement resets.
+- Evolved host configuration, installed-user, and project-local families to v2 with deterministic v1 migrations. Legacy installed evidence receives `legacy-unavailable` source identities; project v1 migration creates no marketplace update authority.
+- Historical marketplace-relative revisions are now validated against marketplace-name coverage only; their own immutable source/content evidence remains authoritative after a catalog snapshot changes.
+- Kept a narrow compatibility path for v1 state envelopes returned by existing adapters while all verified mutations and current registry aliases target v2.
+
+## Verification
+
+- `npm run typecheck` passed.
+- Focused contract suite passed: 28 tests across update policy, state migration/codec, installed/project state, and state mutation contracts.
+- Existing generation-coordinator suite passed: 14 tests, including v1 adapter-envelope compatibility and verified v2 mutation evidence.

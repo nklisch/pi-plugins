@@ -1,8 +1,7 @@
-import { z } from "zod";
-
-/** Wall-clock evidence is persisted; monotonic time is only a local budget. */
-export const EpochMillisecondsSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-export type EpochMilliseconds = z.infer<typeof EpochMillisecondsSchema>;
+/** State imports the clock contract from the inward domain layer. */
+export { EpochMillisecondsSchema } from "../../domain/time.js";
+export type { EpochMilliseconds } from "../../domain/time.js";
+import type { EpochMilliseconds } from "../../domain/time.js";
 
 export interface LifecycleClock {
   nowEpochMilliseconds(): EpochMilliseconds;

@@ -109,7 +109,9 @@ async function verifyPlugin(
     const identityInput = {
       scope,
       plugin: record.evidence.plugin.key,
-      source,
+      // The persisted evidence is schema-validated JSON; stringify/parse also
+      // drops optional migration-only fields before reference hashing.
+      source: JSON.parse(JSON.stringify(source)),
       content: record.contentDigest,
       binding: record.revision,
     } as const;

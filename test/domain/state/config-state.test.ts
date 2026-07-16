@@ -68,14 +68,15 @@ describe("host marketplace configuration state", () => {
     }).success).toBe(false);
   });
 
-  it("has an independent v1 family with no implicit legacy migration", () => {
-    expect(HostConfigSchemaFamily.latestVersion).toBe(1);
-    expect(migrateVersionedDocument(HostConfigSchemaFamily, document())).toEqual(
-      HostConfigDocumentSchemaV1.parse(document()),
-    );
+  it("migrates deterministic v1 records into the current v2 family", () => {
+    expect(HostConfigSchemaFamily.latestVersion).toBe(2);
+    const migrated = migrateVersionedDocument(HostConfigSchemaFamily, document());
+    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.records[0]?.refresh).toEqual({ nextScheduledAt: 0, consecutiveFailures: 0 });
+    expect(migrated.records[0]?.notifications).toEqual([]);
     expect(() => migrateVersionedDocument(HostConfigSchemaFamily, {
       ...document(),
-      schemaVersion: 2,
+      schemaVersion: 3,
     })).toThrow(/newer/);
   });
 

@@ -20,12 +20,16 @@ import {
   type InstalledPluginRecord,
   type MarketplaceSnapshotRecord,
 } from "./installed-state.js";
-import { PluginKeySchema } from "../identity.js";
+import { MarketplaceNameSchema, PluginKeySchema } from "../identity.js";
 import { GenerationSchema } from "./config-state.js";
 export { GenerationSchema } from "./config-state.js";
 export type { Generation } from "./config-state.js";
 import { defineVersionedSchemaFamily } from "./versioning.js";
 import type { Sha256 } from "../source.js";
+import {
+  MarketplaceUpdateRecordSchema,
+  type MarketplaceUpdateRecord,
+} from "../update-policy.js";
 
 /** Machine-local state for one verified project declaration and identity. */
 export const ProjectLocalStateDocumentSchemaV1 = z
@@ -88,13 +92,45 @@ export const ProjectLocalStateDocumentSchemaV1 = z
   });
 export type ProjectLocalStateDocumentV1 = z.infer<typeof ProjectLocalStateDocumentSchemaV1>;
 
-export const ProjectLocalStateSchemaFamily = defineVersionedSchemaFamily({
-  latestVersion: 1,
-  versions: new Map([[1, ProjectLocalStateDocumentSchemaV1]]),
-  migrations: new Map(),
+export const ProjectLocalStateDocumentSchemaV2 = z.object({
+  schemaVersion: z.literal(2),
+  generation: GenerationSchema,
+  projectKey: ProjectKeySchema,
+  identity: ProjectIdentitySchema,
+  declarationDigest: ContentDigestSchema,
+  marketplaces: z.array(MarketplaceSnapshotRecordSchema).readonly(),
+  plugins: z.array(InstalledPluginRecordSchema).readonly(),
+  marketplaceUpdates: z.array(MarketplaceUpdateRecordSchema).readonly(),
+}).strict().readonly().superRefine((document, context) => {
+  const snapshots = new Set(document.marketplaces.map((record) => record.marketplace));
+  const seen = new Set<string>();
+  for (const [index, record] of document.marketplaceUpdates.entries()) {
+    if (!snapshots.has(record.marketplace)) context.addIssue({ code: "custom", path: ["marketplaceUpdates", index, "marketplace"], message: "update record must have a matching marketplace snapshot" });
+    if (seen.has(record.marketplace)) context.addIssue({ code: "custom", path: ["marketplaceUpdates", index, "marketplace"], message: "duplicate marketplace update record" });
+    seen.add(record.marketplace);
+  }
+  const pluginKeys = new Set<string>();
+  for (const [index, plugin] of document.plugins.entries()) {
+    if (pluginKeys.has(plugin.plugin)) context.addIssue({ code: "custom", path: ["plugins", index, "plugin"], message: "duplicate installed plugin" });
+    pluginKeys.add(plugin.plugin);
+    const marketplace = plugin.plugin.slice(plugin.plugin.lastIndexOf("@") + 1);
+    if (!snapshots.has(MarketplaceNameSchema.parse(marketplace))) context.addIssue({ code: "custom", path: ["plugins", index, "plugin"], message: "installed plugin must have a corresponding marketplace snapshot" });
+  }
 });
-export const ProjectLocalStateDocumentSchema = ProjectLocalStateDocumentSchemaV1;
-export type ProjectLocalStateDocument = ProjectLocalStateDocumentV1;
+export type ProjectLocalStateDocumentV2 = z.infer<typeof ProjectLocalStateDocumentSchemaV2>;
+
+function migrateProjectV1(input: unknown): ProjectLocalStateDocumentV2 {
+  const value = ProjectLocalStateDocumentSchemaV1.parse(input);
+  return ProjectLocalStateDocumentSchemaV2.parse({ ...value, schemaVersion: 2, marketplaceUpdates: [] });
+}
+
+export const ProjectLocalStateSchemaFamily = defineVersionedSchemaFamily({
+  latestVersion: 2,
+  versions: new Map<number, z.ZodTypeAny>([[1, ProjectLocalStateDocumentSchemaV1], [2, ProjectLocalStateDocumentSchemaV2]]),
+  migrations: new Map([[1, migrateProjectV1]]),
+});
+export const ProjectLocalStateDocumentSchema = ProjectLocalStateDocumentSchemaV2;
+export type ProjectLocalStateDocument = ProjectLocalStateDocumentV2;
 
 const ProjectLocalStateInputSchema = z
   .object({
@@ -171,6 +207,21 @@ export function createProjectLocalStateDocument(
     marketplaces,
     plugins,
   });
+}
+
+/** Build the current machine-local v2 envelope from the existing checked constructor. */
+export function createProjectLocalStateDocumentV2(
+  input: unknown,
+  context: Extract<ScopeContext, { kind: "project" }>,
+  sha256: Sha256,
+): ProjectLocalStateDocumentV2 {
+  if (input !== null && typeof input === "object" && !Array.isArray(input) && (input as { readonly schemaVersion?: unknown }).schemaVersion === 2) {
+    const { schemaVersion: _version, marketplaceUpdates: _updates, ...legacyInput } = input as Record<string, unknown>;
+    const legacy = createProjectLocalStateDocument({ ...legacyInput, schemaVersion: 1 }, context, sha256);
+    return ProjectLocalStateDocumentSchemaV2.parse({ ...legacy, schemaVersion: 2, marketplaceUpdates: [] });
+  }
+  const legacy = createProjectLocalStateDocument(input, context, sha256);
+  return ProjectLocalStateDocumentSchemaV2.parse({ ...legacy, schemaVersion: 2, marketplaceUpdates: [] });
 }
 
 export type ProjectPluginRecordCollectionDecode = Readonly<{

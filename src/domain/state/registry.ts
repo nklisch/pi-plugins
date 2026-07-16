@@ -1,18 +1,18 @@
 import { z } from "zod";
 import {
-  HostConfigDocumentSchemaV1,
+  HostConfigDocumentSchema,
   HostConfigSchemaFamily,
-  type HostConfigDocumentV1,
+  type HostConfigDocument,
 } from "./config-state.js";
 import {
-  InstalledUserStateDocumentSchemaV1,
+  InstalledUserStateDocumentSchema,
   InstalledUserStateSchemaFamily,
-  type InstalledUserStateDocumentV1,
+  type InstalledUserStateDocument,
 } from "./installed-state.js";
 import {
-  ProjectLocalStateDocumentSchemaV1,
+  ProjectLocalStateDocumentSchema,
   ProjectLocalStateSchemaFamily,
-  type ProjectLocalStateDocumentV1,
+  type ProjectLocalStateDocument,
 } from "./project-state.js";
 import {
   StatePointersDocumentSchemaV1,
@@ -48,12 +48,12 @@ export type StateDocumentIsolation =
  */
 export const StateDocumentRegistry = {
   hostConfig: {
-    schema: HostConfigDocumentSchemaV1,
+    schema: HostConfigDocumentSchema,
     family: HostConfigSchemaFamily,
     isolation: "marketplace-record",
   },
   installedUser: {
-    schema: InstalledUserStateDocumentSchemaV1,
+    schema: InstalledUserStateDocumentSchema,
     family: InstalledUserStateSchemaFamily,
     isolation: "plugin-record",
   },
@@ -63,7 +63,7 @@ export const StateDocumentRegistry = {
     isolation: "trust-record",
   },
   projectLocal: {
-    schema: ProjectLocalStateDocumentSchemaV1,
+    schema: ProjectLocalStateDocumentSchema,
     family: ProjectLocalStateSchemaFamily,
     isolation: "plugin-record",
   },
@@ -113,9 +113,9 @@ export function stateDocumentKinds(): readonly StateDocumentKind[] {
 export { StateDocumentKindRegistry, StateDocumentKindSchema } from "./pointers.js";
 
 export type {
-  HostConfigDocumentV1,
-  InstalledUserStateDocumentV1,
-  ProjectLocalStateDocumentV1,
+  HostConfigDocument,
+  InstalledUserStateDocument,
+  ProjectLocalStateDocument,
   PortableProjectDeclarationV1,
   StatePointersDocumentV1,
   TrustStateDocumentV1,

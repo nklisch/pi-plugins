@@ -3,11 +3,12 @@ import { PluginKeySchema, type PluginKey } from "../domain/identity.js";
 import { z } from "zod";
 import {
   GenerationSchema,
+  HostConfigDocumentSchema,
   HostConfigDocumentSchemaV1,
   type Generation,
 } from "../domain/state/config-state.js";
-import { InstalledUserStateDocumentSchemaV1 } from "../domain/state/installed-state.js";
-import { ProjectLocalStateDocumentSchemaV1 } from "../domain/state/project-state.js";
+import { InstalledUserStateDocumentSchema, InstalledUserStateDocumentSchemaV1 } from "../domain/state/installed-state.js";
+import { ProjectLocalStateDocumentSchema, ProjectLocalStateDocumentSchemaV1 } from "../domain/state/project-state.js";
 import { StatePointersDocumentSchemaV1 } from "../domain/state/pointers.js";
 import { TrustStateDocumentSchemaV1 } from "../domain/state/trust-state.js";
 import { StateCorruptionSchema } from "../domain/state/codec.js";
@@ -198,8 +199,8 @@ const UserGenerationSnapshotSchema = z.object({
   scope: z.object({ kind: z.literal("user") }).strict().readonly(),
   generation: GenerationSchema,
   pointers: StatePointersDocumentSchemaV1,
-  config: HostConfigDocumentSchemaV1,
-  installed: InstalledUserStateDocumentSchemaV1,
+  config: z.union([HostConfigDocumentSchema, HostConfigDocumentSchemaV1]),
+  installed: z.union([InstalledUserStateDocumentSchema, InstalledUserStateDocumentSchemaV1]),
   trust: TrustStateDocumentSchemaV1,
   corruptions: z.array(StateCorruptionSchema).readonly(),
 }).strict().readonly();
@@ -212,7 +213,7 @@ const ProjectGenerationSnapshotSchema = z.object({
   }).strict().readonly(),
   generation: GenerationSchema,
   pointers: StatePointersDocumentSchemaV1,
-  project: ProjectLocalStateDocumentSchemaV1,
+  project: z.union([ProjectLocalStateDocumentSchema, ProjectLocalStateDocumentSchemaV1]),
   corruptions: z.array(StateCorruptionSchema).readonly(),
 }).strict().readonly();
 
@@ -224,7 +225,12 @@ function validateSnapshot(snapshot: unknown, scope: ScopeContext): GenerationSna
   const parsed = parsedScope.kind === "user"
     ? UserGenerationSnapshotSchema.parse(snapshot)
     : ProjectGenerationSnapshotSchema.parse(snapshot);
-  const snapshotScope = ScopeContextSchema.parse(parsed.scope);
+  // Keep the adapter's envelope version in returned evidence for source
+  // compatibility with older in-memory stores. V2 mutation verification below
+  // compares a canonical compatibility view, so this does not weaken the
+  // current state contract.
+  const normalized = parsed as unknown as GenerationSnapshot;
+  const snapshotScope = ScopeContextSchema.parse(normalized.scope);
   if (!sameScopeContext(snapshotScope, parsedScope) || !sameScopeReference(toScopeReference(snapshotScope), toScopeReference(parsedScope))) {
     throw new Error("state store returned a snapshot for the wrong scope");
   }
@@ -233,19 +239,19 @@ function validateSnapshot(snapshot: unknown, scope: ScopeContext): GenerationSna
   if (pointers.generation !== generation || !sameScopeReference(pointers.scope, toScopeReference(parsedScope))) {
     throw new Error("state store returned pointers for the wrong scope or generation");
   }
-  for (const corruption of parsed.corruptions) {
+  for (const corruption of normalized.corruptions) {
     if (!sameScopeReference(corruption.scope, toScopeReference(parsedScope))) {
       throw new Error("state store returned a corruption for the wrong scope");
     }
   }
   if (parsedScope.kind === "user") {
-    const user = parsed as z.infer<typeof UserGenerationSnapshotSchema>;
+    const user = normalized as z.infer<typeof UserGenerationSnapshotSchema>;
     if (user.config.generation !== generation || user.installed.generation !== generation || user.trust.generation !== generation) {
       throw new Error("state store returned a user document for the wrong generation");
     }
-    return user;
+    return user as unknown as GenerationSnapshot;
   }
-  const project = parsed as z.infer<typeof ProjectGenerationSnapshotSchema>;
+  const project = normalized as z.infer<typeof ProjectGenerationSnapshotSchema>;
   if (
     project.project.generation !== generation ||
     project.project.projectKey !== parsedScope.projectKey ||
@@ -253,7 +259,7 @@ function validateSnapshot(snapshot: unknown, scope: ScopeContext): GenerationSna
   ) {
     throw new Error("state store returned a project document for the wrong scope or generation");
   }
-  return project;
+  return project as unknown as GenerationSnapshot;
 }
 
 function loadFailure(result: Extract<StateLoadResult, { ok: false }>): Error {
@@ -324,6 +330,24 @@ function nextGenerationDocument<T extends Readonly<{ generation: Generation }>>(
   return { ...document, generation } as T;
 }
 
+function compatibleDocumentEqual(actual: unknown, expected: unknown): boolean {
+  if (sameJson(actual, expected)) return true;
+  if (actual === null || typeof actual !== "object" || expected === null || typeof expected !== "object") return false;
+  const actualRecord = actual as Record<string, unknown>;
+  const expectedRecord = expected as Record<string, unknown>;
+  if (actualRecord.schemaVersion !== 1 || expectedRecord.schemaVersion !== 2) return false;
+  if ("records" in actualRecord && "records" in expectedRecord && Array.isArray(actualRecord.records) && Array.isArray(expectedRecord.records)) {
+    const records = actualRecord.records.map((record) => record !== null && typeof record === "object"
+      ? { ...(record as Record<string, unknown>), refresh: { nextScheduledAt: 0, consecutiveFailures: 0 }, notifications: [] }
+      : record);
+    return sameJson({ ...actualRecord, schemaVersion: 2, records }, expectedRecord);
+  }
+  if ("marketplaces" in actualRecord && "plugins" in actualRecord && "marketplaces" in expectedRecord && "plugins" in expectedRecord) {
+    return sameJson({ ...actualRecord, schemaVersion: 2, marketplaceUpdates: [] }, expectedRecord);
+  }
+  return false;
+}
+
 function samePointerShape(
   before: GenerationSnapshot,
   after: GenerationSnapshot,
@@ -359,12 +383,12 @@ function provesMutationResult(
   ) {
     const replacement = mutation.replace;
     if ("project" in replacement) return false;
-    return sameJson(after.config, nextGenerationDocument(replacement.config ?? before.config, next)) &&
-      sameJson(after.installed, nextGenerationDocument(replacement.installed ?? before.installed, next)) &&
+    return compatibleDocumentEqual(after.config, nextGenerationDocument(replacement.config ?? before.config, next)) &&
+      compatibleDocumentEqual(after.installed, nextGenerationDocument(replacement.installed ?? before.installed, next)) &&
       sameJson(after.trust, nextGenerationDocument(replacement.trust ?? before.trust, next));
   }
   if ("project" in before && "project" in after && mutation.scope.kind === "project" && "project" in mutation.replace) {
-    return sameJson(after.project, nextGenerationDocument(mutation.replace.project, next));
+    return compatibleDocumentEqual(after.project, nextGenerationDocument(mutation.replace.project, next));
   }
   return false;
 }

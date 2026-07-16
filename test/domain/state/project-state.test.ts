@@ -12,6 +12,7 @@ import {
   deriveProjectKey,
   type ScopeContext,
 } from "../../../src/domain/state/scope.js";
+import { migrateVersionedDocument } from "../../../src/domain/state/versioning.js";
 import {
   ProjectLocalStateDocumentSchemaV1,
   ProjectLocalStateSchemaFamily,
@@ -156,8 +157,19 @@ describe("project-local lifecycle state", () => {
     expect(result.quarantined.some((entry) => entry.code === "RECORD_INVALID")).toBe(true);
   });
 
-  it("has an independently versioned v1 family and strict envelope", () => {
-    expect(ProjectLocalStateSchemaFamily.latestVersion).toBe(1);
+  it("migrates v1 without inventing project update authority", () => {
+    expect(ProjectLocalStateSchemaFamily.latestVersion).toBe(2);
+    const migrated = migrateVersionedDocument(ProjectLocalStateSchemaFamily, {
+      schemaVersion: 1,
+      generation: 0,
+      projectKey,
+      identity,
+      declarationDigest: content.rootDigest,
+      marketplaces: [],
+      plugins: [],
+    });
+    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.marketplaceUpdates).toEqual([]);
     expect(ProjectLocalStateDocumentSchemaV1.safeParse({
       schemaVersion: 1,
       generation: 0,

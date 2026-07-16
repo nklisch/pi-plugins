@@ -1,86 +1,75 @@
 import { z } from "zod";
 import { MarketplaceNameSchema } from "../identity.js";
-import { MarketplaceSourceSchema } from "../source.js";
+import { MarketplaceSourceSchema, type MarketplaceSource } from "../source.js";
+import {
+  MarketplaceUpdateRecordSchema,
+  UpdateApplicationPreferenceSchema,
+  createMarketplaceConfigurationRecord,
+  type MarketplaceUpdateRecord,
+  type UpdateApplicationPreference,
+} from "../update-policy.js";
 import { defineVersionedSchemaFamily } from "./versioning.js";
 
-/**
- * A generation is a logical compare-and-swap value, not a timestamp or a
- * filesystem identifier. State adapters own how it is incremented and stored.
- */
-export const GenerationSchema = z
-  .number()
-  .int()
-  .nonnegative()
-  .safe()
-  .brand<"Generation">();
+/** A logical compare-and-swap value, never a timestamp or filesystem id. */
+export const GenerationSchema = z.number().int().nonnegative().safe().brand<"Generation">();
 export type Generation = z.infer<typeof GenerationSchema>;
 
-/**
- * This preference records how a later update policy may apply a discovered
- * update. It deliberately does not grant update authority or implement the
- * update operation itself.
- */
-export const UpdateApplicationPreferenceSchema = z.enum(["manual", "automatic"]);
-export type UpdateApplicationPreference = z.infer<
-  typeof UpdateApplicationPreferenceSchema
->;
+export { UpdateApplicationPreferenceSchema } from "../update-policy.js";
+export type { UpdateApplicationPreference } from "../update-policy.js";
 
-export const MarketplaceConfigurationRecordSchema = z
-  .object({
-    marketplace: MarketplaceNameSchema,
-    source: MarketplaceSourceSchema,
-    updateApplication: UpdateApplicationPreferenceSchema,
-  })
-  .strict()
-  .readonly();
-export type MarketplaceConfigurationRecord = z.infer<
-  typeof MarketplaceConfigurationRecordSchema
->;
+/** The v1 record is retained as an explicit migration input and fixture type. */
+export const MarketplaceConfigurationRecordSchemaV1 = z.object({
+  marketplace: MarketplaceNameSchema,
+  source: MarketplaceSourceSchema,
+  updateApplication: UpdateApplicationPreferenceSchema,
+}).strict().readonly();
+export type MarketplaceConfigurationRecordV1 = z.infer<typeof MarketplaceConfigurationRecordSchemaV1>;
 
-function addDuplicateMarketplaceIssues(
-  records: readonly MarketplaceConfigurationRecord[],
-  context: z.RefinementCtx,
-): void {
+/** Current host records own policy and all scope-local operational memory. */
+export const MarketplaceConfigurationRecordSchema = MarketplaceUpdateRecordSchema;
+export type MarketplaceConfigurationRecord = MarketplaceUpdateRecord;
+
+function addDuplicateMarketplaceIssues(records: readonly { marketplace: string }[], path: string, context: z.RefinementCtx): void {
   const firstByMarketplace = new Map<string, number>();
   for (const [index, record] of records.entries()) {
     const firstIndex = firstByMarketplace.get(record.marketplace);
-    if (firstIndex !== undefined) {
-      context.addIssue({
-        code: "custom",
-        path: ["records", index, "marketplace"],
-        message: `duplicate marketplace configuration; first declared at index ${firstIndex}`,
-      });
-    } else {
-      firstByMarketplace.set(record.marketplace, index);
-    }
+    if (firstIndex !== undefined) context.addIssue({ code: "custom", path: [path, index, "marketplace"], message: `duplicate marketplace configuration; first declared at index ${firstIndex}` });
+    else firstByMarketplace.set(record.marketplace, index);
   }
 }
 
-/** The independently versioned user host configuration envelope. */
-export const HostConfigDocumentSchemaV1 = z
-  .object({
-    schemaVersion: z.literal(1),
-    generation: GenerationSchema,
-    records: z.array(MarketplaceConfigurationRecordSchema).readonly(),
-  })
-  .strict()
-  .readonly()
-  .superRefine((document, context) => {
-    addDuplicateMarketplaceIssues(document.records, context);
-  });
+export const HostConfigDocumentSchemaV1 = z.object({
+  schemaVersion: z.literal(1), generation: GenerationSchema,
+  records: z.array(MarketplaceConfigurationRecordSchemaV1).readonly(),
+}).strict().readonly().superRefine((document, context) => addDuplicateMarketplaceIssues(document.records, "records", context));
 export type HostConfigDocumentV1 = z.infer<typeof HostConfigDocumentSchemaV1>;
 
-/**
- * Keep the family next to its schema so the state registry can route both
- * validation and migration from one declaration. Version 1 intentionally has
- * no fabricated legacy migration.
- */
+export const HostConfigDocumentSchemaV2 = z.object({
+  schemaVersion: z.literal(2), generation: GenerationSchema,
+  records: z.array(MarketplaceUpdateRecordSchema).readonly(),
+}).strict().readonly().superRefine((document, context) => addDuplicateMarketplaceIssues(document.records, "records", context));
+export type HostConfigDocumentV2 = z.infer<typeof HostConfigDocumentSchemaV2>;
+
+function migrateHostV1(input: unknown): HostConfigDocumentV2 {
+  const value = HostConfigDocumentSchemaV1.parse(input);
+  return HostConfigDocumentSchemaV2.parse({
+    schemaVersion: 2,
+    generation: value.generation,
+    records: value.records.map((record) => createMarketplaceConfigurationRecord({
+      marketplace: record.marketplace,
+      source: record.source,
+      updateApplication: record.source.kind === "local-git" ? "manual" : record.updateApplication,
+    })),
+  });
+}
+
 export const HostConfigSchemaFamily = defineVersionedSchemaFamily({
-  latestVersion: 1,
-  versions: new Map([[1, HostConfigDocumentSchemaV1]]),
-  migrations: new Map(),
+  latestVersion: 2,
+  versions: new Map<number, z.ZodTypeAny>([[1, HostConfigDocumentSchemaV1], [2, HostConfigDocumentSchemaV2]]),
+  migrations: new Map([[1, migrateHostV1]]),
 });
 
-/** Convenient singular alias for callers that do not need the version suffix. */
-export const HostConfigDocumentSchema = HostConfigDocumentSchemaV1;
-export type HostConfigDocument = HostConfigDocumentV1;
+export const HostConfigDocumentSchema = HostConfigDocumentSchemaV2;
+export type HostConfigDocument = HostConfigDocumentV2;
+
+export type { MarketplaceSource, MarketplaceUpdateRecord };
