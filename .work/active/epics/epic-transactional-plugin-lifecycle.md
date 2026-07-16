@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle
 kind: epic
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: null
 depends_on: [epic-foreign-plugin-model]
@@ -108,3 +108,9 @@ Effective review weight: `standard`; one deep fresh-context Umans GLM 5.2 pass. 
 - Resolve adapter-ownership ambiguity without expanding this explicitly adapter-neutral epic: name `epic-native-plugin-management` as owner of concrete state/credential/configuration-path composition and describe this epic as contracts/application services rather than a packaged concrete store.
 
 Tracked by `epic-transactional-plugin-lifecycle-review-hardening`. The proposal to implement a concrete durable state store here is rejected as outside the epic's explicit “contracts and fakes only” boundary (`StateDocumentRegistry`/`LifecycleStateStore` intentionally do not prescribe physical storage); its legitimate composition need is assigned to the native packaged-operation epic. No second independent pass is permitted after the exact fix set under standard review.
+
+## Review hardening fix verification (2026-07-16)
+
+The accepted standard-review fix is implemented and verified in child story `epic-transactional-plugin-lifecycle-review-hardening`, now `stage: done`. The package barrel exports the existing `createLifecycleTransitionReconciler` factory and its public `LifecycleTransitionReconciler` / `LifecycleTransitionReconcilerDependencies` types, plus the named `LifecycleStateInventoryPort` and `RecoveryArtifactsPort` boundaries. Source API/type assertions and the compiled package allowlist were updated only for those intentional additions; private lifecycle and adapter internals remain unexported.
+
+Verification: focused public API/type tests passed (2 files, 6 tests), package build/import passed with 438 exports, dependency boundaries passed (178 modules / 1,086 dependencies), and full `npm test` passed (121 files / 648 tests; no type errors). Architecture consistency was checked against `docs/ARCHITECTURE.md` and `epic-native-plugin-management`: concrete state, credential/secret, configuration-path/write-id, inventory, recovery-artifact, and project-root adapters remain native-epic ownership. No adapter implementation, runtime behavior, schema, persistence, transaction, or startup changes were made. Standard review is closed administratively; no second epic review was commissioned.
