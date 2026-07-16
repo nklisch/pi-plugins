@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-recovery-journal-gc-durable-journal-adapter
 kind: story
-stage: implementing
+stage: done
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-recovery-journal-gc
 depends_on: [epic-transactional-plugin-lifecycle-recovery-journal-gc-reconciliation-contracts]
@@ -46,3 +46,13 @@ Implement the separate per-scope SQLite recovery journal with exact write-ahead 
 ## Ordering
 
 Depends on the finalized journal schemas. Startup and collection consume this durable adapter after this checkpoint.
+
+## Implementation notes
+
+Implemented the separate per-scope recovery journal under `recovery/journal/v1/` with rollback-journal SQLite, `synchronous=FULL`, strict protocol/table bootstrap, root and database inode identity markers, zero native busy timeout, canonical record bytes and SHA-256 evidence, insert-no-replace prepare, resumable/terminal status edges, private PID/start-token/nonce ownership, and row-level quarantine. `recovery-required` clears ownership so later startup can resume; malformed rows are quarantined without exposing raw bytes or native details. The scope-lock database remains untouched.
+
+Verification evidence:
+
+- `npm run typecheck` — passed.
+- `npm run test:unit -- --run test/infrastructure/recovery/sqlite-transition-journal.test.ts` — 1 file / 3 tests passed.
+- The journal test proves idempotent exact prepare, terminal conflict rejection, rollback journal mode, digest-invalid sibling quarantine, and live-owner release through `recovery-required`.
