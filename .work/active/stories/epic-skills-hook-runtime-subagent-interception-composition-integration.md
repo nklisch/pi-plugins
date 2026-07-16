@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-subagent-interception-composition-integration
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-subagent-interception
 depends_on: [epic-skills-hook-runtime-subagent-interception-fake-conformance, epic-skills-hook-runtime-subagent-interception-hook-coordinator]
@@ -77,3 +77,16 @@ None for portable composition. A real production port remains externally blocked
 ## Risk and rollback
 
 The risk is treating successful registration as capability qualification or allowing test evidence into production compatibility. Digest matching and provider-kind gating keep those proofs separate. Rollback unregisters/removes portable composition and leaves the single capability unavailable; no state, projection, trust, data, or settings migration exists.
+
+## Implementation summary
+
+- Added package-neutral registration that validates the supplied qualification, registers exactly one aggregate interceptor, requires exact digest/contract/budget activation evidence, compensates every mismatch or registration race, and exposes only idempotent disposal.
+- Added fake-backed end-to-end integration through verified hook projection, parent-session resolution, strict planning, the real guarded executor/parser/redaction path, source-ordered multi-plugin aggregation, exact start injection, one same-session stop continuation, catalog update at the next boundary, and runtime shutdown.
+- Added source/compiled public allowlists and dependency rules that keep the application boundary independent of Pi, Node, runtime implementations, and any concrete subagent package. Compatibility integration proves interception absence blocks only plugins that cite it; an ordinary-only sibling remains activatable.
+
+## Implementation record
+
+- Execution capability: `xhigh feature owner`; one sequential feature bundle with no nested agents.
+- Commit ref: `52b41c9` (`implement: compose portable subagent hook runtime`).
+- Verification: `npm run typecheck`; `npm run boundaries` (221 modules, 1,317 dependencies, zero violations); 31 focused application/integration/public Vitest tests; `npm run test:package`; compiled import passed with 479 exports.
+- Capability truth: fake-backed registration is usable only in injected tests. The production capability probe still returns unavailable for `provider.kind: test`; registration evidence cannot upgrade that fact.
