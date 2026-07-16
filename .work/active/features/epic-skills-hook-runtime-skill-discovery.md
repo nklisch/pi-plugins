@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-skill-discovery
 kind: feature
-stage: review
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime
 depends_on: [epic-skills-hook-runtime-projection-reload-evidence]
@@ -441,3 +441,9 @@ Tracked by `epic-skills-hook-runtime-skill-discovery-review-hardening`. Result t
 - Replaced the misleading dedup test with a true same-canonical-file case that emits one Pi path while both logical targets retain ready observations.
 - Verification: focused resource-discovery tests passed; full `npm test` passed with 138 test files and 713 tests, including typecheck, boundaries, build, and compiled package import.
 - Child story `epic-skills-hook-runtime-skill-discovery-review-hardening` advanced to `stage: done`; feature advanced from `implementing` to `review`.
+
+## Review closure
+
+**Verdict**: Approve after fixes
+
+The sole reviewer found no runtime blocker. The accepted dead-code and trust/dedup evidence set is fixed and administratively verified at 138 files / 713 tests with clean typecheck, boundaries, build/package import, and 463 exports. No material blocker remains; no second review was commissioned.
