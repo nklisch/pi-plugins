@@ -95,7 +95,7 @@ export function createPiHookDecisionAdapter(input: Readonly<{
       for (const key of Object.keys(mutableInput)) delete mutableInput[key];
       Object.assign(mutableInput, replacement);
     }
-    if (value.block !== undefined || value.stop !== undefined || value.permission?.kind === "deny") return blocked(value);
+    if (value.block !== undefined || value.stop !== undefined) return blocked(value);
     return undefined;
   }
 

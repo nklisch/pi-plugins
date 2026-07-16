@@ -108,6 +108,8 @@ export function createHookExecutionContextPort(
       selected = validateSelection(found);
       if (!sameBinding(selected.binding, request.binding) ||
           !sameJson(selected.currentProject, nativeProject) ||
+          (selected.currentCwd !== undefined && selected.currentCwd !== request.sessionCwd) ||
+          (request.binding.scope.kind === "project" && nativeProject.trust.kind !== "trusted") ||
           selected.pluginRoot !== request.plannedPluginRoot ||
           selected.pluginDataRoot !== request.plannedPluginDataRoot ||
           selected.pathContext.scope.kind !== request.binding.scope.kind ||

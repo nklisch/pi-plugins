@@ -43,3 +43,13 @@ Prove the full selected-plan → trust/config/root callback → real process →
 ## Ordering constraint
 
 Depends on Pi application and closes the checkpoint graph. It verifies integrated behavior; it is not a separate parser, runner, UI, or subagent implementation lane.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna xhigh, one owner across the complete DAG; no nested agents, questions, or review.
+- Review weight: standard by project convention; child checkpoint advances directly to done after full verification.
+- Files changed: real Node/shell process fixtures, end-to-end process-boundary tests, callback-authority mismatch/trust tests, and bounded-runner/aggregation/Stop hardening discovered during integration.
+- Tests added: real stdin/cwd/path/config environment, literal exec metacharacters, explicit Bash semantics, timeout, output bounds, cancellation/tree fixture, all callback registrations, strict decision matrices, and authority fail-closed cases.
+- Verification: full `npm test` passed with typecheck, dependency boundaries (209 modules / 1,263 dependencies), 148 Vitest files / 774 tests, build, and compiled public import (459 exports). Supplied branch baseline was 141 / 744 / 459; final additions are 7 test files, 30 tests, and no public exports.
+- Security hardening: project-scoped execution now requires current trusted project evidence; optional callback cwd evidence is compared before configuration resolution; stdin backpressure rejects on close/abort so tree termination cannot hang; Stop exhaustion no longer resets its budget and cannot loop.
+- Discrepancies from design: no foundation assertion became false, so SPEC/ARCHITECTURE/COMPATIBILITY remain unchanged. Pi result aliases absent from the 0.80.8 package root remain structural local return shapes as recorded by the Pi story.
+- Adjacent issues parked: none.

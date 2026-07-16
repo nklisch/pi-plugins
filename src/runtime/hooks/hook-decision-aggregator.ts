@@ -18,6 +18,14 @@ function utf8Bytes(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength;
 }
 
+function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
+  if (value === null || typeof value !== "object" || seen.has(value)) return value;
+  seen.add(value);
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child, seen);
+  Object.freeze(value);
+  return value;
+}
+
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -84,7 +92,7 @@ export function aggregateHookDecisions(input: Readonly<{
       for (const [key, value] of Object.entries(decision.updatedInput)) patch[key] = cloneJson(value);
     }
     if (decision.updatedToolOutput !== undefined) {
-      updatedToolOutput = cloneJson(decision.updatedToolOutput);
+      updatedToolOutput = deepFreeze(cloneJson(decision.updatedToolOutput));
       hasToolOutput = true;
     }
     if (decision.stop !== undefined) stop = decision.stop;
@@ -109,7 +117,7 @@ export function aggregateHookDecisions(input: Readonly<{
     systemMessages: Object.freeze([...systemMessages]),
     ...(block === undefined ? {} : { block }),
     ...(permission === undefined ? {} : { permission }),
-    ...(updatedInput === undefined ? {} : { updatedInput: Object.freeze(updatedInput) }),
+    ...(updatedInput === undefined ? {} : { updatedInput: deepFreeze(updatedInput) }),
     ...(hasToolOutput && updatedToolOutput !== undefined ? { updatedToolOutput } : {}),
     ...(stop === undefined ? {} : { stop }),
     ...(title === undefined ? {} : { title }),

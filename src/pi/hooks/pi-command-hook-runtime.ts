@@ -151,6 +151,7 @@ export function registerPiCommandHookRuntime(input: PiCommandHookRuntimeRegistra
     const planning = input.events.agentSettled(event, ctx, { stopHookActive: input.continuation.state().stopHookActive });
     if (planning.kind !== "ready") return;
     let continued = false;
+    let exhausted = false;
     for (const value of await execute(planning, ctx)) {
       await input.decisions.applyStop(ctx, value);
       if (value.continuation !== undefined) {
@@ -161,11 +162,12 @@ export function registerPiCommandHookRuntime(input: PiCommandHookRuntimeRegistra
           } catch {
             input.continuation.settleWithoutContinuation();
           }
-        } else if (ctx.hasUI) {
-          ctx.ui.notify("Hook continuation budget exhausted", "warning");
+        } else {
+          exhausted = true;
+          if (ctx.hasUI) ctx.ui.notify("Hook continuation budget exhausted", "warning");
         }
       }
     }
-    if (!continued) input.continuation.settleWithoutContinuation();
+    if (!continued && !exhausted) input.continuation.settleWithoutContinuation();
   });
 }

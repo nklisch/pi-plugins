@@ -1,5 +1,4 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { once } from "node:events";
 import { redactCommand } from "../logging/redaction.js";
 import type {
   CommandCapturePolicy,
@@ -108,7 +107,25 @@ async function writeStdin(
       throwIfAborted(signal);
       if (!(chunk instanceof Uint8Array)) throw new TypeError("command stdin yielded a non-byte value");
       if (!child.stdin || !child.stdin.writable) throw new Error("command stdin is not writable");
-      if (!child.stdin.write(chunk)) await once(child.stdin, "drain");
+      if (!child.stdin.write(chunk)) {
+        await new Promise<void>((resolve, reject) => {
+          const input = child.stdin!;
+          const cleanup = (): void => {
+            input.removeListener("drain", onDrain);
+            input.removeListener("error", onError);
+            input.removeListener("close", onClose);
+            signal.removeEventListener("abort", onAbort);
+          };
+          const onDrain = (): void => { cleanup(); resolve(); };
+          const onError = (error: unknown): void => { cleanup(); reject(error); };
+          const onClose = (): void => { cleanup(); reject(new Error("command stdin closed")); };
+          const onAbort = (): void => { cleanup(); reject(signal.reason ?? ABORT_ERROR()); };
+          input.once("drain", onDrain);
+          input.once("error", onError);
+          input.once("close", onClose);
+          signal.addEventListener("abort", onAbort, { once: true });
+        });
+      }
     }
     child.stdin?.end();
   } catch (error) {

@@ -39,6 +39,8 @@ export type HookExecutionActiveSelection = Readonly<{
   binding: HookExecutionBinding;
   pluginRoot: string;
   pluginDataRoot: string;
+  /** Optional callback cwd evidence supplied by the native composition. */
+  currentCwd?: string;
   currentProject: CurrentProjectRuntimeContext;
   candidate: TrustCandidate;
   trustRecords: readonly TrustStateRecord[];
