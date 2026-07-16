@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-guarded-command-hooks
 kind: feature
-stage: review
+stage: implementing
 tags: [compatibility, security, infra]
 parent: epic-skills-hook-runtime
 depends_on: [epic-skills-hook-runtime-hook-event-adaptation]
@@ -559,3 +559,15 @@ The fallback is honest non-activation or a safe per-event diagnostic. No path re
 - Verification: full `npm test` passed on the immediate rerun — typecheck, dependency boundaries (209 modules / 1,263 dependencies), 148 test files / 774 tests, build, and compiled public import (459 exports). The first final suite attempt hit the already-known unrelated recovery-review-hardening concurrency flake; no unrelated code changed and the immediate rerun passed. Supplied branch start was 141 / 744 / 459; final additions are 7 test files, 30 tests, and no public exports. Existing source acquisition and all completed event/projection/discovery contracts remain green.
 - Foundation/docs: no assertion became false or misleading; no foundation document changed. Rollback remains migration-free and leaves state, projection cache, trust, configuration, credentials, content/data roots, lifecycle transitions, and subagent interception untouched.
 - Deviations: the installed Pi 0.80.8 package root does not export `SessionBeforeCompactResult` or `ToolResultEventResult` aliases; their exact declaration shapes are kept local while all available event/context types remain type-imported from Pi. No blockers.
+
+## Review findings (2026-07-16)
+
+Effective weight: `standard`; one fresh-context Umans GLM 5.2 security pass. The reviewer verified authority revalidation, secret lifetime/redaction, process bounds/tree kill, strict decisions, deterministic aggregation, and package boundaries, but found Stop continuation non-functional because Pi 0.80.8 ignores `triggerTurn` when `deliverAs: "nextTurn"`. Receiver-confirmed hardening set:
+
+- Deliver idle `agent_settled` continuation as `steer` or `followUp` with `triggerTurn: true`, and prove a real/fidelity fake Pi turn starts, guard state increments, send failures reset safely, and the three-use budget exhausts without a fourth turn.
+- Add dedicated executable-resolver tests for absolute, cwd-relative, PATH, Windows extension candidates, missing executable, and abort.
+- Add Stop exit-2/empty-stdout continuation coverage.
+- Remove or consolidate newly dead `eventFailsClosed`, Stop generation/reason, and unused runtime context plumbing; use one fail-closed registry.
+- Replace the output parser's `as never` sentinel with a typed result; map `NULL_EXIT` to spawn failure; retain the first declaration-order `ask` reason.
+
+Tracked by `epic-skills-hook-runtime-guarded-command-hooks-review-hardening`. Context-before-ask-denial, idle context delivery naming, and generic canonicalizer deduplication are ambiguous or low-risk and remain out of scope. Standard review closes administratively after this exact set; no second independent pass.
