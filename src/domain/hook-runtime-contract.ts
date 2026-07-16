@@ -2,6 +2,20 @@ import { z } from "zod";
 import type { HookComponent } from "./components.js";
 import { JsonValueSchema, type JsonValue } from "./schema.js";
 
+export {
+  HOOK_STDIN_MAX_BYTES,
+  HOOK_STDOUT_MAX_BYTES,
+  HOOK_STDERR_MAX_BYTES,
+  HOOK_DEFAULT_TIMEOUT_MS,
+  HOOK_MAX_TIMEOUT_MS,
+  HOOK_MAX_SELECTED_HANDLERS,
+  HOOK_MAX_CONCURRENCY,
+  HOOK_MAX_AGGREGATED_TEXT_BYTES,
+  HOOK_ASK_TIMEOUT_MS,
+  HOOK_STOP_CONTINUATION_BUDGET,
+  HookRuntimeLimits,
+} from "./hook-runtime-limits.js";
+
 export const HookRuntimeEventDefinitionRegistry = Object.freeze({
   SessionStart: { owner: "ordinary", piBoundaries: ["session_start", "session_compact"], matcher: "session-source", rank: 10, conditionFields: [] },
   SessionEnd: { owner: "ordinary", piBoundaries: ["session_shutdown"], matcher: "none", rank: 20, conditionFields: [] },

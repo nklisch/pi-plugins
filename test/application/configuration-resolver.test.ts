@@ -117,6 +117,7 @@ describe("trust-gated runtime configuration resolution", () => {
       expect(value.has("TOKEN")).toBe(true);
       expect(value.substitute("Bearer ${user_config.TOKEN}")).toBe("Bearer CANARY_SECRET");
       expect(value.environment()).toMatchObject({ CLAUDE_PLUGIN_OPTION_TOKEN: "CANARY_SECRET" });
+      expect(value.redact("reason CANARY_SECRET")).toBe("reason [REDACTED]");
       expect(JSON.stringify(value)).toBe('"[REDACTED]"');
       return undefined;
     });

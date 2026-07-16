@@ -110,6 +110,10 @@ describe("component registries and schemas", () => {
       expect(HookHandlerSchema.safeParse(sample).success).toBe(true);
       expect(entry.tag).toBe(sample.kind);
     }
+    expect(HookHandlerSchema.parse({ kind: "shell", command: "./hook.sh", shell: "bash" })).toEqual({ kind: "shell", command: "./hook.sh" });
+    expect(HookHandlerSchema.parse({ kind: "shell", command: "./hook.ps1", shell: "powershell" })).toMatchObject({ kind: "shell", shell: "powershell" });
+    expect(HookHandlerSchema.safeParse({ kind: "shell", command: "./hook.sh", timeoutMs: 600_001 }).success).toBe(false);
+    expect(HookHandlerSchema.safeParse({ kind: "exec", command: "node", args: [], shell: "bash" }).success).toBe(false);
   });
 
   it("rejects unknown component variants and malformed claims", () => {

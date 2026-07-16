@@ -1,9 +1,11 @@
 import { z } from "zod";
 import {
   HookComponentSchema,
+  HookShellSchema,
   RetainedMetadataSchema,
   type HookComponent,
   type HookHandler,
+  type HookShell,
   type RetainedMetadata,
   ForeignComponentSchema,
   type ForeignComponent,
@@ -23,6 +25,7 @@ import {
   type Provenance,
 } from "../domain/provenance.js";
 import { JsonValueSchema, type JsonValue } from "../domain/schema.js";
+import { HOOK_MAX_TIMEOUT_MS } from "../domain/hook-runtime-limits.js";
 import { stableComponentId, stableJson } from "./stable-component-id.js";
 import { createForeignComponentDeclaration } from "./foreign-declaration.js";
 
@@ -441,14 +444,14 @@ function normalizedTimeout(
   }
   const multiplier = candidate.unit === "seconds" ? 1000 : 1;
   const normalized = Math.round(candidate.value * multiplier);
-  if (!Number.isSafeInteger(normalized) || normalized <= 0) {
-    failHook(childPointer(pointer, candidate.field), "normalized timeout is outside the supported integer range");
+  if (!Number.isSafeInteger(normalized) || normalized <= 0 || normalized > HOOK_MAX_TIMEOUT_MS) {
+    failHook(childPointer(pointer, candidate.field), "normalized timeout is outside the supported range");
   }
   return normalized;
 }
 
 const structuralHandlerFields = new Set([
-  "type", "command", "args", "timeout", "timeoutMs", "timeout_ms",
+  "type", "command", "args", "timeout", "timeoutMs", "timeout_ms", "shell",
 ]);
 const retainedHandlerFields = new Set([
   "statusMessage", "status_message", "statusText", "async", "conditions",
@@ -498,10 +501,17 @@ function parseCommandHandler(
   const args = argsValue === undefined
     ? undefined
     : requireStringArray(argsValue, childPointer(pointer, "args"), "args");
-  if ((type === "shell" || (type === "command" && args === undefined)) && args !== undefined && type === "shell") {
+  const shellValue = has(record, "shell")
+    ? HookShellSchema.parse(requireStringValue(record.shell, childPointer(pointer, "shell"), "shell"))
+    : undefined;
+  const isExec = type === "exec" || args !== undefined;
+  if (isExec && shellValue !== undefined) {
+    failHook(childPointer(pointer, "shell"), "exec handlers cannot declare a shell");
+  }
+  if (type === "shell" && args !== undefined) {
     failHook(childPointer(pointer, "args"), "shell handlers cannot declare args");
   }
-  const handler: HookHandler = type === "exec" || args !== undefined
+  const handler: HookHandler = isExec
     ? {
         kind: "exec",
         command,
@@ -511,6 +521,7 @@ function parseCommandHandler(
     : {
         kind: "shell",
         command,
+        ...(shellValue === undefined || shellValue === "bash" ? {} : { shell: shellValue as HookShell }),
         ...(timeoutMs === undefined ? {} : { timeoutMs }),
       };
   const metadata = handlerMetadata(context, record, pointer, declaration);

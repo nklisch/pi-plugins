@@ -456,7 +456,9 @@ function evaluateHook(
   requirements.push(...requirementUse(commandRule.id, component.handler.provenance));
 
   let shellRuleId: string | undefined = component.handler.value.kind === "shell"
-    ? CompatibilityPolicyRegistry.hookHandlers.shellBash.id
+    ? (component.handler.value.shell === "powershell"
+      ? CompatibilityPolicyRegistry.hookHandlers.shellPowershell.id
+      : CompatibilityPolicyRegistry.hookHandlers.shellBash.id)
     : undefined;
   let shellProvenance = component.handler.provenance;
 

@@ -77,6 +77,25 @@ describe("Claude hook reader", () => {
     expect(hooks.some((hook) => hook.id === expected)).toBe(true);
   });
 
+  it("normalizes shell choice structurally and rejects shell-on-exec", () => {
+    const powershell = readClaudeHooks({
+      hooks: { SessionStart: [{ hooks: [{ type: "command", command: "Write-Output ready", shell: "powershell" }] }] },
+    }, context());
+    expect(powershell.ok).toBe(true);
+    if (powershell.ok) expect(powershell.value[0]?.kind === "hook" && powershell.value[0].handler.value).toMatchObject({ kind: "shell", shell: "powershell" });
+
+    const bash = readClaudeHooks({
+      hooks: { SessionStart: [{ hooks: [{ type: "command", command: "echo ready", shell: "bash" }] }] },
+    }, context());
+    expect(bash.ok).toBe(true);
+    if (bash.ok) expect(bash.value[0]?.kind === "hook" && bash.value[0].handler.value).toEqual({ kind: "shell", command: "echo ready" });
+
+    const invalid = readClaudeHooks({
+      hooks: { SessionStart: [{ hooks: [{ type: "exec", command: "node", args: [], shell: "bash" }] }] },
+    }, context());
+    expect(invalid.ok).toBe(false);
+  });
+
   it("retains unsupported handlers as foreign inventory and preserves supplemental fields", () => {
     const result = readClaudeHooks({
       hooks: {

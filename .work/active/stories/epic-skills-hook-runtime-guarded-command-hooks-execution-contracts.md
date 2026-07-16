@@ -40,3 +40,12 @@ Normalize the exact shell/exec launch contract and create the callback-scoped au
 ## Ordering constraint
 
 This is the graph root. Both bounded process execution and output/decision aggregation depend on its normalized authority and launch vocabulary. No child process or Pi mutation should be implemented before this boundary is green.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna xhigh, one cohesive feature owner; direct-read implementation with no nested agents, questions, or review.
+- Review weight: standard by project convention; child checkpoint advances directly to done after focused verification.
+- Files changed: normalized shell/exec component contracts and identity, hook reader/evaluator shell requirements, shared hook runtime bounds, callback-scoped configuration redaction, hook execution binding/context ports and adapter, and one pure launch-template contract. The planner now imports the authoritative alias definition directly and no longer depends on cleanup-target aliases.
+- Tests added/updated: shell default/explicit Bash/PowerShell, shell-on-exec rejection, timeout bound, and callback redaction/disposal evidence.
+- Simplification: explicit Bash is canonicalized to the existing absent-shell identity; launch vocabulary and bounds have one source rather than metadata/runtime copies.
+- Discrepancies from design: context authority is represented by an injected active-selection port carrying the existing trust/configuration candidate; it does not read lifecycle state or manifests.
+- Adjacent issues parked: none.

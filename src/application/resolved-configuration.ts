@@ -4,6 +4,8 @@ export interface ResolvedConfiguration {
   has(key: string): boolean;
   substitute(template: string): string;
   environment(prefix?: "CLAUDE_PLUGIN_OPTION_"): Readonly<Record<string, string>>;
+  /** Replace every resolved value without exposing the backing values. */
+  redact(text: string): string;
   dispose(): void;
   toString(): "[REDACTED]";
   toJSON(): "[REDACTED]";
@@ -36,6 +38,8 @@ export function createResolvedConfiguration(entries: readonly ResolvedEntry[]): 
     if (entry === undefined) throw new Error("configuration key is unavailable");
     return serialize(entry);
   };
+  const redactionValues = (): readonly string[] => [...new Set([...values.values()].map(serialize).filter((value) => value.length > 0))]
+    .sort((left, right) => right.length - left.length);
   return {
     has(key: string): boolean {
       assertLive();
@@ -51,6 +55,11 @@ export function createResolvedConfiguration(entries: readonly ResolvedEntry[]): 
       const result: Record<string, string> = {};
       for (const key of [...values.keys()].sort()) result[`${prefix}${key}`] = get(key);
       return Object.freeze(result);
+    },
+    redact(text: string): string {
+      assertLive();
+      if (typeof text !== "string") throw new TypeError("redaction input must be a string");
+      return redactionValues().reduce((result, value) => result.replaceAll(value, "[REDACTED]"), text);
     },
     dispose(): void {
       disposed = true;

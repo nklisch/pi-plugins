@@ -145,6 +145,7 @@ function handlerFields(handler: HookHandler): Uint8Array {
       return concat([
         field(handler.kind),
         field(handler.command),
+        ...(handler.shell === undefined ? [] : [field("shell"), field(handler.shell)]),
         optionalNumber(handler.timeoutMs),
       ]);
     case "exec":

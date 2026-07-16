@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { JsonValueSchema, schemaValues } from "./schema.js";
 import { ClaimedSchema, NativeHostSchema } from "./provenance.js";
+import { HOOK_MAX_TIMEOUT_MS } from "./hook-runtime-limits.js";
 
 /** The public component vocabulary has one authoritative registry. */
 export const ComponentKindRegistry = {
@@ -33,20 +34,29 @@ export const RetainedMetadataSchema = z
   .readonly();
 export type RetainedMetadata = z.infer<typeof RetainedMetadataSchema>;
 
+export const HookShellSchema = z.enum(["bash", "powershell"]);
+export type HookShell = z.infer<typeof HookShellSchema>;
+
 const HookHandlerSchemaRegistry = {
   shell: z
     .object({
       kind: z.literal("shell"),
       command: z.string().min(1),
-      timeoutMs: z.number().int().positive().optional(),
+      shell: HookShellSchema.optional(),
+      timeoutMs: z.number().int().positive().max(HOOK_MAX_TIMEOUT_MS).optional(),
     })
-    .strict(),
+    .strict()
+    .transform((value) => value.shell === "bash" ? {
+      kind: value.kind,
+      command: value.command,
+      ...(value.timeoutMs === undefined ? {} : { timeoutMs: value.timeoutMs }),
+    } : value),
   exec: z
     .object({
       kind: z.literal("exec"),
       command: z.string().min(1),
       args: z.array(z.string()).readonly(),
-      timeoutMs: z.number().int().positive().optional(),
+      timeoutMs: z.number().int().positive().max(HOOK_MAX_TIMEOUT_MS).optional(),
     })
     .strict(),
 } as const;
