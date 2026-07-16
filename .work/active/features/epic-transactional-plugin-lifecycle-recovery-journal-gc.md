@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-recovery-journal-gc
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-operations]
@@ -415,3 +415,25 @@ The feature remains one normal implementation/review bundle. Stories are durable
 The design fails if recovery reruns a command against new bytes, finalizes merely because reload returned, restores state without verifying the previous runtime, takes over a live operation, deletes an inactive revision still used by another process/scope, ages from attacker-adjustable mtime, or lets `delete-confirmed` turn generic GC into data/secret deletion. The chosen design counters those failures with immutable journal evidence, one shared reconciler, exact observations, process-start liveness, closed-world roots, complete-scan aging, opaque deletion capabilities, and a separate confirmed-cleanup plan.
 
 When evidence is uncertain, the invariant is simple: retain content, leave the affected transition/plugin visibly unresolved, and continue unrelated startup work. Availability or disk reclamation never outranks a provable working revision.
+
+## Implementation summary
+
+Implemented the complete recovery and collection bundle across the five ordered checkpoints:
+
+- Reconciliation contracts and a shared transition reconciler now own exact observation, pending clearing, target-preserving generation rebase, verified compensation, and safe recovery classification.
+- A separate per-scope SQLite journal provides durable write-ahead evidence, strict protocol markers, private owner liveness, resumable status, terminal conflict protection, and row quarantine.
+- Startup recovery is bounded and deterministic, never replays lifecycle commands, isolates corrupt scopes, and cleans only dead-owned, grace-aged, identity-stable staging through opaque capabilities.
+- Retention uses complete closed-world inventories, process-start-token leases, persistent first-unreferenced marks, generation-coordinated state pruning before physical deletion, and a scanner that has no persistent-data variant. Confirmed uninstall cleanup remains an explicit separate path.
+- The Node composition root and explicit compiled export allowlist expose typed policy/services without SQLite, paths, owner evidence, raw deletion, or arbitrary replacement surfaces.
+
+Implementation decisions and deviations:
+
+- The repository's existing Node 24 SQLite and capability-root patterns were reused; no dependency was added and the scope-lock database protocol was not changed.
+- Existing lifecycle test fakes use the legacy minimal transition-store methods, so the durable store's additional recovery methods remain optional at the application compatibility boundary while the Node adapter implements the complete surface.
+- Foundation documents required no correction: their recovery, lease, startup-locality, and persistent-data statements already describe the landed contracts.
+- The delegated endpoint prohibited nested advisory agents and peeragent; implementation used direct repository grounding only. Feature review remains the host autopilot responsibility.
+
+Integrated verification:
+
+- `npm test` — passed: TypeScript typecheck, dependency boundaries, 104 test files / 582 tests, build, and compiled package import with 389 exports.
+- All five child stories reached `done` directly after their checkpoint verification; no child entered `review`.

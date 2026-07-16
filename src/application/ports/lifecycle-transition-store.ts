@@ -45,11 +45,14 @@ export const LifecycleTransitionRecordSchemaV1 = z.object({
   candidateProjection: ProjectionExpectationSchema,
   retainedData: LifecycleRetainedDataSchema,
 }).strict().readonly().superRefine((record, context) => {
-  if (record.previousProjection.kind === "active" && record.previousProjection.projection.plugin !== record.plugin) {
-    context.addIssue({ code: "custom", path: ["previousProjection"], message: "previous projection belongs to another plugin" });
-  }
-  if (record.candidateProjection.kind === "active" && record.candidateProjection.projection.plugin !== record.plugin) {
-    context.addIssue({ code: "custom", path: ["candidateProjection"], message: "candidate projection belongs to another plugin" });
+  if (record.previous !== null && record.previous.plugin !== record.plugin) context.addIssue({ code: "custom", path: ["previous", "plugin"], message: "previous state belongs to another plugin" });
+  if (record.candidate.plugin !== record.plugin) context.addIssue({ code: "custom", path: ["candidate", "plugin"], message: "candidate state belongs to another plugin" });
+  if (record.final !== null && record.final.plugin !== record.plugin) context.addIssue({ code: "custom", path: ["final", "plugin"], message: "final state belongs to another plugin" });
+  for (const [name, projection] of [["previousProjection", record.previousProjection], ["candidateProjection", record.candidateProjection]] as const) {
+    const valid = projection.kind === "active"
+      ? projection.projection.plugin === record.plugin && JSON.stringify(projection.projection.scope) === JSON.stringify(record.scope)
+      : projection.plugin === record.plugin && JSON.stringify(projection.scope) === JSON.stringify(record.scope);
+    if (!valid) context.addIssue({ code: "custom", path: [name], message: "projection evidence does not belong to the transition target" });
   }
 });
 export type LifecycleTransitionRecord = z.infer<typeof LifecycleTransitionRecordSchemaV1>;
@@ -79,6 +82,7 @@ export const LifecycleTransitionOutcomeSchema = z.enum(["completed", "rolled-bac
 export type LifecycleTransitionOutcome = z.infer<typeof LifecycleTransitionOutcomeSchema>;
 
 export const LifecycleTransitionSettleRequestSchema = z.object({
+  scope: ScopeReferenceSchema.optional(),
   reference: PendingTransitionRefSchema,
   outcome: LifecycleTransitionOutcomeSchema,
   generation: GenerationSchema.optional(),
@@ -106,6 +110,11 @@ export type LifecycleTransitionCollection = z.infer<typeof LifecycleTransitionCo
 export type LifecycleTransitionPrepareRequest = Readonly<{
   record: LifecycleTransitionRecord;
   preparedAt: EpochMilliseconds;
+}>;
+
+export type LifecycleTransitionReferenceRequest = Readonly<{
+  scope: ScopeReference;
+  reference: PendingTransitionRef;
 }>;
 
 /**

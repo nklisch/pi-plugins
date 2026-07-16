@@ -6,6 +6,7 @@ import { z } from "zod";
 import { BoundaryError, DomainContractError, ErrorCodeRegistry } from "../../domain/errors.js";
 import { ScopeReferenceSchema, type ScopeReference } from "../../domain/state/scope.js";
 import { PendingTransitionRefSchema, type PendingTransitionRef } from "../../domain/state/references.js";
+import { deriveLifecyclePendingTransitionRef } from "../../application/plugin-lifecycle-contract.js";
 import {
   LifecycleTransitionJournalEntrySchemaV1,
   type LifecycleTransitionPrepareRequest,
@@ -72,6 +73,8 @@ function parseStatus(kind: unknown, generation: unknown): LifecycleTransitionJou
 
 function rowEntry(row: SqliteRow): LifecycleTransitionJournalEntry {
   const record = LifecycleTransitionRecordSchemaV1.parse(JSON.parse(String(row.record_json)));
+  const expectedReference = deriveLifecyclePendingTransitionRef({ operationId: record.operationId, scope: record.scope, plugin: record.plugin, startingGeneration: record.startingGeneration }, (bytes) => new Uint8Array(createHash("sha256").update(bytes).digest()));
+  if (record.reference !== expectedReference) throw corruptError("readTransitionJournal");
   const bytes = canonicalBytes(record);
   const digest = digestJournalBytes(bytes);
   if (digest !== row.record_digest) throw corruptError("readTransitionJournal");
@@ -260,7 +263,9 @@ export function createSqliteTransitionJournal(options: SqliteTransitionJournalOp
     const request = { ...requestInput, at: requestInput.at ?? Date.now() };
     const outcome = request.outcome === "recovery-required" ? "recovery-required" : request.outcome;
     try {
-      const scopeRows = await readdir(filesystem.journalRoot);
+      const scopeRows = requestInput.scope === undefined
+        ? await readdir(filesystem.journalRoot)
+        : [filesystem.journalDatabasePath(ScopeReferenceSchema.parse(requestInput.scope)).slice(filesystem.journalRoot.length + 1)];
       let found = false;
       for (const name of scopeRows.filter((entry) => entry.endsWith(".sqlite"))) {
         const scope: ScopeReference = name === "user.sqlite" ? { kind: "user" } : (() => { const encoded = name.slice("project-".length, -".sqlite".length); return { kind: "project", projectKey: decodeURIComponent(encoded) as never }; })();

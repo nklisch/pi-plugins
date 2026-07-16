@@ -180,17 +180,30 @@ export function createLifecycleTransitionReconciler(dependencies: LifecycleTrans
     }
   }
 
+  async function markRecovery(reference: import("../domain/state/references.js").PendingTransitionRef, generation: Generation, signal: AbortSignal): Promise<void> {
+    try { await dependencies.transitions.settle({ reference, outcome: "recovery-required", generation }, signal); } catch { /* startup will retain the pending state */ }
+  }
+
   async function restoreAndVerify(
     request: Readonly<{ operation: LifecycleOperation; scope: ScopeContext; plugin: PluginKey; previous: InstalledPluginRecord | undefined; candidate: InstalledPluginRecord; reference: import("../domain/state/references.js").PendingTransitionRef; committed: GenerationSnapshot; previousProjection: ProjectionExpectation; failure: LifecycleActivationFailure }>,
     signal: AbortSignal,
   ): Promise<TransitionReconciliationResult> {
     const restored = await mutatePending(request.scope, request.plugin, request.candidate, request.previous ?? null, request.reference, request.committed, (snapshot) => replaceTarget(snapshot, request.plugin, request.previous === undefined ? null : withPending(request.previous, request.reference), dependencies.sha256), signal, request.previous === undefined).catch(() => undefined);
-    if (restored === undefined) return { kind: "recovery-required", committed: request.committed.generation };
+    if (restored === undefined) {
+      await markRecovery(request.reference, request.committed.generation, signal);
+      return { kind: "recovery-required", committed: request.committed.generation };
+    }
     const observed = await reloadAndObserve(request.scope, request.plugin, request.reference, request.previousProjection, signal);
-    if (!observed.ok) return { kind: "recovery-required", committed: restored.generation };
+    if (!observed.ok) {
+      await markRecovery(request.reference, restored.generation, signal);
+      return { kind: "recovery-required", committed: restored.generation };
+    }
     const restoredRecord = request.previous === undefined ? request.candidate : request.previous;
     const final = await mutatePending(request.scope, request.plugin, restoredRecord, request.previous ?? null, request.reference, restored, (snapshot) => replaceTarget(snapshot, request.plugin, request.previous ?? null, dependencies.sha256), signal, request.previous === undefined).catch(() => undefined);
-    if (final === undefined || !(await settle(request.reference, "rolled-back", final.generation, signal))) return { kind: "recovery-required", committed: final?.generation ?? restored.generation };
+    if (final === undefined || !(await settle(request.reference, "rolled-back", final.generation, signal))) {
+      await markRecovery(request.reference, final?.generation ?? restored.generation, signal);
+      return { kind: "recovery-required", committed: final?.generation ?? restored.generation };
+    }
     return { kind: "rolled-back", snapshot: final, observation: observed.observation, failure: request.failure };
   }
 
@@ -203,7 +216,10 @@ export function createLifecycleTransitionReconciler(dependencies: LifecycleTrans
     const previousProjection = ProjectionExpectationSchema.parse(request.previousProjection);
     if (!request.activation.ok) return restoreAndVerify({ ...request, scope, plugin, candidate, previousProjection, failure: request.activation.failure }, signal);
     const settled = await mutatePending(scope, plugin, candidate, final, request.reference, request.committed, (snapshot) => replaceTarget(snapshot, plugin, final, dependencies.sha256), signal);
-    if (settled === undefined || !(await settle(request.reference, "completed", settled.generation, signal))) return { kind: "recovery-required", committed: settled?.generation ?? request.committed.generation };
+    if (settled === undefined || !(await settle(request.reference, "completed", settled.generation, signal))) {
+      await markRecovery(request.reference, settled?.generation ?? request.committed.generation, signal);
+      return { kind: "recovery-required", committed: settled?.generation ?? request.committed.generation };
+    }
     return { kind: "completed", snapshot: settled, observation: request.activation.observation };
   }
 
@@ -224,21 +240,42 @@ export function createLifecycleTransitionReconciler(dependencies: LifecycleTrans
       // A terminal final state is already settled; only the journal status is
       // missing. No state rewrite is needed, and no arbitrary replay is possible.
       if (current?.pendingTransition === undefined && (final === null ? currentWithoutPending === null : sameJson(currentWithoutPending, final))) {
-        return (await settle(record.reference, "completed", currentSnapshot.generation, signal)) ? { kind: "completed", snapshot: currentSnapshot, observation: request.observation! } : { kind: "recovery-required", committed: currentSnapshot.generation };
+        if (request.observation === undefined || !projectionMatchesObservation(request.observation, record.candidateProjection, plugin)) {
+          await markRecovery(record.reference, currentSnapshot.generation, signal);
+          return { kind: "recovery-required", committed: currentSnapshot.generation };
+        }
+        if (await settle(record.reference, "completed", currentSnapshot.generation, signal)) return { kind: "completed", snapshot: currentSnapshot, observation: request.observation };
+        await markRecovery(record.reference, currentSnapshot.generation, signal);
+        return { kind: "recovery-required", committed: currentSnapshot.generation };
       }
       const settled = await mutatePending(scope, plugin, candidate, final, record.reference, currentSnapshot, (snapshot) => replaceTarget(snapshot, plugin, final, dependencies.sha256), signal, final === null).catch(() => undefined);
-      if (settled === undefined || request.observation === undefined || !projectionMatchesObservation(request.observation, record.candidateProjection, plugin) || !(await settle(record.reference, "completed", settled.generation, signal))) return { kind: "recovery-required", committed: settled?.generation ?? currentSnapshot.generation };
+      if (settled === undefined || request.observation === undefined || !projectionMatchesObservation(request.observation, record.candidateProjection, plugin) || !(await settle(record.reference, "completed", settled.generation, signal))) {
+        await markRecovery(record.reference, settled?.generation ?? currentSnapshot.generation, signal);
+        return { kind: "recovery-required", committed: settled?.generation ?? currentSnapshot.generation };
+      }
       return { kind: "completed", snapshot: settled, observation: request.observation };
     }
     if (record.previous === null) return { kind: "recovery-required", committed: currentSnapshot.generation };
     const candidate = InstalledPluginRecordSchema.parse(record.candidate);
     const previous = InstalledPluginRecordSchema.parse(record.previous);
-    const restored = await mutatePending(scope, plugin, candidate, previous, record.reference, currentSnapshot, (snapshot) => replaceTarget(snapshot, plugin, withPending(previous, record.reference), dependencies.sha256), signal).catch(() => undefined);
-    if (restored === undefined) return { kind: "recovery-required", committed: currentSnapshot.generation };
+    const currentIsPreviousPending = current?.pendingTransition === record.reference && current !== undefined && sameJson(stateWithoutPending(current), previous);
+    const restored = currentIsPreviousPending
+      ? currentSnapshot
+      : await mutatePending(scope, plugin, candidate, previous, record.reference, currentSnapshot, (snapshot) => replaceTarget(snapshot, plugin, withPending(previous, record.reference), dependencies.sha256), signal).catch(() => undefined);
+    if (restored === undefined) {
+      await markRecovery(record.reference, currentSnapshot.generation, signal);
+      return { kind: "recovery-required", committed: currentSnapshot.generation };
+    }
     const observed = await reloadAndObserve(scope, plugin, record.reference, record.previousProjection, signal);
-    if (!observed.ok) return { kind: "recovery-required", committed: restored.generation };
+    if (!observed.ok) {
+      await markRecovery(record.reference, restored.generation, signal);
+      return { kind: "recovery-required", committed: restored.generation };
+    }
     const final = await mutatePending(scope, plugin, previous, previous, record.reference, restored, (snapshot) => replaceTarget(snapshot, plugin, previous, dependencies.sha256), signal);
-    if (final === undefined || !(await settle(record.reference, "rolled-back", final.generation, signal))) return { kind: "recovery-required", committed: final?.generation ?? restored.generation };
+    if (final === undefined || !(await settle(record.reference, "rolled-back", final.generation, signal))) {
+      await markRecovery(record.reference, final?.generation ?? restored.generation, signal);
+      return { kind: "recovery-required", committed: final?.generation ?? restored.generation };
+    }
     return { kind: "rolled-back", snapshot: final, observation: observed.observation, failure: { kind: "observation-mismatch", code: "OBSERVATION_MISMATCH" } };
   }
 
