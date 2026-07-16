@@ -1,7 +1,7 @@
 ---
 id: centralize-host-config-v2-compatibility-projection
 kind: feature
-stage: implementing
+stage: review
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -212,3 +212,11 @@ This is an atomic source refactor even though each caller remains independently 
 ## Dependency Check
 
 `work-view --blocking centralize-host-config-v2-compatibility-projection` and `work-view --parent centralize-host-config-v2-compatibility-projection` returned no blockers or existing children before story creation. The sole child has `depends_on: []`, so it introduces no dependency edge and no cycle.
+
+## Integrated implementation verification
+- Child checkpoint `centralize-host-config-v2-compatibility-projection-step-1` is complete at `stage: done`; implementation commit: `0b55ad4`.
+- The domain-owned projection is the single host-config v1→v2 shape implementation and is used by strict migration, tolerant codec parsing, verified mutation construction, and commit-evidence comparison. Strict local-git policy normalization and all boundary-specific validation remain local.
+- Focused suites passed: 26 tests across config-state, codec, state-contract, and generation-mutation-coordinator coverage.
+- Full verification passed: 117 test files / 637 tests, typecheck, dependency boundaries, build, compiled package import, and 434 exports.
+- No public exports, schemas, defaults, installed-user/project-local compatibility paths, or update-policy behavior changed.
+- No deviations or blockers remain. The isolated worktree had no dependency directory, so verification used a temporary symlink to the existing repository dependencies; it was removed before commit.
