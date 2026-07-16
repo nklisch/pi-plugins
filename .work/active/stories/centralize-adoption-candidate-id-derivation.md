@@ -1,7 +1,7 @@
 ---
 id: centralize-adoption-candidate-id-derivation
 kind: story
-stage: review
+stage: done
 tags: [refactor, compatibility]
 parent: null
 depends_on: []
@@ -73,3 +73,14 @@ Risk is low because both current ID expressions hash the same canonical `source.
 - Removed the unused `equals` callback from `mergeClaims` and both callers; source and alias grouping remain unchanged and continue to establish equivalence before merging provenance.
 - Focused verification passed: 6 adoption domain/reconciler tests and TypeScript typecheck.
 - Execution capability: direct host implementation; the change is one mechanical standalone-story unit with an obvious bounded diff.
+
+## Review (2026-07-16)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+**Rejected**: none
+
+**Notes**: Bounded inline standalone-story review; no independent or cross-model reviewer by policy. The diff removes only the duplicate candidate-ID expression and ignored callback, preserves source/alias grouping and provenance order, and routes the exact same normalized source through the authoritative constructor. Full `npm test` passes: typecheck, boundaries, 113 files / 616 tests, build, and 407 compiled exports.
