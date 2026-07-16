@@ -1,7 +1,7 @@
 ---
 id: prune-dead-hook-adaptation-scaffolding
 kind: story
-stage: review
+stage: done
 tags: [refactor]
 parent: null
 depends_on: []
@@ -101,3 +101,14 @@ Rollback is a direct revert of this story's implementation commit; there is no s
 - No schema, registry, matcher, planner branch, Pi event, content snapshot, package barrel, or public runtime behavior changed.
 - Focused hook contract/planner/tool/Pi/integration coverage passes (45 tests) with production typecheck clean.
 - Execution capability: direct host implementation; one deletion-only standalone refactor with a bounded diff.
+
+## Review (2026-07-16)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+**Rejected**: none
+
+Bounded inline standalone-story review confirmed every removed declaration/pass-through had no consumer, planner/event order and strict content snapshot remain unchanged, and the concurrently implementing guarded-command feature was steered to authoritative domain seams. Full `npm test` passes: 146 files / 761 tests, typecheck, boundaries, build/package import, and unchanged 463 exports.
