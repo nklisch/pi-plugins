@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-refresh-update-policy-marketplace-refresh-discovery
 kind: story
-stage: implementing
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-refresh-update-policy
 depends_on: [epic-transactional-plugin-lifecycle-refresh-update-policy-contracts-state-comparison]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-17
 ---
 
 # Refresh marketplaces and discover immutable candidates
@@ -46,3 +46,17 @@ Provide explicit and scheduled-mode marketplace refresh over the durable state c
 ## Ordering
 
 Depends on durable v2 identity/memory. Automatic application waits for this checkpoint because it consumes the exact immutable candidate and notification record produced here.
+
+## Implementation notes
+
+- Added bounded marketplace inspection over the verified content manifest, the existing host readers, and an injected merger. Construction is pure; catalog reads are exact manifest-file reads capped at 1 MiB.
+- Added typed refresh/candidate contracts, a source-bound policy setter, claim-id port, and a single refresh orchestrator. Explicit refresh bypasses cadence; scheduled refresh skips local sources, respects durable cadence/backoff, and processes readable scopes and marketplaces deterministically.
+- Claims and publication use the existing generation coordinator with empty plugin-key sets; acquisition, inspection, probing, and source work remain outside the guarded state mutation. Publication verifies the exact claim and declaration identity before promotion and memory commit.
+- Discovery notification records are persisted as `discovered` before any later application branch. Candidate probes are injected so refresh does not gain a second installer or inspect arbitrary paths.
+- A v1 adapter-envelope compatibility path remains for existing state fakes while policy mutations publish v2 records.
+
+## Verification
+
+- `npm run typecheck` passed.
+- Marketplace inspection focused suite passed: 2 tests, including construction-time no-I/O, forged handoff rejection, bounded manifest reads, and reader dispatch.
+- Existing generation-coordinator suite passed: 14 tests.

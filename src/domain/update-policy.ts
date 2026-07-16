@@ -83,7 +83,7 @@ export const MarketplaceUpdateRecordSchema = z.object({
   marketplace: MarketplaceNameSchema,
   source: MarketplaceSourceSchema,
   updateApplication: z.enum(["manual", "automatic"]),
-  refresh: MarketplaceRefreshMemorySchema.default({}),
+  refresh: MarketplaceRefreshMemorySchema.default(() => ({ nextScheduledAt: 0, consecutiveFailures: 0 })),
   notifications: z.array(UpdateNotificationMemorySchema).readonly().default([]),
 }).strict().readonly().superRefine((record, context) => {
   if (record.source.kind === "local-git" && record.updateApplication === "automatic") {
