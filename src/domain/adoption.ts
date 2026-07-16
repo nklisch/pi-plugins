@@ -5,7 +5,6 @@ import {
 } from "./identity.js";
 import {
   MarketplaceSourceSchema,
-  CanonicalSourceSchema,
   serializeMarketplaceSource,
   hashCanonicalSource,
   type MarketplaceSource,
@@ -135,7 +134,6 @@ type ClaimLike<T> = Readonly<{
 
 function mergeClaims<T>(
   claims: readonly ClaimLike<T>[],
-  equals: (left: T, right: T) => boolean,
 ): ClaimLike<T> {
   const ordered = [...claims].sort((left, right) => {
     const leftKey = `${locationKey(left.provenance[0]!.location)}\u0000${stableJson(left.provenance[0]!.declaration)}\u0000${stableJson(left.value)}`;
@@ -198,14 +196,13 @@ export function reconcileAdoptionDeclarations(
     else group.push(declaration);
   }
 
-  const candidates = [...groups.entries()].map(([canonical, group]) => {
+  const candidates = [...groups.entries()].map(([, group]) => {
     const ordered = [...group].sort((left, right) => {
       const leftKey = sourceDeclarationKey(left);
       const rightKey = sourceDeclarationKey(right);
       return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
     });
-    const source = mergeClaims(ordered.map((entry) => entry.source), (left, right) =>
-      serializeMarketplaceSource(left) === serializeMarketplaceSource(right));
+    const source = mergeClaims(ordered.map((entry) => entry.source));
     const aliases = new Map<string, ClaimLike<MarketplaceName>[]>();
     for (const declaration of ordered) {
       const aliasClaims = aliases.get(declaration.suggestedMarketplace.value);
@@ -214,10 +211,10 @@ export function reconcileAdoptionDeclarations(
     }
     const suggestedMarketplaces = [...aliases.entries()]
       .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-      .map(([, claims]) => mergeClaims(claims, Object.is));
+      .map(([, claims]) => mergeClaims(claims));
     const nativeHosts = [...new Set(ordered.map((entry) => entry.host))].sort() as [NativeHost, ...NativeHost[]];
     return AdoptionCandidateSchema.parse({
-      id: AdoptionCandidateIdSchema.parse(`adoption-v1:${hashCanonicalSource(CanonicalSourceSchema.parse(canonical), sha256)}`),
+      id: deriveAdoptionCandidateId(source.value, sha256),
       source,
       suggestedMarketplaces,
       nativeHosts,

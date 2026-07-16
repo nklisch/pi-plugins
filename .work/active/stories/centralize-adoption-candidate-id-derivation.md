@@ -1,7 +1,7 @@
 ---
 id: centralize-adoption-candidate-id-derivation
 kind: story
-stage: implementing
+stage: review
 tags: [refactor, compatibility]
 parent: null
 depends_on: []
@@ -66,3 +66,10 @@ Remove the now-unused `CanonicalSourceSchema` import. Do not alter grouping, con
 ## Risk and Rollback
 
 Risk is low because both current ID expressions hash the same canonical `source.value`, and the removed callbacks are currently unreachable behavior. Revert this story's implementation commit to restore the duplicated expression and inert parameters; there is no state or migration effect.
+
+## Implementation notes
+
+- Routed reconciled candidate IDs through `deriveAdoptionCandidateId(source.value, sha256)` and removed the duplicate `CanonicalSourceSchema`/hash-prefix expression.
+- Removed the unused `equals` callback from `mergeClaims` and both callers; source and alias grouping remain unchanged and continue to establish equivalence before merging provenance.
+- Focused verification passed: 6 adoption domain/reconciler tests and TypeScript typecheck.
+- Execution capability: direct host implementation; the change is one mechanical standalone-story unit with an obvious bounded diff.
