@@ -1,0 +1,107 @@
+---
+id: epic-mcp-runtime-integration-config-source-bridge-production-adapter
+kind: story
+stage: implementing
+tags: [compatibility, infra]
+parent: epic-mcp-runtime-integration-config-source-bridge
+depends_on: [epic-mcp-runtime-integration-config-source-bridge-capability-probe, epic-mcp-runtime-integration-config-source-bridge-conformance-suite]
+release_binding: null
+gate_origin: null
+research_refs:
+  - docs/research/pi-mcp-adapter-config-source.md
+  - .agents/skills/pi-mcp-adapter-v2/SKILL.md
+research_origin: null
+created: 2026-07-16
+updated: 2026-07-16
+---
+
+# Integrate a Qualifying Production MCP Adapter Package
+
+## Priority
+
+Critical for production activation and feature/epic closure; genuinely externally blocked now.
+
+## Blocker
+
+`pi-mcp-adapter@2.11.0`, release/main commit `82724dccc13a49310530898f922bafff12b7f3fe`, has no supported programmatic source registration, initial-source-before-tool-registration, isolated file-discovery, atomic replace, exact remove, redacted source status, complete capabilities, or source-scoped late callback API. Open issue #85 and open stale/dirty PR #56 do not satisfy the contract. No qualifying maintained fork is declared or published.
+
+Do not add a dependency, deep import, package patch, file/settings/process-global workaround, MCP SDK runtime, external PR claim, or fork-publication claim while this blocker holds.
+
+## Objective unblock criteria
+
+One path must satisfy every criterion before implementation begins.
+
+### Upstream release
+
+1. A published npm release—not an open PR or commit dependency—documents an `exports` subpath with types for initial programmatic sources, disabled file discovery, complete source validate/replace/remove/inspect/capabilities, cancellation, and late launch values.
+2. It passes the shared Plugin Host conformance suite plus Pi integration tests proving initial sources are accepted before tool registration, construction/validation have no side effects, file/import discovery is fully disabled, and local registration is offline-safe.
+3. Exact npm version and lockfile integrity are pinned and linked to immutable upstream tag/commit provenance.
+4. MIT licensing and shipped notice are verified.
+5. Node 24 and the project's Pi version pass package/API tests without deep imports or ambient global setup.
+
+### Maintained MIT fork fallback
+
+1. Plugin Host maintainers explicitly decide to publish a clearly named fork from a current verified upstream release, retain upstream history/copyright/license, and name owners for publishing, security updates, and upstream rebases.
+2. The fork contains only the narrow identical public source-lifecycle seam and tests; transport/auth/discovery policy does not diverge and Plugin Host application/domain/lifecycle code contains no fork branch.
+3. Exact package version, registry integrity, repository commit, upstream base commit, and license provenance are pinned.
+4. The unchanged conformance suite and all Pi factory-order/file-isolation, cancellation, redaction, Node 24, and package-export tests pass.
+5. Returning to upstream requires changing only the package selection/wrapper, not Plugin Host contracts.
+
+## Blocker ownership
+
+- Upstream maintainers own merge/release timing.
+- Plugin Host maintainers own a current contract-focused upstream contribution, release qualification, and the explicit fork fallback go/no-go.
+- If forked, Plugin Host maintainers own package namespace/credentials, MIT notices, security/rebase maintenance, provenance pinning, and conformance evidence.
+- No agent may represent an unsubmitted/unmerged PR, unpublished fork, or local patch as satisfying this gate.
+
+## Deliverable after unblock
+
+Implement the sole concrete package wrapper and package-selection composition. The wrapper translates the qualifying package's supported API into `McpRuntimePort`, validates every handoff, maps unexpected failures to redacted `BoundaryError`, and never leaks package identity into application/domain/lifecycle contracts.
+
+## Planned files after unblock
+
+- `src/runtime/mcp/pi-mcp-adapter-runtime.ts`
+- `src/composition/create-mcp-runtime.ts`
+- `test/integration/pi-mcp-adapter-runtime.test.ts`
+- `test/contract/pi-mcp-adapter-runtime.contract.test.ts`
+- `package.json`
+- `package-lock.json`
+
+## Factory checkpoint
+
+```typescript
+// Package-internal. Factory creation and validation are side-effect-free.
+export function createPiMcpRuntime(input: Readonly<{
+  initialSources: readonly Readonly<{
+    source: McpConfigSource;
+    launchValues: McpLaunchValueProvider;
+  }>[];
+  fileDiscovery: "disabled";
+}>): Readonly<{
+  extension: (pi: ExtensionAPI) => void;
+  runtime: McpRuntimePort;
+}>;
+```
+
+Initial sources are supplied before invoking the returned Pi extension. The factory itself performs no file reads, networking, process startup, remote connection, cache write, or tool registration. Runtime registration proves local source/inventory acceptance only; remote health remains per-server status.
+
+## Acceptance evidence
+
+- [ ] The pinned supported package passes the unchanged portable conformance contract.
+- [ ] Pi integration proves source-before-tool-registration and complete native file/import isolation without mutating files, settings, arguments, or process environment.
+- [ ] Colliding native server keys remain isolated across plugin/scope through real tool/cache/process/status identity.
+- [ ] Real replacement/removal/cancellation preserve exact ownership and old-source rollback evidence.
+- [ ] Late callback values are consumed only immediately before launch/connect and disposed on every outcome; canaries never enter status/errors/log fixtures.
+- [ ] Only a passing package changes `pi.mcp.runtime` from unavailable; fake success alone never claims production activation.
+
+## Ordering
+
+Depends on:
+- `epic-mcp-runtime-integration-config-source-bridge-capability-probe`
+- `epic-mcp-runtime-integration-config-source-bridge-conformance-suite`
+
+Portable sibling features may design and implement against the contract/fake without this story. This story remains required for production lifecycle proof, this feature's completion, and parent-epic closure.
+
+## Risk and rollback
+
+The highest risk is a package whose TypeScript shape looks sufficient while tool/cache/process ownership or eager behavior violates semantics. The conformance and Pi-specific integration tests are the gate. Rollback removes the concrete dependency/wrapper and selects no runtime, making all MCP facts unavailable while preserving portable contracts and authoritative plugin state. File/settings/global workarounds are not rollback options.
