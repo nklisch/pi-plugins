@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-recovery-journal-gc-startup-recovery
 kind: story
-stage: implementing
+stage: done
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-recovery-journal-gc
 depends_on: [epic-transactional-plugin-lifecycle-recovery-journal-gc-reconciliation-contracts, epic-transactional-plugin-lifecycle-recovery-journal-gc-durable-journal-adapter]
@@ -49,3 +49,13 @@ Implement bounded local startup recovery over authoritative state and durable jo
 ## Ordering
 
 Consumes the shared reconciler and durable journal. Integration hardening waits for this checkpoint.
+
+## Implementation notes
+
+Implemented bounded startup recovery over authoritative state and per-scope journals. It processes pending references deterministically before abandoned prepared rows, respects the 2,000 ms / 128-record policy, observes candidate activation without treating reload invocation as proof, delegates all state transitions to the shared reconciler, and returns safe finalized/rolled-back/deferred/blocked results. Corrupt scopes and missing journal evidence are isolated. Staging allocation now records an adapter-private owner sidecar outside the materializer-visible slot; the recovery scanner issues opaque, identity-bound candidates and refuses live/unknown or replaced roots.
+
+Verification evidence:
+
+- `npm run typecheck` — passed.
+- `npm run test:unit -- --run test/application/recovery-service.test.ts test/infrastructure/recovery/recovery-artifact-scanner.test.ts` — 2 files / 3 tests passed.
+- Recovery spy coverage confirms corrupt state does not enter lifecycle command, reload, source, or artifact deletion surfaces; scanner coverage confirms live-owner takeover is refused.
