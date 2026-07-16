@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-refresh-update-policy
 kind: feature
-stage: review
+stage: implementing
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-operations, epic-transactional-plugin-lifecycle-recovery-journal-gc]
@@ -516,3 +516,20 @@ Implemented all four checkpoints in dependency order:
 - Checkpoint commits: `beca3fd`, `c1ce0e5`, `79d0060`, `6a3c09d`.
 - `npm test` passed: typecheck, dependency boundaries, 115 unit-test files / 627 tests, build, and compiled package import.
 - Dependency cruiser passed with 176 modules and 1,078 dependencies; the explicit compiled package allowlist passed with 434 exports.
+
+## Review findings (2026-07-16)
+
+Effective review weight: `standard` (project), one cross-model balanced pass by Umans GLM 5.2.
+
+Receiver-confirmed material fix set:
+
+- Export and compose the update-policy service so callers can actually set manual/automatic policy.
+- Add the promised automatic-origin and two-session integration coverage, including expected-revision/source/trust races and exactly-once notification intent.
+- Correct lifecycle-result dispositions (`AVAILABLE_REVISION_CHANGED` retryable; incompatible/unconfigured/manual conditions not retried blindly).
+- Keep the scheduler alive after non-abort refresh failures while preserving abort propagation.
+- Preserve already durably emitted notification intents when a later plugin iteration fails.
+- Remove the degenerate all-zero source-change candidate-key derivation from the exported comparison contract and derive keys with real injected SHA-256/exact changed identity.
+- Preserve v2 claims/backoff/notifications when mutating a v1-envelope compatibility store.
+- Make inventory completeness local to each refresh invocation so concurrent explicit/scheduled calls cannot broaden automatic eligibility.
+
+Tracked by `epic-transactional-plugin-lifecycle-refresh-update-policy-review-hardening`. The fourth cadence already removed the dead `successRecord`/private intent scaffolding. Under `standard`, closure after this story is fix verification only; do not commission a second independent pass. Lower-risk notification pruning and conservative source-equality cleanup are parked separately.
