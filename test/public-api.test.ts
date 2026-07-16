@@ -113,6 +113,17 @@ import {
   ResolvedPluginSourceSchema,
   ResolvedPluginSourceVariantRegistry,
   RetainedMetadataSchema,
+  McpBridgeTransportSchema,
+  McpConfigSourceSchemaV1,
+  McpLaunchValueRequestSchema,
+  McpRuntimeCapabilitiesSchemaV1,
+  McpSourceIdentitySchemaV1,
+  McpSourceRemoveResultSchema,
+  McpSourceReplaceResultSchema,
+  McpSourceServerSchemaV1,
+  McpSourceServerStatusSchema,
+  McpSourceStatusSchema,
+  McpSourceValidationResultSchema,
   RuntimeCapabilityAvailabilitySchema,
   RuntimeCapabilityIdSchema,
   RuntimeCapabilityRegistry,
@@ -397,6 +408,21 @@ import {
   type ResolvedMarketplaceSource,
   type ResolvedPluginSource,
   type RetainedMetadata,
+  type McpBridgeTransport,
+  type McpConfigSource,
+  type McpLaunchValueProvider,
+  type McpLaunchValueRequest,
+  type McpLaunchValues,
+  type McpRuntimeCapabilities,
+  type McpRuntimePort,
+  type McpSourceIdentity,
+  type McpSourceRemoveResult,
+  type McpSourceReplaceRequest,
+  type McpSourceReplaceResult,
+  type McpSourceServer,
+  type McpSourceServerStatus,
+  type McpSourceStatus,
+  type McpSourceValidationResult,
   type RuntimeCapabilityAvailability,
   type RuntimeCapabilityId,
   type RuntimeCapabilityProbe,
@@ -552,6 +578,17 @@ describe("explicit package API", () => {
       ResolvedPluginSourceSchema,
       ResolvedPluginSourceVariantRegistry,
       RetainedMetadataSchema,
+      McpBridgeTransportSchema,
+      McpConfigSourceSchemaV1,
+      McpLaunchValueRequestSchema,
+      McpRuntimeCapabilitiesSchemaV1,
+      McpSourceIdentitySchemaV1,
+      McpSourceRemoveResultSchema,
+      McpSourceReplaceResultSchema,
+      McpSourceServerSchemaV1,
+      McpSourceServerStatusSchema,
+      McpSourceStatusSchema,
+      McpSourceValidationResultSchema,
       RuntimeCapabilityAvailabilitySchema,
       RuntimeCapabilityIdSchema,
       RuntimeCapabilityRegistry,
@@ -785,6 +822,21 @@ describe("explicit package API", () => {
     expectTypeOf<CompatibilityAssessmentRequest>().toMatchTypeOf<{ plugin: NormalizedPlugin }>();
     expectTypeOf<CompatibilityService>().toMatchTypeOf<{ assess: Function }>();
     expectTypeOf<RuntimeCapabilityProbe>().toMatchTypeOf<{ snapshot: Function }>();
+    expectTypeOf<McpBridgeTransport>().toEqualTypeOf<z.infer<typeof McpBridgeTransportSchema>>();
+    expectTypeOf<McpConfigSource>().toEqualTypeOf<z.infer<typeof McpConfigSourceSchemaV1>>();
+    expectTypeOf<McpRuntimeCapabilities>().toEqualTypeOf<z.infer<typeof McpRuntimeCapabilitiesSchemaV1>>();
+    expectTypeOf<McpSourceIdentity>().toEqualTypeOf<z.infer<typeof McpSourceIdentitySchemaV1>>();
+    expectTypeOf<McpSourceServer>().toEqualTypeOf<z.infer<typeof McpSourceServerSchemaV1>>();
+    expectTypeOf<McpSourceServerStatus>().toEqualTypeOf<z.infer<typeof McpSourceServerStatusSchema>>();
+    expectTypeOf<McpSourceStatus>().toEqualTypeOf<z.infer<typeof McpSourceStatusSchema>>();
+    expectTypeOf<McpSourceValidationResult>().toMatchTypeOf<{ ok: boolean }>();
+    expectTypeOf<McpSourceReplaceResult>().toMatchTypeOf<{ kind: "applied" | "stale" | "rejected" }>();
+    expectTypeOf<McpSourceRemoveResult>().toMatchTypeOf<{ kind: "removed" | "absent" | "ownership-mismatch" }>();
+    expectTypeOf<McpLaunchValueRequest>().toEqualTypeOf<z.infer<typeof McpLaunchValueRequestSchema>>();
+    expectTypeOf<McpLaunchValues>().not.toEqualTypeOf<McpConfigSource>();
+    expectTypeOf<McpLaunchValueProvider>().toMatchTypeOf<{ resolve: Function; dispose: Function }>();
+    expectTypeOf<McpSourceReplaceRequest>().toMatchTypeOf<{ source: McpConfigSource; launchValues: McpLaunchValueProvider }>();
+    expectTypeOf<McpRuntimePort>().toMatchTypeOf<{ capabilities: Function; replaceSource: Function }>();
     expectTypeOf<RuntimeCapabilityAvailability>().toEqualTypeOf<z.infer<typeof RuntimeCapabilityAvailabilitySchema>>();
     expectTypeOf<RuntimeCapabilityId>().toEqualTypeOf<z.infer<typeof RuntimeCapabilityIdSchema>>();
     expectTypeOf<RuntimeCapabilitySnapshot>().toEqualTypeOf<z.infer<typeof RuntimeCapabilitySnapshotSchema>>();

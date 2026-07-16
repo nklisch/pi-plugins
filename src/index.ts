@@ -331,6 +331,37 @@ export type {
 } from "./application/compatibility-service.js";
 export type { RuntimeCapabilityProbe } from "./application/ports/runtime-capability-probe.js";
 
+export {
+  McpBridgeTransportSchema,
+  McpSourceIdentitySchemaV1,
+  McpSourceServerSchemaV1,
+  McpConfigSourceSchemaV1,
+  McpLaunchValueRequestSchema,
+  McpSourceServerStatusSchema,
+  McpSourceStatusSchema,
+  McpRuntimeCapabilitiesSchemaV1,
+  McpSourceValidationResultSchema,
+  McpSourceReplaceResultSchema,
+  McpSourceRemoveResultSchema,
+} from "./application/ports/mcp-runtime.js";
+export type {
+  McpBridgeTransport,
+  McpSourceIdentity,
+  McpSourceServer,
+  McpConfigSource,
+  McpLaunchValueRequest,
+  McpLaunchValues,
+  McpLaunchValueProvider,
+  McpSourceServerStatus,
+  McpSourceStatus,
+  McpRuntimeCapabilities,
+  McpSourceValidationResult,
+  McpSourceReplaceResult,
+  McpSourceRemoveResult,
+  McpSourceReplaceRequest,
+  McpRuntimePort,
+} from "./application/ports/mcp-runtime.js";
+
 export { authorizeTrustCandidate } from "./application/trust-service.js";
 export type { TrustAuthorizationResult } from "./application/trust-service.js";
 export type { ProjectTrustPort } from "./application/ports/project-trust.js";

@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-config-source-bridge-portable-contract
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-config-source-bridge
 depends_on: []
@@ -63,3 +63,14 @@ The main risk is overfitting the application port to a future package API. Keep 
 ## Blocker ownership
 
 None. Plugin Host maintainers own implementation and verification. Current `pi-mcp-adapter` absence does not block this story.
+
+## Implementation notes
+
+- Execution capability: Luna xhigh; the public contract crosses scope, ownership, cancellation, and secret-custody boundaries.
+- Review weight: standard (caller explicitly requested no feature review; this child checkpoint was verified directly).
+- Files changed: `src/application/ports/mcp-runtime.ts`, `src/index.ts`, `test/application/mcp-runtime-contract.test.ts`, `test/public-api.test.ts`, `test/compiled-package-import.mjs`.
+- Tests added/updated: strict schema, identity, redaction, typed-result, cancellation/provider-shape, type-inference, and compiled export-allowlist coverage.
+- Simplification: one source-lifecycle port keeps adapter/package choice, process ownership, and transport internals outside application callers.
+- Discrepancies from design: result schemas use explicit `status`, `currentIdentity`, and identity-bearing ownership mismatch fields; the semantics remain the designed applied/stale/rejected and removed/absent/mismatch contract.
+- Adjacent issues parked: none.
+- Verification: `npm run typecheck`; `npm run test:unit -- --run test/application/mcp-runtime-contract.test.ts test/public-api.test.ts`; both passed with 12 tests and no type errors. Dependency boundaries were checked before the checkpoint commit.
