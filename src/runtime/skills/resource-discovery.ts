@@ -70,21 +70,10 @@ export type SkillHookContributionObservationResult =
   | Readonly<{ kind: "failed"; code: "CATALOG_UNINITIALIZED" | "RESOURCE_UNAVAILABLE" | "OBSERVATION_MISMATCH" | "PROJECT_UNTRUSTED" | "ADAPTER_FAILED" }>
   | Readonly<{ kind: "cancelled" }>;
 
-const EMPTY_SKILLS: readonly SkillComponent[] = Object.freeze([]);
-
 type TargetEvidence = Readonly<{
   scope: SkillHookRuntimeSnapshot["scope"];
   plugin: SkillHookRuntimeSnapshot["plugin"];
   observation: SkillResourceContributionObservation;
-  paths: readonly VerifiedSkillResourcePath[];
-}>;
-
-type ResourceOwner = Readonly<{
-  scope: SkillHookRuntimeSnapshot["scope"];
-  plugin: SkillHookRuntimeSnapshot["plugin"];
-  revision: SkillHookRuntimeSnapshot["revision"];
-  projectionDigest: SkillHookRuntimeSnapshot["projectionDigest"];
-  componentId: ComponentId;
 }>;
 
 type DiscoveryRegistry = Readonly<{
@@ -92,7 +81,6 @@ type DiscoveryRegistry = Readonly<{
   catalogSnapshot?: readonly SkillHookRuntimeSnapshot[];
   targets: ReadonlyMap<string, TargetEvidence>;
   failures: ReadonlyMap<string, SkillResourceTargetFailure>;
-  owners: ReadonlyMap<string, readonly ResourceOwner[]>;
 }>;
 
 function compareCodePoint(left: string, right: string): number {
@@ -123,10 +111,6 @@ function compareSkills(left: SkillComponent, right: SkillComponent): number {
 
 function mapTargetFailure(scope: SkillHookRuntimeSnapshot["scope"], plugin: SkillHookRuntimeSnapshot["plugin"], code: SkillResourceTargetFailure["code"]): SkillResourceTargetFailure {
   return Object.freeze({ scope, plugin, code });
-}
-
-function abortError(signal: AbortSignal): unknown {
-  return signal.reason ?? new DOMException("The operation was aborted", "AbortError");
 }
 
 function isAbort(error: unknown, signal: AbortSignal): boolean {
@@ -188,10 +172,10 @@ export function createSkillResourceDiscoveryRuntime(dependencies: Readonly<{
   resources: SkillResourceDiscoveryPort;
 }> {
   if (dependencies === null || typeof dependencies !== "object") throw new TypeError("skill resource discovery dependencies are required");
-  let registry: DiscoveryRegistry = Object.freeze({ initialized: false, targets: new Map(), failures: new Map(), owners: new Map() });
+  let registry: DiscoveryRegistry = Object.freeze({ initialized: false, targets: new Map(), failures: new Map() });
 
   function invalidate(): void {
-    registry = Object.freeze({ initialized: false, targets: new Map(), failures: new Map(), owners: new Map() });
+    registry = Object.freeze({ initialized: false, targets: new Map(), failures: new Map() });
   }
 
   async function discover(request: SkillResourceDiscoveryRequest, signal: AbortSignal): Promise<SkillResourceDiscoveryResult> {
@@ -251,7 +235,6 @@ export function createSkillResourceDiscoveryRuntime(dependencies: Readonly<{
 
       const emitted: string[] = [];
       const emittedCanonical = new Set<string>();
-      const ownersByPath = new Map<string, ResourceOwner[]>();
       for (const item of verified) {
         const skills = [...item.snapshot.skills].sort(compareSkills);
         const ids = skills.map((skill) => ComponentIdSchema.parse(skill.id));
@@ -265,29 +248,16 @@ export function createSkillResourceDiscoveryRuntime(dependencies: Readonly<{
           skills: logicalRoots,
         }, dependencies.sha256);
         const observation = makeResourceObservation(item.snapshot, ids, digest);
-        const pathByComponent = item.paths;
-        const owners = pathByComponent.map((path, index) => ({ path, componentId: ids[index]! }));
-        for (const owner of owners) {
-          const logicalOwner: ResourceOwner = {
-            scope: item.snapshot.scope,
-            plugin: item.snapshot.plugin,
-            revision: item.snapshot.revision,
-            projectionDigest: item.snapshot.projectionDigest,
-            componentId: owner.componentId,
-          };
-          const existingOwners = ownersByPath.get(owner.path.canonicalPath) ?? [];
-          existingOwners.push(logicalOwner);
-          ownersByPath.set(owner.path.canonicalPath, existingOwners);
-          if (!emittedCanonical.has(owner.path.canonicalPath)) {
-            emittedCanonical.add(owner.path.canonicalPath);
-            emitted.push(owner.path.path);
+        for (const path of item.paths) {
+          if (!emittedCanonical.has(path.canonicalPath)) {
+            emittedCanonical.add(path.canonicalPath);
+            emitted.push(path.path);
           }
         }
         targets.set(runtimeTargetKey(item.snapshot.scope, item.snapshot.plugin), Object.freeze({
           scope: item.snapshot.scope,
           plugin: item.snapshot.plugin,
           observation,
-          paths: pathByComponent,
         }));
       }
       // Registry replacement is one synchronous assignment after every target
@@ -298,7 +268,6 @@ export function createSkillResourceDiscoveryRuntime(dependencies: Readonly<{
         catalogSnapshot: snapshots,
         targets,
         failures,
-        owners: new Map([...ownersByPath.entries()].map(([path, pathOwners]) => [path, Object.freeze([...pathOwners])])),
       });
       return Object.freeze({ kind: "ready", skillPaths: Object.freeze(emitted), failedTargets: Object.freeze([...failures.values()]) });
     } catch (error) {

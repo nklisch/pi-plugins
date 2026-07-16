@@ -92,17 +92,61 @@ function sourceObserver(values: readonly SkillHookRuntimeSnapshot[]): SkillHookS
 }
 
 describe("deterministic skill resource discovery", () => {
-  it("orders user before project and deduplicates only identical canonical files", async () => {
-    const userA = snapshot("a@community", { kind: "user" });
-    const userB = snapshot("b@community", { kind: "user" });
-    const projectC = snapshot("c@community", { kind: "project", projectKey: project.projectKey });
-    const values = [userB, projectC, userA];
+  it("orders targets and deduplicates one canonical file while retaining logical observations", async () => {
+    const user = snapshot("user@community", { kind: "user" }, [source]);
+    const projectTarget = snapshot("project@community", { kind: "project", projectKey: project.projectKey }, [otherSource]);
+    const values = [projectTarget, user];
+    const owned = createSkillHookRuntimeCatalog();
+    owned.publish(values, project);
+    const paths: SkillResourcePathPort = { async verify() { return { kind: "ready", value: { path: "/immutable/shared/SKILL.md", canonicalPath: "/immutable/shared/SKILL.md" } }; } };
+    const runtime = createSkillResourceDiscoveryRuntime({ snapshots: sourceObserver(values), catalog: owned.catalog, paths, sha256 });
+    const result = await runtime.resources.discover({ reason: "startup", projectTrusted: true }, new AbortController().signal);
+    expect(result).toEqual({ kind: "ready", skillPaths: ["/immutable/shared/SKILL.md"], failedTargets: [] });
+    expect(await runtime.participant.observe(expectation(user), new AbortController().signal)).toMatchObject({
+      kind: "ready",
+      observation: { scope: { kind: "user" }, plugin: "user@community", skillComponentIds: [source.id] },
+    });
+    expect(await runtime.participant.observe(expectation(projectTarget), new AbortController().signal)).toMatchObject({
+      kind: "ready",
+      observation: { scope: { kind: "project", projectKey: project.projectKey }, plugin: "project@community", skillComponentIds: [otherSource.id] },
+    });
+  });
+
+  it("denies an untrusted project target without removing a valid user path", async () => {
+    const user = snapshot("user@community", { kind: "user" });
+    const projectTarget = snapshot("project@community", { kind: "project", projectKey: project.projectKey });
+    const values = [projectTarget, user];
     const owned = createSkillHookRuntimeCatalog();
     owned.publish(values, project);
     const paths: SkillResourcePathPort = { async verify(file) { return { kind: "ready", value: { path: `${file.root}/${file.entry.path}`, canonicalPath: `${file.root}/${file.entry.path}` } }; } };
     const runtime = createSkillResourceDiscoveryRuntime({ snapshots: sourceObserver(values), catalog: owned.catalog, paths, sha256 });
-    const result = await runtime.resources.discover({ reason: "startup", projectTrusted: true }, new AbortController().signal);
-    expect(result).toMatchObject({ kind: "ready", skillPaths: ["/immutable/a@community/user/skills/demo/SKILL.md", "/immutable/b@community/user/skills/demo/SKILL.md", "/immutable/c@community/project/skills/demo/SKILL.md"] });
+    const result = await runtime.resources.discover({ reason: "startup", projectTrusted: false }, new AbortController().signal);
+    expect(result).toMatchObject({
+      kind: "ready",
+      skillPaths: ["/immutable/user@community/user/skills/demo/SKILL.md"],
+      failedTargets: [{ scope: { kind: "project", projectKey: project.projectKey }, plugin: "project@community", code: "PROJECT_UNTRUSTED" }],
+    });
+    expect(await runtime.participant.observe(expectation(user), new AbortController().signal)).toMatchObject({ kind: "ready" });
+    expect(await runtime.participant.observe(expectation(projectTarget), new AbortController().signal)).toEqual({ kind: "failed", code: "RESOURCE_UNAVAILABLE" });
+  });
+
+  it("records a project identity mismatch while retaining unrelated user evidence", async () => {
+    const user = snapshot("user@community", { kind: "user" });
+    const otherProjectKey = `project-v1:sha256:${"2".repeat(64)}` as never;
+    const mismatchedProject = snapshot("other-project@community", { kind: "project", projectKey: otherProjectKey });
+    const values = [mismatchedProject, user];
+    const owned = createSkillHookRuntimeCatalog();
+    owned.publish(values, project);
+    const paths: SkillResourcePathPort = { async verify(file) { return { kind: "ready", value: { path: `${file.root}/${file.entry.path}`, canonicalPath: `${file.root}/${file.entry.path}` } }; } };
+    const runtime = createSkillResourceDiscoveryRuntime({ snapshots: sourceObserver(values), catalog: owned.catalog, paths, sha256 });
+    const result = await runtime.resources.discover({ reason: "reload", projectTrusted: true }, new AbortController().signal);
+    expect(result).toMatchObject({
+      kind: "ready",
+      skillPaths: ["/immutable/user@community/user/skills/demo/SKILL.md"],
+      failedTargets: [{ scope: { kind: "project", projectKey: otherProjectKey }, plugin: "other-project@community", code: "PROJECT_IDENTITY_MISMATCH" }],
+    });
+    expect(await runtime.participant.observe(expectation(user), new AbortController().signal)).toMatchObject({ kind: "ready" });
+    expect(await runtime.participant.observe(expectation(mismatchedProject), new AbortController().signal)).toEqual({ kind: "failed", code: "RESOURCE_UNAVAILABLE" });
   });
 
   it("isolates one bad target, retains healthy paths, and prevents observation", async () => {
