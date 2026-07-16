@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-skill-discovery-pi-adapter
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-skill-discovery
 depends_on: [epic-skills-hook-runtime-skill-discovery-resource-set]
@@ -47,3 +47,14 @@ Register the host-neutral resource service against Pi 0.80.8's exported `resourc
 ## Ordering
 
 Depends on the complete resource-set service. Full fake-host/lifecycle integration follows this checkpoint.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna, high; narrow typed Pi host adapter with explicit extension-lifetime cancellation.
+- Review weight: standard, source: project convention; child checkpoints do not enter review.
+- Files changed: `src/pi/skill-resource-discovery.ts`, `package.json`, `package-lock.json`, and `test/pi/skill-resource-discovery.test.ts`.
+- Tests added/updated: exact handler registration, startup/reload and trust forwarding, healthy-path preservation, safe global failure, cwd validation, and shutdown cancellation.
+- Simplification: the adapter returns only `skillPaths`; it has no Pi settings, UI, command, state, reload, or native parser path.
+- Discrepancies from design: Pi 0.80.8's root barrel does not export the named `ResourcesDiscoverEvent`/`ResourcesDiscoverResult` aliases. The adapter uses the root `ExtensionAPI.on` overload for contextual typing instead of copying private aliases or importing an unexported subpath; runtime behavior remains the exact typed event contract.
+- Adjacent issues parked: none.
+- Verification: source typecheck and focused Pi adapter suite pass; runtime test typechecking remains disabled for the focused run because the design branch's pre-existing test typecheck baseline is already non-green under TypeScript 7.
+- Stage transition: implementing -> done; implementation commit `implement: epic-skills-hook-runtime-skill-discovery-pi-adapter`.

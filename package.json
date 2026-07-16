@@ -32,11 +32,14 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.80.8",
     "@swc/core": "^1.15.43",
     "@types/node": "^24.0.0",
     "dependency-cruiser": "^17.0.0",
     "typescript": ">=7.0.0 <8",
-    "vitest": "^4.0.0",
-    "@earendil-works/pi-coding-agent": "0.80.8"
+    "vitest": "^4.0.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
   }
 }
