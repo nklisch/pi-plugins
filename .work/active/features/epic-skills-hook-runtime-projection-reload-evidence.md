@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-projection-reload-evidence
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime
 depends_on: []
@@ -415,3 +415,17 @@ The sequence is real: the loader needs a verified complete cache and corrected g
 This design fails if a cache drops MCP while preserving a skill/hook hash, if a generated-root path is invented from a logical ref, if a stale revision record resolves under a new projection, if an untrusted or different project contributes executable components, if duplicate targets overwrite by map order, if reconcile success is treated as activation, or if native composition finalizes from one participant. Canonical complete-cache verification, separate payload integrity, exact revision cross-checks, injected roots, explicit current project/trust, collision refusal, independent observation, and mandatory two-participant composition address each failure.
 
 The operational fallback is existing lifecycle behavior: cache/snapshot/reconcile errors fail preparation or reload; observation disagreement triggers compensation; uncertain state remains `recovery-required`. No new rollback engine, state mutation, or destructive cache guess is introduced.
+
+## Integrated implementation summary
+- Execution capability: GPT-5.6 Luna xhigh, one feature owner across the four sequential checkpoints; no nested agents, peer mechanism, or questions.
+- Review weight: standard, from project convention. Per the caller boundary, the feature is intentionally left at `stage: review` and is not reviewed in this run.
+- Child checkpoints completed directly to `done` in dependency order:
+  - `epic-skills-hook-runtime-projection-reload-evidence-cache-contract` — `ee598bd`
+  - `epic-skills-hook-runtime-projection-reload-evidence-snapshot-resolution` — `0504601`
+  - `epic-skills-hook-runtime-projection-reload-evidence-contribution-observation` — `7051369`
+  - `epic-skills-hook-runtime-projection-reload-evidence-integration-hardening` — `a79cfa3`
+- Integrated behavior: one complete canonical `projection.json` preserves skill, hook, and MCP inventory; generated roots carry independently verified logical projection and payload digests; post-commit snapshot loading uses only injected content/data/project/trust ports; skill/hook catalogs atomically replace immutable derived snapshots; active and inactive skill/hook observations compose with an independently observed MCP contribution before lifecycle evidence exists.
+- Public boundary: cache codecs/filesystem factory/path helpers/mutable catalog internals/state and transition authorities/reload invocation/MCP policy remain private; stable schemas, reader/catalog/participant ports, factories, and pure composition verification are exported.
+- Full verification: `npm test` passed — 128 test files / 663 tests / 447 compiled exports, with strict production typecheck, dependency boundaries, Vitest, build, and exact compiled import. Starting baseline was 122 / 653 / 438; additions are 6 test files, 10 tests, and 9 exports.
+- Deviations: `ProjectionRootRequest.payloadDigest` remains optional for legacy lifecycle-only generated-root callers; the filesystem adapter normalizes that compatibility shape, while all cache publications and metadata verify distinct payload and projection digests. Current-project context is hosted in the application project-trust port and re-exported by the runtime snapshot module to preserve dependency direction.
+- Blockers: none. Feature review remains the next lifecycle step.
