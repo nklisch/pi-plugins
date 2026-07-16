@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-guarded-command-hooks
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, security, infra]
 parent: epic-skills-hook-runtime
 depends_on: [epic-skills-hook-runtime-hook-event-adaptation]
@@ -559,6 +559,14 @@ The fallback is honest non-activation or a safe per-event diagnostic. No path re
 - Verification: full `npm test` passed on the immediate rerun — typecheck, dependency boundaries (209 modules / 1,263 dependencies), 148 test files / 774 tests, build, and compiled public import (459 exports). The first final suite attempt hit the already-known unrelated recovery-review-hardening concurrency flake; no unrelated code changed and the immediate rerun passed. Supplied branch start was 141 / 744 / 459; final additions are 7 test files, 30 tests, and no public exports. Existing source acquisition and all completed event/projection/discovery contracts remain green.
 - Foundation/docs: no assertion became false or misleading; no foundation document changed. Rollback remains migration-free and leaves state, projection cache, trust, configuration, credentials, content/data roots, lifecycle transitions, and subagent interception untouched.
 - Deviations: the installed Pi 0.80.8 package root does not export `SessionBeforeCompactResult` or `ToolResultEventResult` aliases; their exact declaration shapes are kept local while all available event/context types remain type-imported from Pi. No blockers.
+
+## Review hardening completion (2026-07-16)
+
+- Story `epic-skills-hook-runtime-guarded-command-hooks-review-hardening` is complete at `stage: done`; all six feature checkpoints are now done and the feature returns to `stage: review`.
+- Stop continuation now uses Pi 0.80.8's idle `steer` delivery with `triggerTurn: true`; the tests model `nextTurn`'s early-return behavior and verify recursive state, send-failure reset, three-use exhaustion, and ordinary reset paths through planning, execution, aggregation, application, and guard state.
+- Resolver coverage is deterministic across absolute, cwd-relative, PATH, Windows `.exe`/`.cmd`/`.bat`, missing, and abort branches through injected platform/environment/access adapters. Stop exit-2 empty output continues safely; null exits classify as spawn failures; declaration-order ask reasons are retained; dead runtime plumbing and the parser sentinel cast are removed.
+- Verification: focused Vitest passed (5 files / 21 tests), then full `npm test` passed with typecheck, dependency boundaries (209 modules / 1,263 dependencies), Vitest (149 files / 781 tests), build, and compiled package import (459 exports). No second review pass was run per the standard-review instruction.
+- Commit: `1331a00 implement: epic-skills-hook-runtime-guarded-command-hooks-review-hardening`.
 
 ## Review findings (2026-07-16)
 
