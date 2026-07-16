@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-read-only-adoption
 kind: feature
-stage: implementing
+stage: review
 tags: [security, compatibility, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-operations]
@@ -390,3 +390,16 @@ The chain is intentional. Pure schemas/readers establish the only data allowed o
 The design fails if a foreign cache path is accepted as a source, malformed one-host state suppresses the other host, aliases become authoritative identity, source-semantic fields are silently discarded, stale candidates register after a file change, project adoption writes machine-local paths, or adoption directly installs/enables plugins. Fixed path/field allowlists, strict source mapping, document-local diagnostics, canonical-source candidate IDs, re-discovery, portable-project preflight, and the mandatory normal registration port directly address those failures.
 
 The fallback is deliberately narrow: unsupported or drifted declarations remain visible diagnostics and are not candidates. Supporting a new host path or source form requires new external evidence and an explicit reader/source-contract change; it never comes from scanning foreign state more broadly.
+
+## Implementation summary
+
+- **Execution capability**: GPT-5.6 Luna xhigh, one cohesive feature owner. The three child stories were used as ordered checkpoints because the parser, application, and filesystem boundaries share one authority/trust contract.
+- **Completed checkpoints**: contracts/readers, application import, and Node integration all advanced directly `implementing -> done`, each with focused tests and its own implementation commit.
+- **Delivered boundary**: pure Claude JSON/Codex TOML source readers, deterministic canonical-source candidate reconciliation, freshness-aware declaration-only application import, fixed three-file bounded Node reads, and an explicit normal marketplace registration port.
+- **Security and authority choices**: only the three fixed user-state files are read; caches, credentials, trust, enablement, revisions, and materialized paths are never consulted. Foreign aliases remain suggestions. Project local sources are rejected before registration. Adoption has no state-store, lifecycle, install, activation, or write path.
+- **Dependency choice**: `smol-toml` 1.7.0 is used as the maintained ESM TOML boundary; no TOML hand parser was added. An adoption-specific dependency rule prevents the application policy from importing lifecycle/state-writer paths.
+- **Deviations**: none from the approved design. The existing foundation assertions remain accurate, so no foundation document changes were needed.
+
+## Integrated verification
+
+- `npm test` — passed: strict source/test typechecking, dependency boundaries (143 modules / 836 dependencies), 101 test files / 594 tests with no type errors, build, and compiled package import (378 exports).
