@@ -41,3 +41,12 @@ Register ordinary Pi callbacks around the completed planner/executor and apply v
 ## Ordering constraint
 
 Depends on both bounded execution and decision aggregation. Integration hardening is the sole downstream checkpoint.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna xhigh, one owner following the feature DAG; no nested agents, questions, or review.
+- Review weight: standard by project convention; child checkpoint advances directly to done after focused verification.
+- Files changed: package-private Pi decision adapter, ordinary callback registration runtime, and process-local Stop continuation guard.
+- Tests added: exact registration/order with no subagent callbacks, native input handled/tool mutation/tool-result details/compaction cancellation, safe mode-aware ask, hidden context/title delivery, and bounded three-use continuation state.
+- Simplification: Pi mutation is centralized in one adapter; parser/executor code remains Pi-free and no native process/UI manager or callback interception path was added.
+- Discrepancies from design: Pi 0.80.8 does not export two result aliases from its package root, so the adapter uses exact structural return shapes matching the installed declarations while event/context types remain imported from Pi.
+- Adjacent issues parked: none.
