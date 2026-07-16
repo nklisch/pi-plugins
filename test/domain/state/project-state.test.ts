@@ -13,10 +13,12 @@ import {
   type ScopeContext,
 } from "../../../src/domain/state/scope.js";
 import { migrateVersionedDocument } from "../../../src/domain/state/versioning.js";
+import { createMarketplaceConfigurationRecord } from "../../../src/domain/update-policy.js";
 import {
   ProjectLocalStateDocumentSchemaV1,
   ProjectLocalStateSchemaFamily,
   createProjectLocalStateDocument,
+  createProjectLocalStateDocumentV2,
   decodeProjectPlugins,
   type ProjectLocalStateDocumentV1,
 } from "../../../src/domain/state/project-state.js";
@@ -155,6 +157,25 @@ describe("project-local lifecycle state", () => {
     expect(result.records).toHaveLength(0);
     expect(result.quarantined.filter((entry) => entry.code === "RECORD_DUPLICATE")).toHaveLength(2);
     expect(result.quarantined.some((entry) => entry.code === "RECORD_INVALID")).toBe(true);
+  });
+
+  it("preserves validated v2 marketplace update memory through the constructor", () => {
+    const updateRecord = createMarketplaceConfigurationRecord({
+      marketplace: "community",
+      source: marketplaceInput.source.declared,
+    });
+    const document = createProjectLocalStateDocumentV2({
+      schemaVersion: 2,
+      generation: 3,
+      projectKey,
+      identity,
+      declarationDigest: content.rootDigest,
+      marketplaces: [marketplaceInput],
+      plugins: [],
+      marketplaceUpdates: [updateRecord],
+    }, context as Extract<ScopeContext, { kind: "project" }>, sha256);
+
+    expect(document.marketplaceUpdates).toEqual([updateRecord]);
   });
 
   it("migrates v1 without inventing project update authority", () => {

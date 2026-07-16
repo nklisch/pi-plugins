@@ -141,6 +141,7 @@ const ProjectLocalStateInputSchema = z
     declarationDigest: ContentDigestSchema,
     marketplaces: z.array(z.unknown()),
     plugins: z.array(z.unknown()),
+    marketplaceUpdates: z.array(z.unknown()).optional(),
   })
   .strict();
 
@@ -215,13 +216,17 @@ export function createProjectLocalStateDocumentV2(
   context: Extract<ScopeContext, { kind: "project" }>,
   sha256: Sha256,
 ): ProjectLocalStateDocumentV2 {
-  if (input !== null && typeof input === "object" && !Array.isArray(input) && (input as { readonly schemaVersion?: unknown }).schemaVersion === 2) {
-    const { schemaVersion: _version, marketplaceUpdates: _updates, ...legacyInput } = input as Record<string, unknown>;
-    const legacy = createProjectLocalStateDocument({ ...legacyInput, schemaVersion: 1 }, context, sha256);
-    return ProjectLocalStateDocumentSchemaV2.parse({ ...legacy, schemaVersion: 2, marketplaceUpdates: [] });
-  }
-  const legacy = createProjectLocalStateDocument(input, context, sha256);
-  return ProjectLocalStateDocumentSchemaV2.parse({ ...legacy, schemaVersion: 2, marketplaceUpdates: [] });
+  const isObject = input !== null && typeof input === "object" && !Array.isArray(input);
+  const value = isObject ? ProjectLocalStateInputSchema.parse(input) : undefined;
+  const isV2 = value?.schemaVersion === 2;
+  const marketplaceUpdates = isV2
+    ? (value.marketplaceUpdates ?? []).map((record) => MarketplaceUpdateRecordSchema.parse(record))
+    : [];
+  const legacyInput = value === undefined
+    ? input
+    : Object.fromEntries(Object.entries(value).filter(([key]) => key !== "schemaVersion" && key !== "marketplaceUpdates"));
+  const legacy = createProjectLocalStateDocument({ ...(legacyInput as Record<string, unknown>), schemaVersion: 1 }, context, sha256);
+  return ProjectLocalStateDocumentSchemaV2.parse({ ...legacy, schemaVersion: 2, marketplaceUpdates });
 }
 
 export type ProjectPluginRecordCollectionDecode = Readonly<{

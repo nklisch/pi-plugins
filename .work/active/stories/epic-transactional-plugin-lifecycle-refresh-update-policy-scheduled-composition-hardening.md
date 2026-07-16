@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-refresh-update-policy-scheduled-composition-hardening
 kind: story
-stage: implementing
+stage: done
 tags: [infra, tests]
 parent: epic-transactional-plugin-lifecycle-refresh-update-policy
 depends_on: [epic-transactional-plugin-lifecycle-refresh-update-policy-marketplace-refresh-discovery, epic-transactional-plugin-lifecycle-refresh-update-policy-automatic-application-authority]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-17
 ---
 
 # Schedule, compose, and harden update policy
@@ -41,3 +41,17 @@ Expose a narrow cancellable scheduled loop and Node composition without starting
 ## Ordering
 
 Final convergence checkpoint after refresh discovery and automatic lifecycle authority. The future Pi adapter may start this scheduler only after local runtime readiness/recovery and may render its typed notification intents.
+
+## Implementation notes
+
+- Added the portable `UpdateDelayPort` and `MarketplaceUpdateScheduler`. `run(signal)` performs no work before explicit invocation, performs an immediate scheduled refresh, then waits for the earliest durable due time bounded by the 15-minute inventory ceiling. Cancellation propagates from both refresh and delay; no abort is converted into success.
+- Added the Node composition factory with an abortable `node:timers/promises` delay. Timer ownership remains private to composition; construction creates services only and does not start timers, read state, acquire claims, materialize content, or register host events.
+- Published only the stable update-policy, refresh, scheduler, and composition contracts through the explicit package barrel. Claim mutation details, timer adapters, automatic authorization evidence, candidate preparation, and direct state writers remain private. Existing dependency-cruiser inward-layer rules continue to pass.
+- Corrected the project v2 constructor to preserve validated `marketplaceUpdates` during generation-coordinated mutations. v1 migration still creates no project update authority, while v2 policy, claim, backoff, and notification memory now survive lifecycle/state rewrites.
+
+## Verification
+
+- `npm run typecheck` passed.
+- `npm run boundaries` passed: 176 modules, 1,078 dependencies, no violations.
+- Full unit suite passed: 115 files, 627 tests.
+- `npm run test:package` passed with the compiled package export allowlist at 434 exports.

@@ -237,6 +237,36 @@ export type {
 } from "./domain/marketplace.js";
 
 export {
+  UpdateCandidateKeySchema,
+  RefreshClaimIdSchema,
+  StableSourceIdentitySchema,
+  AvailableRevisionSchema,
+  MarketplaceRefreshMemorySchema,
+  UpdateNotificationMemorySchema,
+  MarketplaceUpdateRecordSchema,
+  deriveMarketplaceSourceIdentity,
+  derivePluginSourceIdentity,
+  deriveUpdateCandidateKey,
+  compareInstalledRevision,
+  backoffDelayMs,
+  createMarketplaceConfigurationRecord,
+  replaceMarketplaceConfigurationSource,
+  displayVersion,
+  selectDeclaredVersion,
+} from "./domain/update-policy.js";
+export type {
+  UpdateCandidateKey,
+  RefreshClaimId,
+  StableSourceIdentity,
+  AvailableRevision,
+  MarketplaceRefreshMemory,
+  UpdateNotificationMemory,
+  MarketplaceUpdateRecord,
+  RevisionComparison,
+  InstalledRevisionDescriptor,
+} from "./domain/update-policy.js";
+
+export {
   ComponentVerdictRegistry,
   RuntimeRequirementStatusRegistry,
   RuntimeRequirementIdSchema,
@@ -956,6 +986,50 @@ export type {
 
 export { EpochMillisecondsSchema } from "./application/ports/lifecycle-clock.js";
 export type { EpochMilliseconds, LifecycleClock } from "./application/ports/lifecycle-clock.js";
+
+export {
+  MarketplaceRefreshRequestSchema,
+  UpdateDispositionSchema,
+  NotificationIntentSchema,
+  PluginUpdateOutcomeSchema,
+  MarketplaceReadResultSchema as MarketplaceRefreshOutcomeSchema,
+  MarketplaceRefreshResultSchema,
+} from "./application/update-contract.js";
+export type {
+  MarketplaceRefreshRequest,
+  UpdateDisposition,
+  NotificationIntent,
+  PluginUpdateOutcome,
+  MarketplaceRefreshOutcome,
+  MarketplaceRefreshResult,
+} from "./application/update-contract.js";
+export type { RefreshClaimIdPort } from "./application/ports/refresh-claim-id.js";
+export type { UpdateDelayPort } from "./application/ports/update-delay.js";
+export {
+  DefaultMarketplaceUpdatePolicy,
+  createMarketplaceRefreshService,
+} from "./application/marketplace-refresh-service.js";
+export type {
+  MarketplacePluginProbeResult,
+  MarketplacePluginProbePort,
+  MarketplaceRefreshService,
+  MarketplaceRefreshServiceDependencies,
+} from "./application/marketplace-refresh-service.js";
+export {
+  DEFAULT_INVENTORY_POLL_MS,
+  createMarketplaceUpdateScheduler,
+} from "./application/marketplace-update-scheduler.js";
+export type {
+  MarketplaceUpdateScheduler,
+  MarketplaceUpdateSchedulerDependencies,
+} from "./application/marketplace-update-scheduler.js";
+export {
+  createNodeMarketplaceRefreshServices,
+} from "./composition/create-marketplace-refresh-services.js";
+export type {
+  NodeMarketplaceRefreshServices,
+  NodeMarketplaceRefreshServicesOptions,
+} from "./composition/create-marketplace-refresh-services.js";
 
 export {
   DefaultLifecycleRecoveryPolicy,
