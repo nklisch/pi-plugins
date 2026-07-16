@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createInactiveProjectionExpectation, createActiveProjectionExpectation, createPluginRuntimeProjection } from "../../../src/application/ports/runtime-projection.js";
 import { createSkillHookRuntimeParticipant } from "../../../src/runtime/skill-hook/lifecycle-participant.js";
-import { createSkillHookSnapshotLoader } from "../../../src/runtime/skill-hook/runtime-snapshot.js";
+import { createSkillHookSnapshotLoader, type SkillHookSnapshotResult } from "../../../src/runtime/skill-hook/runtime-snapshot.js";
 import { CompatibilityReportSchema } from "../../../src/domain/compatibility.js";
 import { createContentManifest } from "../../../src/domain/content-manifest.js";
 import { createPluginStoreIdentityFromEvidence } from "../../../src/domain/content-store.js";
@@ -34,8 +34,9 @@ function setup() {
   // behavior from the loader's adapter tests.
   const project = { identity: { kind: "path-only", canonicalRoot: "file:///workspace/", limitation: "identity-changes-with-canonical-root" }, projectKey: `project-v1:sha256:${"1".repeat(64)}`, trust: { kind: "trusted" as const } } as never;
   const snapshot = { schemaVersion: 1 as const, scope: { kind: "user" as const }, plugin: projection.plugin, revision: projection.revision, projectionDigest: projection.digest, projectionRef: expectation.projectionRef, currentProject: project, content: { kind: "plugin" as const, root: "/content", identity: storeIdentity, manifest: content, contentRef: revision.contentRef }, data: { root: "/data", scope: { kind: "user" as const }, plugin: projection.plugin, dataRef: revision.dataRef }, skills: [], hooks: [], contributionDigest: `sha256:${"2".repeat(64)}` };
-  const participant = createSkillHookRuntimeParticipant({ loader: { async load() { return { kind: "ready" as const, snapshot }; } }, sha256 });
-  return { participant, expectation, plugin: projection.plugin, loader, revision };
+  let loadResult: SkillHookSnapshotResult = { kind: "ready", snapshot };
+  const participant = createSkillHookRuntimeParticipant({ loader: { async load() { return loadResult; } }, sha256 });
+  return { participant, expectation, plugin: projection.plugin, loader, revision, snapshot, setLoadResult(value: SkillHookSnapshotResult) { loadResult = value; } }; 
 }
 
 describe("skill/hook lifecycle participant", () => {
@@ -48,5 +49,64 @@ describe("skill/hook lifecycle participant", () => {
     expect(await participant.participant.reconcile({ active: [] }, signal)).toEqual({ kind: "applied", count: 0 });
     const inactive = await participant.participant.observe(createInactiveProjectionExpectation({ scope: { kind: "user" }, plugin, sha256 }), signal);
     expect(inactive).toMatchObject({ kind: "ready", observation: { kind: "inactive", projectionDigest: expect.any(String) } });
+  });
+
+  it("rejects target collisions before changing the catalog", async () => {
+    const { participant, expectation, revision } = setup();
+    const selection = { prepared: { expectation, projection: expectation.projection, payloadDigest: `sha256:${"3".repeat(64)}` }, revision };
+    expect(await participant.participant.reconcile({ active: [selection, selection] }, signal)).toEqual({ kind: "failed", code: "TARGET_COLLISION" });
+    expect(participant.catalog.list()).toEqual([]);
+  });
+
+  it("preserves the previously published catalog when a later snapshot fails", async () => {
+    const value = setup();
+    const selection = { prepared: { expectation: value.expectation, projection: value.expectation.projection, payloadDigest: `sha256:${"3".repeat(64)}` }, revision: value.revision };
+    expect(await value.participant.participant.reconcile({ active: [selection] }, signal)).toMatchObject({ kind: "applied" });
+    const previous = value.participant.catalog.list();
+    value.setLoadResult({ kind: "failed", code: "CONTENT_UNAVAILABLE" });
+    expect(await value.participant.participant.reconcile({ active: [selection] }, signal)).toEqual({ kind: "failed", code: "SNAPSHOT_FAILED" });
+    expect(value.participant.catalog.list()).toBe(previous);
+  });
+
+  it("cancels before the synchronous swap and retains the previous catalog", async () => {
+    const value = setup();
+    const selection = { prepared: { expectation: value.expectation, projection: value.expectation.projection, payloadDigest: `sha256:${"3".repeat(64)}` }, revision: value.revision };
+    let cancel = false;
+    const controller = new AbortController();
+    const cancelling = createSkillHookRuntimeParticipant({
+      loader: { async load() { if (cancel) controller.abort(); return { kind: "ready" as const, snapshot: value.snapshot }; } },
+      sha256,
+    });
+    expect(await cancelling.participant.reconcile({ active: [selection] }, signal)).toMatchObject({ kind: "applied" });
+    const previous = cancelling.catalog.list();
+    cancel = true;
+    expect(await cancelling.participant.reconcile({ active: [selection] }, controller.signal)).toEqual({ kind: "cancelled" });
+    expect(cancelling.catalog.list()).toBe(previous);
+  });
+
+  it("rejects wrong snapshot bindings and exact observation mismatches", async () => {
+    const value = setup();
+    const selection = { prepared: { expectation: value.expectation, projection: value.expectation.projection, payloadDigest: `sha256:${"3".repeat(64)}` }, revision: value.revision };
+    value.setLoadResult({ kind: "ready", snapshot: { ...value.snapshot, revision: `sha256:${"e".repeat(64)}` as typeof value.snapshot.revision } });
+    expect(await value.participant.participant.reconcile({ active: [selection] }, signal)).toEqual({ kind: "failed", code: "SNAPSHOT_FAILED" });
+
+    value.setLoadResult({ kind: "ready", snapshot: value.snapshot });
+    expect(await value.participant.participant.reconcile({ active: [selection] }, signal)).toMatchObject({ kind: "applied" });
+    const wrongs = [
+      { ...value.expectation, projection: { ...value.expectation.projection, plugin: "other@community" as typeof value.expectation.projection.plugin } },
+      { ...value.expectation, projection: { ...value.expectation.projection, revision: `sha256:${"e".repeat(64)}` as typeof value.expectation.projection.revision } },
+      { ...value.expectation, projection: { ...value.expectation.projection, digest: `sha256:${"f".repeat(64)}` as typeof value.expectation.projection.digest } },
+      createInactiveProjectionExpectation({ scope: { kind: "user" }, plugin: value.plugin, sha256 }),
+    ];
+    for (const wrong of wrongs) expect(await value.participant.participant.observe(wrong, signal)).toMatchObject({ kind: "failed", code: "OBSERVATION_MISMATCH" });
+  });
+
+  it("rejects project-untrusted snapshots before they can become observation evidence", async () => {
+    const value = setup();
+    const projectKey = `project-v1:sha256:${"1".repeat(64)}`;
+    const projectSnapshot = { ...value.snapshot, scope: { kind: "project" as const, projectKey }, currentProject: { ...value.snapshot.currentProject, projectKey, trust: { kind: "untrusted" as const } } };
+    const projectExpectation = { ...value.expectation, projection: { ...value.expectation.projection, scope: { kind: "project" as const, projectKey } } };
+    value.setLoadResult({ kind: "ready", snapshot: projectSnapshot });
+    expect(await value.participant.participant.reconcile({ active: [{ prepared: { expectation: projectExpectation, projection: projectExpectation.projection, payloadDigest: `sha256:${"3".repeat(64)}` }, revision: value.revision }] }, signal)).toEqual({ kind: "failed", code: "SNAPSHOT_FAILED" });
   });
 });

@@ -75,14 +75,42 @@ describe("skill/hook projection and reload evidence integration", () => {
       const mcpObservation = { kind: "active" as const, participant: "mcp" as const, scope: expectation.projection.scope, plugin: expectation.projection.plugin, revision: expectation.projection.revision, projectionDigest: expectation.projection.digest, currentProject: skillsHooks.observation.currentProject, contributionDigest: `sha256:${"a".repeat(64)}` };
       const active = composeActivationObservation({ expectation, skillsHooks: skillsHooks.observation, mcp: mcpObservation });
       expect(active).toMatchObject({ kind: "active", revision: revision.revision, projectionDigest: projection.digest });
+      const { skillComponentIds: _skillIds, hookComponentIds: _hookIds, ...baseSkillsHooks } = skillsHooks.observation;
+      expect(() => composeActivationObservation({ expectation, skillsHooks: baseSkillsHooks, mcp: mcpObservation })).toThrow();
+      const changedProject = { ...skillsHooks.observation.currentProject, projectKey: `project-v1:sha256:${"e".repeat(64)}` as typeof skillsHooks.observation.currentProject.projectKey };
+      expect(() => composeActivationObservation({ expectation, skillsHooks: { ...skillsHooks.observation, currentProject: changedProject }, mcp: mcpObservation })).toThrow();
 
-      expect(await runtime.participant.reconcile({ active: [] }, signal)).toEqual({ kind: "applied", count: 0 });
+      const updatedPlugin = NormalizedPluginSchema.parse({ ...plugin, source: createResolvedPluginSource({ kind: "git", url: "https://example.invalid/complete.git", revision: "e".repeat(40) }, sha256) });
+      const updatedRevision = createInstalledRevisionRecord({ plugin: updatedPlugin, compatibility, content, scope: { kind: "user" } }, sha256);
+      const updatedProjection = createPluginRuntimeProjection({ scope: { kind: "user" }, plugin: updatedPlugin, compatibility, revision: updatedRevision, sha256 });
+      const updatedExpectation = createActiveProjectionExpectation(updatedProjection, sha256);
+      expect(updatedRevision.revision).not.toBe(revision.revision);
+      expect(updatedProjection.digest).not.toBe(projection.digest);
+      await cache.prepare(updatedExpectation, signal);
+      const updatedCached = await cache.read(updatedExpectation, signal);
+      expect(updatedCached.kind).toBe("ready");
+      if (updatedCached.kind === "ready") expect(updatedCached.value.projection.digest).not.toBe(cached.value.projection.digest);
+
+      // Corrupting the published cache must fail closed without changing the
+      // already-visible derived catalog.
+      const visibleCatalog = runtime.catalog.list();
+      const publishedRoot = await contentStore.resolveProjectionRoot({ scope: expectation.projection.scope, plugin: expectation.projection.plugin, projectionDigest: expectation.projection.digest, projectionRef: expectation.projectionRef }, signal);
+      await chmod(publishedRoot.root, 0o755);
+      await chmod(join(publishedRoot.root, "projection.json"), 0o644);
+      await writeFile(join(publishedRoot.root, "projection.json"), "{corrupt", "utf8");
+      expect((await cache.read(expectation, signal)).kind).toBe("failed");
+      expect(runtime.catalog.list()).toBe(visibleCatalog);
+
+      await runtime.participant.reconcile({ active: [] }, signal).then((result) => expect(result).toEqual({ kind: "applied", count: 0 }));
       const inactiveExpectation = createInactiveProjectionExpectation({ scope: { kind: "user" }, plugin: plugin.identity.key, sha256 });
       const inactiveSkillsHooks = await runtime.participant.observe(inactiveExpectation, signal);
       expect(inactiveSkillsHooks.kind).toBe("ready");
       if (inactiveSkillsHooks.kind !== "ready") throw new Error("inactive skill/hook observation missing");
       const inactiveMcp = { kind: "inactive" as const, participant: "mcp" as const, scope: inactiveExpectation.scope, plugin: inactiveExpectation.plugin, projectionDigest: inactiveExpectation.digest, currentProject: inactiveSkillsHooks.observation.currentProject, contributionDigest: `sha256:${"b".repeat(64)}` };
       expect(composeActivationObservation({ expectation: inactiveExpectation, skillsHooks: inactiveSkillsHooks.observation, mcp: inactiveMcp })).toMatchObject({ kind: "inactive", projectionDigest: inactiveExpectation.digest });
+      const activeMcpForDisable = { ...mcpObservation, kind: "active" as const };
+      expect(() => composeActivationObservation({ expectation: inactiveExpectation, skillsHooks: inactiveSkillsHooks.observation, mcp: activeMcpForDisable })).toThrow();
+
     } finally {
       await makeWritable(root);
       await rm(root, { recursive: true, force: true });

@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-projection-reload-evidence-review-hardening
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra, tests]
 parent: epic-skills-hook-runtime-projection-reload-evidence
 depends_on: [epic-skills-hook-runtime-projection-reload-evidence-integration-hardening]
@@ -34,8 +34,18 @@ The feature's one independent pass approved the runtime contracts but found miss
 
 ## Acceptance evidence
 
-- [ ] All listed snapshot, participant, and integration negative paths are non-vacuously covered.
-- [ ] A forged `skills-hooks` base observation without component IDs is rejected by composition.
-- [ ] Real participant output still composes with one exact MCP contribution for active and inactive expectations.
-- [ ] Failure/cancellation never partially replaces the catalog or claims whole-bundle activation.
-- [ ] Full `npm test`, boundaries, build/package import pass with intentional totals/exports.
+- [x] All listed snapshot, participant, and integration negative paths are non-vacuously covered.
+- [x] A forged `skills-hooks` base observation without component IDs is rejected by composition.
+- [x] Real participant output still composes with one exact MCP contribution for active and inactive expectations.
+- [x] Failure/cancellation never partially replaces the catalog or claims whole-bundle activation.
+- [x] Full `npm test`, boundaries, build/package import pass with intentional totals/exports.
+
+## Implementation notes
+- Execution capability: direct inline implementation at the requested filing commit; one bounded source verifier change and focused evidence tests, with no nested agents or review pass.
+- Review weight: standard, caller-directed administrative verification only because the feature's standard review already ran.
+- Files changed: `src/application/ports/lifecycle-reload.ts`; `test/runtime/skill-hook/runtime-snapshot.test.ts`; `test/runtime/skill-hook/lifecycle-participant.test.ts`; `test/integration/skill-hook-runtime-projection.test.ts`.
+- Tests added: snapshot trust/scope, user-under-untrusted-project, content/data adapter failure, empty slices, and pre-resolution cancellation; participant collision, prior-catalog preservation, pre-swap cancellation, exact mismatch, and project-untrusted rejection; integration strict component evidence, revision/digest non-aliasing, project-context disagreement, two-participant disable, and corrupt-cache fail-closed preservation.
+- Simplification: removed the permissive skills/hooks fallback to the base contribution schema; MCP remains on the base schema.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+- Verification: focused Vitest passed (15 tests); full `npm test` passed with typecheck, dependency boundaries, 128 test files / 674 tests, build, and compiled package import (447 exports).

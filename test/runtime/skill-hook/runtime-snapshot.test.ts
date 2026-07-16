@@ -8,12 +8,12 @@ import { createPluginStoreIdentityFromEvidence } from "../../../src/domain/conte
 import { NormalizedPluginSchema } from "../../../src/domain/plugin.js";
 import { createResolvedPluginSource } from "../../../src/domain/source.js";
 import { createInstalledRevisionRecord } from "../../../src/domain/state/installed-state.js";
-import { CanonicalProjectRootSchema, ProjectIdentitySchema, deriveProjectKey } from "../../../src/domain/state/scope.js";
+import { CanonicalProjectRootSchema, ProjectIdentitySchema, deriveProjectKey, type ScopeReference } from "../../../src/domain/state/scope.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(bytes).digest());
 const signal = new AbortController().signal;
 
-function fixture() {
+function fixture(scope: ScopeReference = { kind: "user" }) {
   const source = createResolvedPluginSource({ kind: "marketplace-path", marketplaceRevision: "c".repeat(40), path: "./plugin" }, sha256);
   const plugin = NormalizedPluginSchema.parse({
     identity: { key: "fixture@community", marketplaceName: "community", marketplaceEntryName: "fixture" }, source,
@@ -21,8 +21,8 @@ function fixture() {
   });
   const compatibility = CompatibilityReportSchema.parse({ plugin: plugin.identity, activatable: true, components: [], requirements: [], diagnostics: [] });
   const content = createContentManifest([], sha256);
-  const revision = createInstalledRevisionRecord({ plugin, compatibility, content, scope: { kind: "user" } }, sha256);
-  const projection = createPluginRuntimeProjection({ scope: { kind: "user" }, plugin, compatibility, revision, sha256 });
+  const revision = createInstalledRevisionRecord({ plugin, compatibility, content, scope }, sha256);
+  const projection = createPluginRuntimeProjection({ scope, plugin, compatibility, revision, sha256 });
   const expectation = createActiveProjectionExpectation(projection, sha256);
   return { revision, projection, expectation };
 }
@@ -34,19 +34,34 @@ const identity = ProjectIdentitySchema.parse({
 });
 const projectKey = deriveProjectKey(identity, sha256);
 
-function loader(root = "/virtual/content") {
-  const { revision, projection, expectation } = fixture();
+function loader(root = "/virtual/content", options: Readonly<{
+  scope?: ScopeReference;
+  currentProjectKey?: string;
+  trust?: "trusted" | "untrusted";
+  failContent?: boolean;
+  failData?: boolean;
+  calls?: { roots: number; trust: number; content: number; data: number };
+}> = {}) {
+  const { revision, projection, expectation } = fixture(options.scope);
   const content = createContentManifest([], sha256);
   const storeIdentity = createPluginStoreIdentityFromEvidence({ sourceHash: revision.evidence.source.sourceHash, binding: revision.revision }, sha256);
   return {
     selection: { prepared: { expectation, projection, payloadDigest: `sha256:${"d".repeat(64)}` }, revision },
     loader: createSkillHookSnapshotLoader({
       content: {
-        async resolvePlugin() { return { kind: "plugin", root, identity: storeIdentity, manifest: content, contentRef: revision.contentRef }; },
-        async ensureDataRoot(input) { return { root: `${root}/data`, scope: input.scope, plugin: input.plugin, dataRef: input.dataRef }; },
+        async resolvePlugin() {
+          if (options.calls) options.calls.content += 1;
+          if (options.failContent) throw new Error("content unavailable");
+          return { kind: "plugin", root, identity: storeIdentity, manifest: content, contentRef: revision.contentRef };
+        },
+        async ensureDataRoot(input) {
+          if (options.calls) options.calls.data += 1;
+          if (options.failData) throw new Error("data unavailable");
+          return { root: `${root}/data`, scope: input.scope, plugin: input.plugin, dataRef: input.dataRef };
+        },
       },
-      projectRoots: { async acquire() { return { kind: "trusted-project-root-v1", identity, projectKey, canonicalRoot: identity.canonicalRoot } as never; }, verify() { throw new Error("not used"); } },
-      projectTrust: { async assess() { return { kind: "trusted" as const }; } },
+      projectRoots: { async acquire() { if (options.calls) options.calls.roots += 1; return { kind: "trusted-project-root-v1", identity, projectKey: options.currentProjectKey ?? projectKey, canonicalRoot: identity.canonicalRoot } as never; }, verify() { throw new Error("not used"); } },
+      projectTrust: { async assess() { if (options.calls) options.calls.trust += 1; return { kind: options.trust ?? "trusted" } as const; } },
       sha256,
     }),
   };
@@ -79,5 +94,48 @@ describe("skill/hook runtime snapshots", () => {
     void original;
     expect(result).toEqual({ kind: "failed", code: "REVISION_MISMATCH" });
     expect(resolved).toBe(false);
+  });
+
+  it("rejects project identity and trust mismatches before exposing roots", async () => {
+    const mismatched = loader("/virtual/content", { scope: { kind: "project", projectKey }, currentProjectKey: `project-v1:sha256:${"f".repeat(64)}` });
+    expect(await mismatched.loader.load(mismatched.selection, signal)).toEqual({ kind: "failed", code: "PROJECT_IDENTITY_MISMATCH" });
+
+    const untrusted = loader("/virtual/content", { scope: { kind: "project", projectKey }, trust: "untrusted" });
+    expect(await untrusted.loader.load(untrusted.selection, signal)).toEqual({ kind: "failed", code: "PROJECT_UNTRUSTED" });
+  });
+
+  it("keeps user snapshots loadable while the current project is untrusted", async () => {
+    const value = loader("/virtual/content", { trust: "untrusted" });
+    const result = await value.loader.load(value.selection, signal);
+    expect(result.kind).toBe("ready");
+    if (result.kind === "ready") expect(result.snapshot.currentProject.trust).toEqual({ kind: "untrusted" });
+  });
+
+  it.each([
+    ["content", "CONTENT_UNAVAILABLE" as const],
+    ["data", "DATA_UNAVAILABLE" as const],
+  ])("maps %s adapter failures without a partial snapshot", async (kind, code) => {
+    const value = loader("/virtual/content", kind === "content" ? { failContent: true } : { failData: true });
+    expect(await value.loader.load(value.selection, signal)).toEqual({ kind: "failed", code });
+  });
+
+  it("accepts empty skill and hook slices as complete evidence", async () => {
+    const value = loader();
+    const result = await value.loader.load(value.selection, signal);
+    expect(result.kind).toBe("ready");
+    if (result.kind === "ready") {
+      expect(result.snapshot.skills).toEqual([]);
+      expect(result.snapshot.hooks).toEqual([]);
+      expect(result.snapshot.projectionDigest).toBe(value.selection.prepared.projection.digest);
+    }
+  });
+
+  it("cancels before project or content resolution side effects", async () => {
+    const calls = { roots: 0, trust: 0, content: 0, data: 0 };
+    const value = loader("/virtual/content", { calls });
+    const controller = new AbortController();
+    controller.abort();
+    expect(await value.loader.load(value.selection, controller.signal)).toEqual({ kind: "cancelled" });
+    expect(calls).toEqual({ roots: 0, trust: 0, content: 0, data: 0 });
   });
 });

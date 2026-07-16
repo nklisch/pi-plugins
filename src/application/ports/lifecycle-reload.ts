@@ -134,16 +134,13 @@ function sameJson(left: unknown, right: unknown): boolean {
 }
 
 function contributionBase(value: unknown, participant: RuntimeContributionParticipant): RuntimeContributionObservation {
-  let parsed: SkillHookContributionObservation | RuntimeContributionObservation;
-  if (participant === "skills-hooks") {
-    try {
-      parsed = SkillHookContributionObservationSchema.parse(value);
-    } catch {
-      parsed = RuntimeContributionObservationSchema.parse(value);
-    }
-  } else {
-    parsed = RuntimeContributionObservationSchema.parse(value);
-  }
+  // Skills/hooks evidence is intentionally stricter than the shared base: the
+  // component IDs are the proof that the exact derived slice was observed.
+  // MCP has no equivalent slice owned by this verifier, so it stays on the
+  // common contribution contract.
+  const parsed: SkillHookContributionObservation | RuntimeContributionObservation = participant === "skills-hooks"
+    ? SkillHookContributionObservationSchema.parse(value)
+    : RuntimeContributionObservationSchema.parse(value);
   if (parsed.participant !== participant) throw new Error("runtime contribution participant is unexpected");
   const { skillComponentIds: _skills, hookComponentIds: _hooks, ...base } = parsed as SkillHookContributionObservation & RuntimeContributionObservation;
   return RuntimeContributionObservationSchema.parse({ ...base, participant });
