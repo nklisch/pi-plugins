@@ -32,11 +32,11 @@ export type ContentStoreKind = keyof typeof ContentStoreKindRegistry;
 const StoreKeySchema = z.string().regex(/^[-a-z0-9]+-v[1-9][0-9]*:sha256:[0-9a-f]{64}$/).brand<"ContentStoreKey">();
 export type ContentStoreKey = z.infer<typeof StoreKeySchema>;
 
-const MarketplaceStoreKeySchema = z
+export const MarketplaceStoreKeySchema = z
   .string()
   .regex(/^marketplace-store-v1:sha256:[0-9a-f]{64}$/)
   .brand<"MarketplaceStoreKey">();
-const PluginStoreKeySchema = z
+export const PluginStoreKeySchema = z
   .string()
   .regex(/^plugin-store-v1:sha256:[0-9a-f]{64}$/)
   .brand<"PluginStoreKey">();
@@ -48,6 +48,8 @@ export const MarketplaceStoreIdentitySchema = z.object({
   binding: ContentDigestSchema,
   key: MarketplaceStoreKeySchema,
 }).strict().readonly();
+export type MarketplaceStoreKey = z.infer<typeof MarketplaceStoreKeySchema>;
+export type PluginStoreKey = z.infer<typeof PluginStoreKeySchema>;
 export type MarketplaceStoreIdentity = z.infer<typeof MarketplaceStoreIdentitySchema>;
 
 export const PluginStoreIdentitySchema = z.object({

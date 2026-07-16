@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-recovery-journal-gc-retention-collection
 kind: story
-stage: implementing
+stage: done
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-recovery-journal-gc
 depends_on: [epic-transactional-plugin-lifecycle-recovery-journal-gc-reconciliation-contracts, epic-transactional-plugin-lifecycle-recovery-journal-gc-durable-journal-adapter]
@@ -51,3 +51,15 @@ Implement closed-world retained-root computation, process-liveness revision leas
 ## Ordering
 
 Consumes the common contracts and durable journal. It can proceed alongside startup recovery after those dependencies; final integration joins both checkpoints.
+
+## Implementation notes
+
+Implemented the closed-world collection contracts and application mark/sweep service. Retained roots are restricted to validated marketplace/plugin store keys and projection references; persistent data has no generic artifact variant. State, nonterminal journal evidence, live/unknown process leases, retention marks, and complete artifact scans are required before deletion. Nonselected revisions are removed through generation-coordinated exact-target mutations before a fresh scan, and physical deletion uses scanner-issued opaque capabilities. Added a separate confirmed-uninstall cleanup service in which `keep` exits before configuration/data calls and partial configuration failure retains data.
+
+Infrastructure now includes a durable SQLite retention ledger, PID plus process-start-token leases with explicit release and no heartbeat takeover, and a ready-root/inode-revalidated artifact scanner that never traverses the data root.
+
+Verification evidence:
+
+- `npm run typecheck` — passed.
+- `npm run test:unit -- --run test/application/revision-collection-service.test.ts test/application/confirmed-uninstall-cleanup.test.ts test/infrastructure/recovery/process-revision-leases.test.ts test/infrastructure/recovery/revision-artifact-store.test.ts` — 4 files / 6 tests passed.
+- Tests cover incomplete-scope deferral before deletion, the closed artifact union without data roots, keep/partial confirmed cleanup, live lease pinning, and immutable-root-only scanning.
