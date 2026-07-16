@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-recovery-journal-gc
 kind: feature
-stage: review
+stage: implementing
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-operations]
@@ -437,3 +437,14 @@ Integrated verification:
 
 - `npm test` — passed: TypeScript typecheck, dependency boundaries, 104 test files / 582 tests, build, and compiled package import with 389 exports.
 - All five child stories reached `done` directly after their checkpoint verification; no child entered `review`.
+
+## Review findings (2026-07-16)
+
+Effective review weight: `standard` (project), one cross-model balanced pass by Umans GLM 5.2.
+
+Receiver-confirmed material blockers:
+
+- **Crash/durability evidence gap**: the shipped tests do not execute the feature's load-bearing real child-process crash/restart, concurrent prepare, two-process lease, and state-prune-before-delete acceptance scenarios. The old unused fixture was removed by the subsequent cadence refactor, so hardening must add purposeful current fixtures/tests rather than restore dead scaffolding unchanged.
+- **Stale retained-set deletion window**: collection rereads physical artifacts after state pruning but does not refresh live/unknown leases and authoritative state references before deletion. A second ordinary Pi session can acquire a lease in that window and have referenced content removed.
+
+Tracked by `epic-transactional-plugin-lifecycle-recovery-journal-gc-review-hardening`. Under `standard`, this feature needs only implementation and verification of that named fix set; it must not commission a second independent review pass. Lower-risk scoped settlement I/O was parked separately.
