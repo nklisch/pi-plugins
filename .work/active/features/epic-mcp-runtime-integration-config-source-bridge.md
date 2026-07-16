@@ -482,3 +482,12 @@ The production adapter story unblocks only when **one** path satisfies all crite
 ## UI alignment
 
 No UI surface and no mockups. The bridge returns typed capability and status evidence for `epic-native-plugin-management` to present later.
+
+## Partial implementation and verification
+
+- Execution capability: Luna xhigh, direct sequential ownership across the dependency DAG; no nested agents, peeragent, or feature review were used per caller instruction.
+- Completed child checkpoints: portable contract (`e04833e`), capability probe (`7586ecc`), fake runtime (`97974bd`), and conformance suite (`b6e5bf6`) are each at `stage: done` with their own implementation notes and commits.
+- Integrated files: the adapter-neutral MCP source/status/capability schemas and port; existing capability registry/policy mapping; test-only fake; reusable conformance contract and adversarial harness tests; deliberate public export allowlist updates.
+- Verification: full `npm test` passed — 127 test files, 675 tests, no type errors, no dependency-boundary violations, and compiled package allowlist import passed with 450 exports. The baseline was 122 files, 653 tests, and 438 exports.
+- Production boundary: no `pi-mcp-adapter` dependency, deep import, file/settings mutation, process-global secret workaround, SDK runtime, or production adapter was added. The feature remains `stage: implementing` because the production-adapter child is still externally blocked.
+- Review posture: no feature review or summary-to-review transition was performed; the parent and feature remain implementing as requested.

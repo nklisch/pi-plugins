@@ -105,3 +105,22 @@ Portable sibling features may design and implement against the contract/fake wit
 ## Risk and rollback
 
 The highest risk is a package whose TypeScript shape looks sufficient while tool/cache/process ownership or eager behavior violates semantics. The conformance and Pi-specific integration tests are the gate. Rollback removes the concrete dependency/wrapper and selects no runtime, making all MCP facts unavailable while preserving portable contracts and authoritative plugin state. File/settings/global workarounds are not rollback options.
+
+## Blocker re-verification
+
+Reverified for this partial implementation against the committed research evidence for npm `pi-mcp-adapter@2.11.0`, GitHub release `v2.11.0`, and upstream `main`, all pinned to `82724dccc13a49310530898f922bafff12b7f3fe`:
+
+- The published package is a Pi extension package with `pi.extensions: ["./index.ts"]` and no documented `exports`, `main`, or `module` library entry. Its `loadMcpConfig`/`initializeMcp` path performs file discovery and direct/proxy tool registration around extension construction/session startup.
+- No supported exported source lifecycle exists for initial source injection before tool registration, disabled file/import discovery, complete source validation, atomic replace, exact removal, source-qualified redacted inspection, complete capability facts, cancellable source lifecycle, or source-scoped late launch-value callbacks with mandatory disposal.
+- Existing `McpServerManager` and configuration helpers are implementation internals; using them would require a deep import and would not supply the missing ownership, atomicity, registration-order, or secret-custody semantics.
+- Upstream issue #85 remains an unmerged request, and PR #56 remains an open stale/dirty, semantically incomplete provider proposal. No maintained qualifying fork is declared or published in this repository.
+
+No objective unblock criterion is met. The story remains `stage: implementing` and the exact unblock gate is unchanged: either a published MIT upstream release with a documented package export and all required lifecycle/cancellation/redaction/timing semantics, pinned with registry integrity and immutable provenance, or an explicitly selected, published, maintained MIT fork from a verified current upstream base with the identical API, ownership, security/rebase responsibility, pins, license evidence, unchanged conformance/Pi integration/Node 24 test evidence, and an upstream return path. Until then, production MCP availability remains fail-closed/unavailable and no adapter implementation is honest.
+
+## Implementation notes
+
+- Execution capability: Luna xhigh; blocker verification only. No production source, dependency, package patch, deep import, external PR claim, fork publication, or workaround was added.
+- Review weight: standard by project convention; no feature review or production-story review was run because the caller explicitly required the feature and production story to remain implementing.
+- Files changed: this item and its parent feature body only for the blocker record and partial implementation evidence.
+- Verification: the package-independent bridge/fake/conformance work passed the full `npm test`; production qualification remains unrun because the objective external gate is unmet.
+- Adjacent issues parked: none.
