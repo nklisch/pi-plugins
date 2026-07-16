@@ -1,7 +1,7 @@
 ---
 id: simplify-recovery-ownership-and-reconciliation
 kind: feature
-stage: implementing
+stage: review
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -313,3 +313,26 @@ const owned = new WeakMap<object, AllocationRecord>();
 - Steps 1 and 3 are independently revertible deletion commits.
 - Step 2 is inherently atomic across the new module and its callers: a partial extraction does not build. Its rollback boundary is the whole step, but persisted owner evidence and classification semantics remain unchanged.
 - Step 3 depends on Steps 1 and 2 only to avoid overlapping cleanup and stale import accounting; it does not make their behavioral changes irreversible.
+
+## Implementation Summary
+
+Implemented all three checkpoints as one cohesive behavior-preserving refactor.
+
+### Files changed by step
+
+- **Step 1** — `src/application/plugin-lifecycle-service.ts`, `src/application/lifecycle-transition-reconciler.ts`, and the step-1 story item. Removed the unreachable local settlement engine and the reconciler's unused installed-loader dependency.
+- **Step 2** — `src/infrastructure/process/process-identity.ts`, `test/infrastructure/process/process-identity.test.ts`, `src/infrastructure/filesystem/staging-allocator.ts`, `src/infrastructure/recovery/sqlite-transition-journal.ts`, `src/infrastructure/recovery/process-revision-leases.ts`, `src/infrastructure/recovery/recovery-artifact-scanner.ts`, `src/infrastructure/state/sqlite-scope-lock.ts`, and the step-2 story item. Centralized Linux process identity evidence while preserving journal-owned `released`, fail-closed `unknown`, PID-reuse `dead`, and live-owner behavior.
+- **Step 3** — `src/infrastructure/recovery/sqlite-transition-journal.ts`, `src/application/recovery-service.ts`, `src/application/revision-collection-service.ts`, `src/infrastructure/filesystem/staging-allocator.ts`, `test/fixtures/recovery/child-journal-writer.mjs` (deleted), and the step-3 story item. Removed only proven-unused scaffolding and made settlement owner clearing explicit.
+
+No state/schema/public export or lifecycle behavior changed. The existing capability checks, journal status matrix, recovery grace periods, scan completeness, second liveness check, deletion predicate, and persisted marker/sidecar formats remain intact. `src/index.ts` and the compiled export allowlist are unchanged.
+
+## Integrated Verification
+
+- `npm test` passed: typecheck, dependency boundaries (163 modules, 986 dependencies), 113 test files, and 616 tests.
+- Build and compiled package check passed with exactly 407 exports.
+- Production search found exactly one `/proc/${pid}/stat` parser and one owner-status `process.kill(pid, 0)` classifier, both in `src/infrastructure/process/process-identity.ts`.
+- Executable-reference search confirmed the deleted recovery fixture was unreferenced.
+
+## Implementation Completion
+
+All child stories are `done`; the feature is advanced to `review` for the separate feature review lane. No feature review was performed in this implementation pass, per delegation.
