@@ -1,7 +1,7 @@
 ---
 id: centralize-host-config-v2-compatibility-projection-step-1
 kind: story
-stage: implementing
+stage: done
 tags: [refactor, infra]
 parent: centralize-host-config-v2-compatibility-projection
 depends_on: []
@@ -117,3 +117,13 @@ Revert this checkpoint's implementation commit as a unit. The work changes no pe
 ## Atomicity
 
 The helper and all four substitutions land together. Partial adoption is behaviorally safe but fails the single-source-of-truth objective and creates an unnecessary mixed-policy state; it is not a useful implementation boundary.
+
+## Implementation notes
+- Execution capability: direct-read inline implementation; the design named four bounded call sites and this isolated checkpoint forbade delegation.
+- Review weight: standard, from project convention; this child checkpoint advances directly to done without parent review.
+- Files changed: `src/domain/state/config-state.ts`, `src/domain/state/codec.ts`, `src/application/state-contract.ts`, `src/application/generation-mutation-coordinator.ts`, and the four focused test suites.
+- Tests added/removed: extended migration and mutation assertions; added one non-empty v1 adapter-envelope proof case for commit reconciliation.
+- Simplification: centralized the deterministic host-config projection and removed the unused strict migration record-constructor import; caller-specific validation, policy normalization, quarantine, branding, and proof remain local.
+- Discrepancies from design: TypeScript required narrow structural casts at the two tolerant/raw call sites because their existing `Record<string, unknown>` guards do not expose `records` as an array to the helper signature; runtime behavior is unchanged.
+- Adjacent issues parked: none.
+- Verification: focused suites passed (26 tests); full suite passed with 117 files and 637 tests; typecheck, dependency boundaries, build/package import passed; package export count remained 434.

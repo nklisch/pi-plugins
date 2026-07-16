@@ -74,6 +74,14 @@ describe("host marketplace configuration state", () => {
     expect(migrated.schemaVersion).toBe(2);
     expect(migrated.records[0]?.refresh).toEqual({ nextScheduledAt: 0, consecutiveFailures: 0 });
     expect(migrated.records[0]?.notifications).toEqual([]);
+    const local = migrateVersionedDocument(HostConfigSchemaFamily, document({
+      records: [{
+        marketplace,
+        source: { kind: "local-git", path: "../local-marketplace" },
+        updateApplication: "automatic",
+      }],
+    }));
+    expect(local.records[0]?.updateApplication).toBe("manual");
     expect(() => migrateVersionedDocument(HostConfigSchemaFamily, {
       ...document(),
       schemaVersion: 3,

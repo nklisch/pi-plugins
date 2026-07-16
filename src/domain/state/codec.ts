@@ -4,6 +4,7 @@ import {
   HostConfigDocumentSchemaV1,
   HostConfigDocumentSchema,
   HostConfigSchemaFamily,
+  projectHostConfigV1ToV2,
   type HostConfigDocumentV1,
   type HostConfigDocument,
 } from "./config-state.js";
@@ -278,9 +279,7 @@ function parseRoot<K extends StateDocumentKind>(
       // valid siblings from migrating. Keep the tolerant root and add only the
       // v2 envelope/default fields here; each child is validated below.
       if (version === 1 && kind === "hostConfig" && isRecord(input) && Array.isArray(input.records)) {
-        candidate = { ...input, schemaVersion: 2, records: input.records.map((record) => isRecord(record)
-          ? { ...record, refresh: { nextScheduledAt: 0, consecutiveFailures: 0 }, notifications: [] }
-          : record) };
+        candidate = projectHostConfigV1ToV2(input as Readonly<{ records: readonly unknown[] }>);
       } else if (version === 1 && kind === "projectLocal" && isRecord(input)) {
         candidate = { ...input, schemaVersion: 2, marketplaceUpdates: [] };
       } else if (version === 1 && kind === "installedUser" && isRecord(input)) {

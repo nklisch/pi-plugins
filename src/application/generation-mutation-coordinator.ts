@@ -5,6 +5,7 @@ import {
   GenerationSchema,
   HostConfigDocumentSchema,
   HostConfigDocumentSchemaV1,
+  projectHostConfigV1ToV2,
   type Generation,
 } from "../domain/state/config-state.js";
 import { InstalledUserStateDocumentSchema, InstalledUserStateDocumentSchemaV1 } from "../domain/state/installed-state.js";
@@ -337,10 +338,7 @@ function compatibleDocumentEqual(actual: unknown, expected: unknown): boolean {
   const expectedRecord = expected as Record<string, unknown>;
   if (actualRecord.schemaVersion !== 1 || expectedRecord.schemaVersion !== 2) return false;
   if ("records" in actualRecord && "records" in expectedRecord && Array.isArray(actualRecord.records) && Array.isArray(expectedRecord.records)) {
-    const records = actualRecord.records.map((record) => record !== null && typeof record === "object"
-      ? { ...(record as Record<string, unknown>), refresh: { nextScheduledAt: 0, consecutiveFailures: 0 }, notifications: [] }
-      : record);
-    return sameJson({ ...actualRecord, schemaVersion: 2, records }, expectedRecord);
+    return sameJson(projectHostConfigV1ToV2(actualRecord as Readonly<{ records: readonly unknown[] }>), expectedRecord);
   }
   if ("marketplaces" in actualRecord && "plugins" in actualRecord && "marketplaces" in expectedRecord && "plugins" in expectedRecord) {
     return sameJson({ ...actualRecord, schemaVersion: 2, marketplaceUpdates: [] }, expectedRecord);

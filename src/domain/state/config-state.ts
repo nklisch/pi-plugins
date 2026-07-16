@@ -4,7 +4,6 @@ import { MarketplaceSourceSchema, type MarketplaceSource } from "../source.js";
 import {
   MarketplaceUpdateRecordSchema,
   UpdateApplicationPreferenceSchema,
-  createMarketplaceConfigurationRecord,
   type MarketplaceUpdateRecord,
   type UpdateApplicationPreference,
 } from "../update-policy.js";
@@ -50,17 +49,35 @@ export const HostConfigDocumentSchemaV2 = z.object({
 }).strict().readonly().superRefine((document, context) => addDuplicateMarketplaceIssues(document.records, "records", context));
 export type HostConfigDocumentV2 = z.infer<typeof HostConfigDocumentSchemaV2>;
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+export function projectHostConfigV1ToV2(
+  input: Readonly<{ records: readonly unknown[] }>,
+): Readonly<Record<string, unknown> & {
+  schemaVersion: 2;
+  records: readonly unknown[];
+}> {
+  return {
+    ...input,
+    schemaVersion: 2,
+    records: input.records.map((record) => isObjectRecord(record)
+      ? { ...record, refresh: { nextScheduledAt: 0, consecutiveFailures: 0 }, notifications: [] }
+      : record),
+  };
+}
+
 function migrateHostV1(input: unknown): HostConfigDocumentV2 {
   const value = HostConfigDocumentSchemaV1.parse(input);
-  return HostConfigDocumentSchemaV2.parse({
-    schemaVersion: 2,
-    generation: value.generation,
-    records: value.records.map((record) => createMarketplaceConfigurationRecord({
-      marketplace: record.marketplace,
-      source: record.source,
+  const normalized = {
+    ...value,
+    records: value.records.map((record) => ({
+      ...record,
       updateApplication: record.source.kind === "local-git" ? "manual" : record.updateApplication,
     })),
-  });
+  };
+  return HostConfigDocumentSchemaV2.parse(projectHostConfigV1ToV2(normalized));
 }
 
 export const HostConfigSchemaFamily = defineVersionedSchemaFamily({

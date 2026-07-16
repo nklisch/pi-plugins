@@ -177,6 +177,41 @@ describe("generation-guarded prepared mutation coordinator", () => {
     ]);
   });
 
+  it("proves a non-empty v1 adapter config against the v2 mutation", async () => {
+    const events: string[] = [];
+    const before = snapshot(user, 0);
+    const record = {
+      marketplace: "marketplace",
+      source: MarketplaceSourceSchema.parse({ kind: "github", repository: "example/plugins" }),
+      updateApplication: "manual" as const,
+    };
+    const after = {
+      ...snapshot(user, 1),
+      config: HostConfigDocumentSchemaV1.parse({
+        ...before.config,
+        generation: 1,
+        records: [record],
+      }),
+    };
+    const service = coordinator(events, {
+      async read() { return { ok: true, snapshot: before }; },
+      async commit() { return { kind: "committed", snapshot: after }; },
+    });
+    const result = await service.runPreparedMutation(
+      { scope: user, plugins: [plugin], expectedGeneration: 0 },
+      async () => ({
+        mutation: parseStateMutation({
+          scope: user,
+          expectedGeneration: 0,
+          replace: { config: HostConfigDocumentSchemaV1.parse({ ...before.config, records: [record] }) },
+        }, sha256),
+        value: "promoted",
+      }),
+      new AbortController().signal,
+    );
+    expect(result.kind).toBe("committed");
+  });
+
   it("rejects unverified, wrong-generation, and wrong-scope callback output before commit", async () => {
     const cases: readonly [string, unknown][] = [
       ["unverified", { value: "bad" }],

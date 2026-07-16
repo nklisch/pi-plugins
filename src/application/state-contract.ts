@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   HostConfigDocumentSchemaV1,
   HostConfigDocumentSchema,
+  projectHostConfigV1ToV2,
   type HostConfigDocument,
 } from "../domain/state/config-state.js";
 import {
@@ -272,11 +273,9 @@ export function parseStateMutation(input: unknown, sha256: Sha256): StateMutatio
     ...mutation,
     scope,
     replace: {
-      ...(replace.config === undefined ? {} : { config: HostConfigDocumentSchema.parse(replace.config.schemaVersion === 1 ? {
-        ...replace.config,
-        schemaVersion: 2,
-        records: replace.config.records.map((record) => ({ ...record, refresh: { nextScheduledAt: 0, consecutiveFailures: 0 }, notifications: [] })),
-      } : replace.config) }),
+      ...(replace.config === undefined ? {} : { config: HostConfigDocumentSchema.parse(replace.config.schemaVersion === 1
+        ? projectHostConfigV1ToV2(replace.config)
+        : replace.config) }),
       ...(replace.installed === undefined ? {} : { installed: createInstalledUserStateDocumentV2(replace.installed, sha256) }),
       ...(replace.trust === undefined ? {} : {
         trust: TrustStateDocumentSchemaV1.parse({
