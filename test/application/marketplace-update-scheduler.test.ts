@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createMarketplaceUpdateScheduler } from "../../src/application/marketplace-update-scheduler.js";
 import { createNodeMarketplaceRefreshServices } from "../../src/composition/create-marketplace-refresh-services.js";
+import { createNodeMarketplaceUpdateServices } from "../../src/composition/create-marketplace-update-services.js";
 import type { MarketplaceRefreshServiceDependencies } from "../../src/application/marketplace-refresh-service.js";
 import type { MarketplaceRefreshService } from "../../src/application/marketplace-refresh-service.js";
 import type { UpdateDelayPort } from "../../src/application/ports/update-delay.js";
@@ -105,24 +106,34 @@ describe("marketplace update scheduler", () => {
     expect(waits).toBe(1);
   });
 
-  it("constructs the Node composition without starting refresh work", () => {
+  it("constructs both Node compositions without starting work", () => {
     let calls = 0;
     const dependencies = {
       inventory: { async discover() { calls += 1; return { scopes: [], complete: true }; } },
       state: { async read() { calls += 1; throw new Error("state must not be read"); } },
       mutations: { async runPreparedMutation() { calls += 1; throw new Error("mutation must not run"); } },
-      clock: { nowEpochMilliseconds: () => 0, monotonicMilliseconds: () => 0 },
+      clock: {
+        nowEpochMilliseconds: () => { calls += 1; return 0; },
+        monotonicMilliseconds: () => { calls += 1; return 0; },
+      },
       claimIds: { async create() { calls += 1; throw new Error("claim must not be created"); } },
       materializers: { marketplaces: { async materialize() { calls += 1; throw new Error("materializer must not run"); } } },
       inspection: { async inspect() { calls += 1; throw new Error("inspection must not run"); } },
       content: {},
-      sha256: () => new Uint8Array(32),
+      sha256: () => { calls += 1; return new Uint8Array(32); },
     } as unknown as MarketplaceRefreshServiceDependencies;
+    const delay: UpdateDelayPort = { async wait() { calls += 1; } };
+    const options = { refresh: dependencies, delay };
 
-    const services = createNodeMarketplaceRefreshServices({ refresh: dependencies });
-    expect(services.refresh).toBeDefined();
-    expect(services.policy).toBeDefined();
-    expect(services.scheduler).toBeDefined();
+    const refreshServices = createNodeMarketplaceRefreshServices(options);
+    const updateServices = createNodeMarketplaceUpdateServices(options);
+    for (const services of [refreshServices, updateServices]) {
+      expect(Object.isFrozen(services)).toBe(true);
+      expect(Object.keys(services)).toEqual(["refresh", "policy", "scheduler"]);
+      expect(services.refresh).toBeDefined();
+      expect(services.policy).toBeDefined();
+      expect(services.scheduler).toBeDefined();
+    }
     expect(calls).toBe(0);
   });
 

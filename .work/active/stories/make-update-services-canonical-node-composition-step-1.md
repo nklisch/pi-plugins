@@ -1,7 +1,7 @@
 ---
 id: make-update-services-canonical-node-composition-step-1
 kind: story
-stage: implementing
+stage: done
 tags: [refactor, infra]
 parent: make-update-services-canonical-node-composition
 depends_on: []
@@ -196,3 +196,15 @@ Revert this single checkpoint: restore full composition ownership in `create-mar
 ## Dependencies
 
 No implementation dependency. The parent feature has `depends_on: []`, this story has `depends_on: []`, and `.work/bin/work-view --blocking make-update-services-canonical-node-composition` reported no blocking items. This is independent of `centralize-marketplace-update-record-state-projection`; their write sets and rollback boundaries remain separate. The empty dependency edge set cannot introduce a cycle.
+
+
+## Implementation notes
+
+- Execution capability: direct-read inline implementation; the bounded two-module ownership inversion and its public-boundary tests had one cohesive owner and no unresolved integration uncertainty.
+- Review weight: standard (project convention); this child checkpoint is verified directly and does not enter review.
+- Files changed: `src/composition/create-marketplace-update-services.ts`, `src/composition/create-marketplace-refresh-services.ts`, `test/application/marketplace-update-scheduler.test.ts`, `test/public-api.test.ts`.
+- Tests added/removed: dual direct-factory inert-construction assertions, frozen exact result-shape assertions, and barrel-level exact type/signature assertions; no tests removed.
+- Simplification: moved the sole Node composition implementation and delay into the update-named module; reduced the refresh-named module to exact type aliases plus one compatibility delegation.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+- Verification: focused scheduler/composition and public API tests passed (12 tests); `npm run typecheck`, `npm run boundaries`, `npm run build`, `npm run test:package`, and full `npm test` passed. Full suite: 121 files and 649 tests; package verification reported `compiled package import passed (437 exports)`.

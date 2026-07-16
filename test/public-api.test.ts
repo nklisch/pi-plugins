@@ -138,6 +138,7 @@ import {
   createMarketplaceStoreIdentity,
   createMarketplaceStoreIdentityFromEvidence,
   createMarketplaceUpdatePolicyService,
+  createNodeMarketplaceRefreshServices,
   createNodeMarketplaceUpdateServices,
   createNodeContentStore,
   createNodeSourceMaterializers,
@@ -366,6 +367,10 @@ import {
   type MarketplaceName,
   type MarketplaceReadResult,
   type MarketplaceUpdatePolicyService,
+  type NodeMarketplaceRefreshServices,
+  type NodeMarketplaceRefreshServicesOptions,
+  type NodeMarketplaceUpdateServices,
+  type NodeMarketplaceUpdateServicesOptions,
   type MarketplaceSource,
   type McpServerComponent,
   type NativeHost,
@@ -411,6 +416,15 @@ import {
 } from "../src/index.js";
 
 describe("explicit package API", () => {
+  it("preserves exact update and refresh composition contracts", () => {
+    expectTypeOf<NodeMarketplaceRefreshServices>()
+      .toEqualTypeOf<NodeMarketplaceUpdateServices>();
+    expectTypeOf<NodeMarketplaceRefreshServicesOptions>()
+      .toEqualTypeOf<NodeMarketplaceUpdateServicesOptions>();
+    expectTypeOf(createNodeMarketplaceRefreshServices)
+      .toEqualTypeOf(createNodeMarketplaceUpdateServices);
+  });
+
   it("keeps the source barrel on the compiled package allowlist", () => {
     const compiledTest = readFileSync(resolve(process.cwd(), "test/compiled-package-import.mjs"), "utf8");
     const start = compiledTest.indexOf("const expectedExports = [");
@@ -556,6 +570,7 @@ describe("explicit package API", () => {
       createMarketplaceStoreIdentity,
       createMarketplaceStoreIdentityFromEvidence,
       createMarketplaceUpdatePolicyService,
+      createNodeMarketplaceRefreshServices,
       createNodeMarketplaceUpdateServices,
       createNodeContentStore,
       createNodeSourceMaterializers,
