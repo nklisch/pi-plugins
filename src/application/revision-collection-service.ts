@@ -76,6 +76,54 @@ export function createRevisionCollectionService(dependencies: RevisionCollection
     const journals: Array<{ scope: ScopeReference; journal: LifecycleTransitionStore; entries: readonly import("./ports/lifecycle-transition-store.js").LifecycleTransitionJournalEntry[] }> = [];
     const referenced = new Map<string, RetainedArtifactRef>();
     const retirementRefs = new Map<string, Readonly<{ scope: ScopeContext; plugin: InstalledPluginRecord; revision: InstalledRevisionRecord }>>();
+    const refreshAuthoritativeReferences = async (): Promise<Map<string, RetainedArtifactRef> | undefined> => {
+      const refreshedInventory = await dependencies.inventory.discover(signal).catch(() => ({ scopes: [], complete: false }));
+      if (!refreshedInventory.complete) return undefined;
+      let refreshedScopes: ScopeContext[];
+      try {
+        refreshedScopes = [...refreshedInventory.scopes].map((scope) => ScopeContextSchema.parse(scope));
+      } catch {
+        return undefined;
+      }
+      const refreshed = new Map<string, RetainedArtifactRef>();
+      const retain = (reference: RetainedArtifactRef): void => { refreshed.set(refKey(reference), reference); };
+      for (const scope of refreshedScopes) {
+        const loaded = await dependencies.state.read(scope, signal).catch(() => undefined);
+        if (loaded === undefined || !loaded.ok) return undefined;
+        if ("installed" in loaded.snapshot) {
+          for (const marketplace of loaded.snapshot.installed.marketplaces) retain(marketplaceRef(marketplace, dependencies.sha256));
+        }
+        for (const plugin of records(loaded.snapshot)) {
+          // Include every revision still present in authoritative state. A
+          // failed or raced prune must retain the state root rather than
+          // allowing the earlier retirement scan to authorize deletion.
+          for (const revision of plugin.revisions) retain(revisionRef(revision, dependencies.sha256));
+        }
+        const scopeReference = toScopeReference(scope);
+        let journal: LifecycleTransitionStore;
+        try {
+          journal = dependencies.transitions(scopeReference);
+        } catch {
+          return undefined;
+        }
+        const listed = journal.list === undefined ? undefined : await journal.list(scopeReference, signal).catch(() => undefined);
+        if (listed === undefined || !listed.complete || listed.diagnostics.length > 0) return undefined;
+        for (const entry of listed.entries) if (entry.status.kind === "prepared" || entry.status.kind === "recovery-required") {
+          for (const projection of projectionRefs(entry)) retain(projection);
+          for (const state of [entry.record.previous, entry.record.candidate, entry.record.final]) {
+            if (state !== null) for (const revision of state.revisions) retain(revisionRef(revision, dependencies.sha256));
+          }
+        }
+      }
+      const leases = await dependencies.leases.list(signal).catch(() => undefined);
+      if (leases === undefined || !leases.complete) return undefined;
+      for (const lease of leases.leases) {
+        const owner = leases.owners.find((entry) => entry.leaseId === lease.leaseId)?.status;
+        if (owner === undefined) return undefined;
+        if (owner === "live" || owner === "unknown") for (const reference of lease.artifacts) retain(reference);
+      }
+      return refreshed;
+    };
     for (const scope of scopes) {
       const loaded = await dependencies.state.read(scope, signal).catch(() => undefined);
       if (loaded === undefined || !loaded.ok) return { kind: "deferred", code: "COLLECTION_DEFERRED", removedArtifacts: 0, prunedRevisions: 0 };
@@ -107,6 +155,7 @@ export function createRevisionCollectionService(dependencies: RevisionCollection
     if (leases === undefined || !leases.complete) return { kind: "deferred", code: "COLLECTION_DEFERRED", removedArtifacts: 0, prunedRevisions: 0 };
     for (const lease of leases.leases) {
       const owner = leases.owners.find((entry) => entry.leaseId === lease.leaseId)?.status;
+      if (owner === undefined) return { kind: "deferred", code: "COLLECTION_DEFERRED", removedArtifacts: 0, prunedRevisions: 0 };
       if (owner === "live" || owner === "unknown") for (const ref of lease.artifacts) referenced.set(refKey(ref), ref);
     }
     const scan = await dependencies.artifacts.scan(signal).catch(() => undefined);
@@ -116,7 +165,6 @@ export function createRevisionCollectionService(dependencies: RevisionCollection
     if (ledger === undefined || !ledger.complete) return { kind: "deferred", code: "COLLECTION_DEFERRED", removedArtifacts: 0, prunedRevisions: 0 };
 
     let prunedRevisions = 0;
-    const prunedRefs = new Set<string>();
     for (const mark of ledger.marks) {
       if (mark.firstUnreferencedAt + policy.unreferencedGraceMs > at) continue;
       const retire = retirementRefs.get(refKey(mark.reference));
@@ -131,12 +179,18 @@ export function createRevisionCollectionService(dependencies: RevisionCollection
         const replacement = { ...latest, revisions: latest.revisions.filter((entry) => entry.revision !== retire.revision.revision) };
         return { mutation: stateWithPlugins(context.snapshot, records(context.snapshot).map((entry) => entry.plugin === latest.plugin ? replacement : entry), dependencies.sha256), value: undefined };
       }, signal).catch(() => undefined);
-      if (result?.kind === "committed") { prunedRevisions += 1; prunedRefs.add(refKey(mark.reference)); }
+      if (result?.kind === "committed") prunedRevisions += 1;
     }
 
     const fresh = await dependencies.artifacts.scan(signal).catch(() => undefined);
     if (fresh === undefined || !fresh.complete) return { kind: "deferred", code: "COLLECTION_DEFERRED", removedArtifacts: 0, prunedRevisions };
-    const retainedAfterPrune = new Set([...referenced.keys()].filter((key) => !prunedRefs.has(key)));
+    // State pruning and physical deletion are separate operations. Refresh
+    // every authoritative scope and lease after pruning so a new session can
+    // pin content in the deletion window; incomplete evidence retains all
+    // candidates for a later complete pass.
+    const refreshed = await refreshAuthoritativeReferences();
+    if (refreshed === undefined) return { kind: "deferred", code: "COLLECTION_DEFERRED", removedArtifacts: 0, prunedRevisions };
+    const retainedAfterPrune = new Set([...referenced.keys(), ...refreshed.keys()]);
     let removedArtifacts = 0;
     for (const candidate of fresh.artifacts.slice(0, policy.maxArtifactsPerRun)) {
       const key = refKey(candidate.reference);

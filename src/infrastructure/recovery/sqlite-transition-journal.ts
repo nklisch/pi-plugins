@@ -29,6 +29,7 @@ const PROTOCOL = "pi-plugin-host-recovery-journal";
 const VERSION = 1;
 const MODE = 0o600;
 const BUSY = 5;
+const MAX_BUSY_RETRIES = 8;
 
 type SqliteRow = Record<string, unknown>;
 type FileIdentity = Readonly<{ device: string; inode: string }>;
@@ -47,6 +48,16 @@ function canonicalize(value: unknown): unknown {
 }
 function canonicalBytes(value: unknown): Uint8Array { return new TextEncoder().encode(JSON.stringify(canonicalize(value))); }
 function throwIfAborted(signal: AbortSignal): void { if (signal.aborted) throw signal.reason ?? new DOMException("The operation was aborted", "AbortError"); }
+function isBusy(error: unknown): boolean { return typeof error === "object" && error !== null && (error as { errcode?: unknown }).errcode === BUSY; }
+async function waitForBusyRetry(signal: AbortSignal, attempt: number): Promise<void> {
+  throwIfAborted(signal);
+  const delay = Math.min(32, 1 << attempt);
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => { signal.removeEventListener("abort", onAbort); resolve(); }, delay);
+    const onAbort = () => { clearTimeout(timer); signal.removeEventListener("abort", onAbort); reject(signal.reason ?? new DOMException("The operation was aborted", "AbortError")); };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
 function identity(path: string): FileIdentity { const value = lstatSync(path); if (!value.isFile() || value.isSymbolicLink()) throw new Error("recovery journal database is not a regular file"); return { device: String(value.dev), inode: String(value.ino) }; }
 function dbError(operation: string, cause: unknown): BoundaryError { return new BoundaryError({ code: "ADAPTER_FAILED", operation, message: "recovery journal adapter failed", details: { operation }, cause }); }
 function corruptError(operation: string): DomainContractError { return new DomainContractError({ code: ErrorCodeRegistry.transitionJournalCorrupt, operation, message: "transition journal evidence is corrupt", details: { operation } }); }
@@ -155,21 +166,24 @@ async function openDatabase(filesystem: RecoveryFilesystem, scope: ScopeReferenc
 }
 
 async function transaction<T>(filesystem: RecoveryFilesystem, scope: ScopeReference, signal: AbortSignal, fn: (database: DatabaseSync) => T): Promise<T> {
-  throwIfAborted(signal);
-  const handle = await openDatabase(filesystem, scope);
-  try {
-    handle.database.exec("BEGIN IMMEDIATE");
-    const value = fn(handle.database);
+  for (let attempt = 0; ; attempt += 1) {
     throwIfAborted(signal);
-    handle.database.exec("COMMIT");
-    await filesystem.verify();
-    return value;
-  } catch (error) {
-    try { if (handle.database.isTransaction) handle.database.exec("ROLLBACK"); } catch { /* preserve primary failure */ }
-    if (signal.aborted) throw signal.reason;
-    if (typeof error === "object" && error !== null && (error as { errcode?: unknown }).errcode === BUSY) throw dbError("recovery-journal.transaction", error);
-    throw error;
-  } finally { try { handle.close(); } catch { /* close is best effort after transaction result */ } }
+    let handle: Readonly<{ database: DatabaseSync; close(): void }> | undefined;
+    try {
+      handle = await openDatabase(filesystem, scope);
+      handle.database.exec("BEGIN IMMEDIATE");
+      const value = fn(handle.database);
+      throwIfAborted(signal);
+      handle.database.exec("COMMIT");
+      await filesystem.verify();
+      return value;
+    } catch (error) {
+      try { if (handle?.database.isTransaction) handle.database.exec("ROLLBACK"); } catch { /* preserve primary failure */ }
+      if (signal.aborted) throw signal.reason;
+      if (!isBusy(error) || attempt >= MAX_BUSY_RETRIES) throw error;
+      await waitForBusyRetry(signal, attempt);
+    } finally { try { handle?.close(); } catch { /* close is best effort after transaction result */ } }
+  }
 }
 
 function requestValue(request: LifecycleTransitionRecord | LifecycleTransitionPrepareRequest): { record: LifecycleTransitionRecord; preparedAt: EpochMilliseconds } {

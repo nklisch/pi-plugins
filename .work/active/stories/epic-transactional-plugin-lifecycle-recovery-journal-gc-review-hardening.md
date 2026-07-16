@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-recovery-journal-gc-review-hardening
 kind: story
-stage: implementing
+stage: done
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-recovery-journal-gc
 depends_on: [epic-transactional-plugin-lifecycle-recovery-journal-gc-integration-hardening]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-17
 ---
 
 # Verify crash durability and close the collection lease race
@@ -40,3 +40,17 @@ The standard feature review found two material gaps at the recovery feature boun
 - [ ] A lease acquired after the initial inventory but before deletion is observed by the refreshed retained set and prevents removal.
 - [ ] Incomplete refreshed state or lease evidence performs no physical deletion.
 - [ ] Focused crash/concurrency tests and full `npm test` pass with unchanged public exports and dependency boundaries.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna xhigh, direct implementation in the feature worktree; crash, data-retention, and cross-process behavior warranted the requested high-effort pass.
+- Review weight: standard, caller override; no second independent review was run.
+- Files changed: `src/application/revision-collection-service.ts`, `src/infrastructure/recovery/sqlite-transition-journal.ts`, `test/application/revision-collection-service.test.ts`, `test/integration/recovery-review-hardening.test.ts`, `test/fixtures/recovery/child-recovery-adapter.mjs`.
+- Tests added: real child-process journal crash/restart and concurrent prepare acceptance, real second-process lease collection acceptance, deterministic post-prune lease-window regression, incomplete-refresh fail-closed regression, and state-prune-before-physical-removal evidence.
+- Simplification: removed the old post-prune filter based only on the initial retained set; the final retained set is the union of initial and refreshed authoritative references.
+- Discrepancies from design: concurrent journal acceptance exposed SQLite busy errors during the real cross-process prepare race; the recovery journal now retries busy code 5 with bounded abort-aware application delays, retaining zero native busy timeout.
+- Adjacent issues parked: none.
+
+## Completion
+- Child checkpoint advanced directly from `implementing` to `done` after focused and integrated verification.
+- Real acceptance evidence covers pre-acknowledgment crash, post-acknowledgment restart, identical/conflicting concurrent prepares, live second-process lease pinning, release, and state-prune ordering.
+- Verification: `npm test` passed — strict typecheck, dependency boundaries, 114 test files / 622 tests, build, and compiled package import with 407 exports.
