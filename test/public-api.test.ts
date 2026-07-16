@@ -789,6 +789,20 @@ describe("explicit package API", () => {
     expect(sourceApi).not.toHaveProperty("activateSkill");
   });
 
+  it("exposes one complete projection cache and two-participant runtime evidence boundary", () => {
+    expect(sourceApi.RuntimeProjectionCacheEnvelopeSchemaV1).toBeDefined();
+    expect(sourceApi.CurrentProjectRuntimeContextSchema).toBeDefined();
+    expect(sourceApi.RuntimeContributionObservationSchema).toBeDefined();
+    expect(sourceApi.SkillHookContributionObservationSchema).toBeDefined();
+    expect(sourceApi.composeActivationObservation).toBeDefined();
+    expect(sourceApi.createSkillHookSnapshotLoader).toBeDefined();
+    expect(sourceApi.createSkillHookRuntimeParticipant).toBeDefined();
+    expect(sourceApi).not.toHaveProperty("encodeRuntimeProjectionCache");
+    expect(sourceApi).not.toHaveProperty("decodeRuntimeProjectionCache");
+    expect(sourceApi).not.toHaveProperty("createRuntimeProjectionCache");
+    expect(sourceApi).not.toHaveProperty("createSkillHookRuntimeCatalog");
+  });
+
   it("keeps secret custody and policy boundaries out of the public surface", () => {
     expect(sourceApi.SensitiveValue).toBeDefined();
     expect(sourceApi.withResolvedPluginConfiguration).toBeDefined();

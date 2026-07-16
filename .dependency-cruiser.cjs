@@ -115,6 +115,13 @@ module.exports = {
       to: { path: "^src/application/(?!ports/runtime-capability-probe\\.ts$)" },
     },
     {
+      name: "runtime-projection-no-authoritative-state-or-transition-imports",
+      comment: "Skill and hook runtime projections consume prepared evidence and injected ports, never lifecycle state or transition authorities.",
+      severity: "error",
+      from: { path: "^src/runtime/skill-hook(?:/|$)" },
+      to: { path: "^src/(?:application/(?:state-contract|ports/(?:lifecycle-state-store|lifecycle-transition-store))(?:/|$)|infrastructure/state)(?:/|$)" },
+    },
+    {
       name: "infrastructure-no-outer-layer-imports",
       comment: "Infrastructure adapters may depend inward but not on format readers or host-specific outer integrations.",
       severity: "error",

@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-projection-reload-evidence-integration-hardening
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-projection-reload-evidence
 depends_on: [epic-skills-hook-runtime-projection-reload-evidence-contribution-observation]
@@ -52,3 +52,13 @@ This checkpoint also owns public export and dependency boundaries. It must not e
 ## Ordering
 
 Blocked by `epic-skills-hook-runtime-projection-reload-evidence-contribution-observation`; integration cannot claim whole-bundle evidence until the common two-participant contract exists.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna xhigh; integration and package-boundary work stayed with the feature owner because the cache, snapshot, catalog, composition, and lifecycle contracts must be verified together.
+- Review weight: standard, from project convention; this child checkpoint is verified directly and does not enter review.
+- Files changed: `src/index.ts`, `.dependency-cruiser.cjs`, `test/integration/skill-hook-runtime-projection.test.ts`, `test/integration/plugin-lifecycle.test.ts`, `test/integration/content-promotion.test.ts`, `test/public-api.test.ts`, `test/compiled-package-import.mjs`.
+- Tests added/updated: realistic prepare → promote → post-commit resolve → reconcile → two-participant active/inactive evidence integration, public export assertions, and existing integration fixtures for generated-root capabilities and current-project evidence.
+- Simplification: public exports expose only schema-derived contracts, read-only catalog/participant boundaries, factories, and pure composition; codec functions, filesystem cache factory, mutable catalog, paths, and MCP policy remain private.
+- Discrepancies from design: test/package evidence is 128 files / 663 tests / 447 compiled exports versus the stated 122 / 653 / 438 baseline; all changes are additive coverage/contracts.
+- Adjacent issues parked: none.
+- Verification: full `npm test` passed — typecheck, dependency boundaries, 128 Vitest files / 663 tests, build, and compiled package import (447 exports).

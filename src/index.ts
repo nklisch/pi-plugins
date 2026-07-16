@@ -365,7 +365,15 @@ export type {
 
 export { authorizeTrustCandidate } from "./application/trust-service.js";
 export type { TrustAuthorizationResult } from "./application/trust-service.js";
-export type { ProjectTrustPort } from "./application/ports/project-trust.js";
+export {
+  ProjectTrustAssessmentSchema,
+  CurrentProjectRuntimeContextSchema,
+} from "./application/ports/project-trust.js";
+export type {
+  ProjectTrustAssessment,
+  CurrentProjectRuntimeContext,
+  ProjectTrustPort,
+} from "./application/ports/project-trust.js";
 
 export {
   savePluginConfiguration,
@@ -870,6 +878,17 @@ export type {
   StagingAllocation,
 } from "./application/ports/content-store.js";
 
+export {
+  RuntimeProjectionCacheEnvelopeSchemaV1,
+} from "./application/runtime-projection-cache.js";
+export type {
+  RuntimeProjectionCacheEnvelope,
+  PreparedRuntimeProjection,
+  RuntimeProjectionCacheReadResult,
+  RuntimeProjectionCacheReaderPort,
+  RuntimeProjectionCachePort,
+} from "./application/runtime-projection-cache.js";
+
 // Mutation coordination is a portable application contract. The SQLite
 // adapter, physical lock roots, retry timers, and protocol schema remain an
 // infrastructure composition detail.
@@ -952,19 +971,45 @@ export type {
 
 export {
   ActivationObservationSchema,
+  RuntimeContributionParticipantSchema,
+  RuntimeContributionObservationSchema,
+  SkillHookContributionObservationSchema,
   LifecycleReloadResultSchemaRegistry,
   LifecycleReloadResultSchema,
   LifecycleReloadRequestSchema,
   LifecycleObservationRequestSchema,
+  composeActivationObservation,
   verifyActivationObservation,
 } from "./application/ports/lifecycle-reload.js";
 export type {
   ActivationObservation,
+  RuntimeContributionParticipant,
+  RuntimeContributionObservation,
+  SkillHookContributionObservation,
   LifecycleReloadResult,
   LifecycleReloadRequest,
   LifecycleObservationRequest,
   LifecycleReloadPort,
 } from "./application/ports/lifecycle-reload.js";
+
+export {
+  createSkillHookSnapshotLoader,
+} from "./runtime/skill-hook/runtime-snapshot.js";
+export type {
+  RuntimeProjectionSelection,
+  SkillHookRuntimeSnapshot,
+  SkillHookSnapshotResult,
+} from "./runtime/skill-hook/runtime-snapshot.js";
+export {
+  createSkillHookRuntimeParticipant,
+} from "./runtime/skill-hook/lifecycle-participant.js";
+export type {
+  SkillHookRuntimeCatalog,
+  SkillHookRuntimeSetRequest,
+  SkillHookReconcileResult,
+  SkillHookLifecycleParticipant,
+  SkillHookContributionObservationResult,
+} from "./runtime/skill-hook/lifecycle-participant.js";
 
 export {
   LifecycleTransitionRecordSchemaV1,

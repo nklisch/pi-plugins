@@ -134,9 +134,16 @@ function sameJson(left: unknown, right: unknown): boolean {
 }
 
 function contributionBase(value: unknown, participant: RuntimeContributionParticipant): RuntimeContributionObservation {
-  const parsed = participant === "skills-hooks"
-    ? SkillHookContributionObservationSchema.parse(value)
-    : RuntimeContributionObservationSchema.parse(value);
+  let parsed: SkillHookContributionObservation | RuntimeContributionObservation;
+  if (participant === "skills-hooks") {
+    try {
+      parsed = SkillHookContributionObservationSchema.parse(value);
+    } catch {
+      parsed = RuntimeContributionObservationSchema.parse(value);
+    }
+  } else {
+    parsed = RuntimeContributionObservationSchema.parse(value);
+  }
   if (parsed.participant !== participant) throw new Error("runtime contribution participant is unexpected");
   const { skillComponentIds: _skills, hookComponentIds: _hooks, ...base } = parsed as SkillHookContributionObservation & RuntimeContributionObservation;
   return RuntimeContributionObservationSchema.parse({ ...base, participant });

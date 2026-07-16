@@ -91,6 +91,15 @@ export function createSkillHookRuntimeParticipant(dependencies: Readonly<{
         const result = await dependencies.loader.load(selection, signal);
         if (result.kind === "cancelled") return { kind: "cancelled" };
         if (result.kind !== "ready") return { kind: "failed", code: "SNAPSHOT_FAILED" };
+        const expected = selection.prepared.projection;
+        if (result.snapshot.scope.kind !== expected.scope.kind ||
+            (result.snapshot.scope.kind === "project" && expected.scope.kind === "project" && result.snapshot.scope.projectKey !== expected.scope.projectKey) ||
+            result.snapshot.plugin !== expected.plugin ||
+            result.snapshot.revision !== expected.revision ||
+            result.snapshot.projectionDigest !== expected.digest ||
+            result.snapshot.projectionRef !== selection.prepared.expectation.projectionRef) {
+          return { kind: "failed", code: "SNAPSHOT_FAILED" };
+        }
         loaded.push(result.snapshot);
       }
       if (abortRequested(signal)) return { kind: "cancelled" };
@@ -144,6 +153,10 @@ export function createSkillHookRuntimeParticipant(dependencies: Readonly<{
         });
         return { kind: "ready", observation };
       }
+      if (expectation.scope.kind === "project" &&
+          (currentProject.projectKey !== expectation.scope.projectKey || currentProject.trust.kind !== "trusted")) {
+        return failed(currentProject.trust.kind === "trusted" ? "OBSERVATION_MISMATCH" : "PROJECT_UNTRUSTED");
+      }
       const target = owned.lookup(expectation.scope, expectation.plugin);
       if (target !== undefined) return failed("OBSERVATION_MISMATCH");
       const contributionDigest = digestSkillHookContribution({
@@ -179,4 +192,7 @@ export function createSkillHookRuntimeParticipant(dependencies: Readonly<{
 export type {
   RuntimeContributionObservation,
   SkillHookContributionObservation,
+  SkillHookRuntimeCatalog,
+  SkillHookRuntimeSetRequest,
+  SkillHookReconcileResult,
 };
