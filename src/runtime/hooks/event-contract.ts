@@ -1,23 +1,10 @@
 import { z } from "zod";
-import {
-  ContentDigestSchema,
-  type ContentDigest,
-} from "../../domain/content-manifest.js";
-import { HookComponentSchema } from "../../domain/components.js";
+import { ContentDigestSchema } from "../../domain/content-manifest.js";
+import { HookComponentSchema, type ComponentId } from "../../domain/components.js";
 import { PluginKeySchema } from "../../domain/identity.js";
-import {
-  OrdinaryHookEventSchema,
-  type OrdinaryHookEvent,
-} from "../../domain/hook-runtime-contract.js";
-import {
-  ScopeReferenceSchema,
-  type ScopeReference,
-} from "../../domain/state/scope.js";
-import {
-  CurrentProjectRuntimeContextSchema,
-  type CurrentProjectRuntimeContext,
-} from "../../application/ports/project-trust.js";
-import type { ComponentId, HookComponent } from "../../domain/components.js";
+import { OrdinaryHookEventSchema } from "../../domain/hook-runtime-contract.js";
+import { ScopeReferenceSchema } from "../../domain/state/scope.js";
+import { CurrentProjectRuntimeContextSchema } from "../../application/ports/project-trust.js";
 import type { PluginKey } from "../../domain/identity.js";
 import { JsonValueSchema, type JsonValue } from "../../domain/schema.js";
 
@@ -94,7 +81,6 @@ export const ForeignHookInputSchema = z.discriminatedUnion("hook_event_name", [
   StopHookInputSchema,
 ]);
 export type ForeignHookInput = z.infer<typeof ForeignHookInputSchema>;
-export type OrdinaryHookInput = Extract<ForeignHookInput, { hook_event_name: OrdinaryHookEvent }>;
 
 export const PlannedCommandHookSchema = z.object({
   sourceOrder: z.object({ snapshotOrdinal: z.number().int().nonnegative(), hookOrdinal: z.number().int().nonnegative() }).strict().readonly(),
@@ -134,11 +120,6 @@ export type HookPlanningFailureCode =
 export type HookPlanningResult =
   | Readonly<{ kind: "ready"; plans: readonly HookEventPlan[] }>
   | Readonly<{ kind: "failed"; code: HookPlanningFailureCode; plugin?: PluginKey; componentId?: ComponentId }>;
-
-export type HookEventInput = ForeignHookInput;
-export type HookEventName = OrdinaryHookEvent;
-export type HookPlanDigestEvidence = Readonly<{ revision: ContentDigest; projectionDigest: ContentDigest; contributionDigest: ContentDigest }>;
-export type HookContractTypes = Readonly<{ session: HookSessionEvidence; input: ForeignHookInput; plan: HookEventPlan; hook: HookComponent; scope: ScopeReference; project: CurrentProjectRuntimeContext; plugin: PluginKey; json: JsonValue }>;
 
 export function cloneJson<T extends JsonValue>(value: T): T {
   const parsed = JSON.parse(JSON.stringify(value)) as T;

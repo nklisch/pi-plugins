@@ -1,10 +1,7 @@
 import { z } from "zod";
 import {
-  HookToolAliasDefinitionRegistry,
-  HookToolAliasDefinitionSchema,
   matchesHookSelector,
   validateHookToolAliasDefinitions,
-  canonicalJson,
   type CompiledHookSelector,
   type HookSelectorSubject,
   type HookToolAliasDefinition,
@@ -50,12 +47,8 @@ function dedupe(values: readonly string[]): readonly string[] {
   return Object.freeze([...new Set(values)]);
 }
 
-function staticOrDynamicRows(additional: readonly HookToolAliasDefinition[]): readonly HookToolAliasDefinition[] {
-  return validateHookToolAliasDefinitions(additional);
-}
-
 export function createHookToolIdentityResolver(input: Readonly<{ additional: readonly HookToolAliasDefinition[] }> = { additional: [] }): Readonly<{ resolve(piName: string): HookToolIdentity }> {
-  const rows = staticOrDynamicRows(input.additional);
+  const rows = validateHookToolAliasDefinitions(input.additional);
   function resolve(piNameInput: string): HookToolIdentity {
     const piName = z.string().min(1).max(256).parse(piNameInput);
     const row = rows.find((candidate) => candidate.piNames.includes(piName));
@@ -175,5 +168,3 @@ export function evaluateHookConditions(selector: CompiledHookSelector, subject: 
   return matchesHookSelector(selector, subject);
 }
 
-export type { HookToolAliasDefinition };
-export { HookToolAliasDefinitionSchema, HookToolAliasDefinitionRegistry, canonicalJson };

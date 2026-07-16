@@ -1,7 +1,4 @@
-import { z } from "zod";
-import {
-  ContentDigestSchema,
-} from "../../domain/content-manifest.js";
+import { ContentDigestSchema } from "../../domain/content-manifest.js";
 import {
   HookComponentSchema,
   type HookComponent,
@@ -9,8 +6,8 @@ import {
 import {
   compileHookSelector,
   matchesHookSelector,
-  OrdinaryHookEventSchema,
   type HookSelectorSubject,
+  type HookToolAliasDefinition,
 } from "../../domain/hook-runtime-contract.js";
 import { PluginKeySchema } from "../../domain/identity.js";
 import {
@@ -43,16 +40,13 @@ import {
   buildUserPromptSubmitInput,
   type HookBoundaryRequest,
   compactTrigger,
-  sessionSource,
 } from "./event-input.js";
 import {
   buildPostToolInput,
   buildPreToolUseInput,
   createHookToolIdentityResolver,
   subjectForTool,
-  type HookToolAliasDefinition,
 } from "./tool-event-input.js";
-import { JsonValueSchema, type JsonValue } from "../../domain/schema.js";
 
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -83,10 +77,6 @@ function failure(code: HookPlanningFailureCode, snapshot?: SkillHookRuntimeSnaps
     ...(component === undefined ? {} : { componentId: component.id }),
   };
 }
-function isJsonObject(value: unknown): value is Record<string, JsonValue> {
-  return value !== null && typeof value === "object" && !Array.isArray(value) && Object.keys(value).every((key) => JsonValueSchema.safeParse((value as Record<string, unknown>)[key]).success);
-}
-
 function verifySnapshot(snapshot: SkillHookRuntimeSnapshot, session: HookSessionEvidence, piTrusted: boolean): HookPlanningResult | undefined {
   try {
     if (snapshot.schemaVersion !== 1) return failure("PROJECTION_MISMATCH", snapshot);
@@ -159,7 +149,7 @@ export function createHookEventPlanner(input: Readonly<{
     return { snapshots };
   }
 
-  function select(event: HookEventPlan["event"], session: HookSessionEvidence, subject: HookSelectorSubject, inputValue: HookEventPlan["input"]): HookPlanningResult | readonly PlannedCommandHook[] {
+  function select(event: HookEventPlan["event"], session: HookSessionEvidence, subject: HookSelectorSubject): HookPlanningResult | readonly PlannedCommandHook[] {
     const checked = catalogSnapshots(session);
     if ("error" in checked) return checked.error;
     const selected: PlannedCommandHook[] = [];
@@ -175,7 +165,7 @@ export function createHookEventPlanner(input: Readonly<{
   }
 
   function makePlan(event: HookEventPlan["event"], inputValue: HookEventPlan["input"], session: HookSessionEvidence, subject: HookSelectorSubject, cancellationValue: HookCancellation): HookPlanningResult {
-    const selected = select(event, session, subject, inputValue);
+    const selected = select(event, session, subject);
     if ("kind" in selected) return selected;
     try {
       const plan = HookEventPlanSchema.parse({ schemaVersion: 1, event, input: inputValue, cancellation: cancellationValue, hooks: selected });

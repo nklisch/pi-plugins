@@ -1,7 +1,7 @@
 ---
 id: prune-dead-hook-adaptation-scaffolding
 kind: story
-stage: implementing
+stage: review
 tags: [refactor]
 parent: null
 depends_on: []
@@ -93,3 +93,11 @@ Rollback is a direct revert of this story's implementation commit; there is no s
 
 - `depends_on: []`: the hook adaptation feature and its review hardening are already done; this standalone cleanup does not need an implementation dependency on completed work.
 - Post-emission `.work/bin/work-view --scope all --blocking prune-dead-hook-adaptation-scaffolding` returned no dependents. With an empty dependency list there is no outgoing edge and therefore no possible dependency cycle.
+
+## Implementation notes
+
+- Removed all named unconsumed hook-input aliases, aggregate contract types, planner helper/imports/dead selector argument, and tool-identity pass-through ownership seams.
+- Guarded-command implementation was proactively steered to import authoritative domain types/builders rather than these deleted false seams.
+- No schema, registry, matcher, planner branch, Pi event, content snapshot, package barrel, or public runtime behavior changed.
+- Focused hook contract/planner/tool/Pi/integration coverage passes (45 tests) with production typecheck clean.
+- Execution capability: direct host implementation; one deletion-only standalone refactor with a bounded diff.

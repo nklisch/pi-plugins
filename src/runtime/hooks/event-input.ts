@@ -93,10 +93,3 @@ export function buildStopInput(session: HookSessionEvidence, lastAssistantMessag
   return StopHookInputSchema.parse({ ...common(session, "Stop", { persistence }), ...(lastAssistantMessage === undefined || lastAssistantMessage.length === 0 ? {} : { last_assistant_message: lastAssistantMessage }), stop_hook_active: stopHookActive });
 }
 
-export const buildSessionStartHookInput = buildSessionStartInput;
-export const buildSessionEndHookInput = buildSessionEndInput;
-export const buildUserPromptSubmitHookInput = buildUserPromptSubmitInput;
-export const buildPreCompactHookInput = buildPreCompactInput;
-export const buildPostCompactHookInput = buildPostCompactInput;
-export const buildCompactSessionStartHookInput = buildCompactSessionStartInput;
-export const buildStopHookInput = buildStopInput;
