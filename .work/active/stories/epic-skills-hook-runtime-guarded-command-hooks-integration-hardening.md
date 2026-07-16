@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-guarded-command-hooks-integration-hardening
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, security, infra]
 parent: epic-skills-hook-runtime-guarded-command-hooks
 depends_on: [epic-skills-hook-runtime-guarded-command-hooks-pi-application]
