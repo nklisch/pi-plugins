@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-hook-event-adaptation-contract-registry
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-hook-event-adaptation
 depends_on: []
@@ -38,3 +38,13 @@ Create the one domain source of truth for hook event ownership/Pi boundaries, to
 ## Ordering constraint
 
 This checkpoint has no sibling dependency. Session and tool planning both depend on its registry/compiler and must not implement local selector grammar while this work is incomplete.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna inline; the registry/evaluator boundary is cohesive and was implemented without nested agents or review.
+- Review weight: standard (caller explicitly prohibited review for this delegated run).
+- Files changed: `src/domain/hook-runtime-contract.ts`, `src/domain/compatibility-policy.ts`, `src/domain/compatibility-evaluator.ts`, `test/domain/hook-runtime-contract.test.ts`.
+- Tests added/removed: table-driven registry, matcher, condition, alias, and compatibility-policy derivation tests.
+- Simplification: compatibility event partitions and condition vocabulary now derive from one registry/compiler; the evaluator no longer owns a separate condition decision path.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+- Verification: `npm run typecheck`, `npm run boundaries`, focused domain suites green.

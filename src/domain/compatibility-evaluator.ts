@@ -46,6 +46,7 @@ import {
 import { NormalizedPluginSchema, type NormalizedPlugin } from "./plugin.js";
 import { ProvenanceSchema, type Claimed, type Provenance } from "./provenance.js";
 import { JsonValueSchema, type JsonValue } from "./schema.js";
+import { compileHookSelector } from "./hook-runtime-contract.js";
 
 const EVALUATION_OPERATION = "evaluateCompatibility";
 const REQUIREMENT_ID_PREFIX = "requirement-v1";
@@ -478,6 +479,21 @@ function evaluateHook(
     requirements.push(...requirementUse(eventRuleId, component.event.provenance));
   }
 
+  if (!incompatible && (eventRuleId === CompatibilityPolicyRegistry.hookHandlers.supportedEvent.id ||
+      eventRuleId === CompatibilityPolicyRegistry.hookHandlers.subagentEvent.id)) {
+    const selector = compileHookSelector(component);
+    if (selector.kind === "incompatible") {
+      incompatible = true;
+      const source = selector.field === "matcher"
+        ? component.matcher?.provenance ?? component.event.provenance
+        : component.metadata.find((metadata) => metadata.key.endsWith(".if") || metadata.key.endsWith(".conditions"))?.claimed.provenance ?? component.event.provenance;
+      diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id, "error", source, {
+        componentId: component.id,
+        field: selector.field,
+      }));
+    }
+  }
+
   const commandRule = CompatibilityPolicyRegistry.hookHandlers.command;
   requirements.push(...requirementUse(commandRule.id, component.handler.provenance));
 
@@ -542,13 +558,7 @@ function evaluateHook(
       continue;
     }
     if (CompatibilityPolicyRegistry.hookEvents.metadata.ifRule.includes(field as never)) {
-      if (!conditionIsKnown(value)) {
-        incompatible = true;
-        diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id, "error", provenance, {
-          componentId: component.id,
-          field,
-        }));
-      }
+      // The shared selector compiler above is the compatibility/runtime contract.
       continue;
     }
 

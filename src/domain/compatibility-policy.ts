@@ -4,6 +4,15 @@ import {
   type RuntimeRequirementStatus,
 } from "./compatibility.js";
 import { ErrorCodeRegistry, ErrorCodeSchema, type ErrorCode } from "./error-contract.js";
+import {
+  HookConditionFieldRegistry,
+  HookConditionOperatorDefinitionRegistry,
+  HookConditionOperatorRegistry,
+  HookRuntimeEventDefinitionRegistry,
+  incompatibleHookEvents,
+  ordinaryHookEvents,
+  subagentHookEvents,
+} from "./hook-runtime-contract.js";
 
 /**
  * Runtime facts are deliberately separate from component verdicts.  This
@@ -355,65 +364,18 @@ const hookMetadataKeys = {
   ifRule: ["if", "conditions"] as const,
 } as const;
 
-const hookConditionOperatorDefinitions = {
-  equals: "primitive",
-  contains: "string",
-  matches: "string",
-  regex: "string",
-  in: "primitive-array",
-} as const;
-const hookConditionOperators = Object.keys(hookConditionOperatorDefinitions) as [
-  keyof typeof hookConditionOperatorDefinitions,
-  ...(keyof typeof hookConditionOperatorDefinitions)[],
-];
-const hookConditionFields = [
-  "tool_name",
-  "tool_input",
-  "tool_response",
-  "hook_event_name",
-] as const;
-
 const hookEvents = {
-  supported: [
-    "SessionStart",
-    "SessionEnd",
-    "UserPromptSubmit",
-    "PreToolUse",
-    "PostToolUse",
-    "PostToolUseFailure",
-    "PreCompact",
-    "PostCompact",
-    "Stop",
-  ] as const,
-  subagent: ["SubagentStart", "SubagentStop"] as const,
-  incompatible: [
-    "PermissionRequest",
-    "PermissionDenied",
-    "Setup",
-    "UserPromptExpansion",
-    "PostToolBatch",
-    "Notification",
-    "MessageDisplay",
-    "TaskCreated",
-    "TaskCompleted",
-    "StopFailure",
-    "TeammateIdle",
-    "InstructionsLoaded",
-    "ConfigChange",
-    "CwdChanged",
-    "FileChanged",
-    "WorktreeCreate",
-    "WorktreeRemove",
-    "Elicitation",
-    "ElicitationResult",
-  ] as const,
+  supported: ordinaryHookEvents,
+  subagent: subagentHookEvents,
+  incompatible: incompatibleHookEvents,
   rules: hookHandlerRules,
   metadata: hookMetadataKeys,
-  conditionFields: hookConditionFields,
-  conditionOperators: hookConditionOperators,
-  conditionOperatorDefinitions: hookConditionOperatorDefinitions,
+  conditionFields: HookConditionFieldRegistry,
+  conditionOperators: HookConditionOperatorRegistry,
+  conditionOperatorDefinitions: HookConditionOperatorDefinitionRegistry,
   conditionPredicateKeys: ["field", "operator", "value"] as const,
   conditionWrapperKeys: ["if"] as const,
+  definitions: HookRuntimeEventDefinitionRegistry,
 } as const;
 
 const mcpRules = {
