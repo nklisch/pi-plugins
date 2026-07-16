@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-skill-discovery
 kind: feature
-stage: review
+stage: implementing
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime
 depends_on: [epic-skills-hook-runtime-projection-reload-evidence]
@@ -424,3 +424,13 @@ The fallback is the existing lifecycle compensation path. A target whose skill f
 - Discrepancy: Pi 0.80.8 does not root-export the named resource event aliases; contextual typing through `ExtensionAPI.on` is used rather than importing private/unexported aliases, with the exact runtime contract tested.
 - Adjacent issues parked: none.
 - Stage transition: implementing -> review; integrated summary commit `implement: epic-skills-hook-runtime-skill-discovery`.
+
+## Review findings (2026-07-16)
+
+Effective weight: `standard`; one fresh-context Umans GLM 5.2 pass. The reviewer approved Pi contract fidelity, filesystem hardening, trust/scope filtering, observation composition, failure isolation, and package boundaries. The receiver confirmed one bounded cleanup/evidence set:
+
+- Remove the unused registry ownership map, owner records, unused target path retention, `EMPTY_SKILLS`, and dead `abortError`; registry invalidation already supplies complete replacement semantics.
+- Add project-trust denial and project-identity mismatch tests proving project failure while valid user paths survive and project observation fails.
+- Add a true same-canonical-file test proving one emitted path and ready logical observations for every target; correct the misleading existing test coverage.
+
+Tracked by `epic-skills-hook-runtime-skill-discovery-review-hardening`. Result types remain barrel-exported because they name the return contract of the public final participant factory. Close-error shadowing, stale checkpoint narration, and unrelated style changes remain out of scope. No second independent pass after fixes under standard review.
