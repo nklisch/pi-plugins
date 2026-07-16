@@ -24,7 +24,6 @@ import {
   verifyProjectionExpectation,
   type ProjectionExpectation,
 } from "./ports/runtime-projection.js";
-import type { InstalledPluginLoader } from "./ports/installed-plugin-loader.js";
 import { classifyInterruptedTransition, projectionMatchesObservation, stateWithoutPending, type RecoveryClassification } from "./recovery-contract.js";
 import type { LifecycleOperation } from "./plugin-lifecycle-contract.js";
 
@@ -43,7 +42,6 @@ export type LifecycleTransitionReconcilerDependencies = Readonly<{
   state: { read(scope: ScopeContext, signal: AbortSignal): Promise<import("./state-contract.js").StateLoadResult> };
   reload: LifecycleReloadPort;
   transitions: LifecycleTransitionStore;
-  installed: InstalledPluginLoader;
   sha256: Sha256;
 }>;
 

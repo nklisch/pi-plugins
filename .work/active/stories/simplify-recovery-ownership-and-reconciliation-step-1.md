@@ -1,7 +1,7 @@
 ---
 id: simplify-recovery-ownership-and-reconciliation-step-1
 kind: story
-stage: implementing
+stage: done
 tags: [refactor, infra]
 parent: simplify-recovery-ownership-and-reconciliation
 depends_on: []
@@ -107,3 +107,20 @@ export type LifecycleTransitionReconcilerDependencies = Readonly<{
 ## Risk and Rollback
 
 The risk is deleting a helper that appears structurally similar to the live reconciler but has a hidden callback. The pre-delete symbol search and unchanged lifecycle tests bound that risk. Revert this story's commit to restore the dead path and unused dependency; there is no persisted-data effect.
+
+## Implementation Notes
+
+- Removed the unreachable local pending-transition finalization and rollback chain from `plugin-lifecycle-service.ts`; the live post-commit path remains delegated to `createLifecycleTransitionReconciler`.
+- Removed the reconciler's unused installed-loader dependency and import. The lifecycle service still retains its installed loader for previous-revision projection preparation.
+- Removed only import and helper fallout proven unused by symbol search and typecheck.
+
+## Verification
+
+- Symbol search: no local duplicate settlement helpers or reconciler `installed` dependency remain.
+- Focused tests: `npm run test:unit -- test/application/plugin-lifecycle-service.test.ts test/application/lifecycle-transition-reconciler.test.ts test/integration/plugin-lifecycle.test.ts` (3 files, 10 tests passed).
+- `npm run typecheck` passed.
+- `npm run boundaries` passed (162 modules, 984 dependencies).
+
+## Completion
+
+Step 1 is complete and behavior-preserving.
