@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-refresh-update-policy
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-operations, epic-transactional-plugin-lifecycle-recovery-journal-gc]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-12
-updated: 2026-07-16
+updated: 2026-07-17
 ---
 
 # Marketplace Refresh and Update Policy
@@ -494,3 +494,25 @@ The chain is deliberate. Durable identity/memory must exist before network resul
 The design fails if startup waits for network, two sessions both become update authority, equal display versions hide changed bytes, a changed repository/ref/package inherits automatic trust, discovery disappears when auto is off, refresh invalidates old installed content, an external ref moves between probe and activation, or a scheduler invents a second installer/recovery path. Explicit host-started scheduling, durable generation claims, immutable comparison, stable source hashes, notification memory before application, snapshot/revision decoupling, expected-revision enforcement, and mandatory `PluginLifecycleService.update` directly address those failures.
 
 When evidence is incomplete, the invariant is conservative: return typed discovery/manual/recovery status, retain the active revision and notification evidence, and continue unrelated marketplaces/plugins. Network freshness never outranks a provable working installation or explicit trust authority.
+
+## Implementation summary
+
+Implemented all four checkpoints in dependency order:
+
+- Durable v2 update-policy contracts, source identity/comparison, notification memory, bounded time, and state-family migrations.
+- Marketplace inspection, explicit/scheduled refresh, durable scope-local claims, candidate discovery, policy mutation, and notification persistence before application.
+- Source-bound automatic authority through the public lifecycle update path, including exact prior trust, project trust, stable source identity, and immutable expected-revision checks.
+- A cancellable delay-driven scheduler, Node composition factory, project-v2 state preservation during mutations, and explicit stable package exports with compiled allowlist coverage.
+
+## Deviations and implementation decisions
+
+- The Node timer adapter remains private inside the composition module rather than adding a separately exported infrastructure delay factory; this keeps timer handles and runtime details out of the package API while preserving the required `UpdateDelayPort` boundary.
+- Legacy installed evidence remains optional rather than inserting sentinel fields into every migrated record. Automatic authorization treats absent source identities as `legacy-unavailable` and denies automatic application without rewriting otherwise valid installed state. This avoids inventing source identity and preserves lifecycle equality during v1 compatibility rewrites.
+- The project v2 constructor now carries validated `marketplaceUpdates` through state mutations instead of resetting them to an empty list. v1 migration still creates no update authority.
+- No UI, Pi event registration, recovery invocation, alternate installer, or process-local scheduling authority was added.
+
+## Verification
+
+- Checkpoint commits: `beca3fd`, `c1ce0e5`, `79d0060`, `6a3c09d`.
+- `npm test` passed: typecheck, dependency boundaries, 115 unit-test files / 627 tests, build, and compiled package import.
+- Dependency cruiser passed with 176 modules and 1,078 dependencies; the explicit compiled package allowlist passed with 434 exports.
