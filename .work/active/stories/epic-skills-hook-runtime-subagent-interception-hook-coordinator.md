@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-subagent-interception-hook-coordinator
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-subagent-interception
 depends_on: [epic-skills-hook-runtime-subagent-interception-lifecycle-contract-probe]
@@ -81,3 +81,16 @@ None. This is package-independent and can be tested with direct port requests/st
 ## Risk and rollback
 
 The highest risk is mixing plugin revisions or finalizing a result around continuation. Per-boundary plan snapshots, existing active authority, all-or-nothing aggregation, exact continuation decisions, and the external runtime conformance boundary contain those risks. Rollback removes subagent variants/coordinator while ordinary hook behavior and capability unavailability remain intact.
+
+## Implementation summary
+
+- Generalized the existing strict foreign-input, executable-plan, output-policy, parser, matcher, guarded-executor, and aggregator path to `SubagentStart`/`SubagentStop`; no parallel command runtime was introduced.
+- Added exact secret-bounded subagent inputs: parent session fields remain foreign fields, child run/path evidence is under `pi.subagent`, start never serializes the prompt, and stop sends the proposed result only as `last_assistant_message` for the immediate callback.
+- Added the private parent-session resolver and aggregate coordinator. It selects by exact `agentType`, preserves no-hook/parentless bytes, resolves claimed parents, delegates active-binding/configuration/redaction checks to the guarded executor, appends start contexts exactly, maps stop feedback to same-session continuation, enforces round 3, propagates caller cancellation, and disposes idempotently.
+
+## Implementation record
+
+- Execution capability: `xhigh feature owner`; dependency-ordered direct implementation with no nested agents.
+- Commit ref: `017b6a1` (`implement: portable subagent hook coordinator`).
+- Verification: `npm run typecheck`; `npm run boundaries` (220 modules, 1,313 dependencies, zero violations); 60 focused domain/runtime/integration Vitest tests passed.
+- Reuse: existing selector compiler, verified catalog snapshot, guarded command executor, callback-scoped authority/configuration/redaction, diagnostics, and source-order aggregation remain authoritative.
