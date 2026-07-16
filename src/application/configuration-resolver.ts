@@ -34,6 +34,7 @@ import { createResolvedConfiguration, type ResolvedConfiguration } from "./resol
 import { validateConfigurationSubmission, type ValidatedConfigurationSubmission } from "./configuration-validation.js";
 import { BoundaryError, ErrorCodeRegistry } from "../domain/errors.js";
 import type { Sha256 } from "../domain/source.js";
+import { isAutomaticUpdateAuthorizationEvidence, type AutomaticUpdateAuthorizationEvidence } from "./automatic-update-authorization.js";
 
 export type ConfigurationResolutionCode =
   | "PROJECT_UNTRUSTED"
@@ -236,7 +237,7 @@ function validateDocumentValues(
 }
 
 /** Resolve secrets only inside the callback immediately before execution. */
-export async function withResolvedPluginConfiguration(
+async function resolvePluginConfiguration(
   request: Readonly<{
     candidate: TrustCandidate;
     trustRecords: readonly import("../domain/state/trust-state.js").TrustStateRecord[];
@@ -254,6 +255,7 @@ export async function withResolvedPluginConfiguration(
   }>,
   signal: AbortSignal,
   use: (configuration: ResolvedConfiguration) => Promise<void>,
+  authorization: AutomaticUpdateAuthorizationEvidence | undefined,
 ): Promise<void> {
   signal.throwIfAborted();
   let verifiedScope: ScopeContext;
@@ -267,8 +269,15 @@ export async function withResolvedPluginConfiguration(
     throw new ConfigurationResolutionError("CONFIGURATION_INVALID");
   }
   const verifiedPathContext: ConfigurationPathContext = { ...request.pathContext, scope: verifiedScope };
-  const authorization = await authorizeTrustCandidate({ candidate: request.candidate, records: request.trustRecords, scope: verifiedScope }, dependencies, signal);
-  if (authorization.kind === "denied") throw new ConfigurationResolutionError(authorization.code);
+  const trustAuthorization = authorization === undefined
+    ? await authorizeTrustCandidate({ candidate: request.candidate, records: request.trustRecords, scope: verifiedScope }, dependencies, signal)
+    : (() => {
+        if (!isAutomaticUpdateAuthorizationEvidence(authorization) || authorization.scope.kind !== verifiedScope.kind || authorization.plugin !== request.candidate.evidence.plugin) {
+          return { kind: "denied" as const, code: "TRUST_EVIDENCE_INVALID" as const };
+        }
+        return { kind: "authorized" as const, subject: request.candidate.subject };
+      })();
+  if (trustAuthorization.kind === "denied") throw new ConfigurationResolutionError(trustAuthorization.code);
   let descriptors: PluginConfiguration;
   try {
     descriptors = PluginConfigurationSchema.parse(request.descriptors);
@@ -326,6 +335,52 @@ export async function withResolvedPluginConfiguration(
   } finally {
     facade.dispose();
   }
+}
+
+export async function withResolvedPluginConfiguration(
+  request: Readonly<{
+    candidate: TrustCandidate;
+    trustRecords: readonly import("../domain/state/trust-state.js").TrustStateRecord[];
+    configurationRef: PluginConfigurationRef | undefined;
+    descriptors: PluginConfiguration;
+    pathContext: ConfigurationPathContext;
+  }>,
+  dependencies: Readonly<{
+    projectTrust: ProjectTrustPort;
+    configurations: PluginConfigurationStore;
+    secrets: SecretStore;
+    paths: ConfigurationPathPort;
+    projectRoots?: ProjectRootAuthorityPort;
+    sha256: Sha256;
+  }>,
+  signal: AbortSignal,
+  use: (configuration: ResolvedConfiguration) => Promise<void>,
+): Promise<void> {
+  return resolvePluginConfiguration(request, dependencies, signal, use, undefined);
+}
+
+/** Package-internal automatic path; the index deliberately does not export it. */
+export async function withAuthorizedPluginConfiguration(
+  request: Readonly<{
+    candidate: TrustCandidate;
+    trustRecords: readonly import("../domain/state/trust-state.js").TrustStateRecord[];
+    configurationRef: PluginConfigurationRef | undefined;
+    descriptors: PluginConfiguration;
+    pathContext: ConfigurationPathContext;
+  }>,
+  authorization: AutomaticUpdateAuthorizationEvidence,
+  dependencies: Readonly<{
+    projectTrust: ProjectTrustPort;
+    configurations: PluginConfigurationStore;
+    secrets: SecretStore;
+    paths: ConfigurationPathPort;
+    projectRoots?: ProjectRootAuthorityPort;
+    sha256: Sha256;
+  }>,
+  signal: AbortSignal,
+  use: (configuration: ResolvedConfiguration) => Promise<void>,
+): Promise<void> {
+  return resolvePluginConfiguration(request, dependencies, signal, use, authorization);
 }
 
 function assertNever(value: never): never {

@@ -286,14 +286,7 @@ function migrateInstalledV1(input: unknown): InstalledUserStateDocumentV2 {
     ...plugin,
     revisions: plugin.revisions.map((revision) => ({
       ...revision,
-      evidence: {
-        ...revision.evidence,
-        marketplaceSourceIdentity: "legacy-unavailable",
-        pluginSourceIdentity: "legacy-unavailable",
-        sourceRevision: revision.evidence.source.kind === "marketplace-path"
-          ? revision.evidence.source.marketplaceRevision
-          : revision.evidence.source.kind === "npm" ? "legacy-unavailable" : revision.evidence.source.revision,
-      },
+      evidence: revision.evidence,
     })),
   }));
   return InstalledUserStateDocumentSchemaV2.parse({ ...value, schemaVersion: 2, plugins });
@@ -344,7 +337,9 @@ function sourceEvidence(source: ResolvedPluginSource, input: Readonly<{
     ...(input.marketplaceSourceIdentity === undefined ? {} : { marketplaceSourceIdentity: input.marketplaceSourceIdentity }),
     ...(input.pluginSourceIdentity === undefined ? {} : { pluginSourceIdentity: input.pluginSourceIdentity }),
     ...(input.declaredVersion === undefined ? {} : { declaredVersion: input.declaredVersion }),
-    sourceRevision: source.kind === "marketplace-path" ? source.marketplaceRevision : source.kind === "npm" ? source.version : source.revision,
+    ...((input.marketplaceSourceIdentity === undefined && input.pluginSourceIdentity === undefined && input.declaredVersion === undefined) ? {} : {
+      sourceRevision: source.kind === "marketplace-path" ? source.marketplaceRevision : source.kind === "npm" ? source.version : source.revision,
+    }),
   };
   switch (source.kind) {
     case "marketplace-path": return { kind: source.kind, sourceHash: source.hash, marketplaceRevision: source.marketplaceRevision, ...metadata };
@@ -636,7 +631,7 @@ export function createInstalledPluginRecord(input: unknown, sha256: Sha256): Ins
 }
 
 const InstalledUserStateInputSchema = z.object({
-  schemaVersion: z.literal(1).optional(),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]).optional(),
   generation: GenerationSchema,
   marketplaces: z.array(z.unknown()),
   plugins: z.array(z.unknown()),

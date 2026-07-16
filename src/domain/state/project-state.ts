@@ -134,7 +134,7 @@ export type ProjectLocalStateDocument = ProjectLocalStateDocumentV2;
 
 const ProjectLocalStateInputSchema = z
   .object({
-    schemaVersion: z.literal(1).optional(),
+    schemaVersion: z.union([z.literal(1), z.literal(2)]).optional(),
     generation: GenerationSchema,
     projectKey: ProjectKeySchema,
     identity: ProjectIdentitySchema,

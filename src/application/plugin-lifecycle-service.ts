@@ -29,7 +29,8 @@ import {
   type LifecycleTransitionStore,
 } from "./ports/lifecycle-transition-store.js";
 import type { LifecycleOperationIdPort } from "./ports/lifecycle-operation-id.js";
-import type { InstalledPluginLoader } from "./ports/installed-plugin-loader.js";
+import type { InstalledPluginLoader, LoadedInstalledPlugin } from "./ports/installed-plugin-loader.js";
+import { authorizeAutomaticUpdateCandidate, createAutomaticUpdateAuthorizationEvidence, type AutomaticUpdateAuthorizationEvidence } from "./automatic-update-authorization.js";
 import type {
   CandidatePreparationCode,
   EnableCandidatePreparationRequest,
@@ -82,6 +83,8 @@ import type { NormalizedMarketplaceEntry } from "../domain/marketplace.js";
 import type { ResolvedMarketplaceSource } from "../domain/source.js";
 import type { SourceContext } from "./source-materialization.js";
 import type { Sha256 } from "../domain/source.js";
+import { deriveMarketplaceSourceIdentity, derivePluginSourceIdentity, MarketplaceUpdateRecordSchema } from "../domain/update-policy.js";
+import { createTrustCandidate } from "../domain/trust-policy.js";
 import { createLifecycleTransitionReconciler } from "./lifecycle-transition-reconciler.js";
 
 export type InstallPluginRequest = Readonly<{
@@ -93,6 +96,8 @@ export type InstallPluginRequest = Readonly<{
   sourceContext: SourceContext;
   trustRecords?: readonly TrustStateRecord[];
   configurationPathContext: ConfigurationPathContext;
+  expectedRevision?: import("../domain/content-manifest.js").ContentDigest;
+  automaticAuthorization?: AutomaticUpdateAuthorizationEvidence;
 }>;
 export type UpdatePluginRequest = InstallPluginRequest;
 export type EnablePluginRequest = Readonly<{
@@ -259,6 +264,7 @@ function mapPreparationCode(code: CandidatePreparationCode): LifecycleRejectionC
     case "UNCONFIGURED": return "UNCONFIGURED";
     case "PROJECTION_FAILED": return "PROJECTION_FAILED";
     case "ABORTED": return "ABORTED";
+    case "AVAILABLE_REVISION_CHANGED": return "AVAILABLE_REVISION_CHANGED";
     default: return "MALFORMED";
   }
 }
@@ -309,6 +315,9 @@ async function preparePreviousExpectation(
     contentRef: selected.contentRef,
     dataRef: selected.dataRef,
     ...(selected.configurationRef === undefined ? {} : { configurationRef: selected.configurationRef }),
+    ...(selected.evidence.source.marketplaceSourceIdentity === undefined ? {} : { marketplaceSourceIdentity: selected.evidence.source.marketplaceSourceIdentity }),
+    ...(selected.evidence.source.pluginSourceIdentity === undefined ? {} : { pluginSourceIdentity: selected.evidence.source.pluginSourceIdentity }),
+    ...(selected.evidence.source.declaredVersion === undefined ? {} : { declaredVersion: selected.evidence.source.declaredVersion }),
     scope: toScopeReference(scope),
   }, dependencies.sha256);
   if (!sameJson(reconstructed, selected)) throw new Error("installed loader evidence does not match selected state");
@@ -526,6 +535,53 @@ export function createPluginLifecycleService(
           ? initial.trust.records
           : await trustFor(scope, undefined, signal))
       : [];
+    let automaticAuthorization: AutomaticUpdateAuthorizationEvidence | undefined;
+    if (operation === "update" && origin === "automatic-update") {
+      const automaticRequest = request as UpdatePluginRequest;
+      if (automaticRequest.expectedRevision === undefined) return rejected(operation, "INVALID_REQUEST");
+      const policyRecord = "config" in initial
+        ? initial.config.records.find((record) => record.marketplace === automaticRequest.entry.identity.value.marketplaceName)
+        : initial.project.marketplaceUpdates.find((record) => record.marketplace === automaticRequest.entry.identity.value.marketplaceName);
+      if (policyRecord === undefined) return rejected(operation, "UNTRUSTED");
+      const selected = previous?.revisions.find((revision) => revision.revision === previous.selectedRevision);
+      if (selected === undefined) return rejected(operation, "MALFORMED");
+      try {
+        const loadedPrevious = await dependencies.installed.load({ scope, revision: selected }, signal);
+        const previousCandidate = createTrustCandidate({
+          scope: toScopeReference(scope),
+          marketplaceSource: loadedPrevious.marketplaceSource,
+          plugin: loadedPrevious.plugin,
+          compatibility: loadedPrevious.compatibility,
+          content: loadedPrevious.content,
+          materializationBinding: loadedPrevious.binding,
+        }, dependencies.sha256);
+        const authority = await authorizeAutomaticUpdateCandidate({
+          scope,
+          previous: loadedPrevious,
+          previousRecord: selected,
+          candidate: previousCandidate,
+          candidateMarketplaceSourceIdentity: deriveMarketplaceSourceIdentity(automaticRequest.marketplaceSource.declared, dependencies.sha256),
+          candidatePluginSourceIdentity: derivePluginSourceIdentity(automaticRequest.entry.source.value, dependencies.sha256),
+          expectedRevision: automaticRequest.expectedRevision,
+          policyRecord: MarketplaceUpdateRecordSchema.parse(policyRecord),
+          trustRecords,
+          ...(scope.kind === "project" && "project" in initial ? { projectDeclarationDigest: initial.project.declarationDigest } : {}),
+        }, { projectTrust: dependencies.projectTrust, sha256: dependencies.sha256 }, signal);
+        if (authority.kind === "denied") return rejected(operation, authority.code === "STATE_STALE" ? "MALFORMED" : authority.code === "PROJECT_UNTRUSTED" ? "UNTRUSTED" : "UNTRUSTED");
+        automaticAuthorization = createAutomaticUpdateAuthorizationEvidence({
+          kind: "automatic-authorization",
+          scope: toScopeReference(scope),
+          plugin,
+          expectedRevision: automaticRequest.expectedRevision,
+          marketplaceSourceIdentity: deriveMarketplaceSourceIdentity(automaticRequest.marketplaceSource.declared, dependencies.sha256),
+          pluginSourceIdentity: derivePluginSourceIdentity(automaticRequest.entry.source.value, dependencies.sha256),
+        });
+      } catch (error) {
+        if (signal.aborted) return rejected(operation, "ABORTED");
+        return rejected(operation, "UNTRUSTED");
+      }
+    }
+
     let prepared: PreparedPluginCandidate | undefined;
     let candidateExpectation: ProjectionExpectation;
     try {
@@ -540,6 +596,8 @@ export function createPluginLifecycleService(
           trustRecords,
           configurationPathContext: installRequest.configurationPathContext,
           ...(previous === undefined ? {} : { existing: previous }),
+          ...(automaticAuthorization === undefined ? {} : { automaticAuthorization }),
+          ...(operation === "update" && (request as UpdatePluginRequest).expectedRevision === undefined ? {} : operation === "update" ? { expectedRevision: (request as UpdatePluginRequest).expectedRevision } : {}),
         };
         const result = await preparePluginCandidate(preparation, candidateRequest, signal);
         if (result.kind === "rejected") return rejected(operation, mapPreparationCode(result.code));

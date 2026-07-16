@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-refresh-update-policy-automatic-application-authority
 kind: story
-stage: implementing
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-refresh-update-policy
 depends_on: [epic-transactional-plugin-lifecycle-refresh-update-policy-marketplace-refresh-discovery]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-17
 ---
 
 # Apply source-bound automatic updates through lifecycle
@@ -41,3 +41,16 @@ Authorize automatic application only from current durable scope-local marketplac
 ## Ordering
 
 Depends on immutable discovery evidence. Scheduler/composition hardening waits until the automatic branch is fully source-bound and lifecycle-owned.
+
+## Implementation notes
+
+- Added package-internal automatic authorization evidence with a non-forgeable constructor. Authorization requires the current durable marketplace policy, unchanged stable marketplace/plugin identities, exact previous revision trust, immutable expected revision, and project trust/declaration evidence where applicable.
+- Extended the public lifecycle update request with `expectedRevision`; candidate preparation checks it after materialization/inspection and before promotion, returning `AVAILABLE_REVISION_CHANGED` without changing active state. Automatic updates use the same lifecycle transaction, journal, reload observation, rollback, and recovery path as manual updates.
+- Kept configuration resolution's public trust path unchanged. The lifecycle preparation path can use only authorization evidence created in the same call, and reconstruction of legacy installed revisions preserves their optional v2 evidence rather than inventing source identities.
+- Refresh now invokes only `PluginLifecycleService.update` for eligible probes, maps every lifecycle outcome to durable notification disposition, and retains discovery memory when policy, trust, source, or lifecycle application denies the candidate.
+
+## Verification
+
+- `npm run typecheck` passed.
+- Focused lifecycle/configuration/state suites passed: 36 tests.
+- Existing lifecycle regression coverage passed, including rollback, generation rebasing, target-change recovery, and immutable installed-evidence reconstruction.

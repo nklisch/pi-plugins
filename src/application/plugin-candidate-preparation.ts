@@ -42,6 +42,7 @@ import {
 } from "../domain/trust-policy.js";
 import {
   withResolvedPluginConfiguration,
+  withAuthorizedPluginConfiguration,
   ConfigurationResolutionError,
 } from "./configuration-resolver.js";
 import type { ConfigurationPathContext } from "./ports/configuration-path.js";
@@ -64,6 +65,8 @@ import {
   type RuntimeProjectionPort,
 } from "./ports/runtime-projection.js";
 import type { InstalledPluginLoader, LoadedInstalledPlugin } from "./ports/installed-plugin-loader.js";
+import type { AutomaticUpdateAuthorizationEvidence } from "./automatic-update-authorization.js";
+import { deriveMarketplaceSourceIdentity, derivePluginSourceIdentity } from "../domain/update-policy.js";
 
 export const CandidatePreparationCodeRegistry = {
   incompatible: { tag: "INCOMPATIBLE" },
@@ -72,6 +75,7 @@ export const CandidatePreparationCodeRegistry = {
   projectionFailed: { tag: "PROJECTION_FAILED" },
   aborted: { tag: "ABORTED" },
   malformed: { tag: "MALFORMED" },
+  availableRevisionChanged: { tag: "AVAILABLE_REVISION_CHANGED" },
 } as const;
 export type CandidatePreparationCode = (typeof CandidatePreparationCodeRegistry)[keyof typeof CandidatePreparationCodeRegistry]["tag"];
 const candidatePreparationCodes = Object.values(CandidatePreparationCodeRegistry).map((entry) => entry.tag) as [
@@ -106,6 +110,8 @@ export type PluginCandidatePreparationRequest = Readonly<{
   trustRecords: readonly TrustStateRecord[];
   configurationPathContext: ConfigurationPathContext;
   existing?: InstalledPluginRecord;
+  expectedRevision?: import("../domain/content-manifest.js").ContentDigest;
+  automaticAuthorization?: AutomaticUpdateAuthorizationEvidence;
 }>;
 
 export type EnableCandidatePreparationRequest = Readonly<{
@@ -203,6 +209,7 @@ async function resolveReadiness(
     configurationRef: InstalledRevisionRecord["configurationRef"];
     normalized: NormalizedPlugin;
     configurationPathContext: ConfigurationPathContext;
+    automaticAuthorization?: AutomaticUpdateAuthorizationEvidence;
   }>,
   signal: AbortSignal,
 ): Promise<void> {
@@ -217,13 +224,18 @@ async function resolveReadiness(
       throw new ConfigurationResolutionError("CONFIGURATION_INVALID");
     }
   }
-  await withResolvedPluginConfiguration({
+  const configurationRequest = {
     candidate: input.trust,
     trustRecords: input.trustRecords,
     configurationRef: input.configurationRef,
     descriptors: input.normalized.configuration,
     pathContext,
-  }, dependencies, signal, async () => undefined);
+  };
+  if (input.automaticAuthorization === undefined) {
+    await withResolvedPluginConfiguration(configurationRequest, dependencies, signal, async () => undefined);
+  } else {
+    await withAuthorizedPluginConfiguration(configurationRequest, input.automaticAuthorization, dependencies, signal, async () => undefined);
+  }
 }
 
 async function prepareNormalizedCandidate(
@@ -237,11 +249,15 @@ async function prepareNormalizedCandidate(
 ): Promise<PreparedPluginCandidate> {
   const scope = createScopeContext(input.scope, dependencies.sha256);
   const scopeReference = toScopeReference(scope);
+  const declaredVersion = normalized.version?.value ?? input.entry.version?.value;
   const revision = createInstalledRevisionRecord({
     plugin: normalized,
     compatibility,
     content: materialized.content,
     scope: scopeReference,
+    marketplaceSourceIdentity: input.automaticAuthorization?.marketplaceSourceIdentity ?? deriveMarketplaceSourceIdentity(input.marketplaceSource.declared, dependencies.sha256),
+    pluginSourceIdentity: input.automaticAuthorization?.pluginSourceIdentity ?? derivePluginSourceIdentity(input.entry.source.value, dependencies.sha256),
+    ...(declaredVersion === undefined ? {} : { declaredVersion }),
   }, dependencies.sha256);
   const trust = createTrustCandidate({
     scope: scopeReference,
@@ -257,7 +273,9 @@ async function prepareNormalizedCandidate(
     configurationRef: revision.configurationRef,
     normalized,
     configurationPathContext: input.configurationPathContext,
+    ...(input.automaticAuthorization === undefined ? {} : { automaticAuthorization: input.automaticAuthorization }),
   }, signal);
+  if (input.expectedRevision !== undefined && revision.revision !== input.expectedRevision) throw new Error("AVAILABLE_REVISION_CHANGED");
   const record = createInstalledPluginRecord({
     plugin: normalized.identity.key,
     activation: "enabled",
@@ -338,6 +356,7 @@ export async function preparePluginCandidate(
     return { kind: "prepared", candidate };
   } catch (error) {
     if (signal.aborted) return { kind: "rejected", code: "ABORTED" };
+    if (error instanceof Error && error.message === "AVAILABLE_REVISION_CHANGED") return { kind: "rejected", code: "AVAILABLE_REVISION_CHANGED" };
     return { kind: "rejected", code: mapFailure(error, phase) };
   } finally {
     // Promotion happens only later under the coordinator. Until then every
@@ -373,6 +392,9 @@ export async function prepareEnableCandidate(
       contentRef: selected.contentRef,
       dataRef: selected.dataRef,
       ...(selected.configurationRef === undefined ? {} : { configurationRef: selected.configurationRef }),
+      ...(selected.evidence.source.marketplaceSourceIdentity === undefined ? {} : { marketplaceSourceIdentity: selected.evidence.source.marketplaceSourceIdentity }),
+      ...(selected.evidence.source.pluginSourceIdentity === undefined ? {} : { pluginSourceIdentity: selected.evidence.source.pluginSourceIdentity }),
+      ...(selected.evidence.source.declaredVersion === undefined ? {} : { declaredVersion: selected.evidence.source.declaredVersion }),
       scope: toScopeReference(scope),
     }, dependencies.sha256);
     if (!sameJson(reconstructed, selected)) return { kind: "rejected", code: "MALFORMED" };
