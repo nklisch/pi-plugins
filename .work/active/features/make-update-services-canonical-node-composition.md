@@ -1,7 +1,7 @@
 ---
 id: make-update-services-canonical-node-composition
 kind: feature
-stage: implementing
+stage: review
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -241,3 +241,13 @@ The update module receives the existing `node:timers/promises` and application i
 **Risk:** Low. Likely failures are a two-way module import, accidental copied type contracts, altered validation/default-delay behavior, an eager construction side effect, or public allowlist drift. Exact type assertions, inert dual-factory construction, dependency-cruiser, and the existing compiled allowlist detect each material hazard.
 
 **Atomic-step acknowledgment:** The source move and compatibility inversion are one atomic checkpoint because either half alone leaves the module graph in an invalid or misleading intermediate state. It is cleanly reversible as one commit; no feature flag or migration is warranted.
+
+
+## Implementation summary
+
+- Child checkpoint `make-update-services-canonical-node-composition-step-1` is complete at `stage: done` in implementation commit `720c8a9`.
+- The update-named composition module now owns Node delay, canonical update types, validation, and complete service wiring. The refresh-named module is a one-way compatibility wrapper with exact type aliases.
+- Verification passed: focused scheduler/composition and public API tests (12 tests), full `npm test` (121 files, 649 tests), `npm run typecheck`, `npm run boundaries`, `npm run build`, and `npm run test:package`.
+- Package verification remained exact: `compiled package import passed (437 exports)`.
+- Review weight: standard (project convention). Per the delegated instruction, the feature is left at `stage: review` and feature review was not invoked.
+- Deviations and blockers: none.
