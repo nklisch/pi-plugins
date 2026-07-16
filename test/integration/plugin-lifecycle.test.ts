@@ -36,6 +36,7 @@ import {
 import { createPluginLifecycleService, type PluginLifecycleServiceDependencies } from "../../src/application/plugin-lifecycle-service.js";
 import type { GenerationMutationCoordinator } from "../../src/application/generation-mutation-coordinator.js";
 import type { LifecycleStateStore } from "../../src/application/ports/lifecycle-state-store.js";
+import { CurrentProjectRuntimeContextSchema } from "../../src/application/ports/project-trust.js";
 import type { LifecycleReloadPort } from "../../src/application/ports/lifecycle-reload.js";
 import type { LifecycleTransitionStore } from "../../src/application/ports/lifecycle-transition-store.js";
 import type { ContentStorePort } from "../../src/application/ports/content-store.js";
@@ -125,6 +126,11 @@ const lifecycleProject = createScopeContext({
   identity: lifecycleProjectIdentity,
   projectKey: deriveProjectKey(lifecycleProjectIdentity, sha256),
 }, sha256);
+const currentProject = CurrentProjectRuntimeContextSchema.parse({
+  identity: lifecycleProjectIdentity,
+  projectKey: lifecycleProject.projectKey,
+  trust: { kind: "trusted" },
+});
 
 function lifecyclePointers(scope: ScopeContext, generation: Generation) {
   const reference = toScopeReference(scope);
@@ -313,8 +319,8 @@ describe("project-scoped lifecycle service wiring", () => {
         );
         if (expected === undefined) throw new Error("lifecycle test observation has no prepared expectation");
         return expected.kind === "active"
-          ? { kind: "active", scope: expected.projection.scope, plugin: expected.projection.plugin, revision: expected.projection.revision, projectionDigest: expected.projection.digest }
-          : { kind: "inactive", scope: expected.scope, plugin: expected.plugin };
+          ? { kind: "active", scope: expected.projection.scope, plugin: expected.projection.plugin, revision: expected.projection.revision, projectionDigest: expected.projection.digest, currentProject }
+          : { kind: "inactive", scope: expected.scope, plugin: expected.plugin, projectionDigest: expected.digest, currentProject };
       },
     };
     let materializationCount = 0;

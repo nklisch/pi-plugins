@@ -37,17 +37,15 @@ import type { PreparedRuntimeProjection } from "../../application/runtime-projec
 import type { ContentStorePort, ResolvedContentRoot, WritableDataRoot } from "../../application/ports/content-store.js";
 import type { ProjectRootAuthorityPort } from "../../application/ports/project-root-authority.js";
 import {
+  CurrentProjectRuntimeContextSchema,
   ProjectTrustAssessmentSchema,
+  type CurrentProjectRuntimeContext,
   type ProjectTrustAssessment,
   type ProjectTrustPort,
 } from "../../application/ports/project-trust.js";
 
-export const CurrentProjectRuntimeContextSchema = z.object({
-  identity: ProjectIdentitySchema,
-  projectKey: ProjectKeySchema,
-  trust: ProjectTrustAssessmentSchema,
-}).strict().readonly();
-export type CurrentProjectRuntimeContext = z.infer<typeof CurrentProjectRuntimeContextSchema>;
+export { CurrentProjectRuntimeContextSchema } from "../../application/ports/project-trust.js";
+export type { CurrentProjectRuntimeContext } from "../../application/ports/project-trust.js";
 
 export type RuntimeProjectionSelection = Readonly<{
   prepared: PreparedRuntimeProjection;

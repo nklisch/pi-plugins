@@ -52,11 +52,13 @@ describe("content store composition", () => {
         "allocateProjectionRoot",
         "allocateStaging",
         "capabilities",
+        "discardProjectionRoot",
         "discardStaging",
         "ensureDataRoot",
         "promote",
         "resolveMarketplace",
         "resolvePlugin",
+        "resolveProjectionRoot",
         "sealProjectionRoot",
       ]);
     } finally {

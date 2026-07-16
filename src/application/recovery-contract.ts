@@ -103,8 +103,17 @@ export function stateWithoutPending(record: InstalledPluginRecord): InstalledPlu
 }
 
 export function projectionMatchesObservation(observation: ActivationObservation, expectation: ProjectionExpectation, plugin: PluginKey): boolean {
-  if (expectation.kind === "inactive") return observation.kind === "inactive" && sameJson(observation.scope, expectation.scope) && observation.plugin === plugin;
-  return observation.kind === "active" && sameJson(observation.scope, expectation.projection.scope) && observation.plugin === plugin && observation.revision === expectation.projection.revision && observation.projectionDigest === expectation.projection.digest;
+  if (expectation.kind === "inactive") {
+    return observation.kind === "inactive" &&
+      sameJson(observation.scope, expectation.scope) &&
+      observation.plugin === plugin &&
+      observation.projectionDigest === expectation.digest;
+  }
+  return observation.kind === "active" &&
+    sameJson(observation.scope, expectation.projection.scope) &&
+    observation.plugin === plugin &&
+    observation.revision === expectation.projection.revision &&
+    observation.projectionDigest === expectation.projection.digest;
 }
 
 /** Classify only exact evidence; a reload return value is intentionally absent. */

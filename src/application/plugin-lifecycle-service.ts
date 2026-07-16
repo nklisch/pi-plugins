@@ -340,7 +340,10 @@ function observationMatches(
   plugin: PluginKey,
 ): boolean {
   if (expectation.kind === "inactive") {
-    return observation.kind === "inactive" && sameJson(observation.scope, expectation.scope) && observation.plugin === plugin;
+    return observation.kind === "inactive" &&
+      sameJson(observation.scope, expectation.scope) &&
+      observation.plugin === plugin &&
+      observation.projectionDigest === expectation.digest;
   }
   return observation.kind === "active" &&
     sameJson(observation.scope, expectation.projection.scope) &&

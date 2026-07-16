@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-projection-reload-evidence-contribution-observation
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-projection-reload-evidence
 depends_on: [epic-skills-hook-runtime-projection-reload-evidence-snapshot-resolution]
@@ -52,3 +52,13 @@ The catalog is a derived runtime view, not authoritative state. Do not persist i
 ## Ordering
 
 Blocked by `epic-skills-hook-runtime-projection-reload-evidence-snapshot-resolution`; exact snapshots are the only values the catalog may install or observe.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna xhigh; catalog replacement, contribution composition, and lifecycle comparison were implemented as one boundary because evidence integrity spans all three.
+- Review weight: standard, from project convention; this child checkpoint is verified directly and does not enter review.
+- Files changed: `src/runtime/skill-hook/runtime-catalog.ts`, `src/runtime/skill-hook/lifecycle-participant.ts`, `src/application/ports/lifecycle-reload.ts`, `src/application/ports/project-trust.ts`, `src/application/recovery-contract.ts`, `src/application/plugin-lifecycle-service.ts`, plus focused lifecycle/integration fixtures.
+- Tests added/updated: atomic catalog active/inactive observation, two-participant active/inactive composition, and existing lifecycle/recovery evidence fixtures; focused suites passed (3 files / 8 tests).
+- Simplification: one common contribution-binding schema and pure composition verifier serve both participant slices; no reload invocation, MCP interpreter, state reader, or persistent catalog was added.
+- Discrepancies from design: current-project context is defined in the application project-trust port and re-exported by the runtime snapshot module so application ports remain independent of runtime adapters.
+- Adjacent issues parked: none.
+- Verification: `npm run typecheck`; focused lifecycle, participant, composition, and integration suites passed.

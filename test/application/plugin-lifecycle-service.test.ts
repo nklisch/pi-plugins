@@ -22,12 +22,18 @@ import type { GenerationSnapshot } from "../../src/application/state-contract.js
 import type { LifecycleStateStore } from "../../src/application/ports/lifecycle-state-store.js";
 import type { GenerationMutationCoordinator } from "../../src/application/generation-mutation-coordinator.js";
 import type { RuntimeProjectionPort, ProjectionExpectation } from "../../src/application/ports/runtime-projection.js";
+import { CurrentProjectRuntimeContextSchema } from "../../src/application/ports/project-trust.js";
 import type { LifecycleReloadPort } from "../../src/application/ports/lifecycle-reload.js";
 import type { LifecycleTransitionStore } from "../../src/application/ports/lifecycle-transition-store.js";
 import { readClaudeMarketplace } from "../../src/formats/claude/marketplace-reader.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(bytes).digest());
 const signal = new AbortController().signal;
+const currentProject = CurrentProjectRuntimeContextSchema.parse({
+  identity: { kind: "path-only", canonicalRoot: "file:///workspace/", limitation: "identity-changes-with-canonical-root" },
+  projectKey: `project-v1:sha256:${"1".repeat(64)}`,
+  trust: { kind: "trusted" },
+});
 const projectRevision = "b".repeat(40);
 const marketplaceSource = createResolvedMarketplaceSource({ declared: { kind: "github", repository: "example/community" }, revision: projectRevision }, sha256);
 const entry = readClaudeMarketplace({ name: "community", plugins: [{ name: "fixture", source: "./plugin", strict: false }] }).marketplace.entries[0]!;
@@ -136,8 +142,8 @@ function dependencies(state: MemoryState, options: LifecycleTestOptions = {}): P
       const expectation = current?.activation === "enabled"
         ? [...expectations].reverse().find((value) => value.kind === "active")
         : [...expectations].reverse().find((value) => value.kind === "inactive");
-      if (expectation?.kind === "active") return { kind: "active", scope: expectation.projection.scope, plugin: expectation.projection.plugin, revision: expectation.projection.revision, projectionDigest: expectation.projection.digest };
-      return { kind: "inactive", scope: expectation?.kind === "inactive" ? expectation.scope : { kind: "user" }, plugin: plugin.identity.key };
+      if (expectation?.kind === "active") return { kind: "active", scope: expectation.projection.scope, plugin: expectation.projection.plugin, revision: expectation.projection.revision, projectionDigest: expectation.projection.digest, currentProject };
+      return { kind: "inactive", scope: expectation?.kind === "inactive" ? expectation.scope : { kind: "user" }, plugin: plugin.identity.key, projectionDigest: expectation?.kind === "inactive" ? expectation.digest : `sha256:${"0".repeat(64)}`, currentProject };
     },
   };
   const transitions: LifecycleTransitionStore = {
