@@ -84,6 +84,7 @@ import type { NormalizedMarketplaceEntry } from "../domain/marketplace.js";
 import type { ResolvedMarketplaceSource } from "../domain/source.js";
 import type { SourceContext } from "./source-materialization.js";
 import type { Sha256 } from "../domain/source.js";
+import { createLifecycleTransitionReconciler } from "./lifecycle-transition-reconciler.js";
 
 export type InstallPluginRequest = Readonly<{
   scope: ScopeContext;
@@ -439,6 +440,14 @@ export function createPluginLifecycleService(
 ): PluginLifecycleService {
   if (dependencies === null || typeof dependencies !== "object") throw new TypeError("lifecycle service dependencies are required");
   const preparation: PluginCandidatePreparationDependencies = dependencies;
+  const reconciler = createLifecycleTransitionReconciler({
+    state: dependencies.state,
+    mutations: dependencies.mutations,
+    reload: dependencies.reload,
+    transitions: dependencies.transitions,
+    installed: dependencies.installed,
+    sha256: dependencies.sha256,
+  });
 
   async function load(scope: ScopeContext, signal: AbortSignal): Promise<GenerationSnapshot | undefined> {
     const result = await dependencies.state.read(scope, signal);
@@ -756,7 +765,8 @@ export function createPluginLifecycleService(
       previous: previous === undefined ? null : withoutPending(previous),
       candidate: withoutPending(candidate),
       final: finalRecord === null ? null : withoutPending(finalRecord),
-      projection: candidateExpectation,
+      previousProjection: previousExpectation,
+      candidateProjection: candidateExpectation,
       retainedData: operation === "uninstall" ? retainedData(request) : "keep",
       reference,
       sha256: dependencies.sha256,
@@ -780,19 +790,34 @@ export function createPluginLifecycleService(
 
     const committed = first.snapshot;
     const activation = await reloadAndObserve(dependencies, scope, plugin, reference, candidateExpectation, signal);
-    if (!activation.ok) return rollback(operation, scope, plugin, previous, candidate, previousExpectation, reference, committed, activation.failure, signal);
-    const final = await finalize(scope, plugin, candidate, finalRecord, reference, committed, signal);
-    if (!final.ok) return recovery(operation, reference, committed.generation);
-    try {
-      await dependencies.transitions.settle({ reference, outcome: "completed", generation: final.snapshot.generation }, signal);
-    } catch {
-      return recovery(operation, reference, final.snapshot.generation);
+    const reconciled = await reconciler.completeCommittedTransition({
+      operation,
+      scope,
+      plugin,
+      previous,
+      candidate,
+      final: finalRecord,
+      reference,
+      committed,
+      previousProjection: previousExpectation,
+      candidateProjection: candidateExpectation,
+      activation,
+    }, signal);
+    if (reconciled.kind === "recovery-required") return recovery(operation, reference, reconciled.committed);
+    if (reconciled.kind === "rolled-back") {
+      return {
+        kind: "rolled-back",
+        operation,
+        failure: reconciled.failure,
+        snapshot: reconciled.snapshot,
+        observation: reconciled.observation,
+      };
     }
     return {
       kind: "changed",
       operation,
-      snapshot: final.snapshot,
-      observation: activation.observation,
+      snapshot: reconciled.snapshot,
+      observation: reconciled.observation,
       ...(operation === "uninstall" ? { cleanup: { kind: "deferred", retainedData: retainedData(request) } } : {}),
     };
   }

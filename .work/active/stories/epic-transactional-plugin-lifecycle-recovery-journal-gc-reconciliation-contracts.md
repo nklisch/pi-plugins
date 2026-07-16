@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-recovery-journal-gc-reconciliation-contracts
 kind: story
-stage: implementing
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-recovery-journal-gc
 depends_on: []
@@ -48,3 +48,13 @@ Finalize the version-1 transition/journal vocabulary and extract the existing li
 ## Ordering
 
 This is the root checkpoint. The journal adapter, startup recovery, and collection contracts depend on its settled record/status/reconciler surface.
+
+## Implementation notes
+
+Implemented the version-1 transition vocabulary with pending-free previous/candidate/final state evidence, separate candidate and previous projection expectations, deterministic reference verification, resumable recovery status, terminal status conflict handling, safe recovery result contracts, and an injected lifecycle clock port. Extracted the guarded pending replacement/rebase, exact reload observation comparison, finalization, verified previous compensation, and startup classification surface into `LifecycleTransitionReconciler`; the lifecycle facade now routes both successful and failed post-commit outcomes through it. Legacy transition-store fakes remain source-compatible through the normalized constructor input, while emitted records use the stronger dual-projection shape.
+
+Verification evidence:
+
+- `npm run typecheck` — passed.
+- `npm run test:unit -- --run test/application/recovery-contract.test.ts test/application/lifecycle-transition-reconciler.test.ts test/application/plugin-lifecycle-service.test.ts` — 3 files / 9 tests passed.
+- Existing lifecycle install/disable/enable/uninstall and generation-rebase behavior remained green; no lifecycle command replay or arbitrary state replacement surface was added.

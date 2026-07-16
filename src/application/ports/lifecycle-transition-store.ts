@@ -23,6 +23,7 @@ import {
   type LifecyclePluginState,
   type LifecycleRetainedData,
 } from "../plugin-lifecycle-contract.js";
+import { EpochMillisecondsSchema, type EpochMilliseconds } from "./lifecycle-clock.js";
 import {
   ProjectionExpectationSchema,
   type ProjectionExpectation,
@@ -38,33 +39,97 @@ export const LifecycleTransitionRecordSchemaV1 = z.object({
   plugin: PluginKeySchema,
   startingGeneration: GenerationSchema,
   previous: LifecyclePluginStateSchema.nullable(),
-  candidate: LifecyclePluginStateSchema.nullable(),
+  candidate: LifecyclePluginStateSchema,
   final: LifecyclePluginStateSchema.nullable(),
-  projection: ProjectionExpectationSchema,
+  previousProjection: ProjectionExpectationSchema,
+  candidateProjection: ProjectionExpectationSchema,
   retainedData: LifecycleRetainedDataSchema,
-}).strict().readonly();
+}).strict().readonly().superRefine((record, context) => {
+  if (record.previousProjection.kind === "active" && record.previousProjection.projection.plugin !== record.plugin) {
+    context.addIssue({ code: "custom", path: ["previousProjection"], message: "previous projection belongs to another plugin" });
+  }
+  if (record.candidateProjection.kind === "active" && record.candidateProjection.projection.plugin !== record.plugin) {
+    context.addIssue({ code: "custom", path: ["candidateProjection"], message: "candidate projection belongs to another plugin" });
+  }
+});
 export type LifecycleTransitionRecord = z.infer<typeof LifecycleTransitionRecordSchemaV1>;
+
+export const LifecycleTransitionStatusSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("prepared") }).strict().readonly(),
+  z.object({ kind: z.literal("recovery-required"), generation: GenerationSchema.optional() }).strict().readonly(),
+  z.object({ kind: z.enum(["completed", "rolled-back", "abandoned"]), generation: GenerationSchema.optional() }).strict().readonly(),
+  z.object({ kind: z.literal("quarantined"), code: z.literal("TRANSITION_JOURNAL_CORRUPT") }).strict().readonly(),
+]);
+export type LifecycleTransitionStatus = z.infer<typeof LifecycleTransitionStatusSchema>;
+
+export const LifecycleTransitionJournalEntrySchemaV1 = z.object({
+  schemaVersion: z.literal(1),
+  record: LifecycleTransitionRecordSchemaV1,
+  status: LifecycleTransitionStatusSchema,
+  preparedAt: EpochMillisecondsSchema,
+  statusAt: EpochMillisecondsSchema,
+  collectionCompletedAt: EpochMillisecondsSchema.optional(),
+}).strict().readonly();
+export type LifecycleTransitionJournalEntry = z.infer<typeof LifecycleTransitionJournalEntrySchemaV1>;
 
 export const LifecycleTransitionPrepareResultSchema = z.enum(["stored", "already-present"]);
 export type LifecycleTransitionPrepareResult = z.infer<typeof LifecycleTransitionPrepareResultSchema>;
 
-export const LifecycleTransitionOutcomeSchema = z.enum([
-  "completed",
-  "rolled-back",
-  "recovery-required",
-]);
+export const LifecycleTransitionOutcomeSchema = z.enum(["completed", "rolled-back", "abandoned", "recovery-required"]);
 export type LifecycleTransitionOutcome = z.infer<typeof LifecycleTransitionOutcomeSchema>;
 
 export const LifecycleTransitionSettleRequestSchema = z.object({
   reference: PendingTransitionRefSchema,
   outcome: LifecycleTransitionOutcomeSchema,
   generation: GenerationSchema.optional(),
+  at: EpochMillisecondsSchema.optional(),
 }).strict().readonly();
 export type LifecycleTransitionSettleRequest = z.infer<typeof LifecycleTransitionSettleRequestSchema>;
 
+export const TransitionJournalReadResultSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("missing") }).strict().readonly(),
+  z.object({ kind: z.literal("found"), entry: LifecycleTransitionJournalEntrySchemaV1 }).strict().readonly(),
+  z.object({
+    kind: z.literal("corrupt"),
+    code: z.literal("TRANSITION_JOURNAL_CORRUPT"),
+  }).strict().readonly(),
+]);
+export type TransitionJournalReadResult = z.infer<typeof TransitionJournalReadResultSchema>;
+
+export const LifecycleTransitionCollectionSchema = z.object({
+  entries: z.array(LifecycleTransitionJournalEntrySchemaV1).readonly(),
+  complete: z.boolean(),
+  diagnostics: z.array(z.object({ code: z.literal("TRANSITION_JOURNAL_CORRUPT"), scope: ScopeReferenceSchema.optional() }).strict().readonly()).readonly(),
+}).strict().readonly();
+export type LifecycleTransitionCollection = z.infer<typeof LifecycleTransitionCollectionSchema>;
+
+export type LifecycleTransitionPrepareRequest = Readonly<{
+  record: LifecycleTransitionRecord;
+  preparedAt: EpochMilliseconds;
+}>;
+
+/**
+ * The optional read/list methods let the first lifecycle implementation use a
+ * small in-memory adapter while durable adapters expose the full recovery
+ * surface. The mutation methods accept the legacy record-shaped call as well
+ * so existing lifecycle integrations remain source compatible.
+ */
 export interface LifecycleTransitionStore {
-  prepare(record: LifecycleTransitionRecord, signal: AbortSignal): Promise<LifecycleTransitionPrepareResult>;
+  prepare(request: LifecycleTransitionRecord | LifecycleTransitionPrepareRequest, signal: AbortSignal): Promise<LifecycleTransitionPrepareResult>;
   settle(request: LifecycleTransitionSettleRequest, signal: AbortSignal): Promise<void>;
+  read?(request: Readonly<{ scope: ScopeReference; reference: PendingTransitionRef }>, signal: AbortSignal): Promise<TransitionJournalReadResult>;
+  list?(scope: ScopeReference, signal: AbortSignal): Promise<LifecycleTransitionCollection>;
+  markRecoveryRequired?(request: Readonly<{ scope: ScopeReference; reference: PendingTransitionRef; generation?: Generation; at: EpochMilliseconds }>, signal: AbortSignal): Promise<"stored" | "already-present" | "terminal">;
+  markCollectionComplete?(request: Readonly<{ scope: ScopeReference; reference: PendingTransitionRef; at: EpochMilliseconds }>, signal: AbortSignal): Promise<void>;
+  pruneTerminal?(request: Readonly<{ before: EpochMilliseconds }>, signal: AbortSignal): Promise<number>;
+  ownerStatus?(scope: ScopeReference, reference: PendingTransitionRef, signal: AbortSignal): Promise<"live" | "dead" | "unknown" | "released">;
+}
+
+function legacyProjection(input: Readonly<{ projection?: ProjectionExpectation; previousProjection?: ProjectionExpectation; candidateProjection?: ProjectionExpectation }>): Readonly<{ previousProjection: ProjectionExpectation; candidateProjection: ProjectionExpectation }> {
+  const previousProjection = input.previousProjection ?? input.projection;
+  const candidateProjection = input.candidateProjection ?? input.projection;
+  if (previousProjection === undefined || candidateProjection === undefined) throw new TypeError("transition projections are required");
+  return { previousProjection, candidateProjection };
 }
 
 /** Construct a transition record and prove its precomputed opaque reference. */
@@ -77,14 +142,17 @@ export function createLifecycleTransitionRecord(
     plugin: string;
     startingGeneration: Generation;
     previous: LifecyclePluginState | null;
-    candidate: LifecyclePluginState | null;
+    candidate: LifecyclePluginState;
     final: LifecyclePluginState | null;
-    projection: ProjectionExpectation;
+    projection?: ProjectionExpectation;
+    previousProjection?: ProjectionExpectation;
+    candidateProjection?: ProjectionExpectation;
     retainedData: LifecycleRetainedData;
     reference?: PendingTransitionRef;
     sha256: (bytes: Uint8Array) => Uint8Array;
   }>,
 ): LifecycleTransitionRecord {
+  const projections = legacyProjection(input);
   const value = LifecycleTransitionRecordSchemaV1.parse({
     schemaVersion: 1,
     reference: input.reference ?? "pending-transition-v1:sha256:" + "0".repeat(64),
@@ -97,7 +165,7 @@ export function createLifecycleTransitionRecord(
     previous: input.previous,
     candidate: input.candidate,
     final: input.final,
-    projection: input.projection,
+    ...projections,
     retainedData: input.retainedData,
   });
   const expected = deriveLifecyclePendingTransitionRef({
@@ -106,13 +174,12 @@ export function createLifecycleTransitionRecord(
     plugin: value.plugin,
     startingGeneration: value.startingGeneration,
   }, input.sha256);
-  if (input.reference !== undefined && input.reference !== expected) {
-    throw new Error("lifecycle transition reference does not match its identity");
-  }
+  if (input.reference !== undefined && input.reference !== expected) throw new Error("lifecycle transition reference does not match its identity");
   return LifecycleTransitionRecordSchemaV1.parse({ ...value, reference: expected });
 }
 
 export type {
+  EpochMilliseconds,
   Generation,
   LifecycleOperation,
   LifecycleOrigin,
