@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-guarded-command-hooks-pi-application
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, security, infra]
 parent: epic-skills-hook-runtime-guarded-command-hooks
 depends_on: [epic-skills-hook-runtime-guarded-command-hooks-bounded-execution, epic-skills-hook-runtime-guarded-command-hooks-decision-aggregation]
