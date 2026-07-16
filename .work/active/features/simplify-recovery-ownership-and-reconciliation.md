@@ -1,7 +1,7 @@
 ---
 id: simplify-recovery-ownership-and-reconciliation
 kind: feature
-stage: review
+stage: done
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -336,3 +336,14 @@ No state/schema/public export or lifecycle behavior changed. The existing capabi
 ## Implementation Completion
 
 All child stories are `done`; the feature is advanced to `review` for the separate feature review lane. No feature review was performed in this implementation pass, per delegation.
+
+## Review (2026-07-16)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: optional direct malformed-`/proc/stat` no-closing-parenthesis assertion; existing unreadable-token coverage and adapter/integration behavior make it non-blocking.
+**Rejected**: none. Accepted the internal-only process utility and unchanged permissive lease-owner schema as intentional scope boundaries.
+
+**Notes**: Standard-weight substrate feature review, one cross-model balanced pass by Umans GLM 5.2. The reviewer independently reproduced typecheck, boundaries (163 modules / 986 dependencies), 113 files / 616 tests, build, and 407 compiled exports; confirmed one production process-start parser/classifier, no remaining dead settlement path or fixture references, unchanged persisted formats/owner states, and no public export drift. No receiver-confirmed material blocker remained, so standard closes after this single pass without re-review.
