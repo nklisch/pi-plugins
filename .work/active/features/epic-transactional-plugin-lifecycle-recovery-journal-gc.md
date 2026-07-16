@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-recovery-journal-gc
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-operations]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-12
-updated: 2026-07-16
+updated: 2026-07-17
 ---
 
 # Recovery Journal and Revision Collection
@@ -448,3 +448,17 @@ Receiver-confirmed material blockers:
 - **Stale retained-set deletion window**: collection rereads physical artifacts after state pruning but does not refresh live/unknown leases and authoritative state references before deletion. A second ordinary Pi session can acquire a lease in that window and have referenced content removed.
 
 Tracked by `epic-transactional-plugin-lifecycle-recovery-journal-gc-review-hardening`. Under `standard`, this feature needs only implementation and verification of that named fix set; it must not commission a second independent review pass. Lower-risk scoped settlement I/O was parked separately.
+
+## Fix verification (2026-07-17)
+
+The named standard-review fix set is complete in child commit `e35a24b`:
+
+- Added directly invoked child-process acceptance fixtures using the real Node transition-journal and process-lease adapters over temporary roots. They prove no row after a pre-acknowledgment kill, one digest-valid row after an acknowledged prepare and restart, identical concurrent prepare convergence, and conflicting evidence isolation.
+- Added a real second-process lease acceptance path proving a live lease prevents collection and explicit release permits it.
+- Changed collection to refresh the complete state-scope/journal/lease retained set after pruning and before physical deletion. Incomplete refreshed evidence defers deletion; all refreshed state revisions and live/unknown lease references are unioned with the initial set. Existing fresh artifact identity rescan/revalidation remains in place.
+- Added deterministic regressions for lease acquisition in the deletion window, incomplete lease refresh, and state-record pruning before physical removal.
+- Added bounded abort-aware SQLite busy retries so real concurrent journal prepares converge without changing the zero native busy timeout or persisted schema.
+
+Integrated verification after the fix: `npm test` passed — strict production/test typechecking, dependency boundaries, 114 test files / 622 tests, build, and compiled package import with 407 exports. Public exports and dependency boundaries are unchanged.
+
+The child checkpoint is `stage: done`; this parent feature is returned to `stage: review` for host administrative closure. The one permitted standard review pass is satisfied; no second independent review was run.
