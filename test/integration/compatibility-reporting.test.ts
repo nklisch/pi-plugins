@@ -96,7 +96,9 @@ describe("compatibility reporting integration", () => {
     ]);
     expect(validReport.requirements.map((assessment) => assessment.requirement.capability)).toEqual([
       "pi.mcp.runtime",
+      "pi.mcp.transport.streamable-http",
       "pi.mcp.runtime",
+      "pi.mcp.transport.stdio",
     ]);
     expect(validReport.activatable).toBe(true);
     expect(JSON.stringify(validReport)).not.toContain("CANARY_HEADER_VALUE");

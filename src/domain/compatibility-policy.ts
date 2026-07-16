@@ -40,6 +40,16 @@ export const RuntimeCapabilityRegistry = {
     description: "Plugin-scoped MCP runtime is available",
     rank: 60,
   },
+  mcpTransportStdio: {
+    id: "pi.mcp.transport.stdio",
+    description: "MCP standard-I/O transport is available",
+    rank: 65,
+  },
+  mcpTransportStreamableHttp: {
+    id: "pi.mcp.transport.streamable-http",
+    description: "MCP Streamable HTTP transport is available",
+    rank: 66,
+  },
   mcpOAuthAuthorizationCode: {
     id: "pi.mcp.oauth.authorization-code",
     description: "MCP authorization-code OAuth is available",
@@ -69,6 +79,11 @@ export const RuntimeCapabilityRegistry = {
     id: "pi.mcp.elicitation.url",
     description: "Interactive URL elicitation is available",
     rank: 120,
+  },
+  mcpResources: {
+    id: "pi.mcp.resources",
+    description: "MCP resource access is available",
+    rank: 125,
   },
 } as const;
 
@@ -406,7 +421,10 @@ const mcpRules = {
     id: "mcp.transport.stdio",
     surface: "mcp-server",
     disposition: "supported",
-    requirementCapabilityIds: [capability(RuntimeCapabilityRegistry.mcpRuntime.id)],
+    requirementCapabilityIds: [
+      capability(RuntimeCapabilityRegistry.mcpRuntime.id),
+      capability(RuntimeCapabilityRegistry.mcpTransportStdio.id),
+    ],
     message: "MCP standard-I/O transport is supported",
     rank: 10,
   }),
@@ -414,7 +432,10 @@ const mcpRules = {
     id: "mcp.transport.streamable-http",
     surface: "mcp-server",
     disposition: "supported",
-    requirementCapabilityIds: [capability(RuntimeCapabilityRegistry.mcpRuntime.id)],
+    requirementCapabilityIds: [
+      capability(RuntimeCapabilityRegistry.mcpRuntime.id),
+      capability(RuntimeCapabilityRegistry.mcpTransportStreamableHttp.id),
+    ],
     message: "MCP Streamable HTTP transport is supported",
     rank: 20,
   }),
@@ -465,6 +486,14 @@ const mcpRules = {
     requirementCapabilityIds: [capability(RuntimeCapabilityRegistry.mcpRuntime.id)],
     message: "MCP core configuration features are supported",
     rank: 70,
+  }),
+  featureResources: supportedRule({
+    id: "mcp.feature.resources",
+    surface: "mcp-server",
+    disposition: "supported",
+    requirementCapabilityIds: [capability(RuntimeCapabilityRegistry.mcpResources.id)],
+    message: "MCP resource access is supported by the selected runtime",
+    rank: 75,
   }),
   featureToolApproval: supportedRule({
     id: "mcp.feature.tool-approval",

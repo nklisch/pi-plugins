@@ -107,6 +107,7 @@ describe("pure compatibility evaluator", () => {
       "pi.hooks.command",
       "platform.shell.bash",
       "pi.mcp.runtime",
+      "pi.mcp.transport.stdio",
     ]);
     expect(JSON.stringify(report)).not.toContain("do-not-copy");
   });
@@ -358,7 +359,9 @@ describe("pure compatibility evaluator", () => {
     expect(report.activatable).toBe(true);
     expect(report.requirements.map((assessment) => assessment.requirement.capability)).toEqual([
       "pi.mcp.runtime",
+      "pi.mcp.transport.streamable-http",
       "pi.mcp.runtime",
+      "pi.mcp.transport.streamable-http",
       "pi.mcp.oauth.authorization-code",
     ]);
     expect(report.diagnostics).toEqual([]);

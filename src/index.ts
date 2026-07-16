@@ -325,6 +325,7 @@ export {
 export type { CompatibilityEvaluationInput } from "./domain/compatibility-evaluator.js";
 
 export { createCompatibilityService } from "./application/compatibility-service.js";
+export { createMcpRuntimeCapabilityProbe } from "./application/mcp-runtime-capability-probe.js";
 export type {
   CompatibilityAssessmentRequest,
   CompatibilityService,

@@ -37,11 +37,15 @@ export const reportingPolicyFixtures: readonly PolicyFixture[] = [
     positiveExpected: expectedOutcome(["supported"], true, {
       requirements: [
         expectedRequirement("mcp-server", "d", "pi.mcp.runtime"),
+        expectedRequirement("mcp-server", "d", "pi.mcp.transport.stdio"),
         expectedRequirement("mcp-server", "d", "pi.mcp.sampling"),
       ],
     }),
     negativeExpected: expectedOutcome(["supported"], true, {
-      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+      requirements: [
+        expectedRequirement("mcp-server", "1", "pi.mcp.runtime"),
+        expectedRequirement("mcp-server", "1", "pi.mcp.transport.stdio"),
+      ],
     }),
   },
   {

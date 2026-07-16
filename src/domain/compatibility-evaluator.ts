@@ -1097,9 +1097,17 @@ function evaluateMcp(
       diagnostics.push(mcpIssue(pluginKey, component, field));
     }
   }
-  if (declaration.resources !== undefined && !(typeof declaration.resources === "boolean" || valueIsStringArray(declaration.resources))) {
-    incompatible = true;
-    diagnostics.push(mcpIssue(pluginKey, component, "resources"));
+  if (declaration.resources !== undefined) {
+    const validResources = typeof declaration.resources === "boolean" || valueIsStringArray(declaration.resources);
+    if (!validResources) {
+      incompatible = true;
+      diagnostics.push(mcpIssue(pluginKey, component, "resources"));
+    } else if (declaration.resources === true || (Array.isArray(declaration.resources) && declaration.resources.length > 0)) {
+      requirements.push(...requirementUse(
+        CompatibilityPolicyRegistry.mcp.featureResources.id,
+        mcpFieldProvenance(component, "resources"),
+      ));
+    }
   }
   if (declaration.headers !== undefined) {
     const invalid = invalidHeaderFields(declaration.headers);

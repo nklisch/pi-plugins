@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-config-source-bridge-capability-probe
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-config-source-bridge
 depends_on: [epic-mcp-runtime-integration-config-source-bridge-portable-contract]
@@ -74,3 +74,14 @@ The primary risk is overclaiming a broad MCP runtime when one required source se
 ## Blocker ownership
 
 No external blocker. Plugin Host maintainers own the registry/policy mapping. The later composition owner supplies a qualifying runtime or deliberately omits it.
+
+## Implementation notes
+
+- Execution capability: Luna xhigh; this changes the single compatibility registry and must fail closed without disturbing unrelated capability facts.
+- Review weight: standard (caller explicitly requested no feature review; the story was verified through focused policy, mapper, integration, boundary, and public-surface checks).
+- Files changed: `src/domain/compatibility-policy.ts`, `src/domain/compatibility-evaluator.ts`, `src/application/mcp-runtime-capability-probe.ts`, `src/index.ts`, capability/policy/evaluator/integration/public tests, and compatibility fixtures.
+- Tests added/updated: complete absent-runtime, exact fact mapping, lifecycle qualification, malformed adapter, and abort coverage; transport/resource requirements and capability-table expectations now cite the transport/resource facts.
+- Simplification: the decorator maps one complete runtime snapshot into the existing registry; no adapter-specific verdict or parallel capability vocabulary was introduced.
+- Discrepancies from design: resources use a dedicated `mcp.feature.resources` policy rule because resource requirements are conditional on a declaration actually carrying resources; transport rules cite aggregate runtime plus their exact transport fact.
+- Adjacent issues parked: none.
+- Verification: `npm run typecheck`, `npm run boundaries`, and 41 focused Vitest tests passed with no type errors. Absent runtime preserves non-MCP facts; malformed present evidence raises `ADAPTER_FAILED`; cancellation remains caller-owned.

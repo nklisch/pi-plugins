@@ -23,6 +23,17 @@ const stdio = (token = "1") => mcp({ transport: "stdio", command: "server" }, to
 const http = (token = "2") => mcp({ transport: "streamable-http", url: "https://example.invalid/mcp" }, token);
 const baseline = () => directPlugin({ components: { mcpServers: [stdio()] } });
 
+function mcpRequirements(token: string, transport: "stdio" | "streamable-http", ...additional: string[]) {
+  const transportCapability = transport === "stdio"
+    ? "pi.mcp.transport.stdio"
+    : "pi.mcp.transport.streamable-http";
+  return [
+    expectedRequirement("mcp-server", token, "pi.mcp.runtime"),
+    expectedRequirement("mcp-server", token, transportCapability),
+    ...additional.map((capability) => expectedRequirement("mcp-server", token, capability)),
+  ];
+}
+
 export const mcpPolicyFixtures: readonly PolicyFixture[] = [
   {
     id: "mcp-transport-stdio",
@@ -31,10 +42,10 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     negative: () => directPlugin({ components: { mcpServers: [http("2")] } }),
     positiveVerdict: "supported",
     positiveExpected: expectedOutcome(["supported"], true, {
-      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+      requirements: mcpRequirements("1", "stdio"),
     }),
     negativeExpected: expectedOutcome(["supported"], true, {
-      requirements: [expectedRequirement("mcp-server", "2", "pi.mcp.runtime")],
+      requirements: mcpRequirements("2", "streamable-http"),
     }),
   },
   {
@@ -44,10 +55,10 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     negative: () => directPlugin({ components: { mcpServers: [stdio("4")] } }),
     positiveVerdict: "supported",
     positiveExpected: expectedOutcome(["supported"], true, {
-      requirements: [expectedRequirement("mcp-server", "3", "pi.mcp.runtime")],
+      requirements: mcpRequirements("3", "streamable-http"),
     }),
     negativeExpected: expectedOutcome(["supported"], true, {
-      requirements: [expectedRequirement("mcp-server", "4", "pi.mcp.runtime")],
+      requirements: mcpRequirements("4", "stdio"),
     }),
   },
   {
@@ -63,7 +74,7 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
       diagnosticSourcePointers: ["/mcpServers/server-5/transport"],
     }),
     negativeExpected: expectedOutcome(["supported"], true, {
-      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+      requirements: mcpRequirements("1", "stdio"),
     }),
   },
   {
@@ -79,7 +90,7 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
       diagnosticSourcePointers: ["/mcpServers/server-6/transport"],
     }),
     negativeExpected: expectedOutcome(["supported"], true, {
-      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+      requirements: mcpRequirements("1", "stdio"),
     }),
   },
   {
@@ -93,13 +104,10 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     negative: () => directPlugin({ components: { mcpServers: [http("8")] } }),
     positiveVerdict: "supported",
     positiveExpected: expectedOutcome(["supported"], true, {
-      requirements: [
-        expectedRequirement("mcp-server", "7", "pi.mcp.runtime"),
-        expectedRequirement("mcp-server", "7", "pi.mcp.oauth.authorization-code"),
-      ],
+      requirements: mcpRequirements("7", "streamable-http", "pi.mcp.oauth.authorization-code"),
     }),
     negativeExpected: expectedOutcome(["supported"], true, {
-      requirements: [expectedRequirement("mcp-server", "8", "pi.mcp.runtime")],
+      requirements: mcpRequirements("8", "streamable-http"),
     }),
   },
   {
@@ -113,13 +121,10 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     negative: () => directPlugin({ components: { mcpServers: [http("a")] } }),
     positiveVerdict: "supported",
     positiveExpected: expectedOutcome(["supported"], true, {
-      requirements: [
-        expectedRequirement("mcp-server", "9", "pi.mcp.runtime"),
-        expectedRequirement("mcp-server", "9", "pi.mcp.oauth.client-credentials"),
-      ],
+      requirements: mcpRequirements("9", "streamable-http", "pi.mcp.oauth.client-credentials"),
     }),
     negativeExpected: expectedOutcome(["supported"], true, {
-      requirements: [expectedRequirement("mcp-server", "a", "pi.mcp.runtime")],
+      requirements: mcpRequirements("a", "streamable-http"),
     }),
   },
   {
@@ -157,8 +162,8 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     positiveVerdict: "supported",
     positiveExpected: expectedOutcome(["supported", "supported"], true, {
       requirements: [
-        expectedRequirement("mcp-server", "b", "pi.mcp.runtime"),
-        expectedRequirement("mcp-server", "b2", "pi.mcp.runtime"),
+        ...mcpRequirements("b", "stdio", "pi.mcp.resources"),
+        ...mcpRequirements("b2", "streamable-http"),
       ],
     }),
     negativeExpected: expectedOutcome(["incompatible", "incompatible", "incompatible", "incompatible"], false, {
@@ -173,19 +178,29 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     }),
   },
   {
+    id: "mcp-feature-resources",
+    ruleId: "mcp.feature.resources",
+    positive: () => directPlugin({ components: { mcpServers: [mcp({ transport: "stdio", command: "server", resources: ["docs"] }, "r")] } }),
+    negative: baseline,
+    positiveVerdict: "supported",
+    positiveExpected: expectedOutcome(["supported"], true, {
+      requirements: mcpRequirements("r", "stdio", "pi.mcp.resources"),
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: mcpRequirements("1", "stdio"),
+    }),
+  },
+  {
     id: "mcp-feature-tool-approval",
     ruleId: "mcp.feature.tool-approval",
     positive: () => directPlugin({ components: { mcpServers: [mcp({ transport: "stdio", command: "server", toolApproval: true }, "c")] } }),
     negative: baseline,
     positiveVerdict: "supported",
     positiveExpected: expectedOutcome(["supported"], true, {
-      requirements: [
-        expectedRequirement("mcp-server", "c", "pi.mcp.runtime"),
-        expectedRequirement("mcp-server", "c", "pi.mcp.tool-approval"),
-      ],
+      requirements: mcpRequirements("c", "stdio", "pi.mcp.tool-approval"),
     }),
     negativeExpected: expectedOutcome(["supported"], true, {
-      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+      requirements: mcpRequirements("1", "stdio"),
     }),
   },
   {
@@ -195,13 +210,10 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "supported",
     positiveExpected: expectedOutcome(["supported"], true, {
-      requirements: [
-        expectedRequirement("mcp-server", "d", "pi.mcp.runtime"),
-        expectedRequirement("mcp-server", "d", "pi.mcp.sampling"),
-      ],
+      requirements: mcpRequirements("d", "stdio", "pi.mcp.sampling"),
     }),
     negativeExpected: expectedOutcome(["supported"], true, {
-      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+      requirements: mcpRequirements("1", "stdio"),
     }),
   },
   {
@@ -211,13 +223,10 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "supported",
     positiveExpected: expectedOutcome(["supported"], true, {
-      requirements: [
-        expectedRequirement("mcp-server", "e", "pi.mcp.runtime"),
-        expectedRequirement("mcp-server", "e", "pi.mcp.elicitation.form"),
-      ],
+      requirements: mcpRequirements("e", "stdio", "pi.mcp.elicitation.form"),
     }),
     negativeExpected: expectedOutcome(["supported"], true, {
-      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+      requirements: mcpRequirements("1", "stdio"),
     }),
   },
   {
@@ -227,13 +236,10 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     negative: baseline,
     positiveVerdict: "supported",
     positiveExpected: expectedOutcome(["supported"], true, {
-      requirements: [
-        expectedRequirement("mcp-server", "f", "pi.mcp.runtime"),
-        expectedRequirement("mcp-server", "f", "pi.mcp.elicitation.url"),
-      ],
+      requirements: mcpRequirements("f", "stdio", "pi.mcp.elicitation.url"),
     }),
     negativeExpected: expectedOutcome(["supported"], true, {
-      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+      requirements: mcpRequirements("1", "stdio"),
     }),
   },
   {
@@ -249,7 +255,7 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
       diagnosticSourcePointers: ["/mcpServers/server-10/headersHelper"],
     }),
     negativeExpected: expectedOutcome(["supported"], true, {
-      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+      requirements: mcpRequirements("1", "stdio"),
     }),
   },
   {
@@ -265,7 +271,7 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
       diagnosticSourcePointers: ["/mcpServers/server-11/channels"],
     }),
     negativeExpected: expectedOutcome(["supported"], true, {
-      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+      requirements: mcpRequirements("1", "stdio"),
     }),
   },
   {
@@ -349,7 +355,7 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
       ],
     }),
     negativeExpected: expectedOutcome(["supported"], true, {
-      requirements: [expectedRequirement("mcp-server", "1", "pi.mcp.runtime")],
+      requirements: mcpRequirements("1", "stdio"),
     }),
   },
 ];

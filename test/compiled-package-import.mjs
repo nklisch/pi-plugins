@@ -188,6 +188,7 @@ const expectedExports = [
   "contentStoreKeySchema",
   "createCompatibilityReport",
   "createCompatibilityService",
+  "createMcpRuntimeCapabilityProbe",
   "createLifecycleRecoveryService",
   "createLifecycleTransitionReconciler",
   "createGenerationMutationCoordinator",
