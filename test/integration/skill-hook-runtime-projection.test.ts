@@ -8,6 +8,9 @@ import { createNodeContentStoreWithPlatform } from "../../src/infrastructure/fil
 import { createNodeContentStorePlatform, renameNoReplaceByProbe } from "../../src/infrastructure/filesystem/content-store-durability.js";
 import { createProjectRootAuthorityPort } from "../../src/composition/create-project-root-authority.js";
 import { createSkillHookRuntimeParticipant } from "../../src/runtime/skill-hook/lifecycle-participant.js";
+import { createSkillResourceDiscoveryRuntime } from "../../src/runtime/skills/resource-discovery.js";
+import { createManifestSkillPathVerifier } from "../../src/infrastructure/filesystem/manifest-skill-path-verifier.js";
+import { createManifestContentReader } from "../../src/infrastructure/filesystem/manifest-content-reader.js";
 import { createSkillHookSnapshotLoader } from "../../src/runtime/skill-hook/runtime-snapshot.js";
 import { composeActivationObservation } from "../../src/application/ports/lifecycle-reload.js";
 import { createActiveProjectionExpectation, createInactiveProjectionExpectation, createPluginRuntimeProjection } from "../../src/application/ports/runtime-projection.js";
@@ -18,13 +21,18 @@ import { NormalizedPluginSchema } from "../../src/domain/plugin.js";
 import { claim } from "../../src/domain/provenance.js";
 import { createResolvedPluginSource } from "../../src/domain/source.js";
 import { createInstalledRevisionRecord } from "../../src/domain/state/installed-state.js";
-import { CanonicalProjectRootSchema, ProjectIdentitySchema, createScopeContext, deriveProjectKey } from "../../src/domain/state/scope.js";
+import { CanonicalProjectRootSchema, ProjectIdentitySchema, createScopeContext, deriveProjectKey, type ScopeContext } from "../../src/domain/state/scope.js";
+import type { CurrentProjectRuntimeContext } from "../../src/application/ports/project-trust.js";
 import { createPluginStoreIdentityFromEvidence } from "../../src/domain/content-store.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(bytes).digest());
 const signal = new AbortController().signal;
 const provenance = { location: { host: "claude" as const, documentKind: "manifest" as const, path: "plugin.json", pointer: "/components" } };
 const componentId = (kind: string, token: string) => `component-v1:${kind}:${token.repeat(64).slice(0, 64)}`;
+function skillsHooksProject(scope: ScopeContext): CurrentProjectRuntimeContext {
+  if (scope.kind !== "project") throw new Error("integration requires a project scope");
+  return { identity: scope.identity, projectKey: scope.projectKey, trust: { kind: "trusted" } };
+}
 
 async function makeWritable(path: string): Promise<void> {
   const stat = await lstat(path).catch(() => undefined);
@@ -68,8 +76,15 @@ describe("skill/hook projection and reload evidence integration", () => {
       const projectRoots = createProjectRootAuthorityPort({ resolve: async () => project }, sha256);
       const loader = createSkillHookSnapshotLoader({ content: contentStore, projectRoots, projectTrust: { async assess() { return { kind: "trusted" as const }; } }, sha256 });
       const runtime = createSkillHookRuntimeParticipant({ loader, sha256 });
-      expect(await runtime.participant.reconcile({ active: [{ prepared: cached.value, revision }] }, signal)).toEqual({ kind: "applied", count: 1 });
-      const skillsHooks = await runtime.participant.observe(expectation, signal);
+      const discovery = createSkillResourceDiscoveryRuntime({
+        snapshots: runtime.participant,
+        catalog: runtime.catalog,
+        paths: createManifestSkillPathVerifier({ content: createManifestContentReader(sha256) }),
+        sha256,
+      });
+      expect(await discovery.participant.reconcile({ active: [{ prepared: cached.value, revision }], currentProject: skillsHooksProject(project) }, signal)).toEqual({ kind: "applied", count: 1 });
+      expect(await discovery.resources.discover({ reason: "startup", projectTrusted: true }, signal)).toMatchObject({ kind: "ready" });
+      const skillsHooks = await discovery.participant.observe(expectation, signal);
       expect(skillsHooks.kind).toBe("ready");
       if (skillsHooks.kind !== "ready") throw new Error("skill/hook observation missing");
       const mcpObservation = { kind: "active" as const, participant: "mcp" as const, scope: expectation.projection.scope, plugin: expectation.projection.plugin, revision: expectation.projection.revision, projectionDigest: expectation.projection.digest, currentProject: skillsHooks.observation.currentProject, contributionDigest: `sha256:${"a".repeat(64)}` };
@@ -101,9 +116,10 @@ describe("skill/hook projection and reload evidence integration", () => {
       expect((await cache.read(expectation, signal)).kind).toBe("failed");
       expect(runtime.catalog.list()).toBe(visibleCatalog);
 
-      await runtime.participant.reconcile({ active: [] }, signal).then((result) => expect(result).toEqual({ kind: "applied", count: 0 }));
+      await discovery.participant.reconcile({ active: [], currentProject: skillsHooksProject(project) }, signal).then((result) => expect(result).toEqual({ kind: "applied", count: 0 }));
+      await discovery.resources.discover({ reason: "reload", projectTrusted: true }, signal).then((result) => expect(result).toMatchObject({ kind: "ready" }));
       const inactiveExpectation = createInactiveProjectionExpectation({ scope: { kind: "user" }, plugin: plugin.identity.key, sha256 });
-      const inactiveSkillsHooks = await runtime.participant.observe(inactiveExpectation, signal);
+      const inactiveSkillsHooks = await discovery.participant.observe(inactiveExpectation, signal);
       expect(inactiveSkillsHooks.kind).toBe("ready");
       if (inactiveSkillsHooks.kind !== "ready") throw new Error("inactive skill/hook observation missing");
       const inactiveMcp = { kind: "inactive" as const, participant: "mcp" as const, scope: inactiveExpectation.scope, plugin: inactiveExpectation.plugin, projectionDigest: inactiveExpectation.digest, currentProject: inactiveSkillsHooks.observation.currentProject, contributionDigest: `sha256:${"b".repeat(64)}` };

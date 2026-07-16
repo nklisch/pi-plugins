@@ -34,6 +34,10 @@ export function registerSkillResourceDiscovery(
   pi.on("resources_discover", async (event, ctx) => {
     if (event.cwd !== ctx.cwd) throw new SkillResourceDiscoveryAdapterError("CURRENT_PROJECT_MISMATCH");
     const result = await resources.discover({ reason: event.reason, projectTrusted: ctx.isProjectTrusted() }, lifetime.signal);
+    // A shutdown can race the final await. The old extension instance must not
+    // hand Pi a result produced after its lifetime ended, even if a non-conforming
+    // host-neutral adapter ignored the signal.
+    if (lifetime.signal.aborted) throw abortError();
     if (result.kind === "ready") return { skillPaths: [...result.skillPaths] };
     if (result.kind === "cancelled") throw abortError();
     throw resultError(result);

@@ -1008,8 +1008,27 @@ export type {
   SkillHookRuntimeSetRequest,
   SkillHookReconcileResult,
   SkillHookLifecycleParticipant,
-  SkillHookContributionObservationResult,
+  SkillHookSnapshotParticipant,
+  SkillHookSnapshotObservationResult,
 } from "./runtime/skill-hook/lifecycle-participant.js";
+export {
+  SkillHookSnapshotObservationSchema,
+  SkillResourceContributionObservationSchema,
+  composeSkillHookContributionObservation,
+} from "./runtime/skills/contribution-observation.js";
+export type {
+  SkillHookSnapshotObservation,
+  SkillResourceContributionObservation,
+} from "./runtime/skills/contribution-observation.js";
+export { createSkillResourceDiscoveryRuntime } from "./runtime/skills/resource-discovery.js";
+export type {
+  SkillResourceDiscoveryPort,
+  SkillResourceDiscoveryRequest,
+  SkillResourceDiscoveryResult,
+  SkillResourceTargetFailure,
+  SkillResourceContributionObservationResult,
+  SkillHookContributionObservationResult,
+} from "./runtime/skills/resource-discovery.js";
 
 export {
   LifecycleTransitionRecordSchemaV1,

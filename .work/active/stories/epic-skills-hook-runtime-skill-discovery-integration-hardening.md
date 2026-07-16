@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-skill-discovery-integration-hardening
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra, tests]
 parent: epic-skills-hook-runtime-skill-discovery
 depends_on: [epic-skills-hook-runtime-skill-discovery-pi-adapter]
@@ -52,3 +52,14 @@ Integrate real immutable content/projection/snapshot/path services with a typed 
 ## Ordering
 
 Final checkpoint after the Pi adapter. It is the feature-level acceptance and public-boundary evidence, not a separate implementation owner by default.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna, high; integrated runtime/public-boundary checkpoint over immutable content, native Pi loading, lifecycle evidence, and package exports.
+- Review weight: standard, source: project convention; child checkpoints do not enter review.
+- Files changed: `src/pi/skill-resource-discovery.ts`, `src/index.ts`, `test/integration/pi-skill-resource-discovery.test.ts`, `test/integration/skill-hook-runtime-projection.test.ts`, `test/public-api.test.ts`, and `test/compiled-package-import.mjs`.
+- Tests added/updated: typed fake Pi lifecycle, real Pi `loadSkills` collision evidence, immutable read-only skill files with bundled assets, removal/reload recomputation, stricter final observation integration, and public/compiled negative boundaries.
+- Simplification: no Pi collision/name registry, copied resource tree, settings mutation, reload trigger, or authoritative state reader was added.
+- Discrepancies from design: named resource event aliases are not root exports in Pi 0.80.8, so the adapter relies on `ExtensionAPI.on` contextual typing; this is recorded in the adapter checkpoint. The existing projection integration was updated to insert the required resource discovery participant before whole-bundle composition.
+- Adjacent issues parked: none.
+- Verification: `npm test` passes: 138 test files, 711 tests, 463 compiled exports. Design baseline was 133/696/459 (main baseline 133/696/459; delegated branch baseline 128/674/447); this implementation adds 5 files, 15 tests, and 4 exports relative to the design branch baseline.
+- Stage transition: implementing -> done; implementation commit `implement: epic-skills-hook-runtime-skill-discovery-integration-hardening`.

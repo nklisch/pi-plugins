@@ -794,6 +794,10 @@ describe("explicit package API", () => {
     expect(sourceApi.CurrentProjectRuntimeContextSchema).toBeDefined();
     expect(sourceApi.RuntimeContributionObservationSchema).toBeDefined();
     expect(sourceApi.SkillHookContributionObservationSchema).toBeDefined();
+    expect(sourceApi.SkillHookSnapshotObservationSchema).toBeDefined();
+    expect(sourceApi.SkillResourceContributionObservationSchema).toBeDefined();
+    expect(sourceApi.composeSkillHookContributionObservation).toBeDefined();
+    expect(sourceApi.createSkillResourceDiscoveryRuntime).toBeDefined();
     expect(sourceApi.composeActivationObservation).toBeDefined();
     expect(sourceApi.createSkillHookSnapshotLoader).toBeDefined();
     expect(sourceApi.createSkillHookRuntimeParticipant).toBeDefined();
@@ -801,6 +805,8 @@ describe("explicit package API", () => {
     expect(sourceApi).not.toHaveProperty("decodeRuntimeProjectionCache");
     expect(sourceApi).not.toHaveProperty("createRuntimeProjectionCache");
     expect(sourceApi).not.toHaveProperty("createSkillHookRuntimeCatalog");
+    expect(sourceApi).not.toHaveProperty("createManifestSkillPathVerifier");
+    expect(sourceApi).not.toHaveProperty("registerSkillResourceDiscovery");
   });
 
   it("keeps secret custody and policy boundaries out of the public surface", () => {
