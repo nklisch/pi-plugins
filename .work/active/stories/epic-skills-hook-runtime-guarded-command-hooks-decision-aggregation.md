@@ -40,3 +40,12 @@ Create one strict event-aware JSON/plain output contract and fold source-ordered
 ## Ordering constraint
 
 Depends on execution contracts and can proceed in parallel with the bounded executor. The Pi adapter cannot start until both checkpoints expose their strict result contracts.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna xhigh, one owner following the feature DAG; no nested agents, questions, or review.
+- Review weight: standard by project convention; child checkpoint advances directly to done after focused verification.
+- Files changed: one strict output field/event registry, bounded UTF-8/JSON/plain parser with callback-scoped redaction, safe runtime diagnostics, and declaration-order all-or-nothing aggregation.
+- Tests added: strict unknown/wrong-event/nested/scalar/multiple/UTF-8/exit matrix, plaintext redaction, exit-two Stop/block behavior, deterministic context/permission/rewrite/title precedence, and fail-closed suppression.
+- Simplification: the parser and aggregator consume the same registry and ordered binding evidence; raw process bytes and native causes never become an outcome value.
+- Discrepancies from design: fail-closed aggregation returns an empty host-neutral decision plus fixed diagnostics; the Pi adapter owns the event-specific cancellation/block response.
+- Adjacent issues parked: none.
