@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-hook-event-adaptation-integration-hardening
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-hook-event-adaptation
 depends_on: [epic-skills-hook-runtime-hook-event-adaptation-pi-lifecycle-bridge]
@@ -41,3 +41,13 @@ Prove the complete process-free path from verified runtime snapshots and unchang
 ## Ordering constraint
 
 Depends on the Pi lifecycle bridge and closes the feature implementation checkpoint graph. It is integration evidence, not a separate command-execution phase.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna inline; integration evidence stayed process-free and package-private.
+- Review weight: standard (caller explicitly prohibited review for this delegated run).
+- Files changed: `test/fixtures/runtime/hooks/event-adaptation-golden.ts`, `test/integration/hook-event-adaptation.test.ts`, `test/public-api-hook-adaptation.test.ts`, `docs/COMPATIBILITY.md`, plus selector/compiler hardening in `src/domain/compatibility-evaluator.ts`, `src/domain/hook-runtime-contract.ts`, `src/runtime/hooks/hook-event-planner.ts`, and `src/runtime/hooks/tool-event-input.ts`.
+- Tests added/removed: real Agile Workflow declaration goldens, scope/trust/order/no-partial-plan integration evidence, process-free canary assertions, and compiled/public boundary coverage.
+- Simplification: removed the evaluator's duplicate condition parser; runtime and compatibility now use only the shared selector compiler. Preferred foreign tool names are emitted from the same alias resolver used for matching.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+- Verification: focused integration, compatibility, runtime, Pi, and public API suites green; full `npm test` first exposed one pre-existing concurrent recovery test flake, which passed on isolated rerun.

@@ -64,6 +64,8 @@ export function createHookToolIdentityResolver(input: Readonly<{ additional: rea
   return Object.freeze({ resolve });
 }
 
+const defaultToolIdentityResolver = createHookToolIdentityResolver({ additional: [] });
+
 function jsonObject(value: JsonValue): Record<string, JsonValue> {
   if (value === null || Array.isArray(value) || typeof value !== "object") throw new TypeError("tool input must be a JSON object");
   return cloneJson(value) as Record<string, JsonValue>;
@@ -79,25 +81,26 @@ function resultText(content: readonly HookPiContent[]): string | undefined {
   return text.length === 0 ? undefined : text;
 }
 
-export function buildPreToolUseInput(sessionInput: HookSessionEvidence, evidenceInput: HookToolCallEvidence): Extract<ForeignHookInput, { hook_event_name: "PreToolUse" }> {
+export function buildPreToolUseInput(sessionInput: HookSessionEvidence, evidenceInput: HookToolCallEvidence, identityInput?: HookToolIdentity): Extract<ForeignHookInput, { hook_event_name: "PreToolUse" }> {
   const session = HookSessionEvidenceSchema.parse(sessionInput);
   const evidence = {
     toolName: z.string().min(1).max(256).parse(evidenceInput.toolName),
     toolCallId: z.string().min(1).parse(evidenceInput.toolCallId),
     input: JsonValueSchema.parse(evidenceInput.input),
   };
+  const identity = identityInput ?? defaultToolIdentityResolver.resolve(evidence.toolName);
   return PreToolUseHookInputSchema.parse({
     session_id: session.sessionId,
     ...(session.transcriptPath === undefined ? {} : { transcript_path: session.transcriptPath }),
     cwd: session.cwd,
     hook_event_name: "PreToolUse",
-    tool_name: evidence.toolName,
+    tool_name: identity.foreignName,
     tool_input: jsonObject(evidence.input),
     tool_use_id: evidence.toolCallId,
   });
 }
 
-export function buildPostToolInput(sessionInput: HookSessionEvidence, evidenceInput: HookToolResultEvidence): Extract<ForeignHookInput, { hook_event_name: "PostToolUse" | "PostToolUseFailure" }> {
+export function buildPostToolInput(sessionInput: HookSessionEvidence, evidenceInput: HookToolResultEvidence, identityInput?: HookToolIdentity): Extract<ForeignHookInput, { hook_event_name: "PostToolUse" | "PostToolUseFailure" }> {
   const session = HookSessionEvidenceSchema.parse(sessionInput);
   const evidence = {
     toolName: z.string().min(1).max(256).parse(evidenceInput.toolName),
@@ -109,11 +112,12 @@ export function buildPostToolInput(sessionInput: HookSessionEvidence, evidenceIn
     signal: evidenceInput.signal,
   };
   const response = jsonDetails(evidence.details);
+  const identity = identityInput ?? defaultToolIdentityResolver.resolve(evidence.toolName);
   const common = {
     session_id: session.sessionId,
     ...(session.transcriptPath === undefined ? {} : { transcript_path: session.transcriptPath }),
     cwd: session.cwd,
-    tool_name: evidence.toolName,
+    tool_name: identity.foreignName,
     tool_input: jsonObject(evidence.input),
     ...(response === undefined ? {} : { tool_response: response }),
     tool_use_id: evidence.toolCallId,

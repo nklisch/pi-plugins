@@ -160,7 +160,7 @@ function compileMatcher(value: string | undefined, kind: CompiledHookSelector["m
   if (kind === "none") return { kind: "incompatible", code: "matcher-not-applicable", field: "matcher" };
   if (value.length > HOOK_MATCHER_MAX_LENGTH) return { kind: "incompatible", code: "matcher-too-large", field: "matcher" };
   const parts = value.split(/[|,]/);
-  if (parts.length > 1 && parts.every((part) => identifier.test(part))) {
+  if (parts.every((part) => identifier.test(part))) {
     return { kind: "valid", matcher: { kind: "exact", values: Object.freeze([...new Set(parts)]) } };
   }
   try {
@@ -265,12 +265,16 @@ export function validateHookToolAliasDefinitions(additional: readonly HookToolAl
   const values = [...Object.values(HookToolAliasDefinitionRegistry), ...additional].map((value) => HookToolAliasDefinitionSchema.parse(value));
   const seenPreferred = new Set<string>();
   const seenPi = new Set<string>();
-  for (const value of values) {
+  const staticAliases = new Set<string>(Object.values(HookToolAliasDefinitionRegistry).flatMap((value) => value.aliases));
+  for (const [index, value] of values.entries()) {
     if (seenPreferred.has(value.preferred)) throw new Error("duplicate hook alias preferred identity");
     seenPreferred.add(value.preferred);
     for (const name of value.piNames) {
       if (seenPi.has(name)) throw new Error("duplicate hook alias Pi identity");
       seenPi.add(name);
+    }
+    if (index >= Object.keys(HookToolAliasDefinitionRegistry).length && value.aliases.some((name) => staticAliases.has(name))) {
+      throw new Error("dynamic hook alias collides with a static identity");
     }
   }
   return Object.freeze(values);

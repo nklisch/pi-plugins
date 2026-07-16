@@ -202,16 +202,16 @@ export function createHookEventPlanner(input: Readonly<{
           return makePlan("UserPromptSubmit", inputValue, session, subjectForEvent("UserPromptSubmit"), cancellation(request.signal, "pi-signal-unavailable"));
         }
         case "tool-call": {
-          const inputValue = buildPreToolUseInput(session, request.evidence);
           const identity = tools.resolve(request.evidence.toolName);
+          const inputValue = buildPreToolUseInput(session, request.evidence, identity);
           const subject = subjectForTool(identity, "PreToolUse", request.evidence.input);
           return makePlan("PreToolUse", inputValue, session, subject, cancellation(request.evidence.signal, "pi-signal-unavailable"));
         }
         case "tool-result": {
-          const inputValue = buildPostToolInput(session, request.evidence);
+          const identity = tools.resolve(request.evidence.toolName);
+          const inputValue = buildPostToolInput(session, request.evidence, identity);
           const event = inputValue.hook_event_name;
           const response = "tool_response" in inputValue ? inputValue.tool_response : undefined;
-          const identity = tools.resolve(request.evidence.toolName);
           const subject = subjectForTool(identity, event, request.evidence.input, response);
           return makePlan(event, inputValue, session, subject, cancellation(request.evidence.signal, "pi-signal-unavailable"));
         }

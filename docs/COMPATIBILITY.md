@@ -304,10 +304,14 @@ Supported events receive:
 
 ```text
 session_id
-transcript_path
+transcript_path (when the Pi session is persisted)
 cwd
 hook_event_name
 ```
+
+An in-memory or `--no-session` Pi session omits `transcript_path` rather than
+inventing a path. Pi-only persistence, lifecycle, cancellation, and tool-result
+evidence is namespaced under `pi` and never changes the foreign fields.
 
 Event-specific inputs include the applicable foreign fields, such as:
 

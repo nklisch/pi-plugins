@@ -7,7 +7,7 @@ import { createHookEventPlanner } from "../../../src/runtime/hooks/hook-event-pl
 describe("tool hook inputs", () => {
   it("captures the exact pre-tool JSON input and id without result fields", () => {
     const input = buildPreToolUseInput(session(), { toolName: "write", toolCallId: "call-1", input: { path: "a", content: "x" } });
-    expect(input).toEqual(expect.objectContaining({ hook_event_name: "PreToolUse", tool_name: "write", tool_input: { path: "a", content: "x" }, tool_use_id: "call-1" }));
+    expect(input).toEqual(expect.objectContaining({ hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { path: "a", content: "x" }, tool_use_id: "call-1" }));
     expect(input).not.toHaveProperty("tool_response");
   });
 

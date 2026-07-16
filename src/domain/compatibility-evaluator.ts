@@ -405,48 +405,6 @@ function evaluateSkill(
   return decision(incompatible ? "incompatible" : "supported", requirements, diagnostics);
 }
 
-function isConditionPrimitive(value: JsonValue): boolean {
-  return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
-}
-
-function conditionValueMatchesOperator(value: JsonValue, operator: string): boolean {
-  const kind = (CompatibilityPolicyRegistry.hookEvents.conditionOperatorDefinitions as
-    Readonly<Record<string, string>>)[operator];
-  if (kind === "primitive") return isConditionPrimitive(value);
-  if (kind === "string") return typeof value === "string";
-  if (kind === "primitive-array") {
-    return Array.isArray(value) && value.length > 0 && value.every(isConditionPrimitive);
-  }
-  return false;
-}
-
-/**
- * Hook conditions are retained opaque metadata, so this is a second, strict
- * policy-boundary parse rather than an assumption that any non-empty string is
- * a condition. The grammar is intentionally derived from the policy registry:
- * unknown syntax cannot silently acquire runtime semantics.
- */
-function conditionIsKnown(value: JsonValue): boolean {
-  if (Array.isArray(value)) return value.length > 0 && value.every((entry) => conditionIsKnown(entry));
-  if (!isRecord(value)) return false;
-  const keys = Object.keys(value);
-  const wrapperKeys = CompatibilityPolicyRegistry.hookEvents.conditionWrapperKeys as readonly string[];
-  if (keys.length === 1 && wrapperKeys.includes(keys[0]!)) {
-    return conditionIsKnown(value[keys[0]!]!);
-  }
-  const predicateKeys = CompatibilityPolicyRegistry.hookEvents.conditionPredicateKeys as readonly string[];
-  if (keys.length !== predicateKeys.length || keys.some((key) => !predicateKeys.includes(key))) return false;
-  const field = value.field;
-  const operator = value.operator;
-  if (typeof field !== "string" ||
-      !(CompatibilityPolicyRegistry.hookEvents.conditionFields as readonly string[]).includes(field) ||
-      typeof operator !== "string" ||
-      !(CompatibilityPolicyRegistry.hookEvents.conditionOperators as readonly string[]).includes(operator)) {
-    return false;
-  }
-  return conditionValueMatchesOperator(value.value!, operator);
-}
-
 function evaluateHook(
   pluginKey: string,
   component: HookComponent,
