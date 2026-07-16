@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-projection-reload-evidence
 kind: feature
-stage: review
+stage: implementing
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime
 depends_on: []
@@ -429,3 +429,14 @@ The operational fallback is existing lifecycle behavior: cache/snapshot/reconcil
 - Full verification: `npm test` passed — 128 test files / 663 tests / 447 compiled exports, with strict production typecheck, dependency boundaries, Vitest, build, and exact compiled import. Starting baseline was 122 / 653 / 438; additions are 6 test files, 10 tests, and 9 exports.
 - Deviations: `ProjectionRootRequest.payloadDigest` remains optional for legacy lifecycle-only generated-root callers; the filesystem adapter normalizes that compatibility shape, while all cache publications and metadata verify distinct payload and projection digests. Current-project context is hosted in the application project-trust port and re-exported by the runtime snapshot module to preserve dependency direction.
 - Blockers: none. Feature review remains the next lifecycle step.
+
+## Review findings (2026-07-16)
+
+Effective weight: `standard`; one fresh-context Umans GLM 5.2 pass. The reviewer approved the implementation contract and found no runtime correctness blocker, but the receiver confirmed one bounded hardening set before closure:
+
+- Add the designed snapshot trust/scope/adapter-failure/empty/cancellation matrix.
+- Add participant collision, preserve-prior-on-snapshot-failure, pre-swap cancellation, and exact observation mismatch/project-trust cases.
+- Add integrated update-alias, two-participant disable, project-scope isolation, and cache-corruption paths.
+- Make the pure contribution composer require strict `SkillHookContributionObservation` evidence for the `skills-hooks` participant; do not fall back to a base observation missing exact skill/hook component IDs.
+
+Tracked by `epic-skills-hook-runtime-projection-reload-evidence-review-hardening`. Under standard review, closure after this exact set is host verification only; no second independent pass. Optional duplicate-defense inside the private catalog, canonical project comparison, and cleanup-signal commentary do not cross the current-cycle bar and are intentionally rejected as unrelated churn.
