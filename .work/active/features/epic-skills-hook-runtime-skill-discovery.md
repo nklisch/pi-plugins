@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-skill-discovery
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime
 depends_on: [epic-skills-hook-runtime-projection-reload-evidence]
@@ -409,3 +409,18 @@ The two foundations are independent: one makes final observation honest and pres
 This feature fails if it returns a path outside the immutable revision, accepts a mutated `SKILL.md`, leaves an old revision visible after reload, contributes an untrusted/different project, lets map/filesystem order decide a collision winner, silently omits one plugin, claims activation from the snapshot before discovery, or mistakes a user-owned shared path for project activation. Manifest-bound no-follow reads, explicit project context, code-point ordering, target-scoped failures, full reload replacement, ownership-aware dedupe, invalidated contribution observation, and strict source/resource/MCP composition address those cases.
 
 The fallback is the existing lifecycle compensation path. A target whose skill files cannot be verified or observed does not receive final `skills-hooks` evidence; native composition cannot produce complete activation evidence, so lifecycle retains/restores the prior working revision. There is no copied tree, settings mutation, or new persistent state to roll back.
+
+## Implementation summary
+
+- Execution capability: GPT-5.6 Luna, high; one cohesive feature owner carried all five dependency-ordered checkpoints without nested agents, questions, or review delegation.
+- Review weight: standard by project convention, with the caller's explicit stop-at-review boundary honored. Child stories advanced directly to `done`; the feature is intentionally at `stage: review` and was not reviewed.
+- Completed checkpoints: observation contract, manifest-backed path verification, deterministic resource-set assembly, typed Pi adapter/lifetime cancellation, and fake-Pi/native-loader/public-boundary integration hardening. All five child stories are `stage: done`.
+- Runtime behavior: exact immutable `SKILL.md` files are verified and returned through Pi's typed `resources_discover` overload; Pi retains frontmatter/name validation and collision authority. User targets precede project targets with code-point ordering; target failures are isolated and observed; canonical path dedupe retains logical owners; reconcile and reload recompute current roots without settings, copied trees, path caches, or state writes.
+- Evidence behavior: source snapshot observation is distinct from final `skills-hooks` contribution evidence. Final composition requires exact source/resource scope, plugin, revision, complete projection digest, project context, and skill ids, while MCP remains independently required.
+- Public boundary: exported schemas, logical observation contracts, and the host-neutral final participant factory only. Physical paths, verifier, mutable registry, Pi registration, order/dedupe helpers, and state/reload adapters remain private.
+- Files changed: runtime catalog/participant and lifecycle evidence ports; runtime skill contribution/resource modules; manifest-backed filesystem helper/port/verifier; Pi adapter; package manifests; public barrel; focused unit, integration, public, compiled-package, and existing projection integration tests.
+- Foundation/docs: no foundation assertion became stale, so `docs/SPEC.md`, `docs/ARCHITECTURE.md`, and `docs/COMPATIBILITY.md` were unchanged.
+- Verification: final `npm test` passes — 138 test files, 711 tests, 463 compiled exports. Baseline recorded in the design was 133/696/459 for main and 128/674/447 for the delegated branch; the final branch is +5 files, +15 tests, +4 exports. One earlier full-suite run had a transient recovery subprocess failure; its isolated suite passed and the subsequent full run was green.
+- Discrepancy: Pi 0.80.8 does not root-export the named resource event aliases; contextual typing through `ExtensionAPI.on` is used rather than importing private/unexported aliases, with the exact runtime contract tested.
+- Adjacent issues parked: none.
+- Stage transition: implementing -> review; integrated summary commit `implement: epic-skills-hook-runtime-skill-discovery`.
