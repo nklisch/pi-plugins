@@ -1,0 +1,159 @@
+import { createHash } from "node:crypto";
+import { describe, expect, it, vi } from "vitest";
+import {
+  AdoptionDocumentKindRegistry,
+  type AdoptionCandidateId,
+} from "../../src/domain/adoption.js";
+import {
+  deriveProjectKey,
+  type ScopeContext,
+} from "../../src/domain/state/scope.js";
+import type { Sha256, MarketplaceSource } from "../../src/domain/source.js";
+import {
+  type AdoptionReaderRegistry,
+  type ForeignStateFileObservation,
+  type MarketplaceRegistrationResult,
+} from "../../src/application/adoption-contract.js";
+import { createAdoptionService } from "../../src/application/adoption-service.js";
+import type { ForeignStateFilesPort } from "../../src/application/ports/foreign-state-files.js";
+import type { MarketplaceRegistrationPort } from "../../src/application/ports/marketplace-registration.js";
+import { readClaudeKnownMarketplacesJson } from "../../src/formats/claude/state-reader.js";
+import { readClaudeUserSettingsJson } from "../../src/formats/claude/state-reader.js";
+import { readCodexUserConfigToml } from "../../src/formats/codex/state-reader.js";
+
+const sha256: Sha256 = (bytes) => new Uint8Array(createHash("sha256").update(bytes).digest());
+const readers: AdoptionReaderRegistry = {
+  "claude-known-marketplaces": readClaudeKnownMarketplacesJson,
+  "claude-user-settings": readClaudeUserSettingsJson,
+  "codex-user-config": readCodexUserConfigToml,
+};
+
+function observations(sourceByDocument: Partial<Record<keyof typeof AdoptionDocumentKindRegistry extends never ? never : string, string>> = {}): ForeignStateFileObservation[] {
+  return [
+    sourceByDocument["claude-known-marketplaces"] === undefined
+      ? { kind: "missing", document: "claude-known-marketplaces", host: "claude", path: "/home/.claude/plugins/known_marketplaces.json" }
+      : { kind: "present", document: "claude-known-marketplaces", host: "claude", path: "/home/.claude/plugins/known_marketplaces.json", source: sourceByDocument["claude-known-marketplaces"] },
+    sourceByDocument["claude-user-settings"] === undefined
+      ? { kind: "missing", document: "claude-user-settings", host: "claude", path: "/home/.claude/settings.json" }
+      : { kind: "present", document: "claude-user-settings", host: "claude", path: "/home/.claude/settings.json", source: sourceByDocument["claude-user-settings"] },
+    sourceByDocument["codex-user-config"] === undefined
+      ? { kind: "missing", document: "codex-user-config", host: "codex", path: "/home/.codex/config.toml" }
+      : { kind: "present", document: "codex-user-config", host: "codex", path: "/home/.codex/config.toml", source: sourceByDocument["codex-user-config"] },
+  ];
+}
+
+function serviceWith(
+  fileObservations: ForeignStateFileObservation[] | (() => ForeignStateFileObservation[]),
+  register: MarketplaceRegistrationPort["register"] = async () => ({ kind: "registered", marketplace: "catalog" }),
+) {
+  const files: ForeignStateFilesPort = { readAll: async () => typeof fileObservations === "function" ? fileObservations() : fileObservations };
+  return createAdoptionService({ files, readers, registrations: { register }, sha256 });
+}
+
+const githubDocument = JSON.stringify({ catalog: { source: { source: "github", repo: "owner/catalog" } } });
+const localDocument = JSON.stringify({ local: { source: { source: "directory", path: "/home/user/catalog" } } });
+
+describe("adoption service", () => {
+  it("returns fixed missing statuses without requiring either foreign CLI", async () => {
+    const service = serviceWith(observations());
+    const result = await service.discover(new AbortController().signal);
+    expect(result.candidates).toEqual([]);
+    expect(result.documents.map((document) => document.kind)).toEqual(["missing", "missing", "missing"]);
+    expect(result.documents.map((document) => document.document)).toEqual([
+      "claude-known-marketplaces",
+      "claude-user-settings",
+      "codex-user-config",
+    ]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it("keeps valid candidates when another document is unreadable", async () => {
+    const service = serviceWith([
+      { kind: "present", document: "claude-known-marketplaces", host: "claude", path: "/home/.claude/plugins/known_marketplaces.json", source: githubDocument },
+      { kind: "unreadable", document: "claude-user-settings", host: "claude", path: "/home/.claude/settings.json", code: "INVALID_UTF8" },
+      { kind: "missing", document: "codex-user-config", host: "codex", path: "/home/.codex/config.toml" },
+    ]);
+    const result = await service.discover(new AbortController().signal);
+    expect(result.candidates).toHaveLength(1);
+    expect(result.diagnostics).toMatchObject([{ code: "ADAPTER_FAILED", details: { reason: "INVALID_UTF8" } }]);
+  });
+
+  it("re-discovers before selection so a removed candidate cannot register", async () => {
+    let current = observations({ "claude-known-marketplaces": githubDocument });
+    const service = serviceWith(() => current);
+    const presented = await service.discover(new AbortController().signal);
+    const id = presented.candidates[0]!.id;
+    current = observations();
+    const registrar = vi.fn<MarketplaceRegistrationPort["register"]>();
+    const importing = createAdoptionService({ files: { readAll: async () => current }, readers, registrations: { register: registrar }, sha256 });
+    const result = await importing.adopt({ candidateIds: [id] }, new AbortController().signal);
+    expect(result.outcomes).toEqual([{ candidateId: id, outcome: { kind: "candidate-unavailable" } }]);
+    expect(registrar).not.toHaveBeenCalled();
+  });
+
+  it("passes only source, scope, and adoption origin to the normal registrar", async () => {
+    const calls: unknown[] = [];
+    const register: MarketplaceRegistrationPort["register"] = async (request) => {
+      calls.push(request);
+      return { kind: "registered", marketplace: "catalog" };
+    };
+    const service = serviceWith(observations({ "claude-known-marketplaces": githubDocument }), register);
+    const discovered = await service.discover(new AbortController().signal);
+    const result = await service.adopt({ candidateIds: [discovered.candidates[0]!.id] }, new AbortController().signal);
+    expect(result.outcomes[0]!.outcome).toEqual({ kind: "registered", marketplace: "catalog" });
+    expect(calls).toEqual([{
+      source: { kind: "github", repository: "owner/catalog" },
+      scope: { kind: "user" },
+      origin: "adoption",
+    }]);
+    expect(JSON.stringify(calls)).not.toMatch(/alias|trust|credential|cache|install|enable|activation|revision/i);
+  });
+
+  it("blocks local sources before project registration while allowing remote sources", async () => {
+    const identity = {
+      kind: "path-only" as const,
+      canonicalRoot: "file:///tmp/project/",
+      limitation: "identity-changes-with-canonical-root" as const,
+    };
+    const scope: ScopeContext = {
+      kind: "project",
+      identity,
+      projectKey: deriveProjectKey(identity, sha256),
+    };
+    const register = vi.fn<MarketplaceRegistrationPort["register"]>(async () => ({ kind: "registered", marketplace: "catalog" }));
+    const localService = serviceWith(observations({ "claude-known-marketplaces": localDocument }), register);
+    const localCandidate = (await localService.discover(new AbortController().signal)).candidates[0]!;
+    const localResult = await localService.adopt({ candidateIds: [localCandidate.id], scope }, new AbortController().signal);
+    expect(localResult.outcomes[0]!.outcome).toEqual({ kind: "not-portable" });
+    expect(register).not.toHaveBeenCalled();
+
+    const remoteService = serviceWith(observations({ "claude-known-marketplaces": githubDocument }), register);
+    const remoteCandidate = (await remoteService.discover(new AbortController().signal)).candidates[0]!;
+    await remoteService.adopt({ candidateIds: [remoteCandidate.id], scope }, new AbortController().signal);
+    expect(register).toHaveBeenCalledTimes(1);
+    expect(register.mock.calls[0]![0].scope).toEqual(scope);
+  });
+
+  it("sorts partial outcomes and rethrows cancellation", async () => {
+    const first = JSON.stringify({ zeta: { source: { source: "github", repo: "owner/zeta" } }, alpha: { source: { source: "github", repo: "owner/alpha" } } });
+    const calls: MarketplaceSource[] = [];
+    const controller = new AbortController();
+    const register: MarketplaceRegistrationPort["register"] = async ({ source }) => {
+      calls.push(source);
+      controller.abort();
+      return { kind: "registered", marketplace: "catalog" };
+    };
+    const service = serviceWith(observations({ "claude-known-marketplaces": first }), register);
+    const candidates = (await service.discover(new AbortController().signal)).candidates;
+    await expect(service.adopt({ candidateIds: candidates.map((candidate) => candidate.id) as [AdoptionCandidateId, ...AdoptionCandidateId[]] }, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("preserves typed registrar rejections and handles malformed adapter results safely", async () => {
+    const registrar: MarketplaceRegistrationPort["register"] = async () => ({ kind: "rejected", code: "PROJECT_UNTRUSTED" });
+    const service = serviceWith(observations({ "claude-known-marketplaces": githubDocument }), registrar);
+    const candidate = (await service.discover(new AbortController().signal)).candidates[0]!;
+    const result = await service.adopt({ candidateIds: [candidate.id] }, new AbortController().signal);
+    expect(result.outcomes[0]!.outcome).toEqual({ kind: "rejected", code: "PROJECT_UNTRUSTED" });
+  });
+});

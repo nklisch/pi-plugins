@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-read-only-adoption-application-import
 kind: story
-stage: implementing
+stage: done
 tags: [security, compatibility]
 parent: epic-transactional-plugin-lifecycle-read-only-adoption
 depends_on: [epic-transactional-plugin-lifecycle-read-only-adoption-contracts-readers]
@@ -41,3 +41,14 @@ The service must not import `LifecycleStateStore`, construct state mutations, ca
 ## Ordering constraint
 
 Depends on the completed candidate/readers checkpoint. Finish before wiring Node paths or public composition.
+
+## Implementation notes
+
+- Added schemas for fixed foreign-file observations/statuses, discovery results, selection requests, the normal marketplace registration request/result, and partial import outcomes.
+- Implemented the application service over injected read-only observations, pure reader registry, SHA-256, and the normal registration port. Discovery reports all three fixed document statuses in registry order and isolates unreadable documents.
+- Adoption re-discovers candidates, sorts and validates IDs, rejects stale IDs, preflights project portability, and sends exactly source/scope/origin to the registrar. Local project sources stop before registration; registrar rejections remain typed; abort is rethrown before another selection.
+
+## Verification
+
+- `npm run typecheck` — passed.
+- `npx vitest run test/application/adoption-contract.test.ts test/application/adoption-service.test.ts` — 10 tests passed.
