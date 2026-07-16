@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-refresh-update-policy
 kind: feature
-stage: review
+stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-operations, epic-transactional-plugin-lifecycle-recovery-journal-gc]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-12
-updated: 2026-07-17
+updated: 2026-07-16
 ---
 
 # Marketplace Refresh and Update Policy
@@ -545,3 +545,9 @@ The standard-review hardening story is complete in commit `06e60b5`.
 - Forced v2 replacement envelopes through refresh, policy, and project lifecycle/reconciliation writers so v2 claims, backoff, and notification memory survive compatibility adapters.
 
 Verification: `npm test` passed on the final run (121 files / 647 tests), including typecheck, dependency boundaries, build, and compiled package import with 437 intentional exports. A prior full run encountered the existing process-recovery timing flake; its focused suite and the immediate full rerun passed.
+
+## Review closure
+
+**Verdict**: Approve after fixes
+
+The receiver accepted the named material set, the hardening story fixed all eight items, and standard-weight policy forbids a second independent pass. Host administrative inspection confirmed each fix in source and its focused evidence; integrated `npm test` passes after the concurrent host-config refactor at 121 files / 648 tests, typecheck, dependency boundaries, build/package import, and 437 intentional exports. No material blocker remains. The two lower-risk reviewer proposals remain parked as `idea-update-notification-pruning` and `idea-update-source-equality`.
