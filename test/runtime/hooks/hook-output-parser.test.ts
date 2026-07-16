@@ -69,6 +69,34 @@ describe("strict hook output parser", () => {
     expect(parseHookHandlerOutput({ event: "PreToolUse", execution: execution("failure", 1), redact: (value) => value })).toMatchObject({ code: "HOOK_EXIT_STATUS" });
   });
 
+  it("maps only faithful subagent context and boundary-control outputs", () => {
+    expect(parseHookHandlerOutput({
+      event: "SubagentStart",
+      execution: execution('{"additionalContext":"append","continue":false,"stopReason":"blocked"}'),
+      redact: (value) => value,
+    })).toMatchObject({ contexts: ["append"], stop: { reason: "blocked" } });
+    expect(parseHookHandlerOutput({
+      event: "SubagentStop",
+      execution: execution('{"additionalContext":"retry","decision":"block","reason":"inspect again"}'),
+      redact: (value) => value,
+    })).toMatchObject({ contexts: ["retry"], continuation: { reason: "inspect again" } });
+    expect(parseHookHandlerOutput({
+      event: "SubagentStop",
+      execution: execution("", 2),
+      redact: (value) => value,
+    })).toMatchObject({ continuation: {} });
+    expect(parseHookHandlerOutput({
+      event: "SubagentStart",
+      execution: execution('{"updatedInput":{"prompt":"forbidden"}}'),
+      redact: (value) => value,
+    })).toMatchObject({ code: "HOOK_UNSUPPORTED_OUTPUT" });
+    expect(parseHookHandlerOutput({
+      event: "SubagentStop",
+      execution: execution('{"systemMessage":"unsupported"}'),
+      redact: (value) => value,
+    })).toMatchObject({ code: "HOOK_UNSUPPORTED_OUTPUT" });
+  });
+
   it("never reports raw stderr, native output, or canary values", () => {
     const result = parseHookHandlerOutput({
       event: "PreToolUse",

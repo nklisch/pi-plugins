@@ -13,6 +13,7 @@ export {
   HOOK_MAX_AGGREGATED_TEXT_BYTES,
   HOOK_ASK_TIMEOUT_MS,
   HOOK_STOP_CONTINUATION_BUDGET,
+  HOOK_SUBAGENT_CONTINUATION_BUDGET,
   HookRuntimeLimits,
 } from "./hook-runtime-limits.js";
 
@@ -56,6 +57,7 @@ export type OrdinaryHookEvent = {
 export type SubagentHookEvent = {
   [K in HookEventName]: typeof HookRuntimeEventDefinitionRegistry[K]["owner"] extends "subagent" ? K : never;
 }[HookEventName];
+export type ExecutableHookEvent = OrdinaryHookEvent | SubagentHookEvent;
 export type IncompatibleHookEvent = {
   [K in HookEventName]: typeof HookRuntimeEventDefinitionRegistry[K]["owner"] extends "incompatible" ? K : never;
 }[HookEventName];

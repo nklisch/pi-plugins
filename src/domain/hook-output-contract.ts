@@ -1,7 +1,8 @@
 import { z } from "zod";
 import {
   ordinaryHookEvents,
-  type OrdinaryHookEvent,
+  subagentHookEvents,
+  type ExecutableHookEvent,
 } from "./hook-runtime-contract.js";
 import { JsonValueSchema, type JsonValue } from "./schema.js";
 import type { HookExecutionBinding } from "./hook-execution-binding.js";
@@ -35,14 +36,14 @@ export const CommandHookJsonOutputSchema = z.object({
 export type CommandHookJsonOutput = z.infer<typeof CommandHookJsonOutputSchema>;
 
 export const HookOutputFieldRegistry = Object.freeze({
-  continue: { nested: false, events: ordinaryHookEvents },
-  stopReason: { nested: false, events: ["UserPromptSubmit", "PreToolUse", "PreCompact", "Stop"] as const },
+  continue: { nested: false, events: [...ordinaryHookEvents, ...subagentHookEvents] },
+  stopReason: { nested: false, events: ["UserPromptSubmit", "PreToolUse", "PreCompact", "Stop", "SubagentStart", "SubagentStop"] as const },
   systemMessage: { nested: false, events: ordinaryHookEvents },
-  decision: { nested: false, events: ["UserPromptSubmit", "PreToolUse", "PreCompact", "Stop"] as const },
-  reason: { nested: false, events: ["UserPromptSubmit", "PreToolUse", "PreCompact", "Stop"] as const },
+  decision: { nested: false, events: ["UserPromptSubmit", "PreToolUse", "PreCompact", "Stop", "SubagentStart", "SubagentStop"] as const },
+  reason: { nested: false, events: ["UserPromptSubmit", "PreToolUse", "PreCompact", "Stop", "SubagentStart", "SubagentStop"] as const },
   permissionDecision: { nested: true, events: ["PreToolUse"] as const },
   permissionDecisionReason: { nested: true, events: ["PreToolUse"] as const },
-  additionalContext: { nested: true, events: ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop"] as const },
+  additionalContext: { nested: true, events: ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "Stop", "SubagentStart", "SubagentStop"] as const },
   updatedInput: { nested: true, events: ["PreToolUse"] as const },
   updatedToolOutput: { nested: true, events: ["PostToolUse"] as const },
   title: { nested: false, events: ordinaryHookEvents },
@@ -51,12 +52,17 @@ export const HookOutputFieldRegistry = Object.freeze({
 export type HookOutputField = keyof typeof HookOutputFieldRegistry;
 export type HookOutputExitTwoMeaning = "block" | "continuation" | "unsupported";
 
+const executableHookEvents = [...ordinaryHookEvents, ...subagentHookEvents] as const;
 export const HookOutputEventPolicyRegistry = Object.freeze(
-  Object.fromEntries(ordinaryHookEvents.map((event) => [event, {
+  Object.fromEntries(executableHookEvents.map((event) => [event, {
     plain: event === "SessionStart" || event === "UserPromptSubmit",
-    exitTwo: event === "Stop" ? "continuation" : ["UserPromptSubmit", "PreToolUse", "PreCompact"].includes(event) ? "block" : "unsupported",
-    failClosed: ["UserPromptSubmit", "PreToolUse", "PreCompact", "Stop"].includes(event),
-  }])) as Readonly<Record<OrdinaryHookEvent, Readonly<{
+    exitTwo: event === "Stop" || event === "SubagentStop"
+      ? "continuation"
+      : ["UserPromptSubmit", "PreToolUse", "PreCompact", "SubagentStart"].includes(event)
+        ? "block"
+        : "unsupported",
+    failClosed: ["UserPromptSubmit", "PreToolUse", "PreCompact", "Stop", "SubagentStart", "SubagentStop"].includes(event),
+  }])) as Readonly<Record<ExecutableHookEvent, Readonly<{
     plain: boolean;
     exitTwo: HookOutputExitTwoMeaning;
     failClosed: boolean;
@@ -77,7 +83,7 @@ export type ParsedHookDecision = Readonly<{
 }>;
 
 export type AggregatedHookDecision = Readonly<{
-  event: OrdinaryHookEvent | import("./hook-runtime-contract.js").SubagentHookEvent;
+  event: ExecutableHookEvent;
   contexts: readonly string[];
   systemMessages: readonly string[];
   block?: Readonly<{ reason?: string }>;

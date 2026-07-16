@@ -117,11 +117,12 @@ function makeDecision(
     : deepFreeze(Object.fromEntries(Object.entries(output.updatedInput).map(([key, value]) => [key, redactJson(value!, redact)]))) as Readonly<Record<string, JsonValue>>;
   const updatedToolOutput = output.updatedToolOutput === undefined ? undefined : redactJson(output.updatedToolOutput, redact);
   const title = output.title === undefined ? undefined : redact(output.title);
-  const continuation = event === "Stop" && (output.decision === "block" || output.continue === false || output.stopReason !== undefined)
+  const isContinuationEvent = event === "Stop" || event === "SubagentStop";
+  const continuation = isContinuationEvent && (output.decision === "block" || output.continue === false || output.stopReason !== undefined)
     ? { ...(blockReason === undefined ? {} : { reason: blockReason }) }
     : undefined;
-  const effectiveBlock = event === "Stop" ? undefined : block;
-  const stop = event !== "Stop" && (output.continue === false || output.stopReason !== undefined)
+  const effectiveBlock = isContinuationEvent ? undefined : block;
+  const stop = !isContinuationEvent && (output.continue === false || output.stopReason !== undefined)
     ? { ...(stopReason === undefined ? {} : { reason: stopReason }) }
     : undefined;
   return Object.freeze({
@@ -157,7 +158,7 @@ export function parseHookHandlerOutput(input: Readonly<{
   } catch {
     return diagnostic(execution, event, "HOOK_INVALID_UTF8");
   }
-  const policy = HookOutputEventPolicyRegistry[event as OrdinaryHookEvent];
+  const policy = HookOutputEventPolicyRegistry[event];
   if (policy === undefined) return diagnostic(execution, event, "HOOK_UNSUPPORTED_OUTPUT");
   if (execution.exitCode !== 0 && execution.exitCode !== 2) return diagnostic(execution, event, "HOOK_EXIT_STATUS");
 

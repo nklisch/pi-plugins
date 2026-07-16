@@ -2,7 +2,14 @@ import { z } from "zod";
 import { ContentDigestSchema } from "../../domain/content-manifest.js";
 import { HookComponentSchema, type ComponentId } from "../../domain/components.js";
 import { PluginKeySchema } from "../../domain/identity.js";
-import { OrdinaryHookEventSchema } from "../../domain/hook-runtime-contract.js";
+import {
+  OrdinaryHookEventSchema,
+  SubagentHookEventSchema,
+  ordinaryHookEvents,
+  subagentHookEvents,
+  type OrdinaryHookEvent,
+  type SubagentHookEvent,
+} from "../../domain/hook-runtime-contract.js";
 import { ScopeReferenceSchema } from "../../domain/state/scope.js";
 import { CurrentProjectRuntimeContextSchema } from "../../application/ports/project-trust.js";
 import type { PluginKey } from "../../domain/identity.js";
@@ -41,7 +48,7 @@ const ImageContentSchema = z.object({ type: z.literal("image"), data: z.string()
 export const HookPiContentSchema = z.discriminatedUnion("type", [TextContentSchema, ImageContentSchema]).readonly();
 export type HookPiContent = z.infer<typeof HookPiContentSchema>;
 
-const PiEvidenceSchema = z.object({
+const piEvidenceShape = {
   session: z.object({ persistence: z.enum(["persisted", "ephemeral"]) }).strict().readonly().optional(),
   sessionStart: z.object({ reason: z.enum(["startup", "reload", "new", "resume", "fork"]) }).strict().readonly().optional(),
   sessionEnd: z.object({ reason: z.enum(["quit", "reload", "new", "resume", "fork"]) }).strict().readonly().optional(),
@@ -49,15 +56,52 @@ const PiEvidenceSchema = z.object({
   input: z.object({ source: z.enum(["interactive", "rpc", "extension"]), streamingBehavior: z.enum(["steer", "followUp"]).optional() }).strict().readonly().optional(),
   compact: z.object({ reason: z.enum(["manual", "threshold", "overflow"]), willRetry: z.boolean(), fromExtension: z.boolean().optional() }).strict().readonly().optional(),
   toolResult: z.object({ content: z.array(HookPiContentSchema).readonly(), details: JsonValueSchema.optional(), isError: z.boolean() }).strict().readonly().optional(),
-}).strict().readonly();
+} as const;
 
-const commonInput = {
+export const PiEvidenceSchema = z.object(piEvidenceShape).strict().readonly();
+
+const commonFields = {
   session_id: z.string().min(1),
   transcript_path: z.string().min(1).optional(),
   cwd: z.string().min(1),
+} as const;
+const commonInput = {
+  ...commonFields,
   hook_event_name: OrdinaryHookEventSchema,
   pi: PiEvidenceSchema.optional(),
 };
+
+const SubagentStartBoundaryEvidenceSchemaV1 = z.object({
+  boundary: z.literal("start"),
+  sessionId: z.string().min(1),
+  runId: z.string().min(1),
+  phase: z.enum(["initial", "resume"]),
+  origin: z.enum(["tool", "service"]),
+  mode: z.enum(["foreground", "background"]),
+  admission: z.enum(["immediate", "queued"]),
+}).strict().readonly();
+
+const SubagentCompletionBoundaryEvidenceSchemaV1 = z.object({
+  boundary: z.literal("completion"),
+  sessionId: z.string().min(1),
+  runId: z.string().min(1),
+  phase: z.enum(["initial", "resume"]),
+  origin: z.enum(["tool", "service"]),
+  mode: z.enum(["foreground", "background"]),
+  admission: z.enum(["immediate", "queued"]),
+  outcome: z.enum(["completed", "steered", "aborted"]),
+  continuationRound: z.number().int().nonnegative(),
+  maxContinuationRounds: z.number().int().positive(),
+}).strict().readonly();
+
+const SubagentStartPiEvidenceSchema = z.object({
+  ...piEvidenceShape,
+  subagent: SubagentStartBoundaryEvidenceSchemaV1,
+}).strict().readonly();
+const SubagentStopPiEvidenceSchema = z.object({
+  ...piEvidenceShape,
+  subagent: SubagentCompletionBoundaryEvidenceSchemaV1,
+}).strict().readonly();
 
 export const SessionStartHookInputSchema = z.object({ ...commonInput, hook_event_name: z.literal("SessionStart"), source: z.enum(["startup", "resume", "clear", "compact"]) }).strict().readonly();
 export const SessionEndHookInputSchema = z.object({ ...commonInput, hook_event_name: z.literal("SessionEnd") }).strict().readonly();
@@ -68,6 +112,21 @@ export const PostToolUseFailureHookInputSchema = z.object({ ...commonInput, hook
 export const PreCompactHookInputSchema = z.object({ ...commonInput, hook_event_name: z.literal("PreCompact"), trigger: z.enum(["manual", "auto"]) }).strict().readonly();
 export const PostCompactHookInputSchema = z.object({ ...commonInput, hook_event_name: z.literal("PostCompact"), trigger: z.enum(["manual", "auto"]) }).strict().readonly();
 export const StopHookInputSchema = z.object({ ...commonInput, hook_event_name: z.literal("Stop"), last_assistant_message: z.string().min(1).optional(), stop_hook_active: z.boolean() }).strict().readonly();
+export const SubagentStartHookInputSchema = z.object({
+  ...commonFields,
+  hook_event_name: z.literal("SubagentStart"),
+  agent_id: z.string().min(1),
+  agent_type: z.string().min(1),
+  pi: SubagentStartPiEvidenceSchema,
+}).strict().readonly();
+export const SubagentStopHookInputSchema = z.object({
+  ...commonFields,
+  hook_event_name: z.literal("SubagentStop"),
+  agent_id: z.string().min(1),
+  agent_type: z.string().min(1),
+  last_assistant_message: z.string(),
+  pi: SubagentStopPiEvidenceSchema,
+}).strict().readonly();
 
 export const ForeignHookInputSchema = z.discriminatedUnion("hook_event_name", [
   SessionStartHookInputSchema,
@@ -79,6 +138,8 @@ export const ForeignHookInputSchema = z.discriminatedUnion("hook_event_name", [
   PreCompactHookInputSchema,
   PostCompactHookInputSchema,
   StopHookInputSchema,
+  SubagentStartHookInputSchema,
+  SubagentStopHookInputSchema,
 ]);
 export type ForeignHookInput = z.infer<typeof ForeignHookInputSchema>;
 
@@ -95,9 +156,14 @@ export const PlannedCommandHookSchema = z.object({
 }).strict().readonly();
 export type PlannedCommandHook = z.infer<typeof PlannedCommandHookSchema>;
 
+export const ExecutableHookEventSchema = z.enum([
+  ...ordinaryHookEvents,
+  ...subagentHookEvents,
+] as [OrdinaryHookEvent | SubagentHookEvent, ...(OrdinaryHookEvent | SubagentHookEvent)[]]);
+
 export const HookEventPlanSchema = z.object({
   schemaVersion: z.literal(1),
-  event: OrdinaryHookEventSchema,
+  event: ExecutableHookEventSchema,
   input: ForeignHookInputSchema,
   cancellation: HookCancellationSchema,
   hooks: z.array(PlannedCommandHookSchema).readonly(),

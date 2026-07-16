@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createHookEventPlanner } from "../../../src/runtime/hooks/hook-event-planner.js";
 import { hook, snapshot, catalog, session, project } from "./fixtures.js";
+import { lifecycleIdentity, lifecyclePath } from "../../contract/subagent-lifecycle.contract.js";
 
 describe("hook event planner", () => {
   it("selects verified hooks in catalog and declaration order", () => {
@@ -37,5 +38,31 @@ describe("hook event planner", () => {
     expect(started.kind).toBe("ready");
     if (settled.kind === "ready") expect(settled.plans[0]?.cancellation).toEqual({ kind: "unavailable", reason: "idle-boundary" });
     if (started.kind === "ready") expect(started.plans[0]?.cancellation).toEqual({ kind: "unavailable", reason: "session-boundary" });
+  });
+
+  it("selects subagent hooks by exact agent type using the shared matcher compiler", () => {
+    const planner = createHookEventPlanner({ catalog: catalog([
+      snapshot({ kind: "user" }, [
+        hook("SubagentStart", "reviewer|implementor", [], "b"),
+        hook("SubagentStart", "other", [], "c"),
+        hook("SubagentStop", "review.*", [], "d"),
+      ]),
+    ]) });
+    const identity = lifecycleIdentity({ agentType: "reviewer", parentSessionId: session().sessionId });
+    const start = planner.plan({
+      kind: "subagent-start",
+      session: session(),
+      identity,
+      execution: lifecyclePath(),
+      signal: new AbortController().signal,
+    });
+    expect(start.kind).toBe("ready");
+    if (start.kind === "ready") {
+      expect(start.plans[0]?.event).toBe("SubagentStart");
+      expect(start.plans[0]?.hooks).toHaveLength(1);
+    }
+    expect(planner.hasMatchingSubagentHooks("SubagentStart", "reviewer")).toBe(true);
+    expect(planner.hasMatchingSubagentHooks("SubagentStop", "reviewer")).toBe(true);
+    expect(planner.hasMatchingSubagentHooks("SubagentStop", "implementor")).toBe(false);
   });
 });

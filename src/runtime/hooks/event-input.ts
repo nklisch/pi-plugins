@@ -6,10 +6,20 @@ import {
   PreCompactHookInputSchema,
   PostCompactHookInputSchema,
   StopHookInputSchema,
+  SubagentStartHookInputSchema,
+  SubagentStopHookInputSchema,
   type HookSessionEvidence,
   type ForeignHookInput,
 } from "./event-contract.js";
 import type { HookToolCallEvidence, HookToolResultEvidence } from "./tool-event-input.js";
+import {
+  SubagentExecutionIdentitySchemaV1,
+  SubagentExecutionPathSchemaV1,
+  type SubagentCompletionOutcome,
+  type SubagentExecutionIdentity,
+  type SubagentExecutionPath,
+} from "../../application/ports/subagent-lifecycle.js";
+import type { OrdinaryHookEvent } from "../../domain/hook-runtime-contract.js";
 
 export type SessionStartReason = "startup" | "reload" | "new" | "resume" | "fork";
 export type SessionEndReason = "quit" | "reload" | "new" | "resume" | "fork";
@@ -36,7 +46,9 @@ export type HookBoundaryRequest =
   | Readonly<{ kind: "tool-result"; session: HookSessionEvidence; evidence: HookToolResultEvidence }>
   | Readonly<{ kind: "before-compact"; session: HookSessionEvidence; reason: CompactReason; willRetry: boolean; signal?: AbortSignal }>
   | Readonly<{ kind: "compact"; session: HookSessionEvidence; reason: CompactReason; willRetry: boolean; fromExtension: boolean }>
-  | Readonly<{ kind: "agent-settled"; session: HookSessionEvidence; lastAssistantMessage?: string; stopHookActive: boolean }>;
+  | Readonly<{ kind: "agent-settled"; session: HookSessionEvidence; lastAssistantMessage?: string; stopHookActive: boolean }>
+  | Readonly<{ kind: "subagent-start"; session: HookSessionEvidence; identity: SubagentExecutionIdentity; execution: SubagentExecutionPath; signal: AbortSignal }>
+  | Readonly<{ kind: "subagent-stop"; session: HookSessionEvidence; identity: SubagentExecutionIdentity; execution: SubagentExecutionPath; proposedResult: string; outcome: SubagentCompletionOutcome; continuationRound: number; maxContinuationRounds: number; signal: AbortSignal }>;
 
 export function sessionSource(reason: SessionStartReason): "startup" | "resume" | "clear" {
   if (reason === "resume") return "resume";
@@ -48,7 +60,7 @@ export function compactTrigger(reason: CompactReason): "manual" | "auto" {
   return reason === "manual" ? "manual" : "auto";
 }
 
-function common(session: HookSessionEvidence, event: ForeignHookInput["hook_event_name"], pi: HookPiInputEvidence): Record<string, unknown> {
+function common(session: HookSessionEvidence, event: OrdinaryHookEvent, pi: HookPiInputEvidence): Record<string, unknown> {
   const evidence = HookSessionEvidenceSchema.parse(session);
   return {
     session_id: evidence.sessionId,
@@ -91,5 +103,74 @@ export function buildCompactSessionStartInput(session: HookSessionEvidence, reas
 
 export function buildStopInput(session: HookSessionEvidence, lastAssistantMessage: string | undefined, stopHookActive: boolean, persistence: "persisted" | "ephemeral" = session.transcriptPath === undefined ? "ephemeral" : "persisted"): Extract<ForeignHookInput, { hook_event_name: "Stop" }> {
   return StopHookInputSchema.parse({ ...common(session, "Stop", { persistence }), ...(lastAssistantMessage === undefined || lastAssistantMessage.length === 0 ? {} : { last_assistant_message: lastAssistantMessage }), stop_hook_active: stopHookActive });
+}
+
+function subagentCommon(sessionInput: HookSessionEvidence): Record<string, unknown> {
+  const session = HookSessionEvidenceSchema.parse(sessionInput);
+  return {
+    session_id: session.sessionId,
+    ...(session.transcriptPath === undefined ? {} : { transcript_path: session.transcriptPath }),
+    cwd: session.cwd,
+  };
+}
+
+function subagentEvidence(identityInput: SubagentExecutionIdentity, executionInput: SubagentExecutionPath): Record<string, unknown> {
+  const identity = SubagentExecutionIdentitySchemaV1.parse(identityInput);
+  const execution = SubagentExecutionPathSchemaV1.parse(executionInput);
+  return {
+    sessionId: identity.sessionId,
+    runId: identity.runId,
+    phase: execution.phase,
+    origin: execution.origin,
+    mode: execution.mode,
+    admission: execution.admission,
+  };
+}
+
+export function buildSubagentStartInput(
+  session: HookSessionEvidence,
+  identityInput: SubagentExecutionIdentity,
+  executionInput: SubagentExecutionPath,
+): Extract<ForeignHookInput, { hook_event_name: "SubagentStart" }> {
+  const identity = SubagentExecutionIdentitySchemaV1.parse(identityInput);
+  return SubagentStartHookInputSchema.parse({
+    ...subagentCommon(session),
+    hook_event_name: "SubagentStart",
+    agent_id: identity.agentId,
+    agent_type: identity.agentType,
+    pi: {
+      session: { persistence: session.transcriptPath === undefined ? "ephemeral" : "persisted" },
+      subagent: { boundary: "start", ...subagentEvidence(identity, executionInput) },
+    },
+  });
+}
+
+export function buildSubagentStopInput(
+  session: HookSessionEvidence,
+  identityInput: SubagentExecutionIdentity,
+  executionInput: SubagentExecutionPath,
+  proposedResult: string,
+  outcome: SubagentCompletionOutcome,
+  continuationRound: number,
+  maxContinuationRounds: number,
+): Extract<ForeignHookInput, { hook_event_name: "SubagentStop" }> {
+  const identity = SubagentExecutionIdentitySchemaV1.parse(identityInput);
+  return SubagentStopHookInputSchema.parse({
+    ...subagentCommon(session),
+    hook_event_name: "SubagentStop",
+    agent_id: identity.agentId,
+    agent_type: identity.agentType,
+    last_assistant_message: proposedResult,
+    pi: {
+      session: { persistence: session.transcriptPath === undefined ? "ephemeral" : "persisted" },
+      subagent: {
+        boundary: "completion",
+        ...subagentEvidence(identity, executionInput),
+        outcome,
+        continuationRound,
+        maxContinuationRounds,
+      },
+    },
+  });
 }
 

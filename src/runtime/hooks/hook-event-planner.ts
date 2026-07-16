@@ -37,10 +37,13 @@ import {
   buildSessionEndInput,
   buildSessionStartInput,
   buildStopInput,
+  buildSubagentStartInput,
+  buildSubagentStopInput,
   buildUserPromptSubmitInput,
   type HookBoundaryRequest,
   compactTrigger,
 } from "./event-input.js";
+import type { SubagentHookEvent } from "../../domain/hook-runtime-contract.js";
 import {
   buildPostToolInput,
   buildPreToolUseInput,
@@ -129,10 +132,15 @@ function freezePlan(plan: HookEventPlan): HookEventPlan {
   return plan;
 }
 
+export interface SubagentHookEventPlanner {
+  plan(request: HookBoundaryRequest): HookPlanningResult;
+  hasMatchingSubagentHooks(event: SubagentHookEvent, agentType: string): boolean;
+}
+
 export function createHookEventPlanner(input: Readonly<{
   catalog: SkillHookRuntimeCatalog;
   additionalToolAliases?: readonly HookToolAliasDefinition[];
-}>): Readonly<{ plan(request: HookBoundaryRequest): HookPlanningResult }> {
+}>): SubagentHookEventPlanner {
   if (input === null || typeof input !== "object" || input.catalog === undefined) throw new TypeError("hook planner requires a runtime catalog");
   const catalog = input.catalog;
   if (typeof catalog.list !== "function" || typeof catalog.get !== "function") throw new TypeError("hook planner requires a verified runtime catalog");
@@ -173,6 +181,23 @@ export function createHookEventPlanner(input: Readonly<{
     } catch {
       return failure("INVALID_REQUEST");
     }
+  }
+
+  function hasMatchingSubagentHooks(event: SubagentHookEvent, agentType: string): boolean {
+    if (typeof agentType !== "string" || agentType.length === 0) return true;
+    let snapshots: readonly SkillHookRuntimeSnapshot[];
+    try { snapshots = catalog.list(); } catch { return true; }
+    if (!Array.isArray(snapshots)) return true;
+    for (const snapshot of snapshots) {
+      for (const component of snapshot.hooks) {
+        const compiled = compileHookSelector(component);
+        if (compiled.kind === "incompatible") return true;
+        if (compiled.selector.event === event && matchesHookSelector(compiled.selector, subjectForEvent(event, agentType))) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   function plan(request: HookBoundaryRequest): HookPlanningResult {
@@ -222,6 +247,16 @@ export function createHookEventPlanner(input: Readonly<{
           const inputValue = buildStopInput(session, request.lastAssistantMessage, request.stopHookActive, persistence(session));
           return makePlan("Stop", inputValue, session, subjectForEvent("Stop"), cancellation(undefined, "idle-boundary"));
         }
+        case "subagent-start": {
+          if (request.identity.parentSessionId !== session.sessionId) return failure("INVALID_REQUEST");
+          const inputValue = buildSubagentStartInput(session, request.identity, request.execution);
+          return makePlan("SubagentStart", inputValue, session, subjectForEvent("SubagentStart", request.identity.agentType), cancellation(request.signal, "pi-signal-unavailable"));
+        }
+        case "subagent-stop": {
+          if (request.identity.parentSessionId !== session.sessionId) return failure("INVALID_REQUEST");
+          const inputValue = buildSubagentStopInput(session, request.identity, request.execution, request.proposedResult, request.outcome, request.continuationRound, request.maxContinuationRounds);
+          return makePlan("SubagentStop", inputValue, session, subjectForEvent("SubagentStop", request.identity.agentType), cancellation(request.signal, "pi-signal-unavailable"));
+        }
         default:
           return failure("UNSUPPORTED_EVENT");
       }
@@ -230,5 +265,5 @@ export function createHookEventPlanner(input: Readonly<{
     }
   }
 
-  return Object.freeze({ plan });
+  return Object.freeze({ plan, hasMatchingSubagentHooks });
 }
