@@ -34,8 +34,6 @@ function sortScopes(scopes: readonly ScopeContext[]): ScopeContext[] { return [.
 function sortResult(left: TransitionRecoveryResult, right: TransitionRecoveryResult): number {
   return JSON.stringify([left.scope, left.plugin ?? "", left.reference ?? "", left.kind]).localeCompare(JSON.stringify([right.scope, right.plugin ?? "", right.reference ?? "", right.kind]));
 }
-function target(snapshot: import("./state-contract.js").GenerationSnapshot, plugin: string) { return "installed" in snapshot ? snapshot.installed.plugins.find((record) => record.plugin === plugin) : snapshot.project.plugins.find((record) => record.plugin === plugin); }
-
 /** Startup reconciliation is deliberately local and bounded; collection is separate best-effort work. */
 export function createLifecycleRecoveryService(dependencies: LifecycleRecoveryServiceDependencies): LifecycleRecoveryService {
   if (dependencies === null || typeof dependencies !== "object") throw new TypeError("recovery service dependencies are required");

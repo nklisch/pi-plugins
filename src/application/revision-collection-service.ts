@@ -46,9 +46,8 @@ export type RevisionCollectionDependencies = Readonly<{
   clock?: LifecycleClock;
 }>;
 
-function sameJson(a: unknown, b: unknown): boolean { return JSON.stringify(a) === JSON.stringify(b); }
 function refKey(ref: RetainedArtifactRef): string { return JSON.stringify(ref); }
-function revisionRef(scope: ScopeReference, revision: InstalledRevisionRecord, sha256: Sha256): RetainedArtifactRef { return { kind: "plugin", key: createPluginStoreIdentityFromEvidence({ sourceHash: revision.evidence.source.sourceHash, binding: revision.revision }, sha256).key }; }
+function revisionRef(revision: InstalledRevisionRecord, sha256: Sha256): RetainedArtifactRef { return { kind: "plugin", key: createPluginStoreIdentityFromEvidence({ sourceHash: revision.evidence.source.sourceHash, binding: revision.revision }, sha256).key }; }
 function marketplaceRef(snapshot: MarketplaceSnapshotRecord, sha256: Sha256): RetainedArtifactRef { return { kind: "marketplace", key: createMarketplaceStoreIdentityFromEvidence({ sourceHash: snapshot.source.sourceHash, revision: snapshot.source.revision, binding: snapshot.binding }, sha256).key }; }
 function projectionRefs(entry: import("./ports/lifecycle-transition-store.js").LifecycleTransitionJournalEntry): RetainedArtifactRef[] { return [entry.record.previousProjection, entry.record.candidateProjection].flatMap((projection) => projection.kind === "active" ? [{ kind: "projection" as const, reference: projection.projectionRef }] : []); }
 function records(snapshot: GenerationSnapshot): readonly InstalledPluginRecord[] { return "installed" in snapshot ? snapshot.installed.plugins : snapshot.project.plugins; }
@@ -85,10 +84,10 @@ export function createRevisionCollectionService(dependencies: RevisionCollection
       for (const plugin of records(loaded.snapshot)) {
         const selected = plugin.revisions.find((revision) => revision.revision === plugin.selectedRevision);
         if (selected === undefined) return { kind: "deferred", code: "COLLECTION_DEFERRED", removedArtifacts: 0, prunedRevisions: 0 };
-        const selectedRef = revisionRef(toScopeReference(scope), selected, dependencies.sha256);
+        const selectedRef = revisionRef(selected, dependencies.sha256);
         referenced.set(refKey(selectedRef), selectedRef);
         for (const revision of plugin.revisions) if (revision.revision !== plugin.selectedRevision) {
-          const retiring = revisionRef(toScopeReference(scope), revision, dependencies.sha256);
+          const retiring = revisionRef(revision, dependencies.sha256);
           retirementRefs.set(refKey(retiring), { scope, plugin, revision });
         }
       }
@@ -99,7 +98,7 @@ export function createRevisionCollectionService(dependencies: RevisionCollection
       for (const entry of listed.entries) if (entry.status.kind === "prepared" || entry.status.kind === "recovery-required") {
         for (const projection of projectionRefs(entry)) referenced.set(refKey(projection), projection);
         for (const state of [entry.record.previous, entry.record.candidate, entry.record.final]) if (state !== null) for (const revision of state.revisions) {
-          const root = revisionRef(toScopeReference(scope), revision, dependencies.sha256);
+          const root = revisionRef(revision, dependencies.sha256);
           referenced.set(refKey(root), root);
         }
       }

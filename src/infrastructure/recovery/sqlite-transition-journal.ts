@@ -46,7 +46,6 @@ function canonicalize(value: unknown): unknown {
   return value;
 }
 function canonicalBytes(value: unknown): Uint8Array { return new TextEncoder().encode(JSON.stringify(canonicalize(value))); }
-function sameJson(a: unknown, b: unknown): boolean { return JSON.stringify(canonicalize(a)) === JSON.stringify(canonicalize(b)); }
 function throwIfAborted(signal: AbortSignal): void { if (signal.aborted) throw signal.reason ?? new DOMException("The operation was aborted", "AbortError"); }
 function identity(path: string): FileIdentity { const value = lstatSync(path); if (!value.isFile() || value.isSymbolicLink()) throw new Error("recovery journal database is not a regular file"); return { device: String(value.dev), inode: String(value.ino) }; }
 function dbError(operation: string, cause: unknown): BoundaryError { return new BoundaryError({ code: "ADAPTER_FAILED", operation, message: "recovery journal adapter failed", details: { operation }, cause }); }
@@ -77,8 +76,6 @@ function rowEntry(row: SqliteRow): LifecycleTransitionJournalEntry {
     ...(row.collection_completed_at === null || row.collection_completed_at === undefined ? {} : { collectionCompletedAt: row.collection_completed_at }),
   });
 }
-
-function tableSql(name: string): string | undefined { return undefined; }
 
 function validateSchema(database: DatabaseSync): void {
   const rows = database.prepare("SELECT name, type FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name").all() as SqliteRow[];
@@ -270,8 +267,7 @@ export function createSqliteTransitionJournal(options: SqliteTransitionJournalOp
             return true;
           }
           if (current !== "prepared" && current !== "recovery-required") throw conflictError("settleTransitionJournal");
-          const owner = outcome === "recovery-required" || terminal ? { pid: null, start: null, nonce: null } : { pid: null, start: null, nonce: null };
-          database.prepare("UPDATE lifecycle_transitions SET status = ?, generation = ?, status_at = ?, owner_pid = ?, owner_start_token = ?, owner_nonce = ? WHERE reference = ?").run(outcome, request.generation ?? null, request.at, owner.pid, owner.start, owner.nonce, String(request.reference));
+          database.prepare("UPDATE lifecycle_transitions SET status = ?, generation = ?, status_at = ?, owner_pid = NULL, owner_start_token = NULL, owner_nonce = NULL WHERE reference = ?").run(outcome, request.generation ?? null, request.at, String(request.reference));
           return true;
         });
         if (result) break;

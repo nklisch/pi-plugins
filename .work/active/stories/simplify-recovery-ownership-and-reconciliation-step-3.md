@@ -1,7 +1,7 @@
 ---
 id: simplify-recovery-ownership-and-reconciliation-step-3
 kind: story
-stage: implementing
+stage: done
 tags: [refactor, infra]
 parent: simplify-recovery-ownership-and-reconciliation
 depends_on:
@@ -95,3 +95,21 @@ const owned = new WeakMap<object, AllocationRecord>();
 ## Risk and Rollback
 
 Risk is low because each removal is reference-proven, but recovery code is security-sensitive, so no adjacent validation simplification is allowed. Revert this deletion-only commit to restore the scaffolding and fixture. It is independent of the first two refactors after their commits are present and has no persisted-state effect.
+
+## Implementation Notes
+
+- Removed the unused journal `sameJson` and `tableSql` helpers, recovery-service `target` helper, revision-collection `sameJson`, and the staging allocator's unused `byRoot` bookkeeping.
+- Changed `revisionRef` to accept only the revision evidence and hash; all three callers still derive the same plugin store key from `sourceHash` and revision binding.
+- Replaced the identical settlement owner-reset conditional with direct SQL `NULL` assignments while preserving all status conflict checks and accepted outcomes.
+- Final executable-reference search found no source, test, or package-script caller for `test/fixtures/recovery/child-journal-writer.mjs`; deleted the unreferenced fixture.
+
+## Verification
+
+- Named helper/map/fixture search confirms no stale executable references; the remaining `target`/`sameJson` symbols are unrelated implementations in other modules.
+- `npm run typecheck` passed.
+- `npm run boundaries` passed (163 modules, 986 dependencies).
+- Focused tests: recovery service, revision collection, SQLite journal, staging allocator, lifecycle recovery, and revision collection integration (6 files, 12 tests passed).
+
+## Completion
+
+Step 3 is complete with deletion-only cleanup and unchanged recovery guards.

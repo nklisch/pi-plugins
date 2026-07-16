@@ -82,7 +82,6 @@ export function createStagingAllocator(
 } {
   const randomBytes: RandomBytes = options.randomBytes ?? ((size) => new Uint8Array(nodeRandomBytes(size)));
   const owned = new WeakMap<object, AllocationRecord>();
-  const byRoot = new Map<string, AllocationRecord>();
 
   async function assertOwned(allocation: unknown, operation = "validateStagingAllocation"): Promise<AllocationRecord> {
     if (allocation === null || typeof allocation !== "object") {
@@ -163,7 +162,6 @@ export function createStagingAllocator(
           parentCapability: layout.rootCapabilities.stagingRoot,
         });
         owned.set(allocation, record);
-        byRoot.set(canonical, record);
         throwIfAborted(signal);
         return allocation;
       } catch (error) {
@@ -209,9 +207,6 @@ export function createStagingAllocator(
     }
   }
 
-  // Keep the map in the closure for debugging invariants without exposing it
-  // as a path/token lookup API.
-  void byRoot;
   return Object.freeze({ allocateStaging, discardStaging, assertOwned });
 }
 
