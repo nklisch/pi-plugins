@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-projection-reload-evidence-snapshot-resolution
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-projection-reload-evidence
 depends_on: [epic-skills-hook-runtime-projection-reload-evidence-cache-contract]
@@ -47,3 +47,13 @@ Do not read `LifecycleStateStore`, transition storage, manifests, credentials, o
 ## Ordering
 
 Blocked by `epic-skills-hook-runtime-projection-reload-evidence-cache-contract`; it requires the verified cache reader and corrected generated-root evidence.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna xhigh; the snapshot loader remains in the same feature-owner context as the cache contract so logical cache evidence and post-commit root handoff cannot drift.
+- Review weight: standard, from project convention; this child checkpoint is verified directly and does not enter review.
+- Files changed: `src/runtime/skill-hook/runtime-snapshot.ts`, `test/runtime/skill-hook/runtime-snapshot.test.ts`.
+- Tests added/updated: adapter-root resolution, stable contribution digest across physical roots, and pre-resolution revision mismatch coverage (2 tests passed).
+- Simplification: current project identity/trust is acquired once through the existing authority and trust ports; no state reader, manifest reader, path codec, or second root resolver was added.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+- Verification: `npm run typecheck`; focused Vitest snapshot suite — 1 file / 2 tests passed.
