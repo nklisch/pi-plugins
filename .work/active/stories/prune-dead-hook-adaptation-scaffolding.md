@@ -1,7 +1,7 @@
 ---
 id: prune-dead-hook-adaptation-scaffolding
 kind: story
-stage: drafting
+stage: implementing
 tags: [refactor]
 parent: null
 depends_on: []
