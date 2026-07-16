@@ -1,15 +1,11 @@
 import { z } from "zod";
 import {
   MarketplaceUpdateRecordSchema,
-  MarketplaceRefreshMemorySchema,
   deriveMarketplaceSourceIdentity,
-  deriveUpdateCandidateKey,
   backoffDelayMs,
   type MarketplaceUpdateRecord,
-  type RefreshClaimId,
 } from "../domain/update-policy.js";
 import { MarketplaceNameSchema, type MarketplaceName } from "../domain/identity.js";
-import { GenerationSchema } from "../domain/state/config-state.js";
 import { createMarketplaceSnapshotRecord, type MarketplaceSnapshotRecord } from "../domain/state/installed-state.js";
 import { ScopeContextSchema, toScopeReference, type ScopeContext } from "../domain/state/scope.js";
 import { createPromotionPlan } from "./content-promotion.js";
@@ -120,22 +116,6 @@ function failureRecord(record: MarketplaceUpdateRecord, now: number): Marketplac
   });
 }
 
-function successRecord(record: MarketplaceUpdateRecord, now: number, claim: RefreshClaimId): MarketplaceUpdateRecord {
-  return MarketplaceUpdateRecordSchema.parse({
-    ...record,
-    refresh: {
-      lastCompletedAt: now,
-      nextScheduledAt: now + DefaultMarketplaceUpdatePolicy.successIntervalMs,
-      consecutiveFailures: 0,
-      claim: undefined,
-    },
-    // The winning claim is checked before this replacement; retaining no claim
-    // after publication prevents a completed fetch from blocking later work.
-    _claimProof: undefined,
-    notifications: record.notifications,
-  });
-}
-
 function automaticDisposition(result: PluginLifecycleResult): "automatic-applied" | "automatic-retryable" | "manual-required" | "approval-required" | "recovery-required" {
   switch (result.kind) {
     case "changed":
@@ -151,10 +131,9 @@ function candidateNotifications(
   record: MarketplaceUpdateRecord,
   scope: ScopeContext,
   probes: readonly MarketplacePluginProbeResult[],
-): Readonly<{ record: MarketplaceUpdateRecord; outcomes: readonly PluginUpdateOutcome[]; intents: readonly NotificationIntent[] }> {
+): Readonly<{ record: MarketplaceUpdateRecord; outcomes: readonly PluginUpdateOutcome[] }> {
   const notifications = [...record.notifications];
   const outcomes: PluginUpdateOutcome[] = [];
-  const intents: NotificationIntent[] = [];
   for (const probe of probes) {
     const parsed = PluginUpdateOutcomeSchema.parse({
       plugin: probe.plugin,
@@ -177,7 +156,7 @@ function candidateNotifications(
     if (index < 0) notifications.push(next);
     else notifications[index] = next;
   }
-  return { record: MarketplaceUpdateRecordSchema.parse({ ...record, notifications }), outcomes, intents };
+  return { record: MarketplaceUpdateRecordSchema.parse({ ...record, notifications }), outcomes };
 }
 
 export interface MarketplaceRefreshService {

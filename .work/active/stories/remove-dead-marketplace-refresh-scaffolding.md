@@ -1,7 +1,7 @@
 ---
 id: remove-dead-marketplace-refresh-scaffolding
 kind: story
-stage: implementing
+stage: review
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -44,3 +44,10 @@ This removes a misleading second success-record path and an impossible notificat
 ## Risk and Rollback
 
 Risk is limited to accidentally deleting an import with a live type use or changing the later automatic-notification `intents` array. Re-run symbol search before deletion and keep the live array at the automatic-application path (`src/application/marketplace-refresh-service.ts:275-314`). Revert the implementation commit to restore the private scaffolding.
+
+## Implementation notes
+
+- Removed the unused `successRecord` path and its dead imports.
+- Simplified `candidateNotifications` to return only the persisted record and plugin outcomes it actually computes; the live automatic-application notification-intent array remains unchanged.
+- Focused update inspection/scheduler/domain tests pass (12 tests), along with TypeScript typecheck.
+- Execution capability: direct host implementation; this is one mechanical standalone-story deletion with a bounded diff.
