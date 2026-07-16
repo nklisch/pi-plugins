@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-hook-event-adaptation-tool-event-planning
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-hook-event-adaptation
 depends_on: [epic-skills-hook-runtime-hook-event-adaptation-contract-registry]
@@ -40,3 +40,13 @@ Resolve one deterministic Pi/foreign tool identity, evaluate compiled matcher an
 ## Ordering constraint
 
 Depends on `epic-skills-hook-runtime-hook-event-adaptation-contract-registry`. It may proceed in parallel with the session/input checkpoint; the Pi bridge waits for both.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna inline; tool identity, input projection, and selector evaluation are one bounded pure-planning surface.
+- Review weight: standard (caller explicitly prohibited review for this delegated run).
+- Files changed: `src/runtime/hooks/tool-event-input.ts`, `test/runtime/hooks/tool-identity.test.ts`, `test/runtime/hooks/tool-event-input.test.ts`.
+- Tests added/removed: deterministic built-in/dynamic/unknown alias vectors, exact pre/post inputs, structured response omission, interrupt evidence, condition agreement, and source-order completion tests.
+- Simplification: aliases resolve once per callback and unknown tools use exact identity; no fuzzy matching, output execution, or mutation path was added.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+- Verification: `npm run typecheck`, focused tool input/identity suites green.
