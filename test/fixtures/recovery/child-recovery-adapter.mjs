@@ -48,7 +48,7 @@ if (mode === "journal") {
     event({ event: "prepared", result });
     await command("release");
   } catch (error) {
-    event({ event: "error", code: error?.code, message: error instanceof Error ? error.message : String(error) });
+    event({ event: "error", code: error?.code, message: error instanceof Error ? error.message : String(error), cause: error?.cause instanceof Error ? error.cause.message : undefined, stack: error instanceof Error ? error.stack : undefined });
   }
   process.exit(0);
 }

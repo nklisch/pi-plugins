@@ -1,20 +1,24 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CompatibilityReportSchema } from "../../src/domain/compatibility.js";
-import { createContentManifest } from "../../src/domain/content-manifest.js";
+import { createContentManifest, createMaterializationBinding } from "../../src/domain/content-manifest.js";
+import { createPromotionPlan } from "../../src/application/content-promotion.js";
 import { NormalizedPluginSchema } from "../../src/domain/plugin.js";
-import { createInstalledPluginRecord } from "../../src/domain/state/installed-state.js";
-import { createResolvedPluginSource } from "../../src/domain/source.js";
+import { createInstalledPluginRecord, createInstalledUserStateDocument, createMarketplaceSnapshotRecord } from "../../src/domain/state/installed-state.js";
+import { createResolvedMarketplaceSource, createResolvedPluginSource } from "../../src/domain/source.js";
 import { createInactiveProjectionExpectation } from "../../src/application/ports/runtime-projection.js";
 import { createLifecycleTransitionRecord } from "../../src/application/ports/lifecycle-transition-store.js";
 import { deriveLifecyclePendingTransitionRef } from "../../src/application/plugin-lifecycle-contract.js";
 import { createRevisionCollectionService } from "../../src/application/revision-collection-service.js";
+import { createNodeContentStoreWithPlatform } from "../../src/infrastructure/filesystem/create-content-store.js";
+import { createNodeContentStorePlatform, renameNoReplaceByProbe } from "../../src/infrastructure/filesystem/content-store-durability.js";
 import { createNodeTransitionJournal } from "../../src/infrastructure/recovery/sqlite-transition-journal.js";
 import { createProcessRevisionLeaseStore } from "../../src/infrastructure/recovery/process-revision-leases.js";
+import { createNodeRecoveryAdapters } from "../../src/infrastructure/recovery/create-node-recovery-adapters.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(bytes).digest());
 const signal = new AbortController().signal;
@@ -189,6 +193,91 @@ describe("recovery hardening real-process acceptance", () => {
     } finally {
       for (const child of children) if (child.process.exitCode === null) child.process.kill("SIGKILL");
       await Promise.all(children.map((child) => waitForExit(child.process)));
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("uses real content, retention, and artifact adapters to prune state before physical removal", async () => {
+    const root = await temporaryRoot(".test-recovery-prune-order-");
+    const publishedRoots: string[] = [];
+    try {
+      const contentStore = await createNodeContentStoreWithPlatform({
+        hostRoot: root,
+        platform: createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe }),
+        randomBytes: () => Uint8Array.from({ length: 16 }, (_, index) => index + 7),
+      });
+      const content = createContentManifest([], sha256);
+      const plugin = (revision: string) => NormalizedPluginSchema.parse({
+        identity: { key: "collector@community", marketplaceName: "community", marketplaceEntryName: "collector" },
+        source: createResolvedPluginSource({ kind: "git", url: `https://example.invalid/collector-${revision}.git`, revision: revision.repeat(40) }, sha256),
+        configuration: { options: [] }, components: { skills: [], hooks: [], mcpServers: [], foreign: [] }, metadata: [],
+      });
+      const publish = async (value: ReturnType<typeof plugin>) => {
+        const allocation = await contentStore.allocateStaging(signal);
+        await mkdir(join(allocation.slot.root, "content"));
+        const binding = createMaterializationBinding(value.source.hash, content.rootDigest, sha256);
+        const plan = createPromotionPlan({
+          kind: "plugin",
+          allocation,
+          materialized: { root: join(allocation.slot.root, "content"), source: value.source, content, binding },
+        }, sha256);
+        const result = await contentStore.promote(plan, signal);
+        publishedRoots.push(result.root.replace(/[/\\\\]content$/, ""));
+        return result;
+      };
+      const oldPlugin = plugin("a");
+      const currentPlugin = plugin("b");
+      await publish(oldPlugin);
+      await publish(currentPlugin);
+      const compatibility = (value: ReturnType<typeof plugin>) => CompatibilityReportSchema.parse({ plugin: value.identity, activatable: true, components: [], requirements: [], diagnostics: [] });
+      const oldSingle = createInstalledPluginRecord({ plugin: oldPlugin.identity.key, activation: "disabled", revisions: [{ plugin: oldPlugin, compatibility: compatibility(oldPlugin), content }], scope: { kind: "user" } }, sha256);
+      const currentSingle = createInstalledPluginRecord({ plugin: currentPlugin.identity.key, activation: "disabled", revisions: [{ plugin: currentPlugin, compatibility: compatibility(currentPlugin), content }], scope: { kind: "user" } }, sha256);
+      const installedRecord = createInstalledPluginRecord({ plugin: oldPlugin.identity.key, activation: "disabled", selectedRevision: currentSingle.selectedRevision, revisions: [oldSingle.revisions[0]!, currentSingle.revisions[0]!], scope: { kind: "user" } }, sha256);
+      const marketplaceSource = createResolvedMarketplaceSource({ declared: { kind: "git", url: "https://example.invalid/community.git" }, revision: "c".repeat(40) }, sha256);
+      const installed = createInstalledUserStateDocument({
+        generation: 0,
+        marketplaces: [createMarketplaceSnapshotRecord({ marketplace: "community", source: marketplaceSource, content }, sha256)],
+        plugins: [installedRecord],
+      }, sha256);
+      let snapshot = { scope: { kind: "user" }, generation: 0, installed } as never;
+      const adapters = await createNodeRecoveryAdapters({ hostRoot: root, verifyLocalFilesystem: async () => {} });
+      let removals = 0;
+      const service = createRevisionCollectionService({
+        state: { async read() { return { ok: true, snapshot }; }, async commit() { throw new Error("state commit is coordinated by the test mutation port"); } },
+        inventory: { async discover() { return { scopes: [{ kind: "user" }], complete: true }; } },
+        transitions: adapters.transitions,
+        leases: adapters.leases,
+        retention: adapters.retention,
+        artifacts: {
+          scan: adapters.artifacts.scan,
+          async remove(candidate, removeSignal) {
+            expect((snapshot as { installed: { plugins: readonly { revisions: readonly unknown[] }[] } }).installed.plugins[0]?.revisions).toHaveLength(1);
+            removals += 1;
+            return adapters.artifacts.remove(candidate, removeSignal);
+          },
+        },
+        mutations: {
+          async runPreparedMutation(_request: unknown, prepare: (context: { snapshot: never; assertOwned(): Promise<void> }) => Promise<{ mutation: unknown; value: undefined }>) {
+            const prepared = await prepare({ snapshot, assertOwned: async () => {} });
+            const replacement = (prepared.mutation as { replace: { installed: unknown } }).replace.installed;
+            snapshot = { ...(snapshot as object), generation: 1, installed: replacement } as never;
+            return { kind: "committed", value: undefined, snapshot };
+          },
+        } as never,
+        sha256,
+        clock: { nowEpochMilliseconds: () => 86_400_001, monotonicMilliseconds: () => 0 },
+      });
+      const result = await service.collect({ policy: { unreferencedGraceMs: 0 } }, signal);
+      expect(result).toMatchObject({ kind: "collected", prunedRevisions: 1, removedArtifacts: 1 });
+      expect(removals).toBe(1);
+      expect((await adapters.artifacts.scan(signal)).artifacts).toHaveLength(1);
+    } finally {
+      for (const publishedRoot of publishedRoots) {
+        await chmod(join(publishedRoot, "READY"), 0o644).catch(() => undefined);
+        await chmod(join(publishedRoot, "metadata.json"), 0o644).catch(() => undefined);
+        await chmod(join(publishedRoot, "content"), 0o755).catch(() => undefined);
+        await chmod(publishedRoot, 0o755).catch(() => undefined);
+      }
       await rm(root, { recursive: true, force: true });
     }
   }, 30_000);
