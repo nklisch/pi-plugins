@@ -1,70 +1,96 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { redactCommand } from "../logging/redaction.js";
+import type {
+  CommandCapturePolicy,
+  CommandEnvironment,
+  CommandRequest,
+  CommandResult,
+  CommandRunner,
+} from "../../application/ports/process-runner.js";
 
-export type CommandRequest = Readonly<{
-  executable: string;
-  args: readonly string[];
-  cwd: string;
-  env?: Readonly<Record<string, string | undefined>>;
-  stdin?: AsyncIterable<Uint8Array>;
-  stdout: "capture" | "stream";
-  maxCapturedBytes: number;
-}>;
+export type {
+  CommandCapturePolicy,
+  CommandEnvironment,
+  CommandRequest,
+  CommandResult,
+  CommandRunner,
+} from "../../application/ports/process-runner.js";
 
-export type CommandResult = Readonly<{
-  /** For live streams this is a provisional value; await completion. */
-  exitCode: number;
-  stdout: Uint8Array | AsyncIterable<Uint8Array>;
-  stderr: Uint8Array;
-  completion?: Promise<number>;
-}>;
-
-export interface CommandRunner {
-  run(request: CommandRequest, signal: AbortSignal): Promise<CommandResult>;
-}
+export type CommandRunnerErrorCode =
+  | "INVALID_REQUEST"
+  | "SPAWN_FAILED"
+  | "PIPE_FAILED"
+  | "OUTPUT_LIMIT"
+  | "TIMEOUT"
+  | "CANCELLED"
+  | "STDIN_FAILED";
 
 export class CommandRunnerError extends Error {
   readonly command: ReturnType<typeof redactCommand>;
 
-  constructor(message: string, executable: string, args: readonly string[], cause?: unknown) {
+  constructor(
+    message: string,
+    executable: string,
+    args: readonly string[],
+    readonly code: CommandRunnerErrorCode = "SPAWN_FAILED",
+    cause?: unknown,
+  ) {
     super(message, { cause });
     this.name = "CommandRunnerError";
     this.command = redactCommand(executable, args);
   }
 }
 
-type RunnerOptions = Readonly<{
-  killGraceMs?: number;
-}>;
-
+type RunnerOptions = Readonly<{ killGraceMs?: number }>;
 const ABORT_ERROR = (): DOMException => new DOMException("The operation was aborted", "AbortError");
 
 function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw signal.reason ?? ABORT_ERROR();
 }
 
+function validateEnvironment(value: CommandEnvironment): void {
+  if (value === null || typeof value !== "object" || (value.inherit !== "host" && value.inherit !== "none") ||
+      value.values === null || typeof value.values !== "object" || Array.isArray(value.values) ||
+      Object.entries(value.values).some(([key, item]) => key.length === 0 || typeof item !== "string" && item !== undefined)) {
+    throw new TypeError("command environment policy is invalid");
+  }
+}
+
+function validateCapture(value: CommandCapturePolicy): void {
+  if (value === null || typeof value !== "object" || value.stdout === undefined || value.stderr === undefined ||
+      (value.stdout.mode !== "capture" && value.stdout.mode !== "stream") ||
+      value.stdout.overflow !== "error" || !Number.isSafeInteger(value.stdout.maxBytes) || value.stdout.maxBytes <= 0 ||
+      !Number.isSafeInteger(value.stderr.maxBytes) || value.stderr.maxBytes <= 0 ||
+      (value.stderr.overflow !== "error" && value.stderr.overflow !== "truncate")) {
+    throw new TypeError("command capture policy is invalid");
+  }
+}
+
 function validateRequest(request: CommandRequest): void {
   if (request === null || typeof request !== "object") throw new TypeError("command request is required");
-  if (typeof request.executable !== "string" || request.executable.length === 0) {
+  if (typeof request.executable !== "string" || request.executable.length === 0 || request.executable.includes("\0")) {
     throw new TypeError("command executable must be a non-empty string");
   }
   if (!Array.isArray(request.args) || request.args.some((arg) => typeof arg !== "string")) {
     throw new TypeError("command arguments must be an array of strings");
   }
-  if (typeof request.cwd !== "string" || request.cwd.length === 0) throw new TypeError("command cwd must be non-empty");
-  if (request.stdout !== "capture" && request.stdout !== "stream") throw new TypeError("command stdout mode is invalid");
-  if (!Number.isSafeInteger(request.maxCapturedBytes) || request.maxCapturedBytes <= 0) {
-    throw new TypeError("command maxCapturedBytes must be a positive safe integer");
+  if (typeof request.cwd !== "string" || request.cwd.length === 0 || request.cwd.includes("\0")) {
+    throw new TypeError("command cwd must be non-empty");
+  }
+  validateEnvironment(request.environment);
+  validateCapture(request.capture);
+  if (request.timeoutMs !== undefined && (!Number.isSafeInteger(request.timeoutMs) || request.timeoutMs <= 0)) {
+    throw new TypeError("command timeout must be a positive safe integer");
   }
   if (request.stdin !== undefined && (request.stdin === null || typeof request.stdin[Symbol.asyncIterator] !== "function")) {
     throw new TypeError("command stdin must be async iterable");
   }
 }
 
-function mergedEnvironment(input: Readonly<Record<string, string | undefined>> | undefined): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = { ...process.env };
-  for (const [key, value] of Object.entries(input ?? {})) {
+function mergedEnvironment(input: CommandEnvironment): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = input.inherit === "host" ? { ...process.env } : {};
+  for (const [key, value] of Object.entries(input.values)) {
     if (value === undefined) delete environment[key];
     else environment[key] = value;
   }
@@ -107,11 +133,8 @@ function chunkStream(chunks: readonly Uint8Array[]): AsyncIterable<Uint8Array> {
 }
 
 /**
- * A small process port with one intentionally conservative rule: output is
- * drained before the promise settles. This prevents a killed Git process from
- * leaving a pipe writer blocked and makes cancellation cleanup deterministic.
- * The returned stream is a replayable async view over the drained bytes; the
- * archive/tar layer still owns validation and extraction limits.
+ * The single Node process primitive. Both source acquisition and hook runtime
+ * callers use this adapter, so tree termination and pipe draining cannot drift.
  */
 export function createNodeCommandRunner(options: RunnerOptions = {}): CommandRunner {
   const killGraceMs = options.killGraceMs ?? 5_000;
@@ -127,40 +150,62 @@ export function createNodeCommandRunner(options: RunnerOptions = {}): CommandRun
       try {
         child = spawn(request.executable, [...request.args], {
           cwd: request.cwd,
-          env: mergedEnvironment(request.env),
+          env: mergedEnvironment(request.environment),
           shell: false,
           stdio: ["pipe", "pipe", "pipe"],
           detached: process.platform !== "win32",
           windowsHide: true,
         });
       } catch (error) {
-        throw new CommandRunnerError("command process failed to start", request.executable, request.args, error);
+        throw new CommandRunnerError("command process failed to start", request.executable, request.args, "SPAWN_FAILED", error);
       }
       const stdout = child.stdout;
       const stderr = child.stderr;
       if (stdout === null || stderr === null) {
-        child.kill();
-        throw new CommandRunnerError("command pipes were not created", request.executable, request.args);
+        try { child.kill(); } catch { /* close still reports the failure */ }
+        throw new CommandRunnerError("command pipes were not created", request.executable, request.args, "PIPE_FAILED");
       }
+
       const stdoutChunks: Uint8Array[] = [];
       const stderrChunks: Uint8Array[] = [];
+      const streamQueue: Uint8Array[] = [];
+      const streamWaiters: Array<(result: IteratorResult<Uint8Array>) => void> = [];
+      let streamDone = false;
+      const pushStream = (chunk: Uint8Array): void => {
+        const waiter = streamWaiters.shift();
+        if (waiter !== undefined) waiter({ done: false, value: chunk });
+        else streamQueue.push(chunk);
+      };
+      const endStream = (): void => {
+        streamDone = true;
+        while (streamWaiters.length > 0) streamWaiters.shift()!({ done: true, value: undefined });
+      };
+      const stream = (): AsyncIterable<Uint8Array> => ({
+        [Symbol.asyncIterator]: () => ({
+          next: async (): Promise<IteratorResult<Uint8Array>> => {
+            const chunk = streamQueue.shift();
+            if (chunk !== undefined) return { done: false, value: chunk };
+            if (streamDone) return { done: true, value: undefined };
+            return new Promise((resolve) => streamWaiters.push(resolve));
+          },
+        }),
+      });
       let stdoutLength = 0;
       let stderrLength = 0;
-      let outputFailure: Error | undefined;
-      let processFailure: unknown;
+      let stderrTruncated = false;
+      let failure: { code: CommandRunnerErrorCode; cause?: unknown } | undefined;
       let abortReason: unknown;
+      let timedOut = false;
       let closeCode: number | null = null;
       let settled = false;
       let terminationStarted = false;
       let escalationTimer: ReturnType<typeof setTimeout> | undefined;
+      let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
 
       const killTree = (kind: "graceful" | "force"): void => {
         const signalName = kind === "graceful" ? "SIGTERM" : "SIGKILL";
         try {
           if (process.platform !== "win32" && child.pid !== undefined) {
-            // Detached POSIX children form their own process group. Killing the
-            // group prevents Git helpers and archive descendants surviving a
-            // cancelled materialization.
             process.kill(-child.pid, signalName);
           } else if (process.platform === "win32" && child.pid !== undefined) {
             spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
@@ -180,140 +225,122 @@ export function createNodeCommandRunner(options: RunnerOptions = {}): CommandRun
         if (terminationStarted || settled) return;
         terminationStarted = true;
         killTree("graceful");
-        if (killGraceMs === 0) {
-          killTree("force");
-        } else {
+        if (killGraceMs === 0) killTree("force");
+        else {
           escalationTimer = setTimeout(() => killTree("force"), killGraceMs);
           escalationTimer.unref?.();
         }
       };
 
-      const fail = (error: unknown): void => {
-        if (processFailure === undefined) processFailure = error;
+      const fail = (error: unknown, code: CommandRunnerErrorCode = "STDIN_FAILED"): void => {
+        if (failure === undefined) failure = { code, cause: error };
         terminate();
       };
-
       const onAbort = (): void => {
         abortReason = signal.reason ?? ABORT_ERROR();
         terminate();
       };
       signal.addEventListener("abort", onAbort, { once: true });
-
-      if (request.stdout === "stream") {
-        stderr.on("data", (value: Buffer) => {
-          const remaining = Math.max(0, request.maxCapturedBytes - stderrLength);
-          if (remaining === 0) return;
-          const chunk = new Uint8Array(value.subarray(0, remaining));
-          stderrChunks.push(chunk);
-          stderrLength += chunk.byteLength;
-        });
-        child.on("error", (error) => fail(error));
-        const inputPromise = request.stdin === undefined
-          ? (child.stdin?.end(), Promise.resolve())
-          : writeStdin(child, request.stdin, signal, fail);
-        const completion = new Promise<number>((resolve, reject) => {
-          child.once("close", (code) => {
-            closeCode = code;
-            void (async () => {
-              try { await inputPromise; }
-              catch (error) { if (processFailure === undefined) processFailure = error; }
-              settled = true;
-              if (escalationTimer !== undefined) clearTimeout(escalationTimer);
-              signal.removeEventListener("abort", onAbort);
-              if (abortReason !== undefined) reject(abortReason);
-              else if (outputFailure !== undefined) reject(new CommandRunnerError(outputFailure.message, request.executable, request.args));
-              else if (processFailure !== undefined) reject(new CommandRunnerError("command process failed", request.executable, request.args, processFailure));
-              else if (closeCode === null || closeCode !== 0) reject(new CommandRunnerError("command exited with a failure status", request.executable, request.args));
-              else resolve(closeCode);
-            })();
-          });
-        });
-        const live = (async function* (): AsyncGenerator<Uint8Array> {
-          let length = 0;
-          let streamEnded = false;
-          try {
-            for await (const value of stdout) {
-              const chunk = value instanceof Uint8Array ? new Uint8Array(value) : undefined;
-              if (chunk === undefined) throw new CommandRunnerError("command stdout yielded a non-byte value", request.executable, request.args);
-              length += chunk.byteLength;
-              if (length > request.maxCapturedBytes) {
-                outputFailure = new Error("command stdout exceeded the configured stream limit");
-                terminate();
-                throw new CommandRunnerError(outputFailure.message, request.executable, request.args);
-              }
-              yield chunk;
-            }
-            streamEnded = true;
-          } finally {
-            // A consumer that abandons the archive must not leave a live Git
-            // process writing into an unread pipe. Natural EOF is allowed to
-            // reach the close handler and report the real exit status.
-            if (!streamEnded && !settled) terminate();
-          }
-        })();
-        return { exitCode: -1, stdout: live, stderr: new Uint8Array(), completion };
-      }
+      child.on("error", (error) => fail(error, "SPAWN_FAILED"));
+      child.stdin?.on("error", (error) => fail(error, "STDIN_FAILED"));
 
       stdout.on("data", (value: Buffer) => {
-        // Continue draining after a limit breach, but do not retain further
-        // bytes: a hostile process must not turn a bounded capture into an
-        // unbounded in-memory queue while it is being terminated.
-        if (outputFailure !== undefined) return;
-        const chunk = new Uint8Array(value);
-        stdoutLength += chunk.byteLength;
-        if (stdoutLength > request.maxCapturedBytes) {
-          outputFailure = new Error("command stdout exceeded the configured capture limit");
+        if (failure?.code === "OUTPUT_LIMIT") return;
+        const bytes = new Uint8Array(value);
+        const remaining = request.capture.stdout.maxBytes - stdoutLength;
+        if (bytes.byteLength > remaining) {
+          failure = { code: "OUTPUT_LIMIT" };
           terminate();
           return;
         }
-        stdoutChunks.push(chunk);
+        stdoutChunks.push(bytes);
+        stdoutLength += bytes.byteLength;
+        if (request.capture.stdout.mode === "stream") pushStream(bytes);
       });
       stderr.on("data", (value: Buffer) => {
-        // Stderr is retained only as a bounded adapter-local value. Callers
-        // must use a redacted diagnostic rather than serializing this buffer.
-        const remaining = Math.max(0, request.maxCapturedBytes - stderrLength);
-        if (remaining === 0) return;
-        const chunk = new Uint8Array(value.subarray(0, remaining));
-        stderrChunks.push(chunk);
-        stderrLength += chunk.byteLength;
+        const bytes = new Uint8Array(value);
+        const remaining = Math.max(0, request.capture.stderr.maxBytes - stderrLength);
+        if (bytes.byteLength > remaining) {
+          if (request.capture.stderr.overflow === "error") {
+            failure = { code: "OUTPUT_LIMIT" };
+            terminate();
+            return;
+          }
+          if (remaining > 0) {
+            stderrChunks.push(new Uint8Array(bytes.subarray(0, remaining)));
+            stderrLength += remaining;
+          }
+          stderrTruncated = true;
+          return;
+        }
+        if (bytes.byteLength > 0) {
+          stderrChunks.push(bytes);
+          stderrLength += bytes.byteLength;
+        }
       });
-      child.on("error", (error) => fail(error));
 
       const inputPromise = request.stdin === undefined
         ? (child.stdin?.end(), Promise.resolve())
-        : writeStdin(child, request.stdin, signal, fail);
+        : writeStdin(child, request.stdin, signal, (error) => fail(error));
+      if (request.timeoutMs !== undefined) {
+        timeoutTimer = setTimeout(() => {
+          timedOut = true;
+          terminate();
+        }, request.timeoutMs);
+        timeoutTimer.unref?.();
+      }
 
-      const result = await new Promise<CommandResult>((resolve, reject) => {
+      const finish = async (resolve: (value: CommandResult) => void, reject: (reason?: unknown) => void): Promise<void> => {
+        try { await inputPromise; } catch (error) { if (failure === undefined) failure = { code: "STDIN_FAILED", cause: error }; }
+        settled = true;
+        if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
+        if (escalationTimer !== undefined) clearTimeout(escalationTimer);
+        signal.removeEventListener("abort", onAbort);
+        if (abortReason !== undefined) return reject(abortReason);
+        if (timedOut) return reject(new CommandRunnerError("command timed out", request.executable, request.args, "TIMEOUT"));
+        if (failure !== undefined) return reject(new CommandRunnerError(
+          failure.code === "OUTPUT_LIMIT" ? "command output exceeded the configured limit" : "command process failed",
+          request.executable,
+          request.args,
+          failure.code,
+          failure.cause,
+        ));
+        if (closeCode === null) return reject(new CommandRunnerError("command exited without a status", request.executable, request.args, "SPAWN_FAILED"));
+        resolve({
+          exitCode: closeCode,
+          stdout: request.capture.stdout.mode === "capture" ? chunksToBytes(stdoutChunks, stdoutLength) : stream(),
+          stderr: chunksToBytes(stderrChunks, stderrLength),
+          stderrTruncated,
+        });
+      };
+
+      if (request.capture.stdout.mode === "stream") {
+        const completion = new Promise<number>((resolve, reject) => {
+          child.once("close", (code) => {
+            closeCode = code;
+            endStream();
+            void finish(
+              (result) => resolve(result.exitCode),
+              reject,
+            );
+          });
+        });
+        return {
+          exitCode: -1,
+          stdout: stream(),
+          stderr: new Uint8Array(),
+          stderrTruncated: false,
+          completion,
+        };
+      }
+
+      return await new Promise<CommandResult>((resolve, reject) => {
         child.once("close", (code) => {
           closeCode = code;
-          void (async () => {
-            try { await inputPromise; }
-            catch (error) { if (processFailure === undefined) processFailure = error; }
-            settled = true;
-            if (escalationTimer !== undefined) clearTimeout(escalationTimer);
-            signal.removeEventListener("abort", onAbort);
-            if (abortReason !== undefined) {
-              reject(abortReason);
-            } else if (outputFailure !== undefined) {
-              reject(new CommandRunnerError(outputFailure.message, request.executable, request.args));
-            } else if (processFailure !== undefined) {
-              reject(new CommandRunnerError("command process failed", request.executable, request.args, processFailure));
-            } else if (closeCode === null) {
-              reject(new CommandRunnerError("command exited without a status", request.executable, request.args));
-            } else {
-              const stderr = chunksToBytes(stderrChunks, stderrLength);
-              resolve({
-                exitCode: closeCode,
-                stdout: request.stdout === "capture"
-                  ? chunksToBytes(stdoutChunks, stdoutLength)
-                  : chunkStream(stdoutChunks),
-                stderr,
-              });
-            }
-          })();
+          endStream();
+          void finish(resolve, reject);
         });
       });
-      return result;
     },
   };
 }

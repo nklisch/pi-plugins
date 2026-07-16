@@ -20,11 +20,8 @@ import {
   type SecureContentSession,
 } from "../../application/ports/source-acquisition.js";
 import type { TarReader } from "../archive/tar-reader.js";
-import type {
-  CommandRequest,
-  CommandResult,
-  CommandRunner,
-} from "../process/command-runner.js";
+import type { CommandResult, CommandRunner } from "../../application/ports/process-runner.js";
+import type { CommandCapturePolicy } from "../../application/ports/process-runner.js";
 
 const SELECTED_REF = "refs/materialization/selected";
 const FULL_SHA = /^[0-9a-f]{40}$/;
@@ -175,7 +172,7 @@ async function runCommand(
   cwd: string,
   signal: AbortSignal,
   env: Readonly<Record<string, string | undefined>>,
-  stdout: CommandRequest["stdout"],
+  stdout: "capture" | "stream",
   maxCapturedBytes: number,
   operation: string,
   failureKind: GitFailureKind,
@@ -183,13 +180,16 @@ async function runCommand(
   throwIfAborted(signal);
   let result: CommandResult;
   try {
+    const capture: CommandCapturePolicy = {
+      stdout: { mode: stdout, maxBytes: maxCapturedBytes, overflow: "error" },
+      stderr: { maxBytes: 64 * 1024, overflow: "truncate" },
+    };
     result = await command.run({
       executable,
       args,
       cwd,
-      env,
-      stdout,
-      maxCapturedBytes,
+      environment: { inherit: "host", values: env },
+      capture,
     }, signal);
   } catch (error) {
     if (signal.aborted) throw signal.reason ?? error;
@@ -642,8 +642,10 @@ async function archiveTree(
   }
   let processFailure: unknown;
   try {
-    if (result.completion !== undefined) await result.completion;
-    else if (result.exitCode !== 0) throw new Error("Git archive command failed");
+    if (result.completion !== undefined) {
+      const exitCode = await result.completion;
+      if (exitCode !== 0) throw new Error("Git archive command failed");
+    } else if (result.exitCode !== 0) throw new Error("Git archive command failed");
   } catch (error) {
     processFailure = error;
   }

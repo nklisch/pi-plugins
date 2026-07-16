@@ -40,3 +40,12 @@ Narrowly generalize the existing process-tree runner and build the selected-plan
 ## Ordering constraint
 
 Depends on execution contracts. It can proceed in parallel with decision aggregation. Pi application depends on both completed checkpoints.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna xhigh, one owner following the feature DAG; no nested agents, questions, or review.
+- Review weight: standard by project convention; child checkpoint advances directly to done after focused verification.
+- Files changed: adapter-neutral process-runner port, the existing Node process-tree runner, explicit Git caller policies, private executable resolver, and selected-plan guarded executor.
+- Tests added: real bounded runner coverage for literal exec arguments, nonzero exit, timeout, stderr truncation, caller abort, output limits, and Git/source acquisition; executor coverage for canonical stdin, explicit roots/environment, deduplication, fixed queue ordering, and real runner reuse.
+- Simplification: all process launches now use one runner with explicit inheritance/capture/timeout policy; hook execution performs no raw spawn, shell selection, or second cancellation path.
+- Discrepancies from design: sanitized parsed outcomes cross the configuration callback rather than raw stdout/stderr; parser-facing raw execution values remain callback-local.
+- Adjacent issues parked: none.

@@ -179,9 +179,9 @@ describe("Git source acquisition", () => {
     const command: CommandRunner = {
       async run(request) {
         if (request.args[0] === "ls-remote") {
-          return { exitCode: 1, stdout: empty, stderr: new TextEncoder().encode(`fatal: ${secret}`) };
+          return { exitCode: 1, stdout: empty, stderr: new TextEncoder().encode(`fatal: ${secret}`), stderrTruncated: false };
         }
-        return { exitCode: 0, stdout: empty, stderr: empty };
+        return { exitCode: 0, stdout: empty, stderr: empty, stderrTruncated: false };
       },
     };
     const destination = await mkdtemp(join(tmpdir(), "pi-git-slot-"));
