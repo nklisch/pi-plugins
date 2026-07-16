@@ -4,7 +4,7 @@ export interface StopContinuationGuard {
   state(): Readonly<{ stopHookActive: boolean; used: number; remaining: number }>;
   request(): "allowed" | "exhausted";
   settleWithoutContinuation(): void;
-  reset(reason: "user-input" | "shutdown" | "session-replacement" | "reload"): void;
+  reset(): void;
 }
 
 export function createStopContinuationGuard(
@@ -13,7 +13,6 @@ export function createStopContinuationGuard(
   if (!Number.isSafeInteger(budget) || budget < 0) throw new TypeError("stop continuation budget must be nonnegative");
   let active = false;
   let used = 0;
-  let generation = 0;
   const state = () => Object.freeze({ stopHookActive: active, used, remaining: Math.max(0, budget - used) });
   return Object.freeze({
     state,
@@ -26,14 +25,10 @@ export function createStopContinuationGuard(
     settleWithoutContinuation(): void {
       active = false;
       used = 0;
-      generation += 1;
-      void generation;
     },
-    reset(_reason: "user-input" | "shutdown" | "session-replacement" | "reload"): void {
+    reset(): void {
       active = false;
       used = 0;
-      generation += 1;
-      void generation;
     },
   });
 }

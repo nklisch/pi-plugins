@@ -80,11 +80,9 @@ export function aggregateHookDecisions(input: Readonly<{
 
     if (block === undefined && decision.block !== undefined) block = decision.block;
     if (decision.permission !== undefined) {
-      if (permission?.kind !== "deny") {
-        if (decision.permission.kind === "deny" || permission === undefined || decision.permission.kind === "ask") {
-          permission = decision.permission;
-        }
-      }
+      if (permission === undefined) permission = decision.permission;
+      else if (permission.kind !== "deny" && decision.permission.kind === "deny") permission = decision.permission;
+      else if (permission.kind === "allow" && decision.permission.kind === "ask") permission = decision.permission;
     }
     if (decision.updatedInput !== undefined) {
       updatedInput ??= input.originalInput.hook_event_name === "PreToolUse" ? cloneJson(input.originalInput.tool_input) : {};

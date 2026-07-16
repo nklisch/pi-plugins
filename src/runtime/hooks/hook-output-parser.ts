@@ -53,22 +53,26 @@ function fieldAllowed(event: OrdinaryHookEvent | SubagentHookEvent, field: strin
   return definition !== undefined && (definition.events as readonly string[]).includes(event);
 }
 
+type MergeOutputResult =
+  | Readonly<{ kind: "accepted"; output: CommandHookJsonOutput }>
+  | Readonly<{ kind: "unsupported" }>;
+
 function mergeOutput(
   event: OrdinaryHookEvent | SubagentHookEvent,
   output: CommandHookJsonOutput,
-): CommandHookJsonOutput | HookRuntimeDiagnostic {
+): MergeOutputResult {
   const nested = output.hookSpecificOutput;
-  if (nested === undefined) return output;
-  if (nested.hookEventName !== event) return { kind: "diagnostic" } as never;
+  if (nested === undefined) return { kind: "accepted", output };
+  if (nested.hookEventName !== event) return { kind: "unsupported" };
   const result: Record<string, unknown> = { ...output };
   delete result.hookSpecificOutput;
   for (const [field, value] of Object.entries(nested)) {
     if (field === "hookEventName" || value === undefined) continue;
-    if (!fieldAllowed(event, field)) return { kind: "diagnostic" } as never;
-    if (field in result && !sameJson(result[field], value)) return { kind: "diagnostic" } as never;
+    if (!fieldAllowed(event, field)) return { kind: "unsupported" };
+    if (field in result && !sameJson(result[field], value)) return { kind: "unsupported" };
     result[field] = value;
   }
-  return result as CommandHookJsonOutput;
+  return { kind: "accepted", output: result as CommandHookJsonOutput };
 }
 
 function parseObject(
@@ -81,8 +85,8 @@ function parseObject(
   const parsed = CommandHookJsonOutputSchema.safeParse(value);
   if (!parsed.success) return diagnostic(execution, event, "HOOK_INVALID_OUTPUT");
   const merged = mergeOutput(event, parsed.data);
-  if (!("kind" in merged)) return merged;
-  return diagnostic(execution, event, "HOOK_UNSUPPORTED_OUTPUT");
+  if (merged.kind === "unsupported") return diagnostic(execution, event, "HOOK_UNSUPPORTED_OUTPUT");
+  return merged.output;
 }
 
 function makeDecision(

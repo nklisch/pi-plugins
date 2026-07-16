@@ -85,7 +85,7 @@ function failureCode(error: unknown): "HOOK_CANCELLED" | "HOOK_TIMEOUT" | "HOOK_
     if (code === "TIMEOUT") return "HOOK_TIMEOUT";
     if (code === "OUTPUT_LIMIT") return "HOOK_OUTPUT_LIMIT";
     if (code === "CANCELLED") return "HOOK_CANCELLED";
-    if (code === "SPAWN_FAILED" || code === "PIPE_FAILED" || code === "STDIN_FAILED") return "HOOK_SPAWN_FAILED";
+    if (code === "SPAWN_FAILED" || code === "PIPE_FAILED" || code === "STDIN_FAILED" || code === "NULL_EXIT") return "HOOK_SPAWN_FAILED";
   }
   if (error !== null && typeof error === "object" && "name" in error && (error as { name?: unknown }).name === "AbortError") return "HOOK_CANCELLED";
   return "HOOK_EXECUTABLE_UNAVAILABLE";

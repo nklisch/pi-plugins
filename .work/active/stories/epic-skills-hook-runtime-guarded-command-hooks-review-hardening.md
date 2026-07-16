@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-guarded-command-hooks-review-hardening
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, security, infra, tests]
 parent: epic-skills-hook-runtime-guarded-command-hooks
 depends_on: [epic-skills-hook-runtime-guarded-command-hooks-integration-hardening]
@@ -35,9 +35,20 @@ updated: 2026-07-16
 
 ## Acceptance evidence
 
-- [ ] A Stop continuation starts an actual turn under Pi 0.80.8 semantics.
-- [ ] No fourth continuation starts and send failure does not consume/strand active state.
-- [ ] Real resolver branches and abort are directly covered.
-- [ ] Stop empty-output exit 2 continues with safe fallback.
-- [ ] No new dead policy/guard/context code or unsafe parser cast remains.
-- [ ] Full `npm test`, boundaries, build/package import pass with no secret/process leaks.
+- [x] A Stop continuation starts an actual turn under Pi 0.80.8 semantics.
+- [x] No fourth continuation starts and send failure does not consume/strand active state.
+- [x] Real resolver branches and abort are directly covered.
+- [x] Stop empty-output exit 2 continues with safe fallback.
+- [x] No new dead policy/guard/context code or unsafe parser cast remains.
+- [x] Full `npm test`, boundaries, build/package import pass with no secret/process leaks.
+
+## Implementation notes
+
+- Execution capability: direct inline implementation; this is a bounded compatibility/process hardening story with one cohesive owner and no nested agents.
+- Review weight: standard, already satisfied by the feature review; this story receives no second independent pass.
+- Files changed: `src/pi/hooks/pi-command-hook-runtime.ts`, `src/runtime/hooks/stop-continuation-guard.ts`, `src/runtime/hooks/hook-output-parser.ts`, `src/runtime/hooks/hook-decision-aggregator.ts`, `src/runtime/hooks/guarded-command-executor.ts`, `src/infrastructure/process/hook-executable-resolver.ts`, and the focused Pi/runtime/resolver tests.
+- Tests added: fidelity Pi idle-delivery integration coverage (nextTurn ignored, steer starts, recursive active state, send failure, three-use exhaustion, and reset paths); deterministic resolver coverage for absolute/cwd/PATH/Windows candidates/missing/abort; Stop exit-2 empty output; null-exit classification; and declaration-order ask reason retention.
+- Simplification: Pi fail-closed status now derives from the existing event policy registry; removed unused runtime context plumbing and Stop generation/reset-reason plumbing; replaced the parser sentinel cast with a discriminated result.
+- Discrepancies from design: the resolver now accepts private injected platform, host environment, and access adapters so Windows branches are deterministic on non-Windows test hosts; PATH entries resolve from the requested child cwd.
+- Adjacent issues parked: none.
+- Verification: focused Vitest passed (5 files, 21 tests). Full `npm test` passed: typecheck, dependency boundaries (209 modules / 1,263 dependencies), Vitest (149 files / 781 tests), build, and compiled package import (459 exports). No secret/process-leak regressions observed.

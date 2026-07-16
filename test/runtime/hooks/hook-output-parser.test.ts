@@ -64,6 +64,7 @@ describe("strict hook output parser", () => {
   it("maps exit two only where the event contract can preserve it", () => {
     expect(parseHookHandlerOutput({ event: "PreToolUse", execution: execution("", 2), redact: (value) => value })).toMatchObject({ block: {} });
     expect(parseHookHandlerOutput({ event: "Stop", execution: execution('{"stopReason":"keep going"}', 2), redact: (value) => value })).toMatchObject({ continuation: { reason: "keep going" } });
+    expect(parseHookHandlerOutput({ event: "Stop", execution: execution("", 2), redact: (value) => value })).toMatchObject({ continuation: {} });
     expect(parseHookHandlerOutput({ event: "SessionEnd", execution: execution("", 2), redact: (value) => value })).toMatchObject({ code: "HOOK_EXIT_STATUS" });
     expect(parseHookHandlerOutput({ event: "PreToolUse", execution: execution("failure", 1), redact: (value) => value })).toMatchObject({ code: "HOOK_EXIT_STATUS" });
   });

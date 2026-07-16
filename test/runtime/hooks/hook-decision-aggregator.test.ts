@@ -38,14 +38,14 @@ describe("ordered hook decision aggregation", () => {
       event: "PreToolUse",
       originalInput: input,
       decisions: [
-        decision(1, { contexts: ["later"], block: { reason: "later reason" }, permission: { kind: "allow" }, updatedInput: { value: "later" }, title: "later" }),
-        decision(0, { contexts: ["first"], systemMessages: ["notice"], block: { reason: "first reason" }, permission: { kind: "ask" }, updatedInput: { value: "first", keep: 1 }, title: "first" }),
+        decision(1, { contexts: ["later"], block: { reason: "later reason" }, permission: { kind: "allow", reason: "later allow reason" }, updatedInput: { value: "later" }, title: "later" }),
+        decision(0, { contexts: ["first"], systemMessages: ["notice"], block: { reason: "first reason" }, permission: { kind: "ask", reason: "first ask reason" }, updatedInput: { value: "first", keep: 1 }, title: "first" }),
       ],
     });
     expect(result.contexts).toEqual(["first", "later"]);
     expect(result.systemMessages).toEqual(["notice"]);
     expect(result.block).toEqual({ reason: "first reason" });
-    expect(result.permission).toEqual({ kind: "ask" });
+    expect(result.permission).toEqual({ kind: "ask", reason: "first ask reason" });
     expect(result.updatedInput).toEqual({ old: true, value: "later", keep: 1 });
     expect(result.title).toBe("later");
   });

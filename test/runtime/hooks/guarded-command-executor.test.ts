@@ -98,6 +98,22 @@ describe("guarded command hook executor", () => {
     expect(result.handlers.map((value) => "code" in value ? value.code : value.contexts[0])).toEqual(["canary-a", "canary-b"]);
   });
 
+  it("maps a runner null exit to a spawn diagnostic rather than executable-unavailable", async () => {
+    const plan = planFor([hook("UserPromptSubmit", undefined, [], "a")]);
+    const executor = createGuardedCommandHookExecutor({
+      context: context(),
+      executables: { resolve: async () => ({ executable: execPath, resolution: "absolute", identity: "identity" as never }) },
+      command: {
+        run: async () => { throw Object.assign(new Error("closed without status"), { code: "NULL_EXIT" }); },
+      },
+    });
+    const result = await executor.execute(plan, { currentProject: project, runtimeSignal: new AbortController().signal });
+    expect(result.kind).toBe("completed");
+    if (result.kind !== "completed") return;
+    expect(result.handlers).toHaveLength(1);
+    expect(result.handlers[0]).toMatchObject({ code: "HOOK_SPAWN_FAILED" });
+  });
+
   it("uses the real bounded runner for literal exec arguments", async () => {
     const raw = hook("UserPromptSubmit", undefined, [], "a");
     const plan = planFor([raw]);
