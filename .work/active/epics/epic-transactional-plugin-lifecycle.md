@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle
 kind: epic
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: null
 depends_on: [epic-foreign-plugin-model]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-11
-updated: 2026-07-12
+updated: 2026-07-16
 ---
 
 # Transactional Plugin Lifecycle
@@ -90,3 +90,11 @@ These guarantees constrain every child feature. Feature design may choose concre
 - **Scope aliasing is security-sensitive**: project identity changes, moved checkouts, and simultaneous user/project enablement can accidentally transfer trust or mix projections. Canonical scope identity and precedence require adversarial feature-level design.
 - **Projection/reload ambiguity could strand a candidate**: operation success must depend on inspected evidence for the exact revision and hash, with startup recovery resolving indeterminate outcomes.
 - **Update automation expands trust authority**: update policy must remain source-identity-bound, preserve explicit approval for identity changes, and route every automatic application through the same lifecycle operation and recovery journal as manual updates.
+
+## Integrated implementation summary (2026-07-16)
+
+All eight child capability arcs are `done`: versioned state/stores, trust/config/secrets, cross-process generation locking, immutable promotion, lifecycle operations, recovery/journal/GC, read-only foreign adoption, and refresh/update policy. Each feature completed its own review boundary; material review blockers were fixed and verified before closure.
+
+The integrated package now provides the authoritative user/project state model; source-bound trust and secret references; short compare-and-commit mutation authority; immutable content promotion; one install/enable/disable/update/uninstall transaction path with projection/reload evidence; durable recovery/retention/collection; read-only Claude/Codex declaration adoption; and explicit offline-safe refresh/scheduling/policy services. No runtime skill/hook/MCP adapters or native manager UI were introduced.
+
+Latest integrated verification passes `npm test`: typecheck, dependency boundaries, 121 files / 648 tests, build/package import, and 437 intentional exports. Real process-crash, concurrent-lock, recovery-retention, adoption, automatic-authority, scheduler, notification, and v1/v2 compatibility evidence are included. The pre-existing dirty `.work/bin/work-view` remains untouched.
