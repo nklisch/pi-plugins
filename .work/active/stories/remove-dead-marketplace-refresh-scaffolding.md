@@ -1,7 +1,7 @@
 ---
 id: remove-dead-marketplace-refresh-scaffolding
 kind: story
-stage: review
+stage: done
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -51,3 +51,14 @@ Risk is limited to accidentally deleting an import with a live type use or chang
 - Simplified `candidateNotifications` to return only the persisted record and plugin outcomes it actually computes; the live automatic-application notification-intent array remains unchanged.
 - Focused update inspection/scheduler/domain tests pass (12 tests), along with TypeScript typecheck.
 - Execution capability: direct host implementation; this is one mechanical standalone-story deletion with a bounded diff.
+
+## Review (2026-07-16)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+**Rejected**: none
+
+**Notes**: Bounded inline standalone-story review; no independent/cross-model reviewer by policy. Symbol and diff inspection confirm only unreachable private scaffolding and unused imports were removed; live automatic-application notification intents remain unchanged. Full `npm test` passes: typecheck, boundaries, 117 files / 636 tests, build, and 434 compiled exports.
