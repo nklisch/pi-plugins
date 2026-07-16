@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-skill-discovery-path-verification
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra, security]
 parent: epic-skills-hook-runtime-skill-discovery
 depends_on: []
@@ -47,3 +47,14 @@ Provide one manifest-backed filesystem port that turns an exact manifest file re
 ## Ordering
 
 No sibling dependency. This physical boundary can be implemented in parallel with observation contracts. Resource-set assembly depends on both.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna, high; security-sensitive filesystem boundary with a shared helper and focused mutation tests.
+- Review weight: standard, source: project convention; child checkpoints do not enter review.
+- Files changed: `src/application/ports/skill-resource-path.ts`, `src/infrastructure/filesystem/manifest-backed-file.ts`, `src/infrastructure/filesystem/manifest-content-reader.ts`, `src/infrastructure/filesystem/manifest-skill-path-verifier.ts`, and `test/infrastructure/filesystem/manifest-skill-path-verifier.test.ts`.
+- Tests added/updated: exact root/nested paths, missing/type/symlink/digest failures, adapter readability, and cancellation; existing content-reader symlink/cancellation coverage remains green.
+- Simplification: extracted one no-follow, realpath, bounded-read, and digest helper rather than adding a second filesystem resolver.
+- Discrepancies from design: the application port remains contract-only; the factory lives in infrastructure as required by the dependency rules.
+- Adjacent issues parked: none.
+- Verification: focused manifest reader/verifier suites pass with runtime typechecking disabled because the design branch's pre-existing test typecheck baseline is already non-green under TypeScript 7.
+- Stage transition: implementing -> done; implementation commit `implement: epic-skills-hook-runtime-skill-discovery-path-verification`.
