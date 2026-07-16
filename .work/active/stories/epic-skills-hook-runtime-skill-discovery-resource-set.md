@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-skill-discovery-resource-set
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-skill-discovery
 depends_on: [epic-skills-hook-runtime-skill-discovery-observation-contract, epic-skills-hook-runtime-skill-discovery-path-verification]
@@ -47,3 +47,14 @@ Build the host-neutral discovery service and final observed participant over the
 ## Ordering
 
 Blocked by both observation-contract and path-verification checkpoints. The typed Pi adapter depends on this host-neutral port.
+
+## Implementation notes
+- Execution capability: GPT-5.6 Luna, high; dependency-ordered host-neutral assembly over the completed catalog and filesystem port.
+- Review weight: standard, source: project convention; child checkpoints do not enter review.
+- Files changed: `src/runtime/skills/resource-discovery.ts` and `test/runtime/skills/resource-discovery.test.ts`.
+- Tests added/updated: deterministic scope/plugin ordering, target-scoped failure isolation, healthy-path retention, observation invalidation, and applied-reconcile removal.
+- Simplification: one in-memory latest discovery registry owns emitted paths, target failures, and logical path owners; there is no copied tree, settings cache, or persisted path state.
+- Discrepancies from design: ownership evidence remains private as a canonical-path owner map; the public result exposes only paths and stable target failures.
+- Adjacent issues parked: none.
+- Verification: source typecheck and focused resource-discovery suite pass; the suite was run with runtime typechecking disabled because the design branch's pre-existing test typecheck baseline is already non-green under TypeScript 7.
+- Stage transition: implementing -> done; implementation commit `implement: epic-skills-hook-runtime-skill-discovery-resource-set`.
