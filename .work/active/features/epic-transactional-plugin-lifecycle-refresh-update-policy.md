@@ -1,7 +1,7 @@
 ---
 id: epic-transactional-plugin-lifecycle-refresh-update-policy
 kind: feature
-stage: implementing
+stage: review
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle
 depends_on: [epic-transactional-plugin-lifecycle-operations, epic-transactional-plugin-lifecycle-recovery-journal-gc]
@@ -533,3 +533,15 @@ Receiver-confirmed material fix set:
 - Make inventory completeness local to each refresh invocation so concurrent explicit/scheduled calls cannot broaden automatic eligibility.
 
 Tracked by `epic-transactional-plugin-lifecycle-refresh-update-policy-review-hardening`. The fourth cadence already removed the dead `successRecord`/private intent scaffolding. Under `standard`, closure after this story is fix verification only; do not commission a second independent pass. Lower-risk notification pruning and conservative source-equality cleanup are parked separately.
+
+## Fix verification (2026-07-16)
+
+The standard-review hardening story is complete in commit `06e60b5`.
+
+- Exported and composed the policy service, including the named Node update-composition alias, while retaining private authorization, claim, timer, and state internals outside the package boundary.
+- Added policy CAS/memory-preservation tests, automatic authority tests, table-driven disposition tests, scheduler failure continuation, and shared-state integration for coalescing, manual/automatic intent emission, moved revisions, later-plugin failures, and invocation-local inventory completeness.
+- Mapped all lifecycle outcomes explicitly: authority/candidate failures require manual action; preparation, promotion, abort, stale, and rollback outcomes retry; recovery-required remains recovery-required.
+- Removed pure-comparison candidate hashing with a constant digest and now derive source-change keys only at the caller with injected SHA-256 and exact source identities.
+- Forced v2 replacement envelopes through refresh, policy, and project lifecycle/reconciliation writers so v2 claims, backoff, and notification memory survive compatibility adapters.
+
+Verification: `npm test` passed on the final run (121 files / 647 tests), including typecheck, dependency boundaries, build, and compiled package import with 437 intentional exports. A prior full run encountered the existing process-recovery timing flake; its focused suite and the immediate full rerun passed.
