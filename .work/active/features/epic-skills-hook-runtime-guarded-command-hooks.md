@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-guarded-command-hooks
 kind: feature
-stage: review
+stage: done
 tags: [compatibility, security, infra]
 parent: epic-skills-hook-runtime
 depends_on: [epic-skills-hook-runtime-hook-event-adaptation]
@@ -579,3 +579,9 @@ Effective weight: `standard`; one fresh-context Umans GLM 5.2 security pass. The
 - Replace the output parser's `as never` sentinel with a typed result; map `NULL_EXIT` to spawn failure; retain the first declaration-order `ask` reason.
 
 Tracked by `epic-skills-hook-runtime-guarded-command-hooks-review-hardening`. Context-before-ask-denial, idle context delivery naming, and generic canonicalizer deduplication are ambiguous or low-risk and remain out of scope. Standard review closes administratively after this exact set; no second independent pass.
+
+## Review closure
+
+**Verdict**: Approve after fixes
+
+The non-functional Stop continuation and exact evidence/code-quality set are fixed. Host administrative verification passes at 149 files / 781 tests, clean typecheck and 209-module boundaries, build/package import, and unchanged 459 exports. No security or correctness blocker remains; no second independent review was commissioned.
