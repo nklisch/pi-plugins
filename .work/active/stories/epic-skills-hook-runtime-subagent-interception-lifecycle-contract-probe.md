@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-subagent-interception-lifecycle-contract-probe
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-subagent-interception
 depends_on: []
@@ -70,3 +70,16 @@ None. Current upstream API absence does not block the host-owned portable contra
 ## Risk and rollback
 
 The risk is ceremonial capability evidence. Require exact released package metadata, qualification digest, all behavior/path vectors, and a published-package provider; the future concrete wrapper must pass the shared suite. Rollback removes an unconsumed portable surface and restores the existing unavailable fact without state or migration changes.
+
+## Implementation summary
+
+- Added the adapter-neutral lifecycle identity, path, decision, qualification, conformance, registration, and port contracts. Callback prompt/result values and signals remain type-only, while all durable evidence is strict and serializable.
+- Added the capability-probe decorator. Missing ports and test providers make only `pi.subagents.lifecycle-interception` unavailable; only a complete published-package receipt whose runtime ranges and behavioral vectors qualify can make it available.
+- Added the shared continuation budget, explicit source/compiled exports, semver type support, and strict capability/public-boundary tests. No subagent package or package-specific type enters the application port.
+
+## Implementation record
+
+- Execution capability: `xhigh feature owner`; one cohesive direct implementation with no nested agents.
+- Commit ref: `70a699f` (`implement: subagent lifecycle contract and probe`).
+- Verification: `npm run typecheck`; 35 focused Vitest tests across lifecycle contracts/probe, compatibility evaluation/reporting, and public API; `npm run test:package`; compiled import passed with 478 exports.
+- Deviations: none affecting the designed boundary. Invalid present semver/range evidence fails as redacted `ADAPTER_FAILED`; incomplete but well-formed behavioral coverage remains truthfully unavailable.
