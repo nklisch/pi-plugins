@@ -23,7 +23,7 @@ Implement closed-world retained-root computation, process-liveness revision leas
 
 - `src/domain/content-store.ts`
 - `src/application/revision-collection-service.ts`
-- `src/application/confirmed-uninstall-cleanup.ts`},{
+- `src/application/confirmed-uninstall-cleanup.ts`
 - `src/application/ports/revision-artifact-store.ts`
 - `src/application/ports/revision-lease-store.ts`
 - `src/application/ports/revision-retention-store.ts`
