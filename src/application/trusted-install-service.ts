@@ -49,6 +49,8 @@ export type TrustedInstallationServiceDependencies = Readonly<{
   sha256: Sha256;
 }>;
 
+class ProjectAuthorityStale extends Error {}
+
 function sortedIssues(input: readonly TrustedInstallInputIssue[]): readonly TrustedInstallInputIssue[] {
   const unique = new Map(input.map((issue) => [`${issue.key ?? ""}\0${issue.code}`, issue]));
   return Object.freeze([...unique.values()].sort((left, right) => {
@@ -106,8 +108,16 @@ export function createTrustedInstallationService(dependencies: TrustedInstallati
   async function finish(entry: TrustedInstallSessionEntry, resultInput: TrustedInstallActivationResult): Promise<TrustedInstallActivationResult> {
     const result = TrustedInstallActivationResultSchema.parse(resultInput);
     registry.finish(entry, resultState(result), result);
-    await entry.candidate.lease.release();
-    return result;
+    try {
+      await entry.candidate.lease.release();
+      return result;
+    } catch {
+      const cleanupFailure = TrustedInstallActivationResultSchema.parse({
+        kind: "failed", code: "CLEANUP_FAILED", progress: entry.progress, retained: safeRetained(entry),
+      });
+      registry.finish(entry, "failed", cleanupFailure);
+      return cleanupFailure;
+    }
   }
 
   function safeRetained(entry: TrustedInstallSessionEntry) { return { ...entry.retained }; }
@@ -123,11 +133,16 @@ export function createTrustedInstallationService(dependencies: TrustedInstallati
 
   async function projectRoot(candidate: TrustedInstallCandidate, signal: AbortSignal): Promise<TrustedProjectRoot | undefined> {
     if (candidate.binding.scope.kind === "user") return undefined;
-    const root = await dependencies.projectRoots.acquire(signal);
-    const scope = candidate.resolved.scope;
-    dependencies.projectRoots.verify(root, scope);
-    if (dependencies.projectRoots.revalidate !== undefined) await dependencies.projectRoots.revalidate(root, scope, signal);
-    return root;
+    try {
+      const root = await dependencies.projectRoots.acquire(signal);
+      const scope = candidate.resolved.scope;
+      dependencies.projectRoots.verify(root, scope);
+      if (dependencies.projectRoots.revalidate !== undefined) await dependencies.projectRoots.revalidate(root, scope, signal);
+      return root;
+    } catch (error) {
+      if (signal.aborted) throw signal.reason ?? error;
+      throw new ProjectAuthorityStale();
+    }
   }
 
   async function terminalFromLifecycle(entry: TrustedInstallSessionEntry, lifecycle: TrustedInstallLifecycleResult): Promise<TrustedInstallActivationResult> {
@@ -153,7 +168,9 @@ export function createTrustedInstallationService(dependencies: TrustedInstallati
         kind: "succeeded", plugin: entry.candidate.binding.plugin, scope: entry.candidate.binding.scope,
         revision: entry.candidate.binding.immutableRevision, projectionDigest: observation.projectionDigest,
         components: { skills: counts.skills, hooks: counts.hooks, mcpServers: counts.mcpServers },
-        progress: entry.progress, diagnostics: entry.candidate.detail.diagnostics, retained: safeRetained(entry),
+        progress: entry.progress,
+        diagnostics: entry.candidate.detail.diagnostics.filter((diagnostic) => diagnostic.category !== "trust" && diagnostic.category !== "configuration" && diagnostic.category !== "freshness"),
+        retained: safeRetained(entry),
       });
     }
     if (result.kind === "unchanged") return finish(entry, { kind: "current-state", plugin: entry.candidate.binding.plugin, scope: entry.candidate.binding.scope, revision: entry.candidate.binding.immutableRevision, activation: "enabled", reason: "already-active", progress: entry.progress, retained: safeRetained(entry) });
@@ -184,12 +201,20 @@ export function createTrustedInstallationService(dependencies: TrustedInstallati
       if (acquired.kind === "stale") return TrustedInstallOpenResultSchema.parse({ kind: "stale", reason: "candidate" });
       return TrustedInstallOpenResultSchema.parse({ kind: acquired.kind, code: acquired.kind === "unavailable" ? "CANDIDATE_UNAVAILABLE" : "CANDIDATE_REJECTED", diagnostics: acquired.diagnostics });
     }
-    const entry = await registry.create(acquired.candidate, signal);
+    let entry: TrustedInstallSessionEntry;
+    try {
+      entry = await registry.create(acquired.candidate, signal);
+    } catch (error) {
+      await acquired.candidate.lease.release().catch(() => undefined);
+      if (signal.aborted) throw signal.reason ?? error;
+      return TrustedInstallOpenResultSchema.parse({ kind: "unavailable", code: "SESSION_UNAVAILABLE", diagnostics: [] });
+    }
     progress(entry, "candidate-acquisition", "completed");
     return TrustedInstallOpenResultSchema.parse({ kind: "opened", session: view(entry) });
   }
 
   async function activate(request: Readonly<{ token: import("./trusted-install-contract.js").TrustedInstallSessionToken; submission: import("./trusted-install-contract.js").TrustedInstallSubmission }>, options: TrustedInstallExecutionOptions, callerSignal: AbortSignal): Promise<TrustedInstallActivationResult> {
+    if (quiesced) return TrustedInstallActivationResultSchema.parse({ kind: "disposed" });
     const lookup = await registry.lookup(request.token);
     if (lookup.kind !== "found") return TrustedInstallActivationResultSchema.parse({ kind: lookup.kind });
     const entry = lookup.entry;
@@ -262,16 +287,31 @@ export function createTrustedInstallationService(dependencies: TrustedInstallati
       if (!entry.retained.trust) {
         const granted = await dependencies.trust.grant({ candidate: entry.candidate.trust, scope: entry.candidate.resolved.scope, ...(root === undefined ? {} : { projectRoot: root }) }, signal);
         if (granted.kind === "stale") return finish(entry, conflict(entry, "concurrent-mutation"));
-        if (granted.kind === "project-stale") return finish(entry, stale(entry, "project"));
-        if (granted.kind === "project-untrusted") return finish(entry, { kind: "rejected", code: "PROJECT_UNTRUSTED", diagnostics: [], progress: entry.progress, retained: safeRetained(entry) });
-        if (granted.kind === "recovery-required") return finish(entry, { kind: "recovery-required", ...(granted.committed === undefined ? {} : { committed: granted.committed }), action: "run-recovery", progress: entry.progress, retained: safeRetained(entry) });
+        if (granted.kind === "project-stale") {
+          if (granted.recorded === true) entry.retained.trust = true;
+          return finish(entry, stale(entry, "project"));
+        }
+        if (granted.kind === "project-untrusted") {
+          if (granted.recorded === true) entry.retained.trust = true;
+          return finish(entry, { kind: "rejected", code: "PROJECT_UNTRUSTED", diagnostics: [], progress: entry.progress, retained: safeRetained(entry) });
+        }
+        if (granted.kind === "recovery-required") {
+          if (granted.committed !== undefined) entry.retained.trust = true;
+          return finish(entry, { kind: "recovery-required", ...(granted.committed === undefined ? {} : { committed: granted.committed }), action: "run-recovery", progress: entry.progress, retained: safeRetained(entry) });
+        }
         entry.retained.trust = true;
       }
       progress(entry, phase, "completed", options);
       signal.throwIfAborted();
 
       if (await dependencies.candidate.validate(entry.candidate, signal) !== "current") return finish(entry, stale(entry, "candidate"));
-      if (root !== undefined && dependencies.projectRoots.revalidate !== undefined) await dependencies.projectRoots.revalidate(root, entry.candidate.resolved.scope, signal);
+      if (root !== undefined && dependencies.projectRoots.revalidate !== undefined) {
+        try { await dependencies.projectRoots.revalidate(root, entry.candidate.resolved.scope, signal); }
+        catch (error) {
+          if (signal.aborted) throw signal.reason ?? error;
+          return finish(entry, stale(entry, "project"));
+        }
+      }
       if (entry.candidate.binding.configurationRef !== undefined && entry.configurationRevision !== undefined) {
         const authority = await dependencies.configurationAuthority.readExact({ configurationRef: entry.candidate.binding.configurationRef, descriptors: entry.candidate.plugin.configuration, expectedRevision: entry.configurationRevision }, signal);
         if (authority.kind !== "current") return finish(entry, stale(entry, "configuration"));
@@ -284,6 +324,7 @@ export function createTrustedInstallationService(dependencies: TrustedInstallati
       progress(entry, phase, "completed", options);
       return terminalFromLifecycle(entry, lifecycle);
     } catch (error) {
+      if (error instanceof ProjectAuthorityStale) return finish(entry, stale(entry, "project"));
       if (signal.aborted && !lifecycleStarted) return finish(entry, cancelled(entry, phase));
       return finish(entry, { kind: "failed", code: lifecycleStarted ? "ADAPTER_FAILED" : "CLEANUP_FAILED", progress: entry.progress, retained: safeRetained(entry) });
     }

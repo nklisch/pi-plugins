@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-trusted-installation
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, security]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-inspection-diagnostics]
@@ -729,3 +729,40 @@ The feature remains one cohesive implementation/review bundle. Stories are durab
 This design fails if a refreshed or moved source is installed under old consent, a secret enters a session/result/log, project scope falls back to user scope, candidate inspection downloads twice and fails offline, trust/configuration drift between consent and activation, a prepared path bypasses lifecycle rollback/recovery, concurrent update/uninstall is retried invisibly, cancellation masks a committed transition, progress is treated as success, or shutdown discards resources before an admitted reload settles.
 
 The countermeasures are exact candidate/session/consent bindings, `SensitiveValue` plus existing custody, repeated project authority checks, one leased materialization, exact config/trust rereads, one transaction executor, existing scheduler/lock/CAS, recovery-first result precedence, observation-only success, and operation-drain-aware cleanup. If any authority cannot be proven current, the correct outcome is needs-input, stale, conflict, rejected, rolled-back, or recovery-required—never guessed activation.
+
+## Implementation summary
+
+Implemented all eight checkpoints in DAG order as one cohesive xhigh feature-owner bundle with direct repository grounding and no nested agents.
+
+### Delivered architecture
+
+- Strict schema-derived public workflow contracts, registry-owned result/progress vocabularies, host-epoch checksum session tokens, and complete-binding consent IDs.
+- One private single-transfer candidate lease shared by native inspection and trusted installation; exact acquired bytes continue into lifecycle without a second source request.
+- Shared safe executable disclosure now includes declared MCP tool policy while retaining value/path redaction and no remote discovery.
+- One all-errors configuration collector over existing validation/custody, plus partition enforcement and exact post-save authority reread.
+- Idempotent exact trust grants over existing user trust state and generation coordination, including project trust/root checks and ambiguity evidence.
+- A package-private prepared lifecycle entry that rejoins the existing transaction/activation/rollback/recovery executor; public lifecycle remains source-compatible.
+- A bounded nondurable session engine for staged and one-shot operation, exact pre-effect revalidation, retained-preflight evidence, honest cancellation, duplicate admission, bounded progress, status, expiry, and disposal.
+- Packaged `application.trustedInstallation` composition sharing existing inspection, capability, configuration, trust, state, lifecycle, admission, reload, and cleanup authorities.
+- Schema-valid data-only evidence for the signed choose/inspect → configure/trust → activation-result flow, with offline, concurrency, recovery, and security acceptance.
+
+### Lifecycle and authority notes
+
+No durable workflow/session/status/transaction/secret authority was added. Configuration, trust, content/state transitions, recovery, project roots/trust, candidate materialization, inspection, marketplace selection, runtime observation, operation scheduling, and cross-process locking remain with their existing owners. Sessions retain safe evidence and an unclaimed lease only for the current host epoch; `SensitiveValue` remains callback-scoped and is never copied into session/progress/result/status evidence.
+
+### Verification
+
+- Full `npm test` green.
+- TypeScript: green.
+- Dependency boundaries: 311 modules / 2,171 dependencies, no violations.
+- Vitest: 247 files / 1,182 tests passed.
+- Package build/import: 651 public root exports and 3 Pi exports exact.
+- Isolated packed Pi extension startup: passed.
+
+### Execution notes
+
+- Owner capability: GPT-5.6 Sol, xhigh, selected by explicit caller instruction for the security/concurrency/cross-module scope.
+- Review weight: `standard`, from project convention. Feature advanced to `review` only after every child reached `done` and the integrated full suite passed.
+- Completion hardening makes staging/session-ID cleanup failure explicit, releases acquisition when session creation fails, preserves committed trust evidence across project-return staleness, treats committed lock-cleanup ambiguity as recovery-required, filters resolved preflight diagnostics from success, and rejects activation after quiescence.
+- The pending inspection correction branch was not modified or worked around; integration uses narrow evidence/readiness/detail contracts so later rebase can reconcile that branch normally.
+- No command/TUI rendering, later lifecycle operation, fork/refactor, release, push, or `.work/bin/work-view` change was made.

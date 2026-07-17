@@ -16,7 +16,7 @@ import type { TrustSubjectRef } from "../domain/state/references.js";
 export type ExactTrustGrantResult =
   | Readonly<{ kind: "recorded" | "already-recorded"; subject: TrustSubjectRef; generation: Generation }>
   | Readonly<{ kind: "stale"; expected: Generation; actual: Generation }>
-  | Readonly<{ kind: "project-untrusted" | "project-stale" }>
+  | Readonly<{ kind: "project-untrusted" | "project-stale"; recorded?: true; generation?: Generation }>
   | Readonly<{ kind: "recovery-required"; subject: TrustSubjectRef; committed?: Generation }>;
 
 export interface ExactTrustGrantService {
@@ -133,7 +133,7 @@ export function createExactTrustGrantService(dependencies: ExactTrustGrantDepend
         );
         if (result.kind === "committed") {
           const finalStatus = await projectStatus(candidate, scope, request.projectRoot, dependencies, signal);
-          if (finalStatus !== "trusted") return { kind: finalStatus };
+          if (finalStatus !== "trusted") return { kind: finalStatus, recorded: true, generation: result.snapshot.generation };
           return { kind: "recorded", subject: candidate.subject, generation: result.snapshot.generation };
         }
         if (result.kind === "stale-generation" || result.kind === "commit-failed") {
@@ -143,7 +143,7 @@ export function createExactTrustGrantService(dependencies: ExactTrustGrantDepend
       } catch (error) {
         if (error instanceof AlreadyRecorded) return { kind: "already-recorded", subject: candidate.subject, generation: error.generation };
         if (error instanceof CommittedMutationCleanupError) {
-          return { kind: "recorded", subject: candidate.subject, generation: error.committed.snapshot.generation };
+          return { kind: "recovery-required", subject: candidate.subject, committed: error.committed.snapshot.generation };
         }
         if (signal.aborted) throw signal.reason ?? error;
         if (error !== null && typeof error === "object" && "code" in error) {

@@ -30,8 +30,8 @@ const snapshotBinding = {
 };
 const snapshotId = deriveInspectionEvidenceSnapshotId(snapshotBinding, sha256);
 
-function makeCandidate() {
-  const release = vi.fn(async () => undefined);
+function makeCandidate(releaseError = false) {
+  const release = vi.fn(async () => { if (releaseError) throw new Error("cleanup failed"); });
   return {
     lease: { release }, binding,
     resolved: { scope: { kind: "user" }, entry: { source: { value: { kind: "git", url: "https://example.invalid/plugin.git" } } }, marketplace: { root: "/private/market", source: {}, content: { rootDigest: binding.contentDigest }, binding: binding.contentDigest } },
@@ -47,11 +47,11 @@ function makeCandidate() {
   } as never;
 }
 
-function setup(options: { trustGate?: Promise<void> } = {}) {
+function setup(options: { trustGate?: Promise<void>; releaseError?: boolean; sessionIdFailure?: boolean } = {}) {
   let id = 0;
   const candidates: ReturnType<typeof makeCandidate>[] = [];
   const candidateService = {
-    acquire: vi.fn(async () => { const candidate = makeCandidate(); candidates.push(candidate); return { kind: "ready" as const, candidate }; }),
+    acquire: vi.fn(async () => { const candidate = makeCandidate(options.releaseError); candidates.push(candidate); return { kind: "ready" as const, candidate }; }),
     validate: vi.fn(async () => "current" as const),
   };
   const trustGrant = vi.fn(async () => { await options.trustGate; return { kind: "recorded" as const, subject: binding.trustSubject, generation: 1 }; });
@@ -69,7 +69,10 @@ function setup(options: { trustGate?: Promise<void> } = {}) {
     evidence: { capture: vi.fn(async () => ({ binding: snapshotBinding })), validate: vi.fn(async () => "current") } as never,
     projectRoots: { acquire: vi.fn(), verify: vi.fn() } as never,
     clock: { nowEpochMilliseconds: () => 1000 as never, monotonicMilliseconds: () => 0 },
-    sessionIds: { create: async () => `2d6737b6-7482-4a50-9310-${String(++id).padStart(12, "0")}` as never },
+    sessionIds: { create: async () => {
+      if (options.sessionIdFailure) throw new Error("id unavailable");
+      return `2d6737b6-7482-4a50-9310-${String(++id).padStart(12, "0")}` as never;
+    } },
     hostEpoch: `sha256:${"3".repeat(64)}` as never, sha256,
   });
   const openRequest = { inspectionSnapshotId: snapshotId, detailId };
@@ -111,6 +114,23 @@ describe("trusted installation service", () => {
     expect((await first).kind).toBe("succeeded");
     expect((await value.composition.application.activate({ token: opened.session.token, submission: value.submission }, {}, new AbortController().signal)).kind).toBe("succeeded");
     expect(value.trustGrant).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports cleanup failure instead of claiming clean cancellation", async () => {
+    const value = setup({ releaseError: true });
+    const opened = await value.composition.application.open(value.openRequest, new AbortController().signal);
+    if (opened.kind !== "opened") throw new Error("open failed");
+    await expect(value.composition.application.cancel({ token: opened.session.token }, new AbortController().signal))
+      .resolves.toMatchObject({ kind: "accepted", state: "failed" });
+    const status = await value.composition.application.status({ token: opened.session.token }, new AbortController().signal);
+    expect(status).toMatchObject({ kind: "found", result: { kind: "failed", code: "CLEANUP_FAILED" } });
+  });
+
+  it("releases acquired content when session identifier creation fails", async () => {
+    const value = setup({ sessionIdFailure: true });
+    await expect(value.composition.application.open(value.openRequest, new AbortController().signal))
+      .resolves.toMatchObject({ kind: "unavailable", code: "SESSION_UNAVAILABLE" });
+    expect(value.candidates[0]!.release).toHaveBeenCalledTimes(1);
   });
 
   it("cancels before durable preflight and disposes unclaimed content", async () => {
