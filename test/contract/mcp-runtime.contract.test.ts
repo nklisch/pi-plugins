@@ -132,6 +132,55 @@ describe("MCP runtime conformance suite negative evidence", () => {
     await expect(assertMcpRuntimeContract(baseHarness(runtime, fake))).rejects.toThrow();
   });
 
+  it("catches a runtime that releases execution leases before the execution closes", async () => {
+    const fake = new FakeMcpRuntime();
+    const runtime = delegated(fake, {
+      replaceSource: (request, signal) => fake.replaceSource({
+        ...request,
+        runtimeLeases: {
+          async acquire(binding, leaseSignal) {
+            const lease = await request.runtimeLeases.acquire(binding, leaseSignal);
+            await request.runtimeLeases.release(lease, leaseSignal);
+            return lease;
+          },
+          release: (lease, leaseSignal) => request.runtimeLeases.release(lease, leaseSignal),
+        },
+      }, signal),
+    });
+    await expect(assertMcpRuntimeContract(baseHarness(runtime, fake))).rejects.toThrow();
+  });
+
+  it("catches a runtime that skips execution-lease release", async () => {
+    const fake = new FakeMcpRuntime();
+    const runtime = delegated(fake, {
+      replaceSource: (request, signal) => fake.replaceSource({
+        ...request,
+        runtimeLeases: {
+          acquire: (binding, leaseSignal) => request.runtimeLeases.acquire(binding, leaseSignal),
+          release: async () => undefined,
+        },
+      }, signal),
+    });
+    await expect(assertMcpRuntimeContract(baseHarness(runtime, fake))).rejects.toThrow();
+  });
+
+  it("catches a runtime that applies execution-lease release twice", async () => {
+    const fake = new FakeMcpRuntime();
+    const runtime = delegated(fake, {
+      replaceSource: (request, signal) => fake.replaceSource({
+        ...request,
+        runtimeLeases: {
+          acquire: (binding, leaseSignal) => request.runtimeLeases.acquire(binding, leaseSignal),
+          async release(lease, leaseSignal) {
+            await request.runtimeLeases.release(lease, leaseSignal);
+            await request.runtimeLeases.release(lease, leaseSignal);
+          },
+        },
+      }, signal),
+    });
+    await expect(assertMcpRuntimeContract(baseHarness(runtime, fake))).rejects.toThrow();
+  });
+
   it("catches unsafe source-qualified inspection", async () => {
     const fake = new FakeMcpRuntime();
     const runtime = delegated(fake, {

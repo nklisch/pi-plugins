@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-lifecycle-reconciliation-runtime-lease-cleanup
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-lifecycle-reconciliation
 depends_on: [epic-mcp-runtime-integration-lifecycle-reconciliation-portable-contracts]
@@ -54,3 +54,18 @@ The MCP runtime remains responsible for process/connection start, supervision, c
 ## Ordering constraint
 
 Depends only on portable contracts and may implement in parallel with the reconciliation participant. Recovery conformance requires both.
+
+## Implementation notes
+
+- Added `createMcpRevisionLeaseProvider`, adapting one immutable source registration and the existing pin-or-abort active-selection callback to the existing `RevisionLeaseStore`.
+- Acquire validates exact source/server/component/transport, complete projection/revision/component/current-project trust evidence, and derives only the existing plugin-store key and projection reference. The returned token is provider-owned, opaque, non-serializable, and redacted.
+- Release is idempotent after success, serialized under concurrent calls, and remains retryable after failure. Cancellation after underlying acquisition performs runtime-owned cleanup before returning a safe failure.
+- Extended the reusable runtime conformance negatives to catch early, missing, and double execution-lease release. The package-neutral fake proves launch-value disposal is immediate while runtime leases remain until process/connection close and block replace/remove success on cleanup failure.
+- Added no process supervisor, heartbeat, expiry, takeover, lease database, liveness classifier, transport implementation, or secret/configuration/root field to lease artifacts.
+
+## Verification
+
+- Focused revision-lease/fake/conformance/runtime/public suites: **31 passed, 0 failed**.
+- `npm run typecheck`: passed.
+- `npm run boundaries`: passed (**237 modules, 1,444 dependencies**, no violations).
+- `npm run test:package`: passed; compiled package import allowlist **522 exports**.

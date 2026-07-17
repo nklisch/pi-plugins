@@ -1143,6 +1143,7 @@ export type {
   McpLifecycleStatusResult,
   McpLifecycleParticipant,
 } from "./runtime/mcp/lifecycle-participant.js";
+export { createMcpRevisionLeaseProvider } from "./runtime/mcp/revision-lease-provider.js";
 
 export {
   createSkillHookSnapshotLoader,

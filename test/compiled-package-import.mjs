@@ -247,6 +247,7 @@ const expectedExports = [
   "createMcpLaunchContextPort",
   "createMcpLaunchTemplate",
   "createMcpLifecycleParticipant",
+  "createMcpRevisionLeaseProvider",
   "createMcpSourceRegistration",
   "createMcpRuntimeCapabilityProbe",
   "createSubagentLifecycleCapabilityProbe",

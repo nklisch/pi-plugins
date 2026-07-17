@@ -866,6 +866,7 @@ describe("explicit package API", () => {
     expect(sourceApi.McpLifecycleObservationResultSchema).toBeDefined();
     expect(sourceApi.McpLifecycleStatusResultSchema).toBeDefined();
     expect(sourceApi.createMcpLifecycleParticipant).toBeDefined();
+    expect(sourceApi.createMcpRevisionLeaseProvider).toBeDefined();
     expect(sourceApi).not.toHaveProperty("encodeRuntimeProjectionCache");
     expect(sourceApi).not.toHaveProperty("decodeRuntimeProjectionCache");
     expect(sourceApi).not.toHaveProperty("createRuntimeProjectionCache");
