@@ -82,7 +82,7 @@ describe("skill/hook contribution observation", () => {
     expect(() => composeActivationObservation({ expectation, skillsHooks: source as never, mcp: {
       kind: "active", participant: "mcp", scope: expectation.projection.scope, plugin: expectation.projection.plugin,
       revision: expectation.projection.revision, projectionDigest: expectation.projection.digest, currentProject: project,
-      contributionDigest: digest("e"),
+      contributionDigest: digest("e"), registration: { kind: "none" },
     } })).toThrow();
   });
 

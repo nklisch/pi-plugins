@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-lifecycle-reconciliation-reconciliation-participant
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-lifecycle-reconciliation
 depends_on: [epic-mcp-runtime-integration-lifecycle-reconciliation-portable-contracts]
@@ -54,3 +54,17 @@ The participant does not read or mutate authoritative state, transition records,
 ## Ordering constraint
 
 Depends on the strengthened portable contract. Recovery conformance waits for this participant and the sibling runtime-lease checkpoint.
+
+## Implementation notes
+
+- Added one stateless MCP lifecycle participant over `McpRuntimePort`. It accepts exact `from`/`to` source, no-MCP, or inactive states, verifies complete projection identity and project trust, checks required capability continuity, and performs at most one owner-qualified CAS replace/remove.
+- Reconciliation cross-checks `inspectSources` with `inspectSource`, treats duplicate/disagreeing/malformed/partial evidence as ambiguity, refuses stale third-source overwrite, replays exact absent removal for cleanup proof, and never treats an adapter return as activation evidence.
+- Added strict MCP contribution evidence with explicit source/none registration shape. Exact registration digest and sorted server/component inventory are observed independently; per-server connection/tool/error health remains outside contribution identity.
+- Narrowed `composeActivationObservation` to strict MCP evidence while retaining the generic contribution base for internal use. No state, transition, journal, recovery, filesystem, Pi, transport, or package implementation was introduced.
+
+## Verification
+
+- Focused participant/composer/projection/public suites: **24 passed, 0 failed**.
+- `npm run typecheck`: passed.
+- `npm run boundaries`: passed (**237 modules, 1,443 dependencies**, no violations).
+- `npm run test:package`: passed; compiled package import allowlist **521 exports**.

@@ -1102,6 +1102,8 @@ export {
   RuntimeContributionParticipantSchema,
   RuntimeContributionObservationSchema,
   SkillHookContributionObservationSchema,
+  McpRegistrationObservationSchema,
+  McpContributionObservationSchema,
   LifecycleReloadResultSchemaRegistry,
   LifecycleReloadResultSchema,
   LifecycleReloadRequestSchema,
@@ -1114,11 +1116,33 @@ export type {
   RuntimeContributionParticipant,
   RuntimeContributionObservation,
   SkillHookContributionObservation,
+  McpRegistrationObservation,
+  McpContributionObservation,
   LifecycleReloadResult,
   LifecycleReloadRequest,
   LifecycleObservationRequest,
   LifecycleReloadPort,
 } from "./application/ports/lifecycle-reload.js";
+
+export {
+  McpLifecycleFailureCodeSchema,
+  McpLifecycleAmbiguityCodeSchema,
+  McpLifecycleReconcileResultSchema,
+  McpLifecycleObservationResultSchema,
+  McpLifecycleStatusResultSchema,
+  createMcpLifecycleParticipant,
+} from "./runtime/mcp/lifecycle-participant.js";
+export type {
+  McpLifecycleState,
+  McpLifecycleTransitionRequest,
+  McpLifecycleFailureCode,
+  McpLifecycleAmbiguityCode,
+  McpLifecycleReconcileResult,
+  McpLifecycleObservationResult,
+  McpLifecycleOwner,
+  McpLifecycleStatusResult,
+  McpLifecycleParticipant,
+} from "./runtime/mcp/lifecycle-participant.js";
 
 export {
   createSkillHookSnapshotLoader,

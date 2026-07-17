@@ -24,6 +24,10 @@ import {
   ProjectionExpectationSchema,
   type ProjectionExpectation,
 } from "./runtime-projection.js";
+import {
+  McpRuntimeServerKeySchemaV1,
+  McpSourceIdentitySchemaV1,
+} from "./mcp-runtime.js";
 
 export const ActivationObservationSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -97,6 +101,54 @@ export const SkillHookContributionObservationSchema = z.discriminatedUnion("kind
 ]);
 export type SkillHookContributionObservation = z.infer<typeof SkillHookContributionObservationSchema>;
 
+function isSortedUnique(values: readonly string[]): boolean {
+  return values.every((value, index) => index === 0 || values[index - 1]! < value);
+}
+
+export const McpRegistrationObservationSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("none") }).strict().readonly(),
+  z.object({
+    kind: z.literal("source"),
+    identity: McpSourceIdentitySchemaV1,
+    registrationDigest: ContentDigestSchema,
+    serverKeys: z.array(McpRuntimeServerKeySchemaV1).readonly(),
+    componentIds: z.array(ComponentIdSchema).readonly(),
+  }).strict().readonly().superRefine((registration, context) => {
+    if (!isSortedUnique(registration.serverKeys)) {
+      context.addIssue({ code: "custom", path: ["serverKeys"], message: "MCP server keys must be sorted and unique" });
+    }
+    if (!isSortedUnique(registration.componentIds)) {
+      context.addIssue({ code: "custom", path: ["componentIds"], message: "MCP component ids must be sorted and unique" });
+    }
+  }),
+]);
+export type McpRegistrationObservation = z.infer<typeof McpRegistrationObservationSchema>;
+
+export const McpContributionObservationSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("active"),
+    participant: z.literal("mcp"),
+    scope: ScopeReferenceSchema,
+    plugin: PluginKeySchema,
+    revision: ContentDigestSchema,
+    projectionDigest: ContentDigestSchema,
+    currentProject: CurrentProjectRuntimeContextSchema,
+    contributionDigest: ContentDigestSchema,
+    registration: McpRegistrationObservationSchema,
+  }).strict().readonly(),
+  z.object({
+    kind: z.literal("inactive"),
+    participant: z.literal("mcp"),
+    scope: ScopeReferenceSchema,
+    plugin: PluginKeySchema,
+    projectionDigest: ContentDigestSchema,
+    currentProject: CurrentProjectRuntimeContextSchema,
+    contributionDigest: ContentDigestSchema,
+    registration: z.object({ kind: z.literal("none") }).strict().readonly(),
+  }).strict().readonly(),
+]);
+export type McpContributionObservation = z.infer<typeof McpContributionObservationSchema>;
+
 export const LifecycleReloadResultSchemaRegistry = {
   accepted: z.object({ kind: z.literal("accepted") }).strict().readonly(),
   failed: z.object({ kind: z.literal("failed"), code: z.string().min(1) }).strict().readonly(),
@@ -134,16 +186,14 @@ function sameJson(left: unknown, right: unknown): boolean {
 }
 
 function contributionBase(value: unknown, participant: RuntimeContributionParticipant): RuntimeContributionObservation {
-  // Skills/hooks evidence is intentionally stricter than the shared base: the
-  // component IDs are the proof that the exact derived slice was observed.
-  // MCP has no equivalent slice owned by this verifier, so it stays on the
-  // common contribution contract.
-  const parsed: SkillHookContributionObservation | RuntimeContributionObservation = participant === "skills-hooks"
-    ? SkillHookContributionObservationSchema.parse(value)
-    : RuntimeContributionObservationSchema.parse(value);
-  if (parsed.participant !== participant) throw new Error("runtime contribution participant is unexpected");
-  const { skillComponentIds: _skills, hookComponentIds: _hooks, ...base } = parsed as SkillHookContributionObservation & RuntimeContributionObservation;
-  return RuntimeContributionObservationSchema.parse({ ...base, participant });
+  if (participant === "skills-hooks") {
+    const parsed = SkillHookContributionObservationSchema.parse(value);
+    const { skillComponentIds: _skills, hookComponentIds: _hooks, ...base } = parsed;
+    return RuntimeContributionObservationSchema.parse(base);
+  }
+  const parsed = McpContributionObservationSchema.parse(value);
+  const { registration: _registration, ...base } = parsed;
+  return RuntimeContributionObservationSchema.parse(base);
 }
 
 function expectedContributionMatches(
@@ -175,7 +225,7 @@ function projectEvidenceIsUsable(observation: RuntimeContributionObservation): b
 export function composeActivationObservation(input: Readonly<{
   expectation: ProjectionExpectation;
   skillsHooks: SkillHookContributionObservation;
-  mcp: RuntimeContributionObservation;
+  mcp: McpContributionObservation;
 }>): ActivationObservation {
   const expectation = ProjectionExpectationSchema.parse(input.expectation);
   const skillsHooks = contributionBase(input.skillsHooks, "skills-hooks");

@@ -853,6 +853,8 @@ describe("explicit package API", () => {
     expect(sourceApi.CurrentProjectRuntimeContextSchema).toBeDefined();
     expect(sourceApi.RuntimeContributionObservationSchema).toBeDefined();
     expect(sourceApi.SkillHookContributionObservationSchema).toBeDefined();
+    expect(sourceApi.McpRegistrationObservationSchema).toBeDefined();
+    expect(sourceApi.McpContributionObservationSchema).toBeDefined();
     expect(sourceApi.SkillHookSnapshotObservationSchema).toBeDefined();
     expect(sourceApi.SkillResourceContributionObservationSchema).toBeDefined();
     expect(sourceApi.composeSkillHookContributionObservation).toBeDefined();
@@ -860,11 +862,17 @@ describe("explicit package API", () => {
     expect(sourceApi.composeActivationObservation).toBeDefined();
     expect(sourceApi.createSkillHookSnapshotLoader).toBeDefined();
     expect(sourceApi.createSkillHookRuntimeParticipant).toBeDefined();
+    expect(sourceApi.McpLifecycleReconcileResultSchema).toBeDefined();
+    expect(sourceApi.McpLifecycleObservationResultSchema).toBeDefined();
+    expect(sourceApi.McpLifecycleStatusResultSchema).toBeDefined();
+    expect(sourceApi.createMcpLifecycleParticipant).toBeDefined();
     expect(sourceApi).not.toHaveProperty("encodeRuntimeProjectionCache");
     expect(sourceApi).not.toHaveProperty("decodeRuntimeProjectionCache");
     expect(sourceApi).not.toHaveProperty("createRuntimeProjectionCache");
     expect(sourceApi).not.toHaveProperty("createSkillHookRuntimeCatalog");
     expect(sourceApi).not.toHaveProperty("createManifestSkillPathVerifier");
+    expect(sourceApi).not.toHaveProperty("createMcpLifecycleStateStore");
+    expect(sourceApi).not.toHaveProperty("createMcpLifecycleJournal");
     expect(sourceApi).not.toHaveProperty("registerSkillResourceDiscovery");
   });
 

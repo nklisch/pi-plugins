@@ -87,7 +87,7 @@ describe("skill/hook projection and reload evidence integration", () => {
       const skillsHooks = await discovery.participant.observe(expectation, signal);
       expect(skillsHooks.kind).toBe("ready");
       if (skillsHooks.kind !== "ready") throw new Error("skill/hook observation missing");
-      const mcpObservation = { kind: "active" as const, participant: "mcp" as const, scope: expectation.projection.scope, plugin: expectation.projection.plugin, revision: expectation.projection.revision, projectionDigest: expectation.projection.digest, currentProject: skillsHooks.observation.currentProject, contributionDigest: `sha256:${"a".repeat(64)}` };
+      const mcpObservation = { kind: "active" as const, participant: "mcp" as const, scope: expectation.projection.scope, plugin: expectation.projection.plugin, revision: expectation.projection.revision, projectionDigest: expectation.projection.digest, currentProject: skillsHooks.observation.currentProject, contributionDigest: `sha256:${"a".repeat(64)}`, registration: { kind: "none" as const } };
       const active = composeActivationObservation({ expectation, skillsHooks: skillsHooks.observation, mcp: mcpObservation });
       expect(active).toMatchObject({ kind: "active", revision: revision.revision, projectionDigest: projection.digest });
       const { skillComponentIds: _skillIds, hookComponentIds: _hookIds, ...baseSkillsHooks } = skillsHooks.observation;
@@ -122,7 +122,7 @@ describe("skill/hook projection and reload evidence integration", () => {
       const inactiveSkillsHooks = await discovery.participant.observe(inactiveExpectation, signal);
       expect(inactiveSkillsHooks.kind).toBe("ready");
       if (inactiveSkillsHooks.kind !== "ready") throw new Error("inactive skill/hook observation missing");
-      const inactiveMcp = { kind: "inactive" as const, participant: "mcp" as const, scope: inactiveExpectation.scope, plugin: inactiveExpectation.plugin, projectionDigest: inactiveExpectation.digest, currentProject: inactiveSkillsHooks.observation.currentProject, contributionDigest: `sha256:${"b".repeat(64)}` };
+      const inactiveMcp = { kind: "inactive" as const, participant: "mcp" as const, scope: inactiveExpectation.scope, plugin: inactiveExpectation.plugin, projectionDigest: inactiveExpectation.digest, currentProject: inactiveSkillsHooks.observation.currentProject, contributionDigest: `sha256:${"b".repeat(64)}`, registration: { kind: "none" as const } };
       expect(composeActivationObservation({ expectation: inactiveExpectation, skillsHooks: inactiveSkillsHooks.observation, mcp: inactiveMcp })).toMatchObject({ kind: "inactive", projectionDigest: inactiveExpectation.digest });
       const activeMcpForDisable = { ...mcpObservation, kind: "active" as const };
       expect(() => composeActivationObservation({ expectation: inactiveExpectation, skillsHooks: inactiveSkillsHooks.observation, mcp: activeMcpForDisable })).toThrow();

@@ -29,17 +29,22 @@ describe("whole-bundle runtime contribution composition", () => {
     const { expectation, plugin } = fixture();
     const base = { scope: { kind: "user" as const }, plugin, revision: expectation.projection.revision, projectionDigest: expectation.projection.digest, currentProject, contributionDigest: `sha256:${"a".repeat(64)}` };
     const skillsHooks = { ...base, kind: "active" as const, participant: "skills-hooks" as const, skillComponentIds: [], hookComponentIds: [] };
-    const mcp = { ...base, kind: "active" as const, participant: "mcp" as const, contributionDigest: `sha256:${"b".repeat(64)}` };
+    const mcp = { ...base, kind: "active" as const, participant: "mcp" as const, contributionDigest: `sha256:${"b".repeat(64)}`, registration: { kind: "none" as const } };
     expect(composeActivationObservation({ expectation, skillsHooks, mcp })).toMatchObject({ kind: "active", projectionDigest: expectation.projection.digest });
     expect(() => composeActivationObservation({ expectation, skillsHooks, mcp: { ...mcp, projectionDigest: `sha256:${"c".repeat(64)}` } })).toThrow();
     expect(() => composeActivationObservation({ expectation, skillsHooks, mcp: { ...mcp, participant: "skills-hooks" as const } })).toThrow();
+    expect(() => composeActivationObservation({
+      expectation,
+      skillsHooks,
+      mcp: { ...mcp, registration: undefined } as never,
+    })).toThrow();
   });
 
   it("requires exact inactive tombstone evidence from both participants", () => {
     const { plugin } = fixture();
     const expectation = createInactiveProjectionExpectation({ scope: { kind: "user" }, plugin, sha256 });
     const skillsHooks = { kind: "inactive" as const, participant: "skills-hooks" as const, scope: expectation.scope, plugin, projectionDigest: expectation.digest, currentProject, contributionDigest: `sha256:${"1".repeat(64)}`, skillComponentIds: [] as [], hookComponentIds: [] as [] };
-    const mcp = { kind: "inactive" as const, participant: "mcp" as const, scope: expectation.scope, plugin, projectionDigest: expectation.digest, currentProject, contributionDigest: `sha256:${"2".repeat(64)}` };
+    const mcp = { kind: "inactive" as const, participant: "mcp" as const, scope: expectation.scope, plugin, projectionDigest: expectation.digest, currentProject, contributionDigest: `sha256:${"2".repeat(64)}`, registration: { kind: "none" as const } };
     expect(composeActivationObservation({ expectation, skillsHooks, mcp })).toMatchObject({ kind: "inactive", projectionDigest: expectation.digest });
     expect(() => composeActivationObservation({ expectation, skillsHooks, mcp: { ...mcp, projectionDigest: `sha256:${"3".repeat(64)}` } })).toThrow();
   });
