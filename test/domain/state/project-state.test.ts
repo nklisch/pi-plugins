@@ -18,7 +18,7 @@ import {
   ProjectLocalStateDocumentSchemaV1,
   ProjectLocalStateSchemaFamily,
   createProjectLocalStateDocument,
-  createProjectLocalStateDocumentV3,
+  createProjectLocalStateDocumentV4,
   decodeProjectPlugins,
   type ProjectLocalStateDocumentV1,
 } from "../../../src/domain/state/project-state.js";
@@ -159,17 +159,18 @@ describe("project-local lifecycle state", () => {
     expect(result.quarantined.some((entry) => entry.code === "RECORD_INVALID")).toBe(true);
   });
 
-  it("preserves validated v3 marketplace registration memory through the constructor", () => {
+  it("preserves validated v4 marketplace registration memory through the constructor", () => {
     const updateRecord = createMarketplaceConfigurationRecord({
       marketplace: "community",
       source: marketplaceInput.source.declared,
     });
-    const document = createProjectLocalStateDocumentV3({
-      schemaVersion: 3,
+    const document = createProjectLocalStateDocumentV4({
+      schemaVersion: 4,
       generation: 3,
       projectKey,
       identity,
       declarationDigest: content.rootDigest,
+      scope: {},
       marketplaces: [marketplaceInput],
       plugins: [],
       marketplaceUpdates: [updateRecord],
@@ -179,7 +180,7 @@ describe("project-local lifecycle state", () => {
   });
 
   it("migrates v1 without inventing project update authority", () => {
-    expect(ProjectLocalStateSchemaFamily.latestVersion).toBe(3);
+    expect(ProjectLocalStateSchemaFamily.latestVersion).toBe(4);
     const migrated = migrateVersionedDocument(ProjectLocalStateSchemaFamily, {
       schemaVersion: 1,
       generation: 0,
@@ -189,7 +190,7 @@ describe("project-local lifecycle state", () => {
       marketplaces: [],
       plugins: [],
     });
-    expect(migrated.schemaVersion).toBe(3);
+    expect(migrated.schemaVersion).toBe(4);
     expect(migrated.marketplaceUpdates).toEqual([]);
     expect(ProjectLocalStateDocumentSchemaV1.safeParse({
       schemaVersion: 1,

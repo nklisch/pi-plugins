@@ -25,7 +25,7 @@ import {
   ProjectLocalStateDocumentSchema,
   ProjectLocalStateSchemaFamily,
   createProjectLocalStateDocument,
-  createProjectLocalStateDocumentV3,
+  createProjectLocalStateDocumentV4,
   type ProjectLocalStateDocumentV1,
   type ProjectLocalStateDocument,
 } from "./project-state.js";
@@ -65,7 +65,12 @@ import {
 } from "../content-manifest.js";
 import { JsonValueSchema, type JsonValue } from "../schema.js";
 import { MarketplaceNameSchema, PluginKeySchema } from "../identity.js";
-import { MarketplaceRegistrationRecordSchema, type MarketplaceRegistrationRecord } from "../update-policy.js";
+import {
+  MarketplaceRegistrationRecordSchema,
+  MarketplaceRegistrationRecordSchemaV3,
+  migrateMarketplaceRegistrationRecordV3,
+  type MarketplaceRegistrationRecord,
+} from "../update-policy.js";
 import { TrustSubjectRefSchema } from "./references.js";
 import { serializeMarketplaceSource, type Sha256 } from "../source.js";
 import { GenerationSchema, type Generation } from "./config-state.js";
@@ -255,10 +260,10 @@ function sameJson(left: unknown, right: unknown): boolean {
 
 /** Record-tolerant roots let the codec quarantine individual bad children. */
 const rootSchemas: { readonly [K in StateDocumentKind]: z.ZodTypeAny } = {
-  hostConfig: z.object({ schemaVersion: z.literal(3), generation: GenerationSchema, records: z.array(z.unknown()) }).strict(),
+  hostConfig: z.object({ schemaVersion: z.literal(4), generation: GenerationSchema, global: z.unknown(), scope: z.unknown(), records: z.array(z.unknown()) }).strict(),
   installedUser: z.object({ schemaVersion: z.literal(2), generation: GenerationSchema, marketplaces: z.array(z.unknown()), plugins: z.array(z.unknown()) }).strict(),
   trust: z.object({ schemaVersion: z.literal(1), generation: GenerationSchema, records: z.array(z.unknown()) }).strict(),
-  projectLocal: z.object({ schemaVersion: z.literal(3), generation: GenerationSchema, projectKey: z.string(), identity: z.unknown(), declarationDigest: z.string(), marketplaces: z.array(z.unknown()), plugins: z.array(z.unknown()), marketplaceUpdates: z.array(z.unknown()) }).strict(),
+  projectLocal: z.object({ schemaVersion: z.literal(4), generation: GenerationSchema, projectKey: z.string(), identity: z.unknown(), declarationDigest: z.string(), scope: z.unknown(), marketplaces: z.array(z.unknown()), plugins: z.array(z.unknown()), marketplaceUpdates: z.array(z.unknown()) }).strict(),
   portableProject: z.object({ schemaVersion: z.literal(1), marketplaces: z.array(z.unknown()), plugins: z.array(z.unknown()) }).strict(),
   pointers: z.object({ schemaVersion: z.literal(1), scope: z.unknown(), generation: GenerationSchema, previousGeneration: GenerationSchema.optional(), documents: z.array(z.unknown()) }).strict(),
 };
@@ -280,21 +285,34 @@ function parseRoot<K extends StateDocumentKind>(
       // Record-isolating decoders must not let one malformed legacy child
       // prevent valid siblings from migrating. Upgrade only the tolerant root;
       // each child is validated independently below.
-      if ((version === 1 || version === 2) && kind === "hostConfig" && isRecord(input) && Array.isArray(input.records)) {
+      if ((version === 1 || version === 2 || version === 3) && kind === "hostConfig" && isRecord(input) && Array.isArray(input.records)) {
         const v2 = version === 1
           ? projectHostConfigV1ToV2(input as Readonly<{ records: readonly unknown[] }>)
           : input;
+        const v3Records = (v2.records as readonly unknown[]).map((record) => version === 3
+          ? record
+          : isRecord(record) ? { ...record, origin: { kind: "legacy" } } : record);
         candidate = {
           ...v2,
-          schemaVersion: 3,
-          records: (v2.records as readonly unknown[]).map((record) => isRecord(record) ? { ...record, origin: { kind: "legacy" } } : record),
+          schemaVersion: 4,
+          global: { application: "manual", cadence: "balanced" },
+          scope: {},
+          records: v3Records.map((record) => {
+            const parsed = MarketplaceRegistrationRecordSchemaV3.safeParse(record);
+            return parsed.success ? migrateMarketplaceRegistrationRecordV3(parsed.data) : record;
+          }),
         };
-      } else if ((version === 1 || version === 2) && kind === "projectLocal" && isRecord(input)) {
+      } else if ((version === 1 || version === 2 || version === 3) && kind === "projectLocal" && isRecord(input)) {
         const updates = version === 1 ? [] : Array.isArray(input.marketplaceUpdates) ? input.marketplaceUpdates : [];
+        const v3Updates = updates.map((record) => version === 3 ? record : isRecord(record) ? { ...record, origin: { kind: "legacy" } } : record);
         candidate = {
           ...input,
-          schemaVersion: 3,
-          marketplaceUpdates: updates.map((record) => isRecord(record) ? { ...record, origin: { kind: "legacy" } } : record),
+          schemaVersion: 4,
+          scope: {},
+          marketplaceUpdates: v3Updates.map((record) => {
+            const parsed = MarketplaceRegistrationRecordSchemaV3.safeParse(record);
+            return parsed.success ? migrateMarketplaceRegistrationRecordV3(parsed.data) : record;
+          }),
         };
       } else if (version === 1 && kind === "installedUser" && isRecord(input)) {
         candidate = { ...input, schemaVersion: 2 };
@@ -598,7 +616,7 @@ function validateForEncoding<K extends StateDocumentKind>(
   }
   if (kind === "hostConfig") {
     let value: unknown = input;
-    if (isRecord(input) && (input.schemaVersion === 1 || input.schemaVersion === 2)) {
+    if (isRecord(input) && input.schemaVersion !== HostConfigSchemaFamily.latestVersion) {
       value = migrateVersionedDocument(HostConfigSchemaFamily, input);
     }
     return HostConfigDocumentSchema.parse(value) as StateDocumentFor<K>;
@@ -622,7 +640,7 @@ function validateForEncoding<K extends StateDocumentKind>(
   }
   if (kind === "projectLocal") {
     if (context.scope.kind !== "project") throw new Error("project-local state requires project scope");
-    return createProjectLocalStateDocumentV3(input, context.scope, context.sha256) as StateDocumentFor<K>;
+    return createProjectLocalStateDocumentV4(input, context.scope, context.sha256) as StateDocumentFor<K>;
   }
   if (kind === "portableProject") return PortableProjectDeclarationSchemaV1.parse(input) as StateDocumentFor<K>;
   const pointers = StatePointersDocumentSchemaV1.parse(input);

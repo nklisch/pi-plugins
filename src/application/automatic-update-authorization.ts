@@ -84,7 +84,7 @@ export async function authorizeAutomaticUpdateCandidate(
   const candidate = verifyTrustCandidate(request.candidate, dependencies.sha256);
   const expectedRevision = ContentDigestSchema.parse(request.expectedRevision);
   const policy = request.policyRecord;
-  if (policy.updateApplication !== "automatic") return denied("POLICY_MANUAL");
+  if (policy.applicationOverride !== "automatic") return denied("POLICY_MANUAL");
   if (policy.source.kind === "local-git") return denied("LOCAL_SOURCE");
   const marketplaceIdentity = StableSourceIdentitySchema.parse(request.candidateMarketplaceSourceIdentity);
   const pluginIdentity = StableSourceIdentitySchema.parse(request.candidatePluginSourceIdentity);

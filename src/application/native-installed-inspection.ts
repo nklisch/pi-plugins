@@ -90,10 +90,10 @@ function updateState(subject: InstalledInspectionDetailSubject, snapshot: Inspec
   const loaded = snapshot.states.find((result) => result.ok && sameScope(toScopeReference(result.snapshot.scope), subject.scope));
   if (loaded === undefined || !loaded.ok) return { state: "unknown" as const, stale: false };
   for (const registration of marketplaceUpdateRecords(loaded.snapshot)) {
-    const notification = registration.notifications.find((entry) => sameScope(entry.scope, subject.scope) && entry.plugin === subject.plugin);
+    const notification = registration.notices.find((entry) => sameScope(entry.scope, subject.scope) && entry.plugin === subject.plugin && entry.resolution === undefined);
     if (notification !== undefined) {
       return {
-        state: notification.disposition === undefined ? "available" as const : notification.disposition,
+        state: notification.disposition,
         stale: registration.refresh.lastAttempt?.outcome === "failed" || registration.refresh.lastAttempt?.outcome === "unavailable",
       };
     }
@@ -296,7 +296,7 @@ export function createNativeInstalledInspector(dependencies: Readonly<{
           else if (server.state === "failed") findings.push(finding("mcpRemoteFailed", detailId, server.componentId));
         }
       }
-      if (update.state === "available") findings.push(finding("updateAvailable", detailId));
+      if (update.state === "automatic-pending" || update.state === "automatic-retryable") findings.push(finding("updateAvailable", detailId));
       else if (update.state === "approval-required") findings.push(finding("updateApprovalRequired", detailId));
       else if (update.state === "manual-required") findings.push(finding("updateManualRequired", detailId));
       else if (update.state === "recovery-required") findings.push(finding("updateRecoveryRequired", detailId));

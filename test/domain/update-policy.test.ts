@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   AvailableRevisionSchema,
   MarketplaceUpdateRecordSchema,
+  UpdateNoticeSchema,
+  UpdateScheduleMemorySchema,
+  UpdateSchedulerLeaseSchema,
   RefreshClaimIdSchema,
   UpdateCandidateKeySchema,
   compareInstalledRevision,
@@ -104,13 +107,34 @@ describe("update policy domain contracts", () => {
     expect(() => RefreshClaimIdSchema.parse("refresh-claim-v1:uuid:not-a-uuid")).toThrow();
   });
 
-  it("defaults new and local records to manual and resets operational memory on source replacement", () => {
+  it("migrates scalar policy to exact overrides and resets operational memory on source replacement", () => {
     const record = createMarketplaceConfigurationRecord({ marketplace: "community", source: marketplace, updateApplication: "automatic", refresh: { consecutiveFailures: 3, nextScheduledAt: 99 } });
-    expect(record.updateApplication).toBe("automatic");
+    expect(record.applicationOverride).toBe("automatic");
+    expect(record.refresh.schedule?.dueAt).toBe(99);
     expect(MarketplaceUpdateRecordSchema.parse(record)).toEqual(record);
     const replaced = replaceMarketplaceConfigurationSource(record, { kind: "local-git", path: "/workspace/marketplace" });
-    expect(replaced.updateApplication).toBe("manual");
+    expect(replaced.applicationOverride).toBeUndefined();
     expect(replaced.refresh.consecutiveFailures).toBe(0);
-    expect(replaced.notifications).toEqual([]);
+    expect(replaced.notices).toEqual([]);
+  });
+
+  it("rejects inconsistent schedules, leases, and notice state", () => {
+    expect(UpdateScheduleMemorySchema.safeParse({ anchorAt: 10, baseDelayMs: 20, jitterMs: 1, dueAt: 30, reason: "success" }).success).toBe(false);
+    expect(UpdateSchedulerLeaseSchema.safeParse({ id: "update-scheduler-lease-v1:uuid:123e4567-e89b-42d3-a456-426614174000", startedAt: 10, renewedAt: 10, expiresAt: 10 }).success).toBe(false);
+    expect(UpdateNoticeSchema.safeParse({
+      id: `update-notice-v1:sha256:${"a".repeat(64)}`,
+      scope: { kind: "user" },
+      plugin: "demo@community",
+      registrationId: `marketplace-registration-v1:sha256:${"a".repeat(64)}`,
+      snapshot: `marketplace-snapshot-v1:sha256:${"a".repeat(64)}`,
+      candidateId: `marketplace-candidate-v1:sha256:${"a".repeat(64)}`,
+      candidate: `update-candidate-v1:sha256:${"a".repeat(64)}`,
+      available: available("a"),
+      display: { installed: "1", available: "2" },
+      disposition: "manual-required",
+      publication: "pending",
+      unread: false,
+      discoveredAt: 1,
+    }).success).toBe(false);
   });
 });

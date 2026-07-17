@@ -43,7 +43,7 @@ function initialCacheStatus(
   const etag = { kind: "not-applicable" as const };
   if (record.source.kind === "local-git") return { kind: "unknown-local", validator, etag };
   return {
-    kind: record.refresh.nextScheduledAt > 0 && record.refresh.nextScheduledAt <= now ? "stale" : "ready",
+    kind: record.refresh.schedule !== undefined && record.refresh.schedule.dueAt <= now ? "stale" : "ready",
     validator,
     etag,
     ...(record.refresh.lastCompletedAt === undefined ? {} : { checkedAt: record.refresh.lastCompletedAt }),
@@ -95,7 +95,7 @@ export async function createMarketplaceRegistrationView(input: Readonly<{
     source: input.record.source,
     sourceIdentity: deriveMarketplaceSourceIdentity(input.record.source, input.sha256),
     origin: input.record.origin,
-    updateApplication: input.record.updateApplication,
+    updateApplication: input.record.applicationOverride === "automatic" ? "automatic" : "manual",
     refresh: input.record.refresh,
     ...(input.record.refresh.lastAttempt === undefined ? {} : { lastAttempt: input.record.refresh.lastAttempt }),
     ...(selected === undefined ? {} : { selected }),

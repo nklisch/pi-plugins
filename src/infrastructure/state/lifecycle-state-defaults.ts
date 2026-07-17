@@ -28,7 +28,13 @@ export function createLifecycleStateDefaultDocuments(
 ): LifecycleStateDefaultDocuments {
   if (scope.kind === "user") {
     return Object.freeze({
-      config: HostConfigDocumentSchema.parse({ schemaVersion: 3, generation: 0, records: [] }),
+      config: HostConfigDocumentSchema.parse({
+        schemaVersion: 4,
+        generation: 0,
+        global: { application: "manual", cadence: "balanced" },
+        scope: {},
+        records: [],
+      }),
       installed: InstalledUserStateDocumentSchema.parse({ schemaVersion: 2, generation: 0, marketplaces: [], plugins: [] }),
       trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation: 0, records: [] }),
     });
@@ -39,11 +45,12 @@ export function createLifecycleStateDefaultDocuments(
   );
   return Object.freeze({
     project: ProjectLocalStateDocumentSchema.parse({
-      schemaVersion: 3,
+      schemaVersion: 4,
       generation: 0,
       projectKey: scope.projectKey,
       identity: scope.identity,
       declarationDigest,
+      scope: {},
       marketplaces: [],
       plugins: [],
       marketplaceUpdates: [],

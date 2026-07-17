@@ -2,9 +2,11 @@ import { z } from "zod";
 import {
   HostConfigDocumentSchemaV1,
   HostConfigDocumentSchemaV2,
+  HostConfigDocumentSchemaV3,
   HostConfigDocumentSchema,
   projectHostConfigV1ToV2,
   projectHostConfigV2ToV3,
+  projectHostConfigV3ToV4,
   type HostConfigDocument,
 } from "../domain/state/config-state.js";
 import {
@@ -16,8 +18,9 @@ import {
 import {
   ProjectLocalStateDocumentSchemaV1,
   ProjectLocalStateDocumentSchemaV2,
+  ProjectLocalStateDocumentSchemaV3,
   ProjectLocalStateDocumentSchema,
-  createProjectLocalStateDocumentV3,
+  createProjectLocalStateDocumentV4,
   type ProjectLocalStateDocument,
 } from "../domain/state/project-state.js";
 import {
@@ -73,7 +76,7 @@ export type GenerationSnapshot = UserGenerationSnapshot | ProjectGenerationSnaps
 
 const UserReplacementSchema = z
   .object({
-    config: z.union([HostConfigDocumentSchema, HostConfigDocumentSchemaV2, HostConfigDocumentSchemaV1]).optional(),
+    config: z.union([HostConfigDocumentSchema, HostConfigDocumentSchemaV3, HostConfigDocumentSchemaV2, HostConfigDocumentSchemaV1]).optional(),
     installed: z.union([InstalledUserStateDocumentSchema, InstalledUserStateDocumentSchemaV1]).optional(),
     trust: TrustStateDocumentSchemaV1.optional(),
   })
@@ -81,7 +84,7 @@ const UserReplacementSchema = z
 
 const ProjectReplacementSchema = z
   .object({
-    project: z.union([ProjectLocalStateDocumentSchema, ProjectLocalStateDocumentSchemaV2, ProjectLocalStateDocumentSchemaV1]),
+    project: z.union([ProjectLocalStateDocumentSchema, ProjectLocalStateDocumentSchemaV3, ProjectLocalStateDocumentSchemaV2, ProjectLocalStateDocumentSchemaV1]),
   })
   .strict();
 
@@ -264,7 +267,7 @@ export function parseStateMutation(input: unknown, sha256: Sha256): StateMutatio
       ...mutation,
       scope,
       replace: {
-        project: createProjectLocalStateDocumentV3(mutation.replace.project, scope, sha256),
+        project: createProjectLocalStateDocumentV4(mutation.replace.project, scope, sha256),
       },
     });
   }
@@ -278,10 +281,12 @@ export function parseStateMutation(input: unknown, sha256: Sha256): StateMutatio
     replace: {
       ...(replace.config === undefined ? {} : { config: HostConfigDocumentSchema.parse(
         replace.config.schemaVersion === 1
-          ? projectHostConfigV2ToV3(HostConfigDocumentSchemaV2.parse(projectHostConfigV1ToV2(replace.config)))
+          ? projectHostConfigV3ToV4(projectHostConfigV2ToV3(HostConfigDocumentSchemaV2.parse(projectHostConfigV1ToV2(replace.config))))
           : replace.config.schemaVersion === 2
-            ? projectHostConfigV2ToV3(replace.config)
-            : replace.config,
+            ? projectHostConfigV3ToV4(projectHostConfigV2ToV3(replace.config))
+            : replace.config.schemaVersion === 3
+              ? projectHostConfigV3ToV4(replace.config)
+              : replace.config,
       ) }),
       ...(replace.installed === undefined ? {} : { installed: createInstalledUserStateDocumentV2(replace.installed, sha256) }),
       ...(replace.trust === undefined ? {} : {

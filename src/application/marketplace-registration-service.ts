@@ -214,7 +214,9 @@ export function createMarketplaceRegistrationService(
         refresh: {
           lastCompletedAt: now,
           lastAttempt: { completedAt: now, outcome: "succeeded" },
-          nextScheduledAt: source.kind === "local-git" ? 0 : now + 6 * 60 * 60 * 1_000,
+          ...(source.kind === "local-git" ? {} : {
+            schedule: { anchorAt: now, baseDelayMs: 6 * 60 * 60 * 1_000, jitterMs: 0, dueAt: now + 6 * 60 * 60 * 1_000, reason: "success" },
+          }),
           consecutiveFailures: 0,
         },
       });
@@ -241,9 +243,11 @@ export function createMarketplaceRegistrationService(
           if (promoted.identity.kind !== "marketplace") throw new Error("PROMOTION_FAILED");
           if (sameSourceIndex >= 0) records[sameSourceIndex] = MarketplaceRegistrationRecordSchema.parse({
             ...nextRecord,
-            // Idempotent repair keeps the original registration provenance.
+            // Idempotent repair keeps existing provenance, policy, and ledger authority.
             origin: records[sameSourceIndex]!.origin,
-            updateApplication: records[sameSourceIndex]!.updateApplication,
+            ...(records[sameSourceIndex]!.applicationOverride === undefined ? {} : { applicationOverride: records[sameSourceIndex]!.applicationOverride }),
+            pluginOverrides: records[sameSourceIndex]!.pluginOverrides,
+            notices: records[sameSourceIndex]!.notices,
           });
           else records.push(nextRecord);
           const snapshotIndex = snapshots.findIndex((snapshot) => snapshot.marketplace === marketplace);

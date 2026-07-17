@@ -42,7 +42,7 @@ export function createMarketplaceUpdatePolicyService(dependencies: Readonly<{
       if (record === undefined) return { kind: "rejected", code: "NOT_CONFIGURED" };
       if (deriveMarketplaceSourceIdentity(record.source, dependencies.sha256) !== sourceIdentity) return { kind: "rejected", code: "SOURCE_CHANGED" };
       if (record.source.kind === "local-git" && preference === "automatic") return { kind: "rejected", code: "LOCAL_AUTOMATIC_FORBIDDEN" };
-      if (record.updateApplication === preference) return { kind: "unchanged", preference };
+      if ((record.applicationOverride ?? "manual") === preference) return { kind: "unchanged", preference };
 
       try {
         const result = await dependencies.mutations.runPreparedMutation(
@@ -51,7 +51,7 @@ export function createMarketplaceUpdatePolicyService(dependencies: Readonly<{
             const current = marketplaceUpdateRecords(context.snapshot).find((candidate) => candidate.marketplace === marketplace);
             if (current === undefined) throw new Error("NOT_CONFIGURED");
             if (deriveMarketplaceSourceIdentity(current.source, dependencies.sha256) !== sourceIdentity) throw new Error("SOURCE_CHANGED");
-            const next = MarketplaceUpdateRecordSchema.parse({ ...current, updateApplication: preference });
+            const next = MarketplaceUpdateRecordSchema.parse({ ...current, applicationOverride: preference });
             const records = marketplaceUpdateRecords(context.snapshot).map((candidate) => candidate.marketplace === marketplace ? next : candidate);
             return { mutation: createMarketplaceUpdateRecordsMutation(context.snapshot, records, dependencies.sha256), value: preference };
           },

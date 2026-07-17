@@ -6,8 +6,10 @@ import {
   HostConfigDocumentSchema,
   HostConfigDocumentSchemaV1,
   HostConfigDocumentSchemaV2,
+  HostConfigDocumentSchemaV3,
   projectHostConfigV1ToV2,
   projectHostConfigV2ToV3,
+  projectHostConfigV3ToV4,
   type Generation,
 } from "../domain/state/config-state.js";
 import { InstalledUserStateDocumentSchema, InstalledUserStateDocumentSchemaV1 } from "../domain/state/installed-state.js";
@@ -15,6 +17,8 @@ import {
   ProjectLocalStateDocumentSchema,
   ProjectLocalStateDocumentSchemaV1,
   ProjectLocalStateDocumentSchemaV2,
+  ProjectLocalStateDocumentSchemaV3,
+  projectProjectLocalV3ToV4,
 } from "../domain/state/project-state.js";
 import { StatePointersDocumentSchemaV1 } from "../domain/state/pointers.js";
 import { TrustStateDocumentSchemaV1 } from "../domain/state/trust-state.js";
@@ -208,7 +212,7 @@ const UserGenerationSnapshotSchema = z.object({
   scope: z.object({ kind: z.literal("user") }).strict().readonly(),
   generation: GenerationSchema,
   pointers: StatePointersDocumentSchemaV1,
-  config: z.union([HostConfigDocumentSchema, HostConfigDocumentSchemaV2, HostConfigDocumentSchemaV1]),
+  config: z.union([HostConfigDocumentSchema, HostConfigDocumentSchemaV3, HostConfigDocumentSchemaV2, HostConfigDocumentSchemaV1]),
   installed: z.union([InstalledUserStateDocumentSchema, InstalledUserStateDocumentSchemaV1]),
   trust: TrustStateDocumentSchemaV1,
   corruptions: z.array(StateCorruptionSchema).readonly(),
@@ -222,7 +226,7 @@ const ProjectGenerationSnapshotSchema = z.object({
   }).strict().readonly(),
   generation: GenerationSchema,
   pointers: StatePointersDocumentSchemaV1,
-  project: z.union([ProjectLocalStateDocumentSchema, ProjectLocalStateDocumentSchemaV2, ProjectLocalStateDocumentSchemaV1]),
+  project: z.union([ProjectLocalStateDocumentSchema, ProjectLocalStateDocumentSchemaV3, ProjectLocalStateDocumentSchemaV2, ProjectLocalStateDocumentSchemaV1]),
   corruptions: z.array(StateCorruptionSchema).readonly(),
 }).strict().readonly();
 
@@ -344,25 +348,23 @@ function compatibleDocumentEqual(actual: unknown, expected: unknown): boolean {
   if (actual === null || typeof actual !== "object" || expected === null || typeof expected !== "object") return false;
   const actualRecord = actual as Record<string, unknown>;
   const expectedRecord = expected as Record<string, unknown>;
-  if (expectedRecord.schemaVersion !== 3) return false;
+  if (expectedRecord.schemaVersion !== 4) return false;
   if ("records" in actualRecord && "records" in expectedRecord && Array.isArray(actualRecord.records) && Array.isArray(expectedRecord.records)) {
     if (actualRecord.schemaVersion === 1) {
       const v2 = HostConfigDocumentSchemaV2.parse(projectHostConfigV1ToV2(actualRecord as Readonly<{ records: readonly unknown[] }>));
-      return sameJson(projectHostConfigV2ToV3(v2), expectedRecord);
+      return sameJson(projectHostConfigV3ToV4(projectHostConfigV2ToV3(v2)), expectedRecord);
     }
-    if (actualRecord.schemaVersion === 2) return sameJson(projectHostConfigV2ToV3(HostConfigDocumentSchemaV2.parse(actualRecord)), expectedRecord);
+    if (actualRecord.schemaVersion === 2) return sameJson(projectHostConfigV3ToV4(projectHostConfigV2ToV3(HostConfigDocumentSchemaV2.parse(actualRecord))), expectedRecord);
+    if (actualRecord.schemaVersion === 3) return sameJson(projectHostConfigV3ToV4(HostConfigDocumentSchemaV3.parse(actualRecord)), expectedRecord);
   }
   if ("marketplaces" in actualRecord && "plugins" in actualRecord && "marketplaces" in expectedRecord && "plugins" in expectedRecord) {
-    const v2 = actualRecord.schemaVersion === 1
-      ? { ...actualRecord, schemaVersion: 2, marketplaceUpdates: [] }
-      : actualRecord;
-    if (v2.schemaVersion === 2 && Array.isArray(v2.marketplaceUpdates)) {
-      return sameJson({
-        ...v2,
-        schemaVersion: 3,
-        marketplaceUpdates: v2.marketplaceUpdates.map((record) => ({ ...(record as Record<string, unknown>), origin: { kind: "legacy" } })),
-      }, expectedRecord);
-    }
+    const v2 = actualRecord.schemaVersion === 1 ? { ...actualRecord, schemaVersion: 2, marketplaceUpdates: [] } : actualRecord;
+    const v3 = v2.schemaVersion === 2 && Array.isArray(v2.marketplaceUpdates) ? {
+      ...v2,
+      schemaVersion: 3 as const,
+      marketplaceUpdates: v2.marketplaceUpdates.map((record) => ({ ...(record as Record<string, unknown>), origin: { kind: "legacy" as const } })),
+    } : v2;
+    if (v3.schemaVersion === 3) return sameJson(projectProjectLocalV3ToV4(ProjectLocalStateDocumentSchemaV3.parse(v3)), expectedRecord);
   }
   return false;
 }

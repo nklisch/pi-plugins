@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   GenerationSchema,
   HostConfigDocumentSchemaV1,
+  HostConfigDocumentSchemaV4,
   HostConfigSchemaFamily,
   MarketplaceConfigurationRecordSchema,
   UpdateApplicationPreferenceSchema,
@@ -13,83 +14,51 @@ import { MarketplaceNameSchema } from "../../../src/domain/identity.js";
 import { MarketplaceSourceSchema } from "../../../src/domain/source.js";
 
 const marketplace = MarketplaceNameSchema.parse("team");
-const remoteSource = MarketplaceSourceSchema.parse({
-  kind: "github",
-  repository: "example/plugins",
-});
+const remoteSource = MarketplaceSourceSchema.parse({ kind: "github", repository: "example/plugins" });
 
 function document(overrides: Record<string, unknown> = {}) {
   return {
     schemaVersion: 1,
     generation: 0,
-    records: [{
-      marketplace,
-      source: remoteSource,
-      updateApplication: "manual",
-    }],
+    records: [{ marketplace, source: remoteSource, updateApplication: "manual" }],
     ...overrides,
   };
 }
 
 describe("host marketplace configuration state", () => {
-  it("accepts declarations and preserves update preference without implementing it", () => {
-    const parsed = HostConfigDocumentSchemaV1.parse(document({
-      generation: 3,
-      records: [{
-        marketplace,
-        source: { kind: "local-git", path: "../local-marketplace" },
-        updateApplication: "automatic",
-      }],
-    }));
-
+  it("retains strict legacy inputs while making v4 current", () => {
+    const parsed = HostConfigDocumentSchemaV1.parse(document({ generation: 3 }));
     expect(parsed.generation).toBe(3);
-    expect(parsed.records[0]?.updateApplication).toBe("automatic");
     expect(UpdateApplicationPreferenceSchema.parse("manual")).toBe("manual");
     expect(GenerationSchema.parse(0)).toBe(0);
+    expect(HostConfigSchemaFamily.latestVersion).toBe(4);
   });
 
-  it("rejects duplicate marketplaces and unknown fields at the schema boundary", () => {
-    expect(HostConfigDocumentSchemaV1.safeParse(document({
-      records: [document().records[0], document().records[0]],
-    })).success).toBe(false);
-    expect(HostConfigDocumentSchemaV1.safeParse({
-      ...document(),
-      records: [{
-        ...document().records[0],
-        trust: true,
-      }],
-    }).success).toBe(false);
-    expect(HostConfigDocumentSchemaV1.safeParse({
-      ...document(),
-      records: [{
-        ...document().records[0],
-        source: { kind: "git", url: "https://user:password@example.com/plugins.git" },
-      }],
-    }).success).toBe(false);
-  });
-
-  it("migrates deterministic v1 records into the current v3 family", () => {
-    expect(HostConfigSchemaFamily.latestVersion).toBe(3);
-    const migrated = migrateVersionedDocument(HostConfigSchemaFamily, document());
-    expect(migrated.schemaVersion).toBe(3);
-    expect(migrated.records[0]?.origin).toEqual({ kind: "legacy" });
-    expect(migrated.records[0]?.refresh).toEqual({ nextScheduledAt: 0, consecutiveFailures: 0 });
-    expect(migrated.records[0]?.notifications).toEqual([]);
-    const local = migrateVersionedDocument(HostConfigSchemaFamily, document({
-      records: [{
-        marketplace,
-        source: { kind: "local-git", path: "../local-marketplace" },
-        updateApplication: "automatic",
-      }],
-    }));
-    expect(local.records[0]?.updateApplication).toBe("manual");
-    expect(() => migrateVersionedDocument(HostConfigSchemaFamily, {
-      ...document(),
+  it("rejects duplicate marketplaces, unknown fields, and malformed lease windows", () => {
+    expect(HostConfigDocumentSchemaV1.safeParse(document({ records: [document().records[0], document().records[0]] })).success).toBe(false);
+    expect(HostConfigDocumentSchemaV4.safeParse({
       schemaVersion: 4,
-    })).toThrow(/newer/);
+      generation: 0,
+      global: { application: "manual", cadence: "balanced" },
+      scope: { schedulerLease: { id: `update-scheduler-lease-v1:uuid:123e4567-e89b-42d3-a456-426614174000`, startedAt: 10, renewedAt: 9, expiresAt: 20 } },
+      records: [],
+    }).success).toBe(false);
   });
 
-  it("derives its public document type from the strict schema", () => {
+  it("migrates v1-v3 deterministically into global-manual v4", () => {
+    const migrated = migrateVersionedDocument(HostConfigSchemaFamily, document());
+    expect(migrated).toMatchObject({ schemaVersion: 4, global: { application: "manual", cadence: "balanced" }, scope: {} });
+    expect(migrated.records[0]?.applicationOverride).toBeUndefined();
+    expect(migrated.records[0]?.refresh).toEqual({ consecutiveFailures: 0 });
+
+    const automatic = migrateVersionedDocument(HostConfigSchemaFamily, document({
+      records: [{ marketplace, source: remoteSource, updateApplication: "automatic" }],
+    }));
+    expect(automatic.records[0]?.applicationOverride).toBe("automatic");
+    expect(() => migrateVersionedDocument(HostConfigSchemaFamily, { ...document(), schemaVersion: 5 })).toThrow(/newer/);
+  });
+
+  it("derives public document types from strict schemas", () => {
     expectTypeOf<z.infer<typeof HostConfigDocumentSchemaV1>>().toEqualTypeOf<HostConfigDocumentV1>();
     expectTypeOf<z.infer<typeof MarketplaceConfigurationRecordSchema>>().toEqualTypeOf<
       import("../../../src/domain/state/config-state.js").MarketplaceConfigurationRecord

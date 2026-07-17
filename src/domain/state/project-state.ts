@@ -28,8 +28,12 @@ import { defineVersionedSchemaFamily } from "./versioning.js";
 import type { Sha256 } from "../source.js";
 import {
   MarketplaceRegistrationRecordSchema,
+  MarketplaceRegistrationRecordSchemaV3,
   MarketplaceUpdateRecordSchema,
   MarketplaceUpdateRecordSchemaV2,
+  UpdateApplicationModeSchema,
+  UpdateSchedulerLeaseSchema,
+  migrateMarketplaceRegistrationRecordV3,
   type MarketplaceRegistrationRecord,
   type MarketplaceUpdateRecord,
 } from "../update-policy.js";
@@ -131,7 +135,7 @@ export const ProjectLocalStateDocumentSchemaV3 = z.object({
   declarationDigest: ContentDigestSchema,
   marketplaces: z.array(MarketplaceSnapshotRecordSchema).readonly(),
   plugins: z.array(InstalledPluginRecordSchema).readonly(),
-  marketplaceUpdates: z.array(MarketplaceRegistrationRecordSchema).readonly(),
+  marketplaceUpdates: z.array(MarketplaceRegistrationRecordSchemaV3).readonly(),
 }).strict().readonly().superRefine((document, context) => {
   const snapshots = new Set(document.marketplaces.map((record) => record.marketplace));
   const names = new Set<string>();
@@ -155,6 +159,42 @@ export const ProjectLocalStateDocumentSchemaV3 = z.object({
 });
 export type ProjectLocalStateDocumentV3 = z.infer<typeof ProjectLocalStateDocumentSchemaV3>;
 
+export const ProjectLocalStateDocumentSchemaV4 = z.object({
+  schemaVersion: z.literal(4),
+  generation: GenerationSchema,
+  projectKey: ProjectKeySchema,
+  identity: ProjectIdentitySchema,
+  declarationDigest: ContentDigestSchema,
+  scope: z.object({
+    application: UpdateApplicationModeSchema.optional(),
+    schedulerLease: UpdateSchedulerLeaseSchema.optional(),
+  }).strict().readonly().default(() => ({})),
+  marketplaces: z.array(MarketplaceSnapshotRecordSchema).readonly(),
+  plugins: z.array(InstalledPluginRecordSchema).readonly(),
+  marketplaceUpdates: z.array(MarketplaceRegistrationRecordSchema).readonly(),
+}).strict().readonly().superRefine((document, context) => {
+  const snapshots = new Set(document.marketplaces.map((record) => record.marketplace));
+  const names = new Set<string>();
+  const sources = new Set<string>();
+  for (const [index, record] of document.marketplaceUpdates.entries()) {
+    if (record.source.kind === "local-git") context.addIssue({ code: "custom", path: ["marketplaceUpdates", index, "source"], message: "project marketplace sources must be portable" });
+    if (!snapshots.has(record.marketplace)) context.addIssue({ code: "custom", path: ["marketplaceUpdates", index, "marketplace"], message: "registration must have a matching marketplace snapshot" });
+    if (names.has(record.marketplace)) context.addIssue({ code: "custom", path: ["marketplaceUpdates", index, "marketplace"], message: "duplicate marketplace registration" });
+    names.add(record.marketplace);
+    const source = serializeMarketplaceSource(record.source);
+    if (sources.has(source)) context.addIssue({ code: "custom", path: ["marketplaceUpdates", index, "source"], message: "duplicate marketplace source" });
+    sources.add(source);
+  }
+  const pluginKeys = new Set<string>();
+  for (const [index, plugin] of document.plugins.entries()) {
+    if (pluginKeys.has(plugin.plugin)) context.addIssue({ code: "custom", path: ["plugins", index, "plugin"], message: "duplicate installed plugin" });
+    pluginKeys.add(plugin.plugin);
+    const marketplace = plugin.plugin.slice(plugin.plugin.lastIndexOf("@") + 1);
+    if (!snapshots.has(MarketplaceNameSchema.parse(marketplace))) context.addIssue({ code: "custom", path: ["plugins", index, "plugin"], message: "installed plugin must have a corresponding marketplace snapshot" });
+  }
+});
+export type ProjectLocalStateDocumentV4 = z.infer<typeof ProjectLocalStateDocumentSchemaV4>;
+
 function migrateProjectV1(input: unknown): ProjectLocalStateDocumentV2 {
   const value = ProjectLocalStateDocumentSchemaV1.parse(input);
   return ProjectLocalStateDocumentSchemaV2.parse({ ...value, schemaVersion: 2, marketplaceUpdates: [] });
@@ -169,21 +209,36 @@ function migrateProjectV2(input: unknown): ProjectLocalStateDocumentV3 {
   });
 }
 
+export function projectProjectLocalV3ToV4(input: ProjectLocalStateDocumentV3): ProjectLocalStateDocumentV4 {
+  const value = ProjectLocalStateDocumentSchemaV3.parse(input);
+  return ProjectLocalStateDocumentSchemaV4.parse({
+    ...value,
+    schemaVersion: 4,
+    scope: {},
+    marketplaceUpdates: value.marketplaceUpdates.map(migrateMarketplaceRegistrationRecordV3),
+  });
+}
+
+function migrateProjectV3(input: unknown): ProjectLocalStateDocumentV4 {
+  return projectProjectLocalV3ToV4(ProjectLocalStateDocumentSchemaV3.parse(input));
+}
+
 export const ProjectLocalStateSchemaFamily = defineVersionedSchemaFamily({
-  latestVersion: 3,
+  latestVersion: 4,
   versions: new Map<number, z.ZodTypeAny>([
     [1, ProjectLocalStateDocumentSchemaV1],
     [2, ProjectLocalStateDocumentSchemaV2],
     [3, ProjectLocalStateDocumentSchemaV3],
+    [4, ProjectLocalStateDocumentSchemaV4],
   ]),
-  migrations: new Map<number, (input: unknown) => unknown>([[1, migrateProjectV1], [2, migrateProjectV2]]),
+  migrations: new Map<number, (input: unknown) => unknown>([[1, migrateProjectV1], [2, migrateProjectV2], [3, migrateProjectV3]]),
 });
-export const ProjectLocalStateDocumentSchema = ProjectLocalStateDocumentSchemaV3;
-export type ProjectLocalStateDocument = ProjectLocalStateDocumentV3;
+export const ProjectLocalStateDocumentSchema = ProjectLocalStateDocumentSchemaV4;
+export type ProjectLocalStateDocument = ProjectLocalStateDocumentV4;
 
 const ProjectLocalStateInputSchema = z
   .object({
-    schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+    schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
     generation: GenerationSchema,
     projectKey: ProjectKeySchema,
     identity: ProjectIdentitySchema,
@@ -191,6 +246,7 @@ const ProjectLocalStateInputSchema = z
     marketplaces: z.array(z.unknown()),
     plugins: z.array(z.unknown()),
     marketplaceUpdates: z.array(z.unknown()).optional(),
+    scope: z.unknown().optional(),
   })
   .strict();
 
@@ -277,7 +333,7 @@ export function createProjectLocalStateDocumentV2(
   return ProjectLocalStateDocumentSchemaV2.parse({ ...legacy, schemaVersion: 2, marketplaceUpdates });
 }
 
-/** Build and verify the sole current project-local v3 envelope. */
+/** Build and verify a project-local v3 envelope for migration fixtures. */
 export function createProjectLocalStateDocumentV3(
   input: unknown,
   context: Extract<ScopeContext, { kind: "project" }>,
@@ -292,8 +348,26 @@ export function createProjectLocalStateDocumentV3(
   }
   const legacyInput = Object.fromEntries(Object.entries(value).filter(([key]) => key !== "schemaVersion" && key !== "marketplaceUpdates"));
   const legacy = createProjectLocalStateDocument({ ...legacyInput, schemaVersion: 1 }, context, sha256);
-  const marketplaceUpdates = (value.marketplaceUpdates ?? []).map((record) => MarketplaceUpdateRecordSchema.parse(record));
+  const marketplaceUpdates = (value.marketplaceUpdates ?? []).map((record) => MarketplaceRegistrationRecordSchemaV3.parse(record));
   return ProjectLocalStateDocumentSchemaV3.parse({ ...legacy, schemaVersion: 3, marketplaceUpdates });
+}
+
+/** Build and verify the current project-local v4 envelope. */
+export function createProjectLocalStateDocumentV4(
+  input: unknown,
+  context: Extract<ScopeContext, { kind: "project" }>,
+  sha256: Sha256,
+): ProjectLocalStateDocumentV4 {
+  const value = ProjectLocalStateInputSchema.parse(input);
+  if (value.schemaVersion !== 4) return projectProjectLocalV3ToV4(createProjectLocalStateDocumentV3(value, context, sha256));
+  const legacyInput = Object.fromEntries(Object.entries(value).filter(([key]) => !["schemaVersion", "marketplaceUpdates", "scope"].includes(key)));
+  const legacy = createProjectLocalStateDocument({ ...legacyInput, schemaVersion: 1 }, context, sha256);
+  return ProjectLocalStateDocumentSchemaV4.parse({
+    ...legacy,
+    schemaVersion: 4,
+    scope: value.scope ?? {},
+    marketplaceUpdates: (value.marketplaceUpdates ?? []).map((record) => MarketplaceUpdateRecordSchema.parse(record)),
+  });
 }
 
 export type ProjectPluginRecordCollectionDecode = Readonly<{

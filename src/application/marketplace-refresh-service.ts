@@ -1,5 +1,6 @@
 import {
   MarketplaceRegistrationRecordSchema,
+  UpdateNoticeSchema,
   backoffDelayMs,
   deriveMarketplaceSourceIdentity,
   type MarketplaceRegistrationRecord,
@@ -39,8 +40,11 @@ import type { Sha256 } from "../domain/source.js";
 import type { RefreshClaimIdPort } from "./ports/refresh-claim-id.js";
 import {
   deriveMarketplaceRegistrationId,
+  deriveMarketplaceSnapshotToken,
+  deriveMarketplaceCandidateId,
   type MarketplaceRegistrationId,
 } from "../domain/marketplace-registration.js";
+import { deriveUpdateNoticeId } from "./native-update-identifiers.js";
 import {
   createMarketplaceRegistrationView,
   codePointCompare,
@@ -123,7 +127,7 @@ function cacheWithoutIo(record: MarketplaceRegistrationRecord, snapshot: Marketp
   const etag = { kind: "not-applicable" as const };
   if (record.source.kind === "local-git") return { kind: "unknown-local", validator, etag };
   return {
-    kind: record.refresh.nextScheduledAt > 0 && record.refresh.nextScheduledAt <= now ? "stale" : "ready",
+    kind: record.refresh.schedule !== undefined && record.refresh.schedule.dueAt <= now ? "stale" : "ready",
     validator,
     etag,
     ...(record.refresh.lastCompletedAt === undefined ? {} : { checkedAt: record.refresh.lastCompletedAt }),
@@ -219,29 +223,48 @@ export function automaticDisposition(result: AutomaticDispositionInput): "automa
 function discoveredNotifications(
   record: MarketplaceRegistrationRecord,
   scope: ScopeContext,
+  id: MarketplaceRegistrationId,
+  selected: MarketplaceSnapshotRecord,
   probes: readonly MarketplacePluginProbeResult[],
-): Readonly<{ record: MarketplaceRegistrationRecord; outcomes: readonly PluginUpdateOutcome[] }> {
-  const notifications = [...record.notifications];
+  discoveredAt: number,
+  sha256: Sha256,
+): Readonly<{ record: MarketplaceRegistrationRecord; outcomes: readonly PluginUpdateOutcome[]; created: ReadonlySet<string> }> {
+  const notices = [...record.notices];
   const outcomes: PluginUpdateOutcome[] = [];
+  const created = new Set<string>();
+  const scopeReference = toScopeReference(scope);
+  const snapshot = deriveMarketplaceSnapshotToken({ scope: scopeReference, registrationId: id, snapshot: selected }, sha256);
   for (const probe of probes) {
-    outcomes.push(PluginUpdateOutcomeSchema.parse({ plugin: probe.plugin, disposition: "discovered", candidate: probe.candidate, available: probe.available }));
-    const index = notifications.findIndex((notification) => notification.plugin === probe.plugin &&
-      notification.scope.kind === scope.kind &&
-      (scope.kind === "user" || notification.scope.kind === "project" && notification.scope.projectKey === scope.projectKey));
-    const previous = index < 0 ? undefined : notifications[index];
-    if (previous?.candidate === probe.candidate) continue;
-    const next = {
-      scope: toScopeReference(scope),
+    const existing = notices.find((notice) => notice.candidate === probe.candidate);
+    outcomes.push(PluginUpdateOutcomeSchema.parse({
       plugin: probe.plugin,
+      disposition: existing === undefined ? "discovered" : existing.disposition,
+      candidate: probe.candidate,
+      available: probe.available,
+      notification: existing === undefined ? "new" : "already-emitted",
+    }));
+    if (existing !== undefined) continue;
+    const candidateId = deriveMarketplaceCandidateId({ snapshot, plugin: probe.plugin, source: probe.entry.source.value }, sha256);
+    const noticeId = deriveUpdateNoticeId({ scope: scopeReference, plugin: probe.plugin, candidate: probe.candidate }, sha256);
+    notices.push(UpdateNoticeSchema.parse({
+      id: noticeId,
+      scope: scopeReference,
+      plugin: probe.plugin,
+      registrationId: id,
+      snapshot,
+      candidateId,
       candidate: probe.candidate,
       available: probe.available,
       display: probe.display,
-      phase: "discovered" as const,
-    };
-    if (index < 0) notifications.push(next);
-    else notifications[index] = next;
+      disposition: record.applicationOverride === "automatic" ? "automatic-pending" : "manual-required",
+      publication: "pending",
+      unread: true,
+      discoveredAt,
+      ...(record.applicationOverride === "automatic" ? { automatic: { state: "pending", reason: "awaiting-host-context" } } : {}),
+    }));
+    created.add(probe.candidate);
   }
-  return { record: MarketplaceRegistrationRecordSchema.parse({ ...record, notifications }), outcomes };
+  return { record: MarketplaceRegistrationRecordSchema.parse({ ...record, notices }), outcomes, created };
 }
 
 export interface MarketplaceRefreshService {
@@ -309,7 +332,13 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
           code,
         },
         consecutiveFailures: failures,
-        nextScheduledAt: completedAt + backoffDelayMs(failures, DefaultMarketplaceUpdatePolicy.failureBaseMs, DefaultMarketplaceUpdatePolicy.failureMaxMs),
+        schedule: {
+          anchorAt: completedAt,
+          baseDelayMs: backoffDelayMs(failures, DefaultMarketplaceUpdatePolicy.failureBaseMs, DefaultMarketplaceUpdatePolicy.failureMaxMs),
+          jitterMs: 0,
+          dueAt: completedAt + backoffDelayMs(failures, DefaultMarketplaceUpdatePolicy.failureBaseMs, DefaultMarketplaceUpdatePolicy.failureMaxMs),
+          reason: "failure",
+        },
       },
     });
     const settlement = await mutateClaimRecord(dependencies, scope, loaded.snapshot, id, replacement, cleanupSignal).catch(() => "stale" as const);
@@ -367,7 +396,9 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
     const time = now();
     if (trigger === "scheduled" && current.source.kind === "local-git") return { outcome: { kind: "skipped-local", registrationId: id }, notifications: [] };
     if (claimIsActive(current, time)) return { outcome: { kind: "coalesced", registrationId: id, claimExpiresAt: current.refresh.claim!.expiresAt }, notifications: [] };
-    if (trigger === "scheduled" && current.refresh.nextScheduledAt > time) return { outcome: { kind: "rate-limited", registrationId: id, nextAt: current.refresh.nextScheduledAt }, notifications: [] };
+    if (trigger === "scheduled" && current.refresh.schedule !== undefined && current.refresh.schedule.dueAt > time) {
+      return { outcome: { kind: "rate-limited", registrationId: id, nextAt: current.refresh.schedule.dueAt }, notifications: [] };
+    }
 
     const claimId = await dependencies.claimIds.create();
     const claimed = MarketplaceRegistrationRecordSchema.parse({
@@ -386,7 +417,6 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
       if (catalog.marketplace.name.value !== current.marketplace) throw new Error("STATE_STALE");
       const selected = createMarketplaceSnapshotRecord({ marketplace: current.marketplace, source: materialized.source, content: materialized.content, binding: materialized.binding }, dependencies.sha256);
       const probes = dependencies.probe === undefined ? [] : await dependencies.probe({ scope, record: claimed, snapshot: selected, catalog, marketplace: materialized, signal });
-      const discoveredOutcomes = discoveredNotifications(claimed, scope, probes).outcomes;
       const completedAt = now();
       const latest = await dependencies.state.read(scope, signal);
       if (!latest.ok) throw new Error("STATE_STALE");
@@ -395,6 +425,7 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
       if (latestAuthority.refresh.claim?.id !== claimId || deriveMarketplaceSourceIdentity(latestAuthority.source, dependencies.sha256) !== deriveMarketplaceSourceIdentity(current.source, dependencies.sha256)) throw new Error("STATE_STALE");
       const oldSnapshot = snapshotFor(latest.snapshot, latestAuthority);
       const unchanged = oldSnapshot !== undefined && oldSnapshot.source.revision === selected.source.revision && oldSnapshot.contentDigest === selected.contentDigest && oldSnapshot.binding === selected.binding;
+      const discovery = discoveredNotifications(latestAuthority, scope, id, selected, probes, completedAt, dependencies.sha256);
       const plan = createPromotionPlan({ kind: "marketplace", allocation, materialized }, dependencies.sha256);
       const result = await dependencies.mutations.runPreparedMutation(
         { scope, plugins: [], expectedGeneration: latest.snapshot.generation },
@@ -406,7 +437,7 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
           // Policy and origin are authoritative in the locked snapshot. Only
           // refresh memory and newly discovered notification facts belong to
           // this long-running refresh operation.
-          const discovered = discoveredNotifications(authority, scope, probes);
+          const discovered = discoveredNotifications(authority, scope, id, selected, probes, completedAt, dependencies.sha256);
           const publicationRecord = MarketplaceRegistrationRecordSchema.parse({
             ...discovered.record,
             refresh: {
@@ -414,7 +445,15 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
               claim: undefined,
               lastCompletedAt: completedAt,
               lastAttempt: { completedAt, outcome: unchanged ? "unchanged" : "succeeded" },
-              nextScheduledAt: authority.source.kind === "local-git" ? 0 : completedAt + DefaultMarketplaceUpdatePolicy.successIntervalMs,
+              ...(authority.source.kind === "local-git" ? { schedule: undefined } : {
+                schedule: {
+                  anchorAt: completedAt,
+                  baseDelayMs: DefaultMarketplaceUpdatePolicy.successIntervalMs,
+                  jitterMs: 0,
+                  dueAt: completedAt + DefaultMarketplaceUpdatePolicy.successIntervalMs,
+                  reason: "success",
+                },
+              }),
               consecutiveFailures: 0,
             },
           });
@@ -445,65 +484,21 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
       // committed refresh into a cancelled result.
       const registration = await safeView(result.snapshot, committed, new AbortController().signal);
 
-      const pluginOutcomes = [...discoveredOutcomes];
-      const dispositions = new Map<string, ReturnType<typeof automaticDisposition>>();
-      const automatic = dependencies.lifecycle !== undefined && completeInventory && committed.updateApplication === "automatic" && committed.source.kind !== "local-git";
-      for (const probe of probes) {
-        if (signal.aborted) break;
-        let disposition: ReturnType<typeof automaticDisposition> = "manual-required";
-        if (automatic) {
-          disposition = "automatic-retryable";
-          try {
-            const sourceContext: SourceContext = probe.entry.source.value.kind === "marketplace-path"
-              ? { kind: "marketplace", root: materialized.root, source: materialized.source, contentRootDigest: materialized.content.rootDigest, content: materialized.content, binding: materialized.binding }
-              : { kind: "external" };
-            disposition = automaticDisposition(await dependencies.lifecycle!.update({
-              scope,
-              plugin: probe.plugin,
-              origin: "automatic-update",
-              entry: probe.entry,
-              marketplaceSource: materialized.source,
-              sourceContext,
-              expectedRevision: probe.available.immutableRevision,
-              configurationPathContext: { scope },
-            }, signal));
-          } catch {
-            // The catalog snapshot is already committed. Lifecycle probing is
-            // secondary and cannot rewrite that evidence as cancellation.
-          }
-        }
-        dispositions.set(probe.plugin, disposition);
-      }
-
-      const notifications: NotificationIntent[] = [];
-      const latestNotificationState = await dependencies.state.read(scope, signal).catch(() => undefined);
-      if (latestNotificationState?.ok) {
-        const latestRecord = recordFor(latestNotificationState.snapshot, id, dependencies.sha256);
-        if (latestRecord !== undefined) {
-          let changed = false;
-          const nextNotifications = latestRecord.notifications.map((notification) => {
-            const probe = probes.find((candidate) => candidate.plugin === notification.plugin && candidate.candidate === notification.candidate);
-            if (probe === undefined) return notification;
-            const disposition = dispositions.get(probe.plugin) ?? "manual-required";
-            const outcomeIndex = pluginOutcomes.findIndex((outcome) => outcome.plugin === probe.plugin);
-            if (notification.phase === "emitted") {
-              if (outcomeIndex >= 0) pluginOutcomes[outcomeIndex] = PluginUpdateOutcomeSchema.parse({ ...pluginOutcomes[outcomeIndex], disposition: notification.disposition ?? disposition, notification: "already-emitted" });
-              return notification;
-            }
-            changed = true;
-            if (outcomeIndex >= 0) pluginOutcomes[outcomeIndex] = PluginUpdateOutcomeSchema.parse({ ...pluginOutcomes[outcomeIndex], disposition, notification: "new" });
-            notifications.push({ scope: toScopeReference(scope), plugin: probe.plugin, candidate: probe.candidate, installed: probe.display.installed, available: probe.display.available, disposition });
-            return { ...notification, phase: "emitted" as const, disposition };
-          });
-          if (changed) {
-            const replacement = MarketplaceRegistrationRecordSchema.parse({ ...latestRecord, notifications: nextNotifications });
-            const committedNotification = await mutateClaimRecord(dependencies, scope, latestNotificationState.snapshot, id, replacement, signal);
-            if (committedNotification !== "committed") notifications.length = 0;
-          }
-        }
-      }
+      // Discovery persists exact notice identity before any automatic application.
+      // Publication and lifecycle execution belong to the notification service and
+      // automatic coordinator; refresh never calls Pi reload or lifecycle directly.
+      const notifications: NotificationIntent[] = probes
+        .filter((probe) => discovery.created.has(probe.candidate))
+        .map((probe) => ({
+          scope: toScopeReference(scope),
+          plugin: probe.plugin,
+          candidate: probe.candidate,
+          installed: probe.display.installed,
+          available: probe.display.available,
+          disposition: committed.applicationOverride === "automatic" && completeInventory ? "discovered" as const : "manual-required" as const,
+        }));
       return {
-        outcome: MarketplaceRefreshOutcomeSchema.parse({ kind: "refreshed", registrationId: id, change: unchanged ? "unchanged" : "changed", registration, plugins: pluginOutcomes }),
+        outcome: MarketplaceRefreshOutcomeSchema.parse({ kind: "refreshed", registrationId: id, change: unchanged ? "unchanged" : "changed", registration, plugins: discovery.outcomes }),
         notifications,
       };
     } catch (error) {
@@ -562,9 +557,10 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
         if (!loaded.ok) continue;
         for (const record of marketplaceUpdateRecords(loaded.snapshot)) {
           if (record.source.kind === "local-git") continue;
+          const dueAt = record.refresh.schedule?.dueAt ?? 0;
           const scheduledAt = record.refresh.claim !== undefined && record.refresh.claim.expiresAt > dependencies.clock.nowEpochMilliseconds()
-            ? Math.max(record.refresh.nextScheduledAt, record.refresh.claim.expiresAt)
-            : record.refresh.nextScheduledAt;
+            ? Math.max(dueAt, record.refresh.claim.expiresAt)
+            : dueAt;
           if (earliest === undefined || scheduledAt < earliest) earliest = scheduledAt;
         }
       }

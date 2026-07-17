@@ -69,7 +69,7 @@ export function createMarketplaceRegistrationSnapshotMutation(
   if ("config" in snapshot) {
     const config = {
       ...snapshot.config,
-      schemaVersion: 3 as const,
+      schemaVersion: 4 as const,
       generation: snapshot.generation,
       records: parsedRecords,
     };
@@ -86,7 +86,7 @@ export function createMarketplaceRegistrationSnapshotMutation(
   }
   const project = {
     ...snapshot.project,
-    schemaVersion: 3 as const,
+    schemaVersion: 4 as const,
     generation: snapshot.generation,
     marketplaceUpdates: parsedRecords,
     marketplaces: parsedSnapshots,
@@ -112,7 +112,7 @@ export function createMarketplaceUpdateRecordsMutation(
       replace: {
         config: {
           ...snapshot.config,
-          schemaVersion: 3 as const,
+          schemaVersion: 4 as const,
           generation: snapshot.generation,
           records: parsedRecords,
         },
@@ -125,7 +125,7 @@ export function createMarketplaceUpdateRecordsMutation(
     replace: {
       project: {
         ...snapshot.project,
-        schemaVersion: 3 as const,
+        schemaVersion: 4 as const,
         generation: snapshot.generation,
         marketplaceUpdates: parsedRecords,
       },
