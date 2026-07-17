@@ -1,7 +1,7 @@
 ---
 id: consolidate-native-control-scalar-safety
 kind: story
-stage: implementing
+stage: review
 tags: [refactor, compatibility]
 parent: null
 depends_on: []
@@ -120,6 +120,24 @@ containsUnsafeNativeControlScalar(value)
 - [ ] `npm run typecheck` passes.
 
 **Rollback**: Revert the implementation commit; the three local predicates are independent and can be restored without data, schema, migration, or public API consequences.
+
+## Implementation notes
+
+- Execution capability: direct-read inline implementation; the four-file change was cohesive and the caller excluded nested agents.
+- Review weight: standard from `.work/CONVENTIONS.md`; as a standalone story, review uses the bounded inline lane without an independent reviewer.
+- Files changed: `src/application/native-control-scalar.ts`, `src/application/native-control-lexer.ts`, `src/application/native-control-parser.ts`, `src/application/native-control-redaction.ts`.
+- Tests added/removed: none; the unchanged focused contract tests already cover the stable lexer, parser, and redaction interfaces.
+- Simplification: replaced three duplicate UTF-16/control traversals with one application-private helper; the four-file total fell from 526 to 509 source lines (17 net lines deleted).
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+
+## Verification evidence
+
+- Focused contracts: `npx vitest run test/application/native-control-lexer.test.ts test/application/native-control-parser.test.ts test/application/native-control-redaction.test.ts` — 17 passed, 0 failed.
+- Typecheck: `npm run typecheck` — passed.
+- Full suite: `npm test` — 305 test files and 1,458 tests passed; dependency boundaries, compiled package imports (846 exports), compiled Pi package imports (3 exports), and isolated packed Pi extension startup passed.
+- The first full-suite attempt timed out in the unrelated generation-locking contention test; that test passed in isolation (4 tests), and the unchanged full suite passed on retry.
+- Acceptance walk: one traversal remains; lexer and exported scalar validation preserve tab allowance and length/error ordering; direct argv preserves its no-tab 8,192-code-unit policy; projection remains unbounded and preserves replacement/error/redaction behavior; no grammar, public export, compiled allowlist, manager, or Pi contract changed.
 
 ## Excluded findings
 

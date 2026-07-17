@@ -22,6 +22,7 @@ import {
   type NativeControlHelp,
 } from "./native-control-help.js";
 import { NativeControlArgvSchema, lexNativeControlText } from "./native-control-lexer.js";
+import { containsUnsafeNativeControlScalar } from "./native-control-scalar.js";
 
 export const NativeControlParseResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("parsed"), command: NativeControlCommandSchema, warnings: z.array(NativeControlDiagnosticSchema).readonly() }).strict().readonly(),
@@ -45,17 +46,7 @@ const diagnostic = (code: string, action: NativeControlDiagnostic["action"] = "r
   NativeControlDiagnosticSchema.parse({ code, severity, action, ...(field === undefined ? {} : { field }) });
 
 function scalarIsValid(value: string): boolean {
-  if (value.length > 8192) return false;
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f) || (code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069)) return false;
-    if (code >= 0xd800 && code <= 0xdbff) {
-      const next = value.charCodeAt(index + 1);
-      if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
-      index += 1;
-    } else if (code >= 0xdc00 && code <= 0xdfff) return false;
-  }
-  return true;
+  return value.length <= 8192 && !containsUnsafeNativeControlScalar(value);
 }
 
 function pathMatch(tokens: readonly string[]): PathMatch | undefined {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { containsUnsafeNativeControlScalar } from "./native-control-scalar.js";
 
 export const NativeControlArgvSchema = z.array(z.string().max(8192)).max(512).readonly();
 export type NativeControlArgv = z.infer<typeof NativeControlArgvSchema>;
@@ -15,22 +16,8 @@ export const NativeControlLexResultSchema = z.discriminatedUnion("kind", [
 ]);
 export type NativeControlLexResult = z.infer<typeof NativeControlLexResultSchema>;
 
-function invalidScalar(text: string): boolean {
-  for (let index = 0; index < text.length; index += 1) {
-    const code = text.charCodeAt(index);
-    if ((code >= 0 && code <= 0x1f && code !== 0x09) || (code >= 0x7f && code <= 0x9f) ||
-        (code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069)) return true;
-    if (code >= 0xd800 && code <= 0xdbff) {
-      const next = text.charCodeAt(index + 1);
-      if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
-      index += 1;
-    } else if (code >= 0xdc00 && code <= 0xdfff) return true;
-  }
-  return false;
-}
-
 export function validateNativeControlScalar(value: string): boolean {
-  return value.length <= 8192 && !invalidScalar(value);
+  return value.length <= 8192 && !containsUnsafeNativeControlScalar(value, { allowHorizontalTab: true });
 }
 
 /**
@@ -40,7 +27,7 @@ export function validateNativeControlScalar(value: string): boolean {
  */
 export function lexNativeControlText(text: string, mode: "execute" | "complete" = "execute"): NativeControlLexResult {
   if (text.length > 1_048_576) return { kind: "invalid", code: "CONTROL_TEXT_TOO_LARGE", partial: [] };
-  if (invalidScalar(text)) return { kind: "invalid", code: "CONTROL_TEXT_INVALID", partial: [] };
+  if (containsUnsafeNativeControlScalar(text, { allowHorizontalTab: true })) return { kind: "invalid", code: "CONTROL_TEXT_INVALID", partial: [] };
 
   const tokens: NativeControlLexToken[] = [];
   let value = "";
