@@ -1,7 +1,7 @@
 ---
 id: prune-dead-native-inspection-scaffolding-step-1
 kind: story
-stage: implementing
+stage: done
 tags: [refactor, compatibility]
 parent: prune-dead-native-inspection-scaffolding
 depends_on: []
@@ -86,3 +86,21 @@ import { MarketplaceScopeSelectionSchema } from "../domain/marketplace-registrat
 ## Risk and Rollback
 
 Risk is limited to overlooking an indirect reference, bounded by exact repository search and typecheck. Revert the implementation commit to restore the unused helper/imports; no persisted or public contract migration is involved.
+
+## Implementation notes
+
+- Execution capability: direct-read inline implementation; the two named files and exact-symbol searches fully bounded the low-risk deletion, with no nested agent used.
+- Review weight: standard by project default; not applicable to this child-story checkpoint, which advances directly to done after green verification.
+- Files changed: `src/application/native-inspection-contract.ts`, `src/application/native-inspection-disclosure.ts`, and this story record.
+- Tests added/removed: none; the deleted declarations had no runtime, type, public-export, dynamic-import, or test consumers.
+- Simplification: removed the unused outer `componentBase` helper and four import-only schema bindings with no replacement abstraction; production source is 15 net lines smaller (2 insertions, 17 deletions from import reformatting and helper removal).
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+
+## Verification evidence
+
+- Exact source/test searches found no remaining `componentBase` symbol and no targeted removed schema name in `native-inspection-contract.ts`.
+- Public/export and dynamic-consumer inspection confirmed that the schemas remain defined and exported from their owning domain modules/root barrel, while `componentBase` was never exported; no contract surface changed.
+- The live `projectSafeComponents` path still builds one parsed assessment map and invokes its local `base` projector for skills, hooks, MCP servers, and foreign components.
+- Focused unchanged suites: 2 files passed, 7 tests passed, no type errors.
+- Full `npm test`: typecheck passed; dependency boundaries passed (302 modules, 2,044 dependencies); 233 test files and 1,145 tests passed with no type errors; package build/import checks passed (623 root exports, 3 Pi exports, isolated packed extension startup).

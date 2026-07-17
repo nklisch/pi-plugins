@@ -3,13 +3,8 @@ import { ComponentIdSchema } from "../domain/components.js";
 import { ConfigurationKeySchema, ConfigurationValueKindRegistry } from "../domain/configuration.js";
 import { ContentDigestSchema } from "../domain/content-manifest.js";
 import { ErrorCodeSchema } from "../domain/errors.js";
-import { MarketplaceNameSchema, PluginKeySchema } from "../domain/identity.js";
-import {
-  MarketplaceCandidateIdSchema,
-  MarketplaceRegistrationIdSchema,
-  MarketplaceScopeSelectionSchema,
-  MarketplaceSnapshotTokenSchema,
-} from "../domain/marketplace-registration.js";
+import { PluginKeySchema } from "../domain/identity.js";
+import { MarketplaceScopeSelectionSchema } from "../domain/marketplace-registration.js";
 import { McpBridgeTransportSchema, McpRuntimeServerKeySchemaV1 } from "./ports/mcp-runtime.js";
 import { RuntimeContributionParticipantSchema } from "./ports/lifecycle-reload.js";
 import { RuntimeRequirementIdSchema } from "../domain/compatibility.js";

@@ -147,16 +147,6 @@ function assessmentMap(report: CompatibilityReport | undefined) {
   return new Map(report?.components.map((assessment) => [assessment.componentId, assessment]) ?? []);
 }
 
-function componentBase(component: { id: string }, report: CompatibilityReport | undefined, provenance: readonly Provenance[]) {
-  const assessment = assessmentMap(report).get(component.id as never);
-  return {
-    componentId: component.id,
-    verdict: assessment?.verdict.kind ?? "unavailable",
-    requirementIds: assessment?.requirementIds ?? [],
-    provenance: projectSafeProvenance(provenance),
-  };
-}
-
 function authentication(component: NormalizedPlugin["components"]["mcpServers"][number]) {
   const analysis = analyzeMcpCompatibility({ plugin: "native-inspection@internal" as never, component });
   if (analysis.kind !== "supported") return "unavailable" as const;
