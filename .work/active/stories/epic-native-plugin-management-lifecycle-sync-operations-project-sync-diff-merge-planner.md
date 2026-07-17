@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-lifecycle-sync-operations-project-sync-diff-merge-planner
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility]
 parent: epic-native-plugin-management-lifecycle-sync-operations
 depends_on: [epic-native-plugin-management-lifecycle-sync-operations-contracts-identifiers, epic-native-plugin-management-lifecycle-sync-operations-project-intent-file-authority]
@@ -27,3 +27,11 @@ Sync never plans network, marketplace add/refresh, install/update, trust grant, 
 - User/project collisions remain project-qualified; user state never satisfies or changes project intent.
 - Directional deletion, merge union/resolution, missing file, unsynchronized sentinel, constraints, enablement, and adopted-origin preservation match the parent design.
 - Every resolved desired value passes the strict portable schema and contains no machine/trust/config/runtime evidence.
+
+## Implementation notes
+
+- Added a project-only machine projection from exact project registrations/plugins/readiness; user state is not an input. Matching existing constraints are retained only when selected revision evidence proves them; newly published plugins remain unconstrained.
+- Added deterministic apply/publish/merge planning with canonical declaration digests, domain-separated plan/action/conflict IDs, fixed UTF-8 ordering, union merge, and complete explicit conflict resolution.
+- Missing registration/plugin, constraint mismatch, trust/configuration readiness, and pending transition become sorted required actions. Any known prerequisite or unresolved conflict yields zero executable actions; no network/install/update/refresh/trust/config mutation appears in the executable registry.
+- Directional plans cover disable/uninstall/registration removal/enable, file publication, and declaration-digest finalization in the declared order.
+- Verification: strict typecheck; 6 focused planner/codec tests passed.
