@@ -27,6 +27,10 @@ const location = SourceLocationSchema.parse({
   pointer: "/mcpServers/shared",
 });
 const digest = (hex: string) => ContentDigestSchema.parse(`sha256:${hex.repeat(64).slice(0, 64)}`);
+const runtimeKey = (hex: string) => `mcp-server-v1:${hex.repeat(64).slice(0, 64)}`;
+const sharedKey = runtimeKey("a");
+const alphaKey = runtimeKey("1");
+const zuluKey = runtimeKey("f");
 
 function identity(
   token: string,
@@ -44,7 +48,7 @@ function identity(
 
 function source(
   sourceIdentity: McpSourceIdentity,
-  keys: readonly string[] = ["shared"],
+  keys: readonly string[] = [sharedKey],
   transport: "stdio" | "streamable-http" = "stdio",
 ) {
   return McpConfigSourceSchemaV1.parse({
@@ -52,9 +56,11 @@ function source(
     identity: sourceIdentity,
     servers: Object.fromEntries(keys.map((key, index) => [key, {
       componentId: ComponentIdSchema.parse(`component-v1:mcp-server:${(index + 1).toString(16).repeat(64).slice(0, 64)}`),
+      nativeKey: `native-${index}`,
       transport,
       options: { timeoutMs: 500 },
       launchTemplate: { commandRef: "safe-command-template" },
+      toolAliases: [],
       provenance: [location],
     }])),
   });
@@ -98,7 +104,7 @@ export async function assertMcpRuntimeContract(
   expect(Object.values(capabilities.features).every((value) => typeof value === "boolean")).toBe(true);
 
   const firstIdentity = identity("1");
-  const firstSource = source(firstIdentity, ["zulu", "alpha"]);
+  const firstSource = source(firstIdentity, [zuluKey, alphaKey]);
   const firstCounters = { resolved: 0, disposed: 0 };
   const firstProvider = launchProvider(firstCounters);
   const validation = await runtime.validateSource(firstSource, signal);
@@ -119,12 +125,13 @@ export async function assertMcpRuntimeContract(
   McpSourceStatusSchema.parse(firstStatus);
   expect(firstStatus.identity).toEqual(firstIdentity);
   expect(firstStatus.state).toBe("registered");
-  expect(firstStatus.servers.map((server) => server.key)).toEqual(["alpha", "zulu"]);
+  expect(firstStatus.servers.map((server) => server.key)).toEqual([alphaKey, zuluKey]);
+  expect(firstStatus.servers.map((server) => server.nativeKey)).toEqual(["native-1", "native-0"]);
   expect(JSON.stringify(firstStatus)).not.toContain("safe-command-template");
   expect(JSON.stringify(firstStatus)).not.toContain("safe-command");
   expect(JSON.stringify(firstStatus)).not.toContain("CANARY");
 
-  await harness.launch(firstIdentity, "alpha", signal);
+  await harness.launch(firstIdentity, alphaKey, signal);
   expect(firstCounters).toEqual({ resolved: 1, disposed: 1 });
 
   const secondIdentity = identity("2", {
@@ -133,7 +140,7 @@ export async function assertMcpRuntimeContract(
     projectionDigest: digest("4"),
   });
   const secondCounters = { resolved: 0, disposed: 0 };
-  const secondSource = source(secondIdentity, ["alpha"]);
+  const secondSource = source(secondIdentity, [alphaKey]);
   const replaced = await runtime.replaceSource({
     source: secondSource,
     expectedProjectionDigest: firstIdentity.projectionDigest,
@@ -206,7 +213,7 @@ export async function assertMcpRuntimeContract(
       url: "https://safe.invalid/mcp",
     }),
   }, signal);
-  await expect(harness.launch(mismatchIdentity, "shared", signal)).rejects.toThrow();
+  await expect(harness.launch(mismatchIdentity, sharedKey, signal)).rejects.toThrow();
   expect(mismatchCounters).toEqual({ resolved: 1, disposed: 1 });
 
   const cancelController = new AbortController();
@@ -217,7 +224,7 @@ export async function assertMcpRuntimeContract(
     return { transport: "stdio", command: "safe-command", args: [] };
   });
   await runtime.replaceSource({ source: source(cancelIdentity), launchValues: cancelProvider }, signal);
-  await expect(harness.launch(cancelIdentity, "shared", cancelController.signal)).rejects.toThrow("launch cancelled");
+  await expect(harness.launch(cancelIdentity, sharedKey, cancelController.signal)).rejects.toThrow("launch cancelled");
   expect(cancelCounters).toEqual({ resolved: 1, disposed: 1 });
 
   const preAbortMethods: readonly [string, (signal: AbortSignal) => Promise<unknown>][] = [

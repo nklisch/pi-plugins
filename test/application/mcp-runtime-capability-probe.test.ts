@@ -61,6 +61,7 @@ function runtimeCapabilities(overrides: Readonly<{
       elicitationUrl: true,
       toolApproval: true,
       resources: true,
+      pluginToolAliases: true,
       ...overrides.features,
     },
   });

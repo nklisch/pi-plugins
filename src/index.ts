@@ -388,6 +388,9 @@ export { HOOK_SUBAGENT_CONTINUATION_BUDGET } from "./domain/hook-runtime-limits.
 export {
   McpBridgeTransportSchema,
   McpSourceIdentitySchemaV1,
+  McpRuntimeServerKeySchemaV1,
+  McpToolAliasSegmentSchema,
+  McpToolAliasTemplateSchemaV1,
   McpSourceServerSchemaV1,
   McpConfigSourceSchemaV1,
   McpLaunchValueRequestSchema,
@@ -401,6 +404,9 @@ export {
 export type {
   McpBridgeTransport,
   McpSourceIdentity,
+  McpRuntimeServerKey,
+  McpToolAliasSegment,
+  McpToolAliasTemplate,
   McpSourceServer,
   McpConfigSource,
   McpLaunchValueRequest,

@@ -20,6 +20,8 @@ const location = SourceLocationSchema.parse({
   pointer: "/mcpServers/shared",
 });
 const digest = (hex: string) => ContentDigestSchema.parse(`sha256:${hex.repeat(64).slice(0, 64)}`);
+const runtimeKey = (hex: string) => `mcp-server-v1:${hex.repeat(64).slice(0, 64)}`;
+const sharedKey = runtimeKey("a");
 
 function identity(overrides: Record<string, unknown> = {}): McpSourceIdentity {
   return McpSourceIdentitySchemaV1.parse({
@@ -32,15 +34,17 @@ function identity(overrides: Record<string, unknown> = {}): McpSourceIdentity {
   });
 }
 
-function source(sourceIdentity: McpSourceIdentity, keys: readonly string[] = ["shared"]) {
+function source(sourceIdentity: McpSourceIdentity, keys: readonly string[] = [sharedKey]) {
   return McpConfigSourceSchemaV1.parse({
     schemaVersion: 1,
     identity: sourceIdentity,
     servers: Object.fromEntries(keys.map((key, index) => [key, {
       componentId: ComponentIdSchema.parse(`component-v1:mcp-server:${(index + 1).toString(16).repeat(64).slice(0, 64)}`),
+      nativeKey: `native-${index}`,
       transport: "stdio",
       options: { secret: "CANARY_SOURCE_DEFINITION" },
       launchTemplate: { commandRef: "CANARY_TEMPLATE" },
+      toolAliases: [],
       provenance: [location],
     }])),
   });
@@ -95,7 +99,7 @@ describe("FakeMcpRuntime", () => {
       first,
       otherPlugin,
     ]);
-    expect((await runtime.inspectSource(first, signal))?.servers[0]?.key).toBe("shared");
+    expect((await runtime.inspectSource(first, signal))?.servers[0]?.key).toBe(sharedKey);
     expect(await runtime.removeSource(first, signal)).toEqual({ kind: "removed" });
     expect(await runtime.inspectSource(project, signal)).toBeDefined();
     expect(await runtime.inspectSource(otherPlugin, signal)).toBeDefined();
@@ -164,7 +168,7 @@ describe("FakeMcpRuntime", () => {
     await runtime.replaceSource({ source: source(current), launchValues }, signal);
     expect(counters).toEqual({ resolved: 0, disposed: 0 });
 
-    await runtime.launch(current, "shared", signal);
+    await runtime.launch(current, sharedKey, signal);
     expect(counters).toEqual({ resolved: 1, disposed: 1 });
 
     const mismatchCounters = { resolved: 0, disposed: 0 };
@@ -177,7 +181,7 @@ describe("FakeMcpRuntime", () => {
       source: source(mismatchIdentity),
       launchValues: mismatchProvider,
     }, signal);
-    await expect(runtime.launch(mismatchIdentity, "shared", signal)).rejects.toThrow("wrong transport");
+    await expect(runtime.launch(mismatchIdentity, sharedKey, signal)).rejects.toThrow("wrong transport");
     expect(mismatchCounters).toEqual({ resolved: 1, disposed: 1 });
 
     const failedCounters = { resolved: 0, disposed: 0 };
@@ -186,7 +190,7 @@ describe("FakeMcpRuntime", () => {
       throw new Error("CANARY_CALLBACK_FAILURE");
     });
     await runtime.replaceSource({ source: source(failedIdentity), launchValues: failedProvider }, signal);
-    const failure = await runtime.launch(failedIdentity, "shared", signal).catch((error: unknown) => error);
+    const failure = await runtime.launch(failedIdentity, sharedKey, signal).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(Error);
     expect(String(failure)).not.toContain("CANARY_CALLBACK_FAILURE");
     expect(JSON.stringify(failure)).not.toContain("CANARY_CALLBACK_FAILURE");
@@ -200,17 +204,17 @@ describe("FakeMcpRuntime", () => {
     });
     const cancelIdentity = identity({ revision: digest("7"), projectionDigest: digest("8") });
     await runtime.replaceSource({ source: source(cancelIdentity), launchValues: cancelProvider }, signal);
-    await expect(runtime.launch(cancelIdentity, "shared", controller.signal)).rejects.toThrow("cancelled launch");
+    await expect(runtime.launch(cancelIdentity, sharedKey, controller.signal)).rejects.toThrow("cancelled launch");
     expect(cancelCounters).toEqual({ resolved: 1, disposed: 1 });
   });
 
   it("keeps inspection and errors redacted, copied, and deterministically ordered", async () => {
     const runtime = new FakeMcpRuntime();
     const first = identity();
-    const mutable = source(first, ["zulu", "alpha"]);
+    const mutable = source(first, [runtimeKey("f"), runtimeKey("1")]);
     await runtime.replaceSource({ source: mutable, launchValues: provider({ resolved: 0, disposed: 0 }) }, new AbortController().signal);
     const inspected = await runtime.inspectSources(new AbortController().signal);
-    expect(inspected[0]?.servers.map((server) => server.key)).toEqual(["alpha", "zulu"]);
+    expect(inspected[0]?.servers.map((server) => server.key)).toEqual([runtimeKey("1"), runtimeKey("f")]);
     expect(JSON.stringify(inspected)).not.toContain("CANARY_SOURCE_DEFINITION");
     expect(JSON.stringify(inspected)).not.toContain("CANARY_TEMPLATE");
     expect(JSON.stringify(inspected)).not.toContain("CANARY_COMMAND");

@@ -115,9 +115,17 @@ import {
   ResolvedPluginSourceVariantRegistry,
   RetainedMetadataSchema,
   McpBridgeTransportSchema,
+  McpCanonicalTransportSchema,
+  McpCanonicalAuthSchema,
+  McpCanonicalOptionsSchemaV1,
+  McpCompatibilityPlanSchemaV1,
+  analyzeMcpCompatibility,
   McpConfigSourceSchemaV1,
   McpLaunchValueRequestSchema,
   McpRuntimeCapabilitiesSchemaV1,
+  McpRuntimeServerKeySchemaV1,
+  McpToolAliasSegmentSchema,
+  McpToolAliasTemplateSchemaV1,
   McpSourceIdentitySchemaV1,
   McpSourceRemoveResultSchema,
   McpSourceReplaceResultSchema,
@@ -410,12 +418,20 @@ import {
   type ResolvedPluginSource,
   type RetainedMetadata,
   type McpBridgeTransport,
+  type McpCanonicalTransport,
+  type McpCanonicalAuth,
+  type McpCanonicalOptions,
+  type McpCompatibilityPlan,
+  type McpCompatibilityAnalysis,
   type McpConfigSource,
   type McpLaunchValueProvider,
   type McpLaunchValueRequest,
   type McpLaunchValues,
   type McpRuntimeCapabilities,
   type McpRuntimePort,
+  type McpRuntimeServerKey,
+  type McpToolAliasSegment,
+  type McpToolAliasTemplate,
   type McpSourceIdentity,
   type McpSourceRemoveResult,
   type McpSourceReplaceRequest,
@@ -581,9 +597,17 @@ describe("explicit package API", () => {
       ResolvedPluginSourceVariantRegistry,
       RetainedMetadataSchema,
       McpBridgeTransportSchema,
+      McpCanonicalTransportSchema,
+      McpCanonicalAuthSchema,
+      McpCanonicalOptionsSchemaV1,
+      McpCompatibilityPlanSchemaV1,
+      analyzeMcpCompatibility,
       McpConfigSourceSchemaV1,
       McpLaunchValueRequestSchema,
       McpRuntimeCapabilitiesSchemaV1,
+      McpRuntimeServerKeySchemaV1,
+      McpToolAliasSegmentSchema,
+      McpToolAliasTemplateSchemaV1,
       McpSourceIdentitySchemaV1,
       McpSourceRemoveResultSchema,
       McpSourceReplaceResultSchema,
@@ -858,8 +882,16 @@ describe("explicit package API", () => {
     expectTypeOf<CompatibilityService>().toMatchTypeOf<{ assess: Function }>();
     expectTypeOf<RuntimeCapabilityProbe>().toMatchTypeOf<{ snapshot: Function }>();
     expectTypeOf<McpBridgeTransport>().toEqualTypeOf<z.infer<typeof McpBridgeTransportSchema>>();
+    expectTypeOf<McpCanonicalTransport>().toEqualTypeOf<z.infer<typeof McpCanonicalTransportSchema>>();
+    expectTypeOf<McpCanonicalAuth>().toEqualTypeOf<z.infer<typeof McpCanonicalAuthSchema>>();
+    expectTypeOf<McpCanonicalOptions>().toEqualTypeOf<z.infer<typeof McpCanonicalOptionsSchemaV1>>();
+    expectTypeOf<McpCompatibilityPlan>().toEqualTypeOf<z.infer<typeof McpCompatibilityPlanSchemaV1>>();
+    expectTypeOf<McpCompatibilityAnalysis>().toMatchTypeOf<{ kind: "supported" | "incompatible" }>();
     expectTypeOf<McpConfigSource>().toEqualTypeOf<z.infer<typeof McpConfigSourceSchemaV1>>();
     expectTypeOf<McpRuntimeCapabilities>().toEqualTypeOf<z.infer<typeof McpRuntimeCapabilitiesSchemaV1>>();
+    expectTypeOf<McpRuntimeServerKey>().toEqualTypeOf<z.infer<typeof McpRuntimeServerKeySchemaV1>>();
+    expectTypeOf<McpToolAliasSegment>().toEqualTypeOf<z.infer<typeof McpToolAliasSegmentSchema>>();
+    expectTypeOf<McpToolAliasTemplate>().toEqualTypeOf<z.infer<typeof McpToolAliasTemplateSchemaV1>>();
     expectTypeOf<McpSourceIdentity>().toEqualTypeOf<z.infer<typeof McpSourceIdentitySchemaV1>>();
     expectTypeOf<McpSourceServer>().toEqualTypeOf<z.infer<typeof McpSourceServerSchemaV1>>();
     expectTypeOf<McpSourceServerStatus>().toEqualTypeOf<z.infer<typeof McpSourceServerStatusSchema>>();

@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-plugin-projections-alias-contract
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-plugin-projections
 depends_on: [epic-mcp-runtime-integration-plugin-projections-policy-plan]
@@ -59,3 +59,15 @@ Native discovery always wins and remains present. Exact duplicate alias claims c
 ## Ordering and boundary
 
 Depends on the shared policy plan so alias templates consume canonical server/transport evidence. This story remains package-neutral: no production adapter, Pi tool registration, process/connection behavior, file discovery, or availability claim.
+
+## Implementation notes
+
+- Extended the strict package-neutral source contract with opaque digest-derived server keys, exact native-key metadata, at-most-one Claude alias template, and the optional `pluginToolAliases` capability fact.
+- Updated the reusable fake and conformance harness so validation, replacement, inspection, and status preserve exact source/component/native/provenance attribution while omitting options, launch templates, and aliases from status.
+- Added the package-internal post-discovery resolver. Native names reserve exact spellings; exact duplicate claims collapse; every distinct claimant loses a contested alias; invalid Unicode/control/runtime names are omitted without rewriting.
+- Public exports remain schema-derived and package-neutral. The resolver and fake/conformance symbols remain internal, and no production MCP package or availability claim was introduced.
+
+## Verification
+
+- `npm run typecheck` — passed.
+- `npx vitest run test/public-api.test.ts test/application/mcp-runtime-contract.test.ts test/application/mcp-tool-aliases.test.ts test/support/fakes/mcp-runtime.test.ts test/contract/mcp-runtime.contract.test.ts test/integration/mcp-runtime-port.test.ts` — 6 files, 28 tests passed.

@@ -24,6 +24,7 @@ import {
   type SourceLocation,
 } from "../../domain/provenance-location.js";
 import { JsonValueSchema, type JsonValue } from "../../domain/schema.js";
+import { hasLoneSurrogate } from "../../domain/canonical-json.js";
 
 /** The only transports that the Plugin Host source bridge may claim. */
 export const McpBridgeTransportSchema = z.enum(["stdio", "streamable-http"]);
@@ -50,13 +51,52 @@ const SecretFreeJsonRecordSchema = z
   .record(z.string().min(1), JsonValueSchema)
   .readonly();
 
+export const McpRuntimeServerKeySchemaV1 = z
+  .string()
+  .regex(/^mcp-server-v1:[0-9a-f]{64}$/)
+  .brand<"McpRuntimeServerKey">();
+export type McpRuntimeServerKey = z.infer<typeof McpRuntimeServerKeySchemaV1>;
+
+export const McpToolAliasSegmentSchema = z
+  .string()
+  .min(1)
+  .max(1024)
+  .superRefine((value, context) => {
+    if (hasLoneSurrogate(value)) {
+      context.addIssue({ code: "custom", message: "alias segments must contain only Unicode scalar values" });
+    }
+    for (const scalar of value) {
+      const codePoint = scalar.codePointAt(0)!;
+      if (codePoint <= 0x1f || codePoint >= 0x7f && codePoint <= 0x9f) {
+        context.addIssue({ code: "custom", message: "alias segments cannot contain control characters" });
+        break;
+      }
+    }
+  });
+export type McpToolAliasSegment = z.infer<typeof McpToolAliasSegmentSchema>;
+
+export const McpToolAliasTemplateSchemaV1 = z
+  .object({
+    schemaVersion: z.literal(1),
+    kind: z.literal("claude-plugin"),
+    pluginName: McpToolAliasSegmentSchema,
+    nativeServerKey: McpToolAliasSegmentSchema,
+    collisionPolicy: z.literal("omit-all"),
+    preserveNativeDiscovery: z.literal(true),
+  })
+  .strict()
+  .readonly();
+export type McpToolAliasTemplate = z.infer<typeof McpToolAliasTemplateSchemaV1>;
+
 /** A source server contains structure only; launch values arrive later. */
 export const McpSourceServerSchemaV1 = z
   .object({
     componentId: ComponentIdSchema,
+    nativeKey: z.string().min(1),
     transport: McpBridgeTransportSchema,
     options: SecretFreeJsonRecordSchema,
     launchTemplate: SecretFreeJsonRecordSchema,
+    toolAliases: z.array(McpToolAliasTemplateSchemaV1).max(1).readonly(),
     provenance: z.array(SourceLocationSchema).min(1).readonly(),
   })
   .strict()
@@ -68,7 +108,7 @@ export const McpConfigSourceSchemaV1 = z
     schemaVersion: z.literal(1),
     identity: McpSourceIdentitySchemaV1,
     servers: z
-      .record(z.string().min(1), McpSourceServerSchemaV1)
+      .record(McpRuntimeServerKeySchemaV1, McpSourceServerSchemaV1)
       .readonly(),
   })
   .strict()
@@ -100,7 +140,7 @@ export type McpConfigSource = z.infer<typeof McpConfigSourceSchemaV1>;
 export const McpLaunchValueRequestSchema = z
   .object({
     source: McpSourceIdentitySchemaV1,
-    serverKey: z.string().min(1),
+    serverKey: McpRuntimeServerKeySchemaV1,
     transport: McpBridgeTransportSchema,
   })
   .strict()
@@ -156,8 +196,9 @@ const McpServerConnectionStateSchema = z.enum([
 
 export const McpSourceServerStatusSchema = z
   .object({
-    key: z.string().min(1),
+    key: McpRuntimeServerKeySchemaV1,
     componentId: ComponentIdSchema,
+    nativeKey: z.string().min(1),
     provenance: z.array(SourceLocationSchema).min(1).readonly(),
     state: McpServerConnectionStateSchema,
     toolCount: z.number().int().nonnegative().optional(),
@@ -251,6 +292,7 @@ export const McpRuntimeCapabilitiesSchemaV1 = z
         elicitationUrl: z.boolean(),
         toolApproval: z.boolean(),
         resources: z.boolean(),
+        pluginToolAliases: z.boolean(),
       })
       .strict()
       .readonly(),

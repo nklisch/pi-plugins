@@ -83,6 +83,7 @@ function defaultCapabilities(): McpRuntimeCapabilities {
       elicitationUrl: true,
       toolApproval: true,
       resources: true,
+      pluginToolAliases: true,
     },
   });
 }
@@ -112,6 +113,7 @@ function statusFor(record: StoredSource, state: "registered" | "replacing" | "re
     .map(([key, server]) => ({
       key,
       componentId: server.componentId,
+      nativeKey: server.nativeKey,
       provenance: clone(server.provenance),
       state: "registered" as const,
     }));
