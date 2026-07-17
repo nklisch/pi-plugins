@@ -100,3 +100,9 @@ The risk is overfitting to fake internals. Keep assertions entirely on the publi
 - Commit ref: `17cb656` (`implement: subagent lifecycle fake and conformance`).
 - Verification: `npm run typecheck`; 11 focused Vitest tests passed, including the 32-vector parameterized path matrix and fake/negative/integration suites.
 - Production boundary: the fake owns no provider, model, tool, queue, workspace, persistence, steering, or real subagent-service behavior and is absent from package exports.
+
+## Second crash-recovery verification
+
+- Audited commit `17cb656` against every acceptance vector. Correction `f4e7dd8` makes the shared suite exercise interceptors on all 32 execution paths (including resume), records symbolic application of start/result replacements and same-session continuation, places completion interception before addendum/status/event/history/notification symbols, checks exact callback identity, proves idempotent session/registration disposal, rejects post-disposal execution, and supplies broken evidence for replacement loss, missing resume coverage, identity drift, unbounded continuation, event approximation, and double disposal.
+- Unified focused verification passed: 12 files / 68 tests / 0 type errors. Full repository verification passed at 162 files / 843 tests, 221 modules / 1,317 dependency edges, and 479 compiled exports.
+- Stage remains `done`; the fake is still test-only and cannot change production compatibility.

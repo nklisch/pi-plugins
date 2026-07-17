@@ -94,3 +94,9 @@ The highest risk is mixing plugin revisions or finalizing a result around contin
 - Commit ref: `017b6a1` (`implement: portable subagent hook coordinator`).
 - Verification: `npm run typecheck`; `npm run boundaries` (220 modules, 1,313 dependencies, zero violations); 60 focused domain/runtime/integration Vitest tests passed.
 - Reuse: existing selector compiler, verified catalog snapshot, guarded command executor, callback-scoped authority/configuration/redaction, diagnostics, and source-order aggregation remain authoritative.
+
+## Second crash-recovery verification
+
+- Audited commit `017b6a1` against the coordinator design. Correction `f4e7dd8` retains the planned parent-session evidence, resolves it again immediately before command execution, and fails closed if session id, transcript, cwd, Pi trust, or current-project authority changed. Resolver/package `AbortError` shapes no longer escape as caller cancellation unless an owned signal actually aborted.
+- Unified focused verification passed: 12 files / 68 tests / 0 type errors. Full repository verification passed at 162 files / 843 tests, 221 modules / 1,317 dependency edges, and 479 compiled exports.
+- Stage remains `done`; parentless/no-hook behavior remains byte-preserving and package-neutral.

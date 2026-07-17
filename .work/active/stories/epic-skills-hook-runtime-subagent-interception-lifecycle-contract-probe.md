@@ -83,3 +83,9 @@ The risk is ceremonial capability evidence. Require exact released package metad
 - Commit ref: `70a699f` (`implement: subagent lifecycle contract and probe`).
 - Verification: `npm run typecheck`; 35 focused Vitest tests across lifecycle contracts/probe, compatibility evaluation/reporting, and public API; `npm run test:package`; compiled import passed with 478 exports.
 - Deviations: none affecting the designed boundary. Invalid present semver/range evidence fails as redacted `ADAPTER_FAILED`; incomplete but well-formed behavioral coverage remains truthfully unavailable.
+
+## Second crash-recovery verification
+
+- Audited commit `70a699f` against this story and corrected one public qualification gap in `f4e7dd8`: regex-shaped but semantically invalid package versions such as a leading-zero numeric prerelease now fail as redacted `ADAPTER_FAILED` rather than qualifying.
+- Unified focused verification passed: 12 files / 68 tests / 0 type errors. Full repository verification passed at 162 files / 843 tests, 221 modules / 1,317 dependency edges, and 479 compiled exports.
+- Stage remains `done`; the correction strengthens the completed portable contract and does not claim production availability.

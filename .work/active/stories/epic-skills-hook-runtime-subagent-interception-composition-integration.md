@@ -90,3 +90,10 @@ The risk is treating successful registration as capability qualification or allo
 - Commit ref: `52b41c9` (`implement: compose portable subagent hook runtime`).
 - Verification: `npm run typecheck`; `npm run boundaries` (221 modules, 1,317 dependencies, zero violations); 31 focused application/integration/public Vitest tests; `npm run test:package`; compiled import passed with 479 exports.
 - Capability truth: fake-backed registration is usable only in injected tests. The production capability probe still returns unavailable for `provider.kind: test`; registration evidence cannot upgrade that fact.
+
+## Second crash-recovery verification
+
+- Audited commit `52b41c9` and the integrated portable boundary. Correction `f4e7dd8` removes the raw lifecycle registration handle from the package barrel while retaining the stable host port and safe `RegisteredSubagentHookRuntime`; no runtime package object or handle is a named public export.
+- Full baseline at design commit `425704e`: 154 test files / 798 tests, 215 modules / 1,293 dependency edges, 463 compiled exports. Final verified total: 162 test files / 843 tests, 221 modules / 1,317 dependency edges, 479 compiled exports. Exact portable additions: 8 test files, 45 tests, 5 source modules, 24 dependency edges, and 16 compiled exports.
+- Unified focused verification passed: 12 files / 68 tests / 0 type errors. Full `npm test` passed typecheck, boundaries, all Vitest tests, build, and compiled package import. The first attempt hit the pre-existing concurrent recovery-journal flake; the complete immediate rerun passed without unrelated changes.
+- Stage remains `done`; the parent feature and production-adapter child remain `implementing`, and fake registration still cannot make production capability available.
