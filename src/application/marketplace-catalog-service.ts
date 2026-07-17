@@ -179,7 +179,7 @@ function observationStatus(cache: import("./marketplace-management-contract.js")
 function unavailableKind(error: unknown): "unavailable" | "corrupt" {
   if (error !== null && typeof error === "object" && "code" in error) {
     const code = (error as { code?: unknown }).code;
-    if (code === "CONTENT_INVALID" || code === "CONTENT_DIGEST_MISMATCH" || code === "MARKETPLACE_ROOT_INVALID") return "corrupt";
+    if (code === "CONTENT_INVALID" || code === "CONTENT_DIGEST_MISMATCH" || code === "CONTENT_VERIFICATION_FAILED" || code === "MARKETPLACE_ROOT_INVALID") return "corrupt";
   }
   return "unavailable";
 }

@@ -52,7 +52,9 @@ function initialCacheStatus(
 
 function cacheFailure(error: unknown): MarketplaceCacheStatus {
   if (error !== null && typeof error === "object" && "code" in error &&
-      ((error as { code?: unknown }).code === "CONTENT_INVALID" || (error as { code?: unknown }).code === "CONTENT_DIGEST_MISMATCH")) {
+      ((error as { code?: unknown }).code === "CONTENT_INVALID" ||
+       (error as { code?: unknown }).code === "CONTENT_DIGEST_MISMATCH" ||
+       (error as { code?: unknown }).code === "CONTENT_VERIFICATION_FAILED")) {
     return { kind: "corrupt" };
   }
   return { kind: "unavailable" };

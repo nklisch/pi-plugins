@@ -18,6 +18,8 @@ import {
   StateCodecError,
   TrustStateDocumentSchemaV1,
   createContentManifest,
+  createMarketplaceSnapshotRecord,
+  createMaterializationBinding,
   defineVersionedSchemaFamily,
   createInstalledUserStateDocument,
   createProjectLocalStateDocument,
@@ -312,6 +314,39 @@ describe("state contract integration", () => {
     }, { scope: projectScope, generation: generation0, sha256 });
     expect(projectWithCorruptSibling.value.plugins.map((entry) => entry.plugin)).toEqual([plugin.identity.key]);
     expect(projectWithCorruptSibling.corruptions).toHaveLength(1);
+
+    const otherSource = createResolvedMarketplaceSource({ declared: { kind: "github", repository: "example/shared" }, revision: "c".repeat(40) }, sha256);
+    const thirdSource = createResolvedMarketplaceSource({ declared: { kind: "github", repository: "example/third" }, revision: "d".repeat(40) }, sha256);
+    const otherSnapshot = createMarketplaceSnapshotRecord({ marketplace: "other", source: otherSource, content, binding: createMaterializationBinding(otherSource.hash, content.rootDigest, sha256) }, sha256);
+    const thirdSnapshot = createMarketplaceSnapshotRecord({ marketplace: "third", source: thirdSource, content, binding: createMaterializationBinding(thirdSource.hash, content.rootDigest, sha256) }, sha256);
+    const registration = (marketplaceName: string, repository: string) => ({
+      marketplace: marketplaceName,
+      source: { kind: "github", repository },
+      origin: { kind: "legacy" },
+      updateApplication: "manual",
+      refresh: { nextScheduledAt: 0, consecutiveFailures: 0 },
+      notifications: [],
+    });
+    const projectWithRegistrationCorruption = decodeStateDocument("projectLocal", {
+      ...projectState,
+      schemaVersion: 3,
+      marketplaces: [...projectState.marketplaces, otherSnapshot, thirdSnapshot],
+      marketplaceUpdates: [
+        registration("community", "example/marketplace"),
+        registration("other", "example/shared"),
+        registration("other", "example/other-duplicate"),
+        registration("third", "example/shared"),
+        { ...registration("broken", "example/broken"), source: { kind: "local-git", path: "/tmp/broken" } },
+      ],
+    }, { scope: projectScope, generation: generation0, sha256 });
+    expect(projectWithRegistrationCorruption.value.marketplaceUpdates.map((entry) => entry.marketplace)).toEqual(["community"]);
+    expect(projectWithRegistrationCorruption.value.plugins.map((entry) => entry.plugin)).toEqual([plugin.identity.key]);
+    expect(projectWithRegistrationCorruption.corruptions.map((entry) => entry.code)).toEqual([
+      "RECORD_DUPLICATE",
+      "RECORD_DUPLICATE",
+      "RECORD_DUPLICATE",
+      "RECORD_INVALID",
+    ]);
 
     expect(() => decodeStateDocument("pointers", fixture("v1/corrupt/pointers-fatal.json"), {
       scope: userScope,

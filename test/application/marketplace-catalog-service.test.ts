@@ -96,4 +96,13 @@ describe("marketplace catalog service", () => {
     expect(result.candidates).toEqual([]);
     expect(result.observations).toMatchObject([{ status: "unavailable", cache: { kind: "unavailable" } }]);
   });
+
+  it("maps canonical content verification failures to corrupt without fallback", async () => {
+    const current = fixture();
+    current.resolveMarketplace.mockRejectedValue(Object.assign(new Error("tampered"), { code: "CONTENT_VERIFICATION_FAILED" }));
+    const result = await current.service.search({ scope: "user", query: "", limit: 10 }, new AbortController().signal);
+    expect(result.candidates).toEqual([]);
+    expect(result.observations).toMatchObject([{ status: "corrupt", cache: { kind: "corrupt" } }]);
+    expect(current.resolveMarketplace).toHaveBeenCalledTimes(1);
+  });
 });

@@ -65,8 +65,9 @@ import {
 } from "../content-manifest.js";
 import { JsonValueSchema, type JsonValue } from "../schema.js";
 import { MarketplaceNameSchema, PluginKeySchema } from "../identity.js";
+import { MarketplaceRegistrationRecordSchema, type MarketplaceRegistrationRecord } from "../update-policy.js";
 import { TrustSubjectRefSchema } from "./references.js";
-import type { Sha256 } from "../source.js";
+import { serializeMarketplaceSource, type Sha256 } from "../source.js";
 import { GenerationSchema, type Generation } from "./config-state.js";
 import { migrateVersionedDocument, StateSchemaVersionSchema } from "./versioning.js";
 
@@ -98,6 +99,7 @@ export const StateCorruptionFieldRegistry = {
   document: "document",
   records: "records",
   marketplaces: "marketplaces",
+  marketplaceUpdates: "marketplaceUpdates",
   plugins: "plugins",
   revisions: "revisions",
   projectKey: "projectKey",
@@ -399,6 +401,52 @@ function marketplaceCandidateKey(candidate: unknown): string | undefined {
   return typeof value === "string" && MarketplaceNameSchema.safeParse(value).success ? value : undefined;
 }
 
+function decodeProjectMarketplaceRegistrations(
+  input: unknown,
+  snapshots: readonly { readonly marketplace: string }[],
+  scope: ScopeReference,
+): { readonly records: readonly MarketplaceRegistrationRecord[]; readonly corruptions: readonly StateCorruption[] } {
+  if (!Array.isArray(input)) fatal("projectLocal", scope, "DOCUMENT_INVALID", { location: { kind: "field", id: "marketplaceUpdates" } });
+  const snapshotNames = new Set(snapshots.map((snapshot) => snapshot.marketplace));
+  const parsed: Array<{ index: number; name: string; source: string; record: MarketplaceRegistrationRecord }> = [];
+  const corruptions: StateCorruption[] = [];
+  for (const [index, candidate] of input.entries()) {
+    const name = marketplaceCandidateKey(candidate);
+    try {
+      const record = MarketplaceRegistrationRecordSchema.parse(candidate);
+      if (record.source.kind === "local-git" || !snapshotNames.has(record.marketplace)) throw new Error("project registration is not authoritative");
+      parsed.push({ index, name: record.marketplace, source: serializeMarketplaceSource(record.source), record });
+    } catch {
+      corruptions.push(corruption("projectLocal", scope, "RECORD_INVALID", {
+        ...(name === undefined ? {} : { recordIdentity: name }),
+        location: recordPointer("marketplaceUpdates", index),
+      }));
+    }
+  }
+  const nameCounts = new Map<string, number>();
+  const sourceCounts = new Map<string, number>();
+  for (const candidate of parsed) {
+    nameCounts.set(candidate.name, (nameCounts.get(candidate.name) ?? 0) + 1);
+    sourceCounts.set(candidate.source, (sourceCounts.get(candidate.source) ?? 0) + 1);
+  }
+  const records: MarketplaceRegistrationRecord[] = [];
+  for (const candidate of parsed) {
+    if (nameCounts.get(candidate.name)! > 1 || sourceCounts.get(candidate.source)! > 1) {
+      corruptions.push(corruption("projectLocal", scope, "RECORD_DUPLICATE", {
+        recordIdentity: candidate.name,
+        location: recordPointer("marketplaceUpdates", candidate.index),
+      }));
+    } else {
+      records.push(candidate.record);
+    }
+  }
+  return { records, corruptions: corruptions.sort((left, right) => {
+    const a = left.location?.kind === "pointer" ? Number(left.location.value.split("/").at(-1)) : -1;
+    const b = right.location?.kind === "pointer" ? Number(right.location.value.split("/").at(-1)) : -1;
+    return a - b;
+  }) };
+}
+
 function decodeInstalledCollection(
   kind: "installedUser" | "projectLocal",
   input: unknown,
@@ -465,8 +513,9 @@ function decodeDocument<K extends StateDocumentKind>(
     const value = InstalledUserStateDocumentSchema.parse({ ...root, marketplaces: marketplaces.records, plugins: filtered.records });
     return { value: value as StateDocumentFor<K>, corruptions: filtered.corruptions };
   }
-  const value = ProjectLocalStateDocumentSchema.parse({ ...root, marketplaces: marketplaces.records, plugins: filtered.records, marketplaceUpdates: root.marketplaceUpdates ?? [] });
-  return { value: value as StateDocumentFor<K>, corruptions: filtered.corruptions };
+  const registrations = decodeProjectMarketplaceRegistrations(root.marketplaceUpdates ?? [], marketplaces.records, scope);
+  const value = ProjectLocalStateDocumentSchema.parse({ ...root, marketplaces: marketplaces.records, plugins: filtered.records, marketplaceUpdates: registrations.records });
+  return { value: value as StateDocumentFor<K>, corruptions: [...filtered.corruptions, ...registrations.corruptions] };
 }
 
 function canonicalStringCompare(left: string, right: string): number {
