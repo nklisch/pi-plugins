@@ -137,17 +137,19 @@ export const NativeTrustReadinessSchema = z.enum([
   "authorized", "required", "revoked", "invalid-evidence", "project-untrusted", "unavailable", "not-applicable",
 ]);
 
+export const NativeRuntimeRequirementViewSchema = z.object({
+  id: RuntimeRequirementIdSchema,
+  capability: SafeDisplayFieldSchema,
+  status: z.enum(["available", "unavailable"]),
+  explanation: SafeDisplayFieldSchema,
+  provenance: z.array(NativeProvenanceViewSchema).readonly(),
+}).strict().readonly();
+
 export const NativeCompatibilityViewSchema = z.object({
   status: z.enum(["activatable", "incompatible", "unavailable"]),
   reportFingerprint: ContentDigestSchema.optional(),
   components: NativeComponentInventoryViewSchema,
-  requirements: z.array(z.object({
-    id: RuntimeRequirementIdSchema,
-    capability: SafeDisplayFieldSchema,
-    status: z.enum(["available", "unavailable"]),
-    explanation: SafeDisplayFieldSchema,
-    provenance: z.array(NativeProvenanceViewSchema).readonly(),
-  }).strict().readonly()).readonly(),
+  requirements: z.array(NativeRuntimeRequirementViewSchema).readonly(),
 }).strict().readonly();
 
 export const NativeLifecycleViewSchema = z.object({

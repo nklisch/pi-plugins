@@ -739,6 +739,7 @@ export {
   NativeComponentInventoryViewSchema,
   NativeConfigurationOptionViewSchema,
   NativeTrustReadinessSchema,
+  NativeRuntimeRequirementViewSchema,
   NativeCompatibilityViewSchema,
   NativeLifecycleViewSchema,
   NativeActivationViewSchema,
@@ -1571,3 +1572,54 @@ export { ConfirmedUninstallCleanupResultSchema, createConfirmedUninstallCleanup 
 export type { ConfirmedUninstallCleanupResult, ConfirmedUninstallCleanupDependencies, ConfirmedUninstallCleanupRequest } from "./application/confirmed-uninstall-cleanup.js";
 export { createNodeRecoveryAdapters } from "./infrastructure/recovery/create-node-recovery-adapters.js";
 export type { NodeRecoveryAdapterOptions, NodeRecoveryAdapters } from "./infrastructure/recovery/create-node-recovery-adapters.js";
+
+export {
+  TrustedInstallSessionPolicy,
+  TrustedInstallSessionTokenSchema,
+  TrustedInstallSessionVersionSchema,
+  TrustedInstallConsentIdSchema,
+  TrustedInstallCandidateBindingSchema,
+  TrustedInstallSessionStateRegistry,
+  TrustedInstallSessionStateSchema,
+  TrustedInstallConstraintViewSchema,
+  TrustedInstallConfigurationFieldSchema,
+  TrustedInstallConsentDisclosureSchema,
+  TrustedInstallProgressPhaseRegistry,
+  TrustedInstallProgressEventSchema,
+  TrustedInstallSessionViewSchema,
+  TrustedInstallOpenRequestSchema,
+  TrustedInstallSubmissionSchema,
+  TrustedInstallInputIssueRegistry,
+  TrustedInstallInputIssueSchema,
+  TrustedInstallStaleReasonSchema,
+  TrustedInstallConflictReasonSchema,
+  TrustedInstallOpenResultSchema,
+  TrustedInstallActivationResultSchema,
+  TrustedInstallStatusResultSchema,
+  TrustedInstallCancellationResultSchema,
+} from "./application/trusted-install-contract.js";
+export type {
+  TrustedInstallSessionToken,
+  TrustedInstallConsentId,
+  TrustedInstallCandidateBinding,
+  TrustedInstallConfigurationField,
+  TrustedInstallConsentDisclosure,
+  TrustedInstallProgressEvent,
+  TrustedInstallSessionView,
+  TrustedInstallOpenRequest,
+  TrustedInstallSubmission,
+  TrustedInstallInputIssue,
+  TrustedInstallOpenResult,
+  TrustedInstallActivationResult,
+  TrustedInstallStatusResult,
+  TrustedInstallCancellationResult,
+  TrustedInstallDecisionProvider,
+  TrustedInstallExecutionOptions,
+  TrustedInstallRunOptions,
+  TrustedInstallationService,
+} from "./application/trusted-install-contract.js";
+export {
+  createTrustedInstallSessionToken,
+  verifyTrustedInstallSessionToken,
+  deriveTrustedInstallConsentId,
+} from "./application/trusted-install-identifiers.js";
