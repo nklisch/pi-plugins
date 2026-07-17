@@ -42,11 +42,11 @@ function parseHeaders(bytes) {
   return { end, status, headers };
 }
 
-async function shouldCloseConnection() {
+async function takeFaultMode() {
   const command = await readFile(controlFile, "utf8").catch(() => "");
-  if (!command.includes("close-next")) return false;
-  await writeFile(controlFile, "");
-  return true;
+  const mode = command.includes("close-next") ? "close" : command.includes("pause-next") ? "pause" : "none";
+  if (mode !== "none") await writeFile(controlFile, "");
+  return mode;
 }
 
 const server = createServer({ key, cert }, async (request, response) => {
@@ -54,7 +54,8 @@ const server = createServer({ key, cert }, async (request, response) => {
   const url = new URL(request.url ?? "/", `https://${request.headers.host ?? "127.0.0.1"}`);
   await record(requestFile, { id, method: request.method, path: url.pathname, query: url.search.slice(1) });
   await record(phaseFile, { id, phase: "request-start" });
-  if (await shouldCloseConnection()) {
+  const faultMode = await takeFaultMode();
+  if (faultMode === "close") {
     await record(phaseFile, { id, phase: "connection-close" });
     request.socket.destroy();
     return;
@@ -79,6 +80,10 @@ const server = createServer({ key, cert }, async (request, response) => {
   });
   children.add(child);
   await record(phaseFile, { id, phase: "backend-start", pid: child.pid });
+  if (faultMode === "pause") {
+    child.kill("SIGSTOP");
+    await record(phaseFile, { id, phase: "backend-paused", pid: child.pid });
+  }
   request.pipe(child.stdin);
   request.once("aborted", () => child.kill("SIGKILL"));
 

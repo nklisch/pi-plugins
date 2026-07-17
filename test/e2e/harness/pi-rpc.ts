@@ -49,6 +49,7 @@ export type PiRpcStartOptions = Readonly<{
   project?: string;
   env?: NodeJS.ProcessEnv;
   ui?: PiRpcUiResponder;
+  approve?: boolean;
   extraArgs?: readonly string[];
 }>;
 
@@ -101,7 +102,7 @@ export class PiRpcProcess {
   static async start(options: PiRpcStartOptions): Promise<PiRpcProcess> {
     const args = [
       options.sandbox.piCli,
-      "--offline", "--approve",
+      "--offline", options.approve === false ? "--no-approve" : "--approve",
       "--no-prompt-templates", "--no-themes", "--no-context-files",
       ...(options.extraArgs ?? []),
       "--mode", "rpc", "--no-session", "--session-dir", options.sandbox.sessionDir,

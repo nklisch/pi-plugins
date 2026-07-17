@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-clean-environment-core-e2e-failure-recovery
 kind: story
-stage: implementing
+stage: done
 tags: [e2e-test, testing]
 parent: epic-native-plugin-management-clean-environment-core-e2e
 depends_on: [epic-native-plugin-management-clean-environment-core-e2e-infrastructure]
@@ -54,3 +54,14 @@ The story verifies representative seams only. Do not reproduce every state-codec
 ## Test integrity
 
 A real production bug is parked via `/agile-workflow:park`; the honest test remains with a linked reason if temporarily skipped/xfail. Repair bad corruption fixtures, stale baselines, RPC framing, and assertions in-session. Never accept any error, any blocked state, any nonzero process result, request-log evidence, or internal table contents as a substitute for the named public invariant.
+
+## Implementation notes
+
+- Execution capability: GPT-5.6 Sol xhigh, caller-selected; direct packed-process ownership with no nested agents.
+- Review weight: standard from `.work/CONVENTIONS.md`; child-story checkpoint does not receive review.
+- Files changed: `test/e2e/failure/{corruption-staleness,project-capability-failures,output-cancellation-reload}.e2e.test.ts`, RPC approval control, and externally controlled Git-backend pause handling.
+- Tests added: schema-valid SQLite pointer corruption/no-rewrite; missing/mutated operation capabilities; stale browse cursor; projection/content corruption; repository replacement/no-approve; foreign-state byte identity; exact unavailable candidates; externally paused refresh cancellation; malformed remote catalog fallback; closed RPC output; and reload owner truth.
+- Simplification: corruptions use Node's real SQLite on test-owned state, and cancellation/output faults stay at process/pipe boundaries; no product port, fake database, service spy, or internal success row was added.
+- Discrepancies from design: corrupt packed startup discovers `/plugin` but never reaches a reporting host, and paused refresh cancellation returns `STATE_STALE`; both exact desired invariants remain executable linked expected failures. Installed/reload cases are also linked to production projection publication.
+- Adjacent issues parked: `idea-packed-corruption-startup-diagnosis`, `idea-packed-refresh-cancellation-state-stale`; candidate-inspection and projection parks remain linked where they block the scenario baseline.
+- Verification: all failure files passed (11 tests including linked executable expected failures); ordinary stale cursor, project trust, malformed cache fallback, foreign byte identity, and closed-output restart paths are green.
