@@ -1,7 +1,7 @@
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Readable } from "node:stream";
+import { PassThrough, Readable } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import { createNodeControlInput } from "../../../src/infrastructure/control/node-control-input.js";
 
@@ -21,6 +21,24 @@ describe("node native control input", () => {
     const request = { ...base, channel: { kind: "stdin-json" as const } };
     await expect(port.collect(request as never, new AbortController().signal)).resolves.toMatchObject({ kind: "supplied", nonSensitive: [{ key: "answer", value: "yes" }] });
     await expect(port.collect(request as never, new AbortController().signal)).resolves.toEqual({ kind: "unavailable", code: "CHANNEL_UNSUPPORTED" });
+  });
+
+  it("aborts an idle read without destroying shared stdin or retaining listeners", async () => {
+    const stdin = new PassThrough();
+    stdin.pause();
+    const request = { ...base, channel: { kind: "stdin-json" as const } };
+    const controller = new AbortController();
+    const pending = createNodeControlInput({ stdin }).collect(request as never, controller.signal);
+    controller.abort(new DOMException("interrupted", "AbortError"));
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(stdin.destroyed).toBe(false);
+    expect(stdin.isPaused()).toBe(true);
+    for (const event of ["data", "end", "error", "close"] as const) expect(stdin.listenerCount(event)).toBe(0);
+
+    const document = JSON.stringify({ expected: base.expected, values: { answer: "yes" }, decision: { kind: "confirm" } });
+    const reused = createNodeControlInput({ stdin }).collect(request as never, new AbortController().signal);
+    stdin.end(document);
+    await expect(reused).resolves.toMatchObject({ kind: "supplied" });
   });
 
   it("requires an owner-only regular no-follow file", async () => {

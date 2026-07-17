@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createNativeControlEnvelope, NativeControlExecutionIdSchema } from "../../src/application/native-control-contract.js";
 import { createNativeControlProgressController, NativeControlDeliveryClosedError } from "../../src/application/native-control-progress.js";
+import { ControlReadyStatus } from "../fixtures/native-control/control-fixture.js";
 
 const executionId = NativeControlExecutionIdSchema.parse("native-control-execution-v1:123e4567-e89b-42d3-a456-426614174000");
 
@@ -18,7 +19,7 @@ describe("native control progress", () => {
     expect(settled).toBe(false);
     expect(frames.map((frame) => frame.sequence)).toEqual([0, 1]);
     release(); await pending;
-    const envelope = createNativeControlEnvelope({ executionId, command: "status", status: "ok", data: {} });
+    const envelope = createNativeControlEnvelope({ executionId, command: "status", status: "ok", data: ControlReadyStatus });
     await progress.result(envelope);
     expect(frames.map((frame) => frame.sequence)).toEqual([0, 1, 2]);
   });

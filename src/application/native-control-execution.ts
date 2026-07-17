@@ -66,11 +66,15 @@ export function createNativeControlExecutionCoordinator(dependencies: Readonly<{
     const executionId = await dependencies.ids.issue(callerSignal);
     const timeout = options.timeoutMs === undefined ? undefined : dependencies.timeouts.arm(options.timeoutMs, callerSignal);
     const linked = operationSignal(timeout?.signal ?? callerSignal);
+    // Operation cancellation and output delivery are separate concerns. A
+    // timeout/SIGINT aborts owner work but must not pre-abort the terminal
+    // cancelled envelope that explains the numeric exit to the caller.
+    const delivery = new AbortController();
     const progress = createNativeControlProgressController({
       executionId,
       command: command.command,
       ...(options.sink === undefined ? {} : { sink: options.sink }),
-      signal: linked.controller.signal,
+      signal: delivery.signal,
       abortDelivery: () => linked.controller.abort(new Error("native control output delivery failed")),
     });
     let envelope;

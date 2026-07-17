@@ -49,6 +49,7 @@ const expectedExports = [
   "createNodeControlInput",
   "createNodeControlTimeoutPort",
   "createNodeJsonLinesSink",
+  "runNodeNativeControlHeadless",
   "inputRequiredIssues",
   "lexNativeControlText",
   "nativeControlCommandIds",

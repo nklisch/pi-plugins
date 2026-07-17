@@ -92,23 +92,73 @@ function supply(request: NativeControlInputRequest, document: InputDocument): Na
   return Object.freeze({ kind: "supplied" as const, nonSensitive: Object.freeze(nonSensitive), sensitive: Object.freeze(sensitive), decision: Object.freeze(decision) });
 }
 
-async function readStdin(stream: Readable, maxBytes: number, signal: AbortSignal): Promise<Uint8Array | NativeControlInputResult> {
-  if ((stream as Readable & { isTTY?: boolean }).isTTY === true) return Object.freeze({ kind: "unavailable" as const, code: "NO_TTY" as const });
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for await (const value of stream) {
-    signal.throwIfAborted();
-    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value as Uint8Array);
-    total += chunk.byteLength;
-    if (total > maxBytes) {
-      for (const owned of chunks) owned.fill(0);
-      return invalid(issue("INPUT_TOO_LARGE"));
-    }
-    chunks.push(Buffer.from(chunk));
+function readStdin(stream: Readable, maxBytes: number, signal: AbortSignal): Promise<Uint8Array | NativeControlInputResult> {
+  signal.throwIfAborted();
+  if ((stream as Readable & { isTTY?: boolean }).isTTY === true) {
+    return Promise.resolve(Object.freeze({ kind: "unavailable" as const, code: "NO_TTY" as const }));
   }
-  const bytes = Buffer.concat(chunks, total);
-  for (const owned of chunks) owned.fill(0);
-  return bytes;
+  if (stream.readableEnded) return Promise.resolve(Buffer.alloc(0));
+
+  return new Promise<Uint8Array | NativeControlInputResult>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let settled = false;
+
+    const erase = () => {
+      for (const chunk of chunks) chunk.fill(0);
+      chunks.length = 0;
+    };
+    const cleanup = () => {
+      stream.off("data", onData);
+      stream.off("end", onEnd);
+      stream.off("error", onError);
+      stream.off("close", onClose);
+      signal.removeEventListener("abort", onAbort);
+      // Attaching a data listener resumes process.stdin. Return the shared
+      // stream to a buffered idle state without destroy(), unshift(), or
+      // claiming ownership of its lifetime.
+      if (!stream.destroyed && !stream.readableEnded) stream.pause();
+    };
+    const succeed = (value: Uint8Array | NativeControlInputResult) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      erase();
+      reject(error);
+    };
+    const onData = (value: Buffer | Uint8Array | string) => {
+      const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+      total += chunk.byteLength;
+      if (total > maxBytes) {
+        erase();
+        succeed(invalid(issue("INPUT_TOO_LARGE")));
+        return;
+      }
+      chunks.push(Buffer.from(chunk));
+    };
+    const onEnd = () => {
+      const bytes = Buffer.concat(chunks, total);
+      erase();
+      succeed(bytes);
+    };
+    const onError = (error: unknown) => fail(error);
+    const onClose = () => succeed(invalid(issue("INPUT_DOCUMENT_INVALID")));
+    const onAbort = () => fail(signal.reason ?? new DOMException("aborted", "AbortError"));
+
+    stream.on("data", onData);
+    stream.once("end", onEnd);
+    stream.once("error", onError);
+    stream.once("close", onClose);
+    signal.addEventListener("abort", onAbort, { once: true });
+    stream.resume();
+    if (signal.aborted) onAbort();
+  });
 }
 
 function safeFile(stats: Stats, uid: number | undefined, maxBytes: number): NativeControlInputResult | undefined {

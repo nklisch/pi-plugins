@@ -2087,6 +2087,11 @@ export { createNativeControlResultProjector } from "./application/native-control
 export type { NativeControlResultProjector } from "./application/native-control-result.js";
 export { createNodeJsonLinesSink } from "./infrastructure/control/node-json-lines-sink.js";
 export type { NodeJsonLinesSinkOptions } from "./infrastructure/control/node-json-lines-sink.js";
+export { runNodeNativeControlHeadless } from "./infrastructure/control/node-control-headless-runner.js";
+export type {
+  NodeControlSignalSource,
+  NodeControlHeadlessRunnerOptions,
+} from "./infrastructure/control/node-control-headless-runner.js";
 export { createNativeControlService } from "./composition/create-native-control-service.js";
 export type {
   NativeControlExecutionOptions,
