@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-packaged-host-composition-hook-subagent-composition
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management-packaged-host-composition
 depends_on: [epic-native-plugin-management-packaged-host-composition-runtime-selection-capabilities]
@@ -49,3 +49,10 @@ Wire the existing skill/hook snapshot, resource, planner, execution, Pi adaptati
 ## Ordering constraint
 
 Consumes runtime selection/capabilities. It may proceed in parallel with MCP composition; reload convergence requires both.
+
+## Implementation notes
+
+- Added construct-time inert Pi runtime delegates that receive targets only during explicit startup and enforce the exact session binding before forwarding any ordinary hook event.
+- Composed the existing snapshot loader, skill/hook participant, manifest skill verifier, resource observer, planner, execution context, guarded command executor, Pi adapters, and continuation guard behind one session-owned runtime.
+- Added exact parent-session resolution, production-only optional subagent qualification/aggregate registration, session revision lease replacement, reverse partial cleanup, and idempotent shutdown. Test-provider evidence never registers as production capability.
+- Verification: new composition/delegate/session suites and existing skill/hook/subagent integration suites passed (26 tests); `npm run typecheck` and `npm run boundaries` passed.
