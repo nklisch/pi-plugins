@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-lifecycle-reconciliation
 kind: feature
-stage: review
+stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration
 depends_on: [epic-mcp-runtime-integration-plugin-projections, epic-mcp-runtime-integration-launch-context]
@@ -706,9 +706,35 @@ The maintained-fork and production-adapter items remain the production blocker. 
 ## Implementation verification
 
 - Child stories: **5 done**, none entered review.
-- Full `npm test` pipeline: passed.
+- Initial full `npm test` pipeline passed before review with 0 type errors, clean dependency boundaries, all tests green, and the compiled-package import allowlist intact.
+- The feature advanced from `implementing` to `review`; the sole standard review was then run outside this fix pass.
+
+## Sole standard review (2026-07-16)
+
+**Effective weight**: `standard` from `.work/CONVENTIONS.md`.
+
+**Closure policy**: one independent pass, receiver adjudication, accepted blocker fixes, verification, and completion without re-review. No nested agent or second review pass was run during this correction.
+
+### Accepted high blockers
+
+1. **MCP state could authenticate itself instead of the whole-plugin expectation.** `parseState` verified the expectation and MCP projection as separately self-hashed values, then checked only their outer identity binding. A forged `none` projection or a source whose native key, transport, options, launch template, provenance, aliases, or projection references were altered and rehashed could reach runtime inspection/mutation.
+2. **Cancellation after revision-store acquire could lose cleanup ownership.** If active selection/cancellation failed after `RevisionLeaseStore.acquire` and the provider's immediate release also failed, `acquire` rejected without returning a token and the provider forgot the live lease. Later source replacement/removal could report success while durable lease residue remained.
+3. **Recovery evidence bypassed startup recovery authority.** The integration test manually selected reload plans and called the reconciler directly for only two crash shapes. It did not prove durable pending-state/journal selection, owner-death gating, or the real `createLifecycleRecoveryService` choreography across every designed MCP crash boundary.
+
+### Fixes and dispositions
+
+- **Whole-plugin authority — fixed in `990bb51`.** The MCP projector now exposes one shared deterministic derivation from `expectation.projection.components.mcpServers` plus the exact capability snapshot. Lifecycle parsing compares the claimed source against that independently derived projection before runtime capability, inspection, launch-provider, lease-provider, or mutation effects. Zero inventory requires exact `none`; nonzero inventory requires exact component/server keys, native keys, transport, options, launch template, provenance, aliases, source registration, and projection bindings. Forged-none and altered/rehashed-source regressions cover both `reconcile` and `observe`.
+- **Lease cleanup ownership — fixed in `76461a6`.** `McpRuntimeLeaseProvider` now has a required deterministic `drain` operation. `createMcpRevisionLeaseProvider` retains every store-acquired lease in provider-owned outstanding state until release succeeds, including acquisitions whose opaque token cannot be transferred. Fake/runtime contract replacement and removal cleanup drain provider-owned residue before success. The regression forces cancellation after store acquire, two release failures, an ambiguous/failed first removal, a successful retry, and an empty durable store.
+- **Durable startup recovery — fixed in `55fe004`.** The integration harness now runs the real `createLifecycleRecoveryService` over durable test state and journal entries. Reload plans are derived from the pending transition's current durable record, not manually selected. A live owner defers without changing pending state; a restarted dead-owner pass parameterizes candidate publication, partial replacement, partial removal, post-removal/pre-finalization, compensation crash, and post-restore/pre-settlement. Every case asserts exact source and lease cleanup, authoritative selected revision, pending retention then clearance, and terminal journal outcome.
+- **Terminal-safe native-key rendering — parked, not bundled.** `35ab5aa` created `.work/backlog/idea-escape-mcp-status-native-keys.md` for the downstream native manager. Supported native-key semantics remain unchanged here.
+
+### Final verification
+
+- Focused MCP lifecycle/recovery/launch/projection/runtime-bridge run: **25 files, 179 tests passed, 0 failed; 0 type errors**.
+- Full `npm test`: passed.
   - Typecheck: **0 errors**.
-  - Dependency boundaries: **237 modules, 1,444 dependencies**, no violations.
-  - Vitest: **177 files, 968 tests passed, 0 failed; 0 type errors**.
+  - Dependency boundaries: **239 modules, 1,458 dependencies**, no violations.
+  - Vitest: **178 files, 995 tests passed, 0 failed; 0 type errors**.
   - Build and compiled package import: passed, **522 exports**.
-- Review boundary: advanced from `implementing` to `review` as requested. Independent review was not run because the caller prohibited nested agents.
+- One unrelated real-process recovery-hardening test failed once during an intentionally broader focused probe and passed immediately in isolation; the requested focused run and full suite both passed without a code or fixture change.
+- Review disposition: all three accepted high blockers are fixed and verified. Per standard-weight policy and the caller's explicit instruction, there was **no re-review**. Feature advanced `review → done`; all five children remain `done`.
