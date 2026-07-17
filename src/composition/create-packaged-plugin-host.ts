@@ -464,27 +464,18 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         });
         quiesceTrustedInstallation = trustedInstallation.quiesce;
         own(() => trustedInstallation.close());
+        const requireOperationContext = <Args extends unknown[], Result>(
+          operation: (...args: Args) => Result,
+        ) => (...args: Args): Result => {
+          if (operationContexts.getStore() === undefined) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.reloadContextUnavailable, "native operation requires a Pi operation context");
+          return operation(...args);
+        };
         const operationApplication = Object.freeze({
-          preview: (...args: Parameters<typeof operations.application.preview>) => {
-            if (operationContexts.getStore() === undefined) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.reloadContextUnavailable, "native operation requires a Pi operation context");
-            return operations.application.preview(...args);
-          },
-          apply: (...args: Parameters<typeof operations.application.apply>) => {
-            if (operationContexts.getStore() === undefined) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.reloadContextUnavailable, "native operation requires a Pi operation context");
-            return operations.application.apply(...args);
-          },
-          run: (...args: Parameters<typeof operations.application.run>) => {
-            if (operationContexts.getStore() === undefined) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.reloadContextUnavailable, "native operation requires a Pi operation context");
-            return operations.application.run(...args);
-          },
-          status: (...args: Parameters<typeof operations.application.status>) => {
-            if (operationContexts.getStore() === undefined) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.reloadContextUnavailable, "native operation requires a Pi operation context");
-            return operations.application.status(...args);
-          },
-          cancel: (...args: Parameters<typeof operations.application.cancel>) => {
-            if (operationContexts.getStore() === undefined) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.reloadContextUnavailable, "native operation requires a Pi operation context");
-            return operations.application.cancel(...args);
-          },
+          preview: requireOperationContext(operations.application.preview),
+          apply: requireOperationContext(operations.application.apply),
+          run: requireOperationContext(operations.application.run),
+          status: requireOperationContext(operations.application.status),
+          cancel: requireOperationContext(operations.application.cancel),
         });
         const application: PackagedPluginHostApplication = Object.freeze({
           operations: operationApplication,

@@ -1,7 +1,7 @@
 ---
 id: centralize-packaged-operation-context-admission
 kind: story
-stage: implementing
+stage: review
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -88,3 +88,20 @@ const operationApplication = Object.freeze({
 ## Risk and Rollback
 
 Risk is low: this is a one-file, private composition refactor with no schema, state, lifecycle, project-sync, update-policy, or public API change. Generic inference must preserve each method's exact parameter and return types; typecheck is the primary proof. Revert the implementation commit to restore the five inline guards.
+
+## Implementation notes
+
+- Execution capability: GPT-5.6 Sol, direct inline implementation; one private composition boundary and one explicit work item made delegation unnecessary, and the caller prohibited nested agents.
+- Review weight: standard (project default); standalone-story policy uses one bounded inline pass regardless of weight.
+- Files changed: `src/composition/create-packaged-plugin-host.ts` (11 insertions, 20 deletions; net 9 lines deleted).
+- Tests added/removed: none; the unchanged packaged startup/recovery integration assertion covers synchronous rejection, while typecheck verifies all five inferred signatures.
+- Simplification: consolidated five duplicated AsyncLocalStorage admission checks and identical error construction into one private generic wrapper while keeping the five operation members explicit.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+
+## Verification
+
+- `npm run typecheck` — passed.
+- `npx vitest run test/integration/packaged-host-startup-recovery.test.ts` — passed (1 test).
+- `npx vitest run test/integration/generation-locking.test.ts` — passed (4 tests) after one unrelated full-suite run timed out in that test under concurrent load.
+- `npm test` — passed on the full rerun: typecheck, dependency boundaries, 260 test files / 1,287 tests, package build, compiled package imports, and isolated packed Pi extension startup.
