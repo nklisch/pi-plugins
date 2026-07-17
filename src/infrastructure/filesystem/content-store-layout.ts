@@ -85,6 +85,17 @@ function assertAbsoluteHostRoot(hostRoot: string): string {
   return resolved;
 }
 
+async function mkdirPrivate(path: string): Promise<void> {
+  try {
+    await mkdir(path, { mode: PRIVATE_DIRECTORY_MODE });
+  } catch (error) {
+    // Concurrent clean-host startup may create the same component after our
+    // ENOENT observation. EEXIST is safe to re-inspect below; files and
+    // symlinks are still rejected by the existing lstat/capability checks.
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+}
+
 async function ensurePrivateDirectory(path: string, operation: string): Promise<string> {
   try {
     await captureRootCapability(dirname(resolve(path)), operation);
@@ -93,7 +104,7 @@ async function ensurePrivateDirectory(path: string, operation: string): Promise<
       stat = await lstat(path);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      await mkdir(path, { mode: PRIVATE_DIRECTORY_MODE });
+      await mkdirPrivate(path);
       stat = await lstat(path);
     }
     if (!stat.isDirectory() || stat.isSymbolicLink()) {
@@ -132,7 +143,7 @@ async function bootstrapRoot(hostRoot: string): Promise<string> {
       stat = await lstat(current);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw layoutError("content store host root cannot be inspected", error);
-      await mkdir(current, { mode: PRIVATE_DIRECTORY_MODE });
+      await mkdirPrivate(current);
       stat = await lstat(current);
     }
     if (!stat.isDirectory() || stat.isSymbolicLink()) throw layoutError("content store host root contains a symlink or non-directory");
