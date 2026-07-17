@@ -3,6 +3,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { withSensitiveValue } from "../../../src/application/sensitive-value.js";
 import type { NativeControlInputRequest } from "../../../src/application/ports/native-control-input.js";
 import { createPiControlInputPort } from "../../../src/pi/manager/pi-control-input.js";
+import { trustedInstallFlowFixture } from "../../fixtures/trusted-install/plugin-install-flow.js";
 
 const executionId = "native-control-execution-v1:123e4567-e89b-42d3-a456-426614174000" as never;
 const canary = "SECRET-CANARY-123";
@@ -17,7 +18,7 @@ const field = (sensitive: boolean) => ({
   constraints: {},
   state: "missing" as const,
 });
-const consentId = `trusted-install-consent-v1:sha256:${"a".repeat(64)}`;
+const consentId = trustedInstallFlowFixture.configureTrust.consent.consentId;
 
 function request(fields: readonly ReturnType<typeof field>[]): NativeControlInputRequest {
   return {
@@ -25,7 +26,7 @@ function request(fields: readonly ReturnType<typeof field>[]): NativeControlInpu
     purpose: "trusted-install",
     channel: { kind: "none" },
     fields,
-    consent: { consentId, statement: safe("Trust exact revision") } as never,
+    consent: trustedInstallFlowFixture.configureTrust.consent,
     expected: { consentId },
   };
 }
@@ -70,6 +71,13 @@ describe("Pi control input adapter", () => {
     expect((h.ctx.ui as any).setEditorText).not.toHaveBeenCalled();
     expect((h.ctx.ui as any).pasteToEditor).not.toHaveBeenCalled();
     port.dispose();
+  });
+
+  it("includes exact executable disclosure in supported RPC trust confirmation", async () => {
+    const h = context("rpc");
+    const port = createPiControlInputPort({ context: h.ctx, mode: "rpc" });
+    await expect(port.collect(request([field(false)]), new AbortController().signal)).resolves.toMatchObject({ kind: "supplied", decision: { kind: "grant", consentId } });
+    expect((h.ctx.ui as any).confirm).toHaveBeenCalledWith("Plugin trust / action", expect.stringContaining("bundle-hook"), expect.any(Object));
   });
 
   it("fails closed for RPC secrets before opening any dialog", async () => {

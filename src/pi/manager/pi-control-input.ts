@@ -55,9 +55,21 @@ export function createPiControlInputPort(input: Readonly<{
       ...(request.expected.plugin === undefined ? [] : [`plugin: ${safe(request.expected.plugin)}`]),
       ...(request.expected.scope === undefined ? [] : [`scope: ${safe(request.expected.scope.kind)}`]),
       ...(request.expected.immutableRevision === undefined ? [] : [`revision: ${safe(request.expected.immutableRevision)}`]),
-      ...(request.consent === undefined ? [] : [safe(request.consent.statement.text)]),
+      ...(request.consent === undefined ? [] : [
+        safe(request.consent.statement.text),
+        `runtime: ${request.consent.components.counts.skills} skills · ${request.consent.components.counts.hooks} hooks · ${request.consent.components.counts.mcpServers} MCP servers · persistent data`,
+        `limitations: subagents ${safe(request.consent.subagentInterception)} · remote MCP discovery ${safe(request.consent.remoteMcpDiscovery)}`,
+      ]),
     ];
-    if (input.mode === "rpc") return input.context.ui.confirm("Plugin trust / action", lines.join(" · "), { signal });
+    const disclosure = request.consent === undefined ? [] : [
+      ...request.consent.components.skills.map((skill) => `skill ${safe(skill.name.text)} · ${safe(skill.root.text)}`),
+      ...request.consent.components.hooks.map((hook) => `hook ${safe(hook.event.text)} · ${safe(hook.handler.command.text)}${hook.handler.kind === "exec" ? ` ${hook.handler.args.map((arg) => safe(arg.text)).join(" ")}` : ""}`),
+      ...request.consent.components.mcpServers.map((mcp) => `MCP ${safe(mcp.nativeKey.text)} · ${safe(mcp.transport ?? "unavailable")} · ${safe(mcp.command?.text ?? mcp.url?.host.text ?? "remote")} · tools ${mcp.toolPolicy.allowed.map((tool) => safe(tool.text)).join(", ") || "runtime discovery"}`),
+      ...request.consent.components.foreign.map((component) => `foreign ${safe(component.nativeHost)} ${safe(component.nativeKind.text)} · ${safe(component.verdict)}`),
+      ...request.consent.requirements.map((requirement) => `requirement ${safe(requirement.capability.text)} · ${safe(requirement.status)} · ${safe(requirement.explanation.text)}`),
+      ...(request.consent.configurationEnvironmentNames.length === 0 ? [] : [`configuration environment names: ${request.consent.configurationEnvironmentNames.map((name) => safe(name.text)).join(", ")}`]),
+    ];
+    if (input.mode === "rpc") return input.context.ui.confirm("Plugin trust / action", [...lines, ...disclosure].join(" · "), { signal });
     let settle: ((confirmed: boolean) => void) | undefined;
     const abort = () => settle?.(false);
     signal.addEventListener("abort", abort, { once: true });
@@ -65,7 +77,7 @@ export function createPiControlInputPort(input: Readonly<{
     try {
       return await input.context.ui.custom<boolean>((_tui, theme, keybindings, done) => {
         settle = done;
-        return new ConfirmationOverlay({ theme, keybindings, title: "Confirm exact plugin action", lines, done });
+        return new ConfirmationOverlay({ theme, keybindings, title: "Confirm exact plugin action", lines, disclosure, done });
       }, { overlay: true, overlayOptions: { anchor: "center", width: "70%", minWidth: 40, maxHeight: "70%", margin: 1 } });
     } finally {
       signal.removeEventListener("abort", abort);

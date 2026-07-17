@@ -1,6 +1,7 @@
 import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import type { NativeControlEnvelope } from "../../application/native-control-contract.js";
+import { TrustedInstallActivationResultSchema } from "../../application/trusted-install-contract.js";
 import { NativeControlFrameSchema, type NativeControlFrame } from "../../application/native-control-progress.js";
 import { projectTerminalText } from "./pi-terminal-text.js";
 
@@ -49,6 +50,17 @@ export class PluginOperationView implements Component {
     if (this.envelope !== undefined) {
       lines.push(`${safe(this.envelope.command.id)} ${safe(this.envelope.status)} · ${safe(this.envelope.exit.classification)} (${this.envelope.exit.code})`);
       for (const field of this.envelope.human) lines.push(safe(field.text));
+      const install = TrustedInstallActivationResultSchema.safeParse(this.envelope.data);
+      if (install.success) {
+        lines.push(this.theme.fg("accent", "Activation result"), safe(install.data.kind));
+        if (install.data.kind === "succeeded") {
+          lines.push(`${safe(install.data.plugin)} · ${safe(install.data.scope.kind)} · ${safe(install.data.revision)}`);
+          lines.push(`${install.data.components.skills} skills discoverable · ${install.data.components.hooks} hooks registered · ${install.data.components.mcpServers} MCP servers ready`);
+        } else if (install.data.kind === "recovery-required") lines.push(`recovery action ${safe(install.data.action)}`);
+        else if (install.data.kind === "rolled-back") lines.push(`${safe(install.data.failure)} · ${install.data.restored ? "restored" : "restore incomplete"}`);
+        else if (install.data.kind === "stale" || install.data.kind === "conflict") lines.push(`refresh required · ${safe(install.data.reason)}`);
+        if ("progress" in install.data) for (const event of install.data.progress) lines.push(`#${event.sequence} ${safe(event.phase)} ${safe(event.state)}${event.code === undefined ? "" : ` ${safe(event.code)}`}`);
+      }
       for (const diagnostic of this.envelope.diagnostics) lines.push(`${safe(diagnostic.severity)} ${safe(diagnostic.code)} · ${safe(diagnostic.action)}`);
     }
     lines.push(this.theme.fg("dim", "Up/down scroll · Escape cancels once and waits for owner result"));

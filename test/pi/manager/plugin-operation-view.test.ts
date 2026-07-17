@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { createNativeControlEnvelope } from "../../../src/application/native-control-contract.js";
 import { PluginOperationView } from "../../../src/pi/manager/plugin-operation-view.js";
+import { trustedInstallFlowFixture } from "../../fixtures/trusted-install/plugin-install-flow.js";
 
 const executionId = "native-control-execution-v1:123e4567-e89b-42d3-a456-426614174000" as never;
 const theme = { fg: (_token: string, text: string) => text, bold: (text: string) => text } as any;
@@ -23,6 +24,16 @@ describe("plugin operation view", () => {
     expect(view.render(38)).not.toEqual(lines);
     view.handleInput("\u001b");
     expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it("renders exact signed activation evidence instead of raw JSON", () => {
+    const view = new PluginOperationView({ theme, keybindings, height: () => 20, cancel: vi.fn() });
+    view.finish(createNativeControlEnvelope({ executionId, command: "install.run", status: "ok", data: trustedInstallFlowFixture.activationResult as never }));
+    const output = view.render(80).join("\n");
+    expect(output).toContain("Activation result");
+    expect(output).toContain("1 skills discoverable");
+    expect(output).toContain("activation-observation completed");
+    expect(output).not.toContain("{\"");
   });
 
   it("disposes idempotently", () => {

@@ -7,6 +7,8 @@ export class ConfirmationOverlay implements Component {
   private readonly keybindings: KeybindingsManager;
   private readonly title: string;
   private readonly lines: readonly string[];
+  private readonly disclosure: readonly string[];
+  private disclosed = false;
   private done: ((confirmed: boolean) => void) | undefined;
   private disposed = false;
 
@@ -15,18 +17,21 @@ export class ConfirmationOverlay implements Component {
     keybindings: KeybindingsManager;
     title: string;
     lines: readonly string[];
+    disclosure?: readonly string[];
     done(confirmed: boolean): void;
   }>) {
     this.theme = input.theme;
     this.keybindings = input.keybindings;
     this.title = projectTerminalText(input.title, 256).text;
     this.lines = Object.freeze(input.lines.map((line) => projectTerminalText(line, 2_048).text));
+    this.disclosure = Object.freeze((input.disclosure ?? []).map((line) => projectTerminalText(line, 4_096).text));
     this.done = input.done;
   }
 
   handleInput(data: string): void {
     if (this.disposed) return;
-    if (this.keybindings.matches(data, "tui.select.confirm")) this.finish(true);
+    if (data === " " && this.disclosure.length > 0) this.disclosed = !this.disclosed;
+    else if (this.keybindings.matches(data, "tui.select.confirm")) this.finish(true);
     else if (this.keybindings.matches(data, "tui.select.cancel") || this.keybindings.matches(data, "app.interrupt")) this.finish(false);
   }
 
@@ -43,6 +48,9 @@ export class ConfirmationOverlay implements Component {
     return [
       this.theme.fg("warning", this.theme.bold(this.title)),
       ...this.lines,
+      ...(this.disclosure.length === 0 ? [] : this.disclosed
+        ? [this.theme.fg("accent", "Exact executable disclosure"), ...this.disclosure]
+        : [this.theme.fg("muted", "Space: show exact skills, hook commands, MCP process/tools, and requirements")]),
       this.theme.fg("dim", "Enter confirm · Escape cancel"),
     ].flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width)))
       .map((line) => truncateToWidth(line, Math.max(1, width), ""));
