@@ -58,6 +58,7 @@ export type MarketplacePluginProbePort = (input: Readonly<{
   record: MarketplaceUpdateRecord;
   snapshot: MarketplaceSnapshotRecord;
   catalog: import("../domain/marketplace.js").MarketplaceReadResult;
+  marketplace: MaterializedMarketplace;
   signal: AbortSignal;
 }>) => Promise<readonly MarketplacePluginProbeResult[]>;
 
@@ -260,7 +261,7 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
       const materialized: MaterializedMarketplace = await dependencies.materializers.marketplaces.materialize(current.source, allocation.slot, signal);
       const catalog = await dependencies.inspection.inspect(materialized, signal);
       const snapshot = createMarketplaceSnapshotRecord({ marketplace, source: materialized.source, content: materialized.content, binding: materialized.binding }, dependencies.sha256);
-      const probes = dependencies.probe === undefined ? [] : await dependencies.probe({ scope, record: claimed, snapshot, catalog, signal });
+      const probes = dependencies.probe === undefined ? [] : await dependencies.probe({ scope, record: claimed, snapshot, catalog, marketplace: materialized, signal });
       const discovered = candidateNotifications(claimed, scope, probes);
       const published = MarketplaceUpdateRecordSchema.parse({ ...discovered.record, refresh: { lastCompletedAt: now(), nextScheduledAt: now() + DefaultMarketplaceUpdatePolicy.successIntervalMs, consecutiveFailures: 0 } });
       const latest = await dependencies.state.read(scope, signal);

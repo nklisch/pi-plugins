@@ -39,6 +39,11 @@ export interface RuntimeSelectionCatalog
     selections: readonly RuntimeSelection[];
   }>;
   replace(next: readonly RuntimeSelection[], currentProject: CurrentProjectRuntimeContext): Promise<void>;
+  beginCandidate(next: readonly RuntimeSelection[], currentProject?: CurrentProjectRuntimeContext): Readonly<{
+    commit(): void;
+    rollback(): void;
+  }>;
+  rollbackCandidate(): void;
   close(): Promise<void>;
 }
 
@@ -118,6 +123,7 @@ export function createRuntimeSelectionCatalog(
   const retired = new Set<Epoch>();
   let closing = false;
   let closed = false;
+  let pending: Readonly<{ previous: Epoch; candidate: Epoch }> | undefined;
   const drainWaiters = new Set<() => void>();
 
   function collect(epoch: Epoch): void {
@@ -159,7 +165,7 @@ export function createRuntimeSelectionCatalog(
       });
     },
     async replace(next, project) {
-      if (closing || closed) throw new Error("runtime selection catalog is closed");
+      if (closing || closed || pending !== undefined) throw new Error("runtime selection catalog is unavailable");
       const parsedProject = CurrentProjectRuntimeContextSchema.parse(project);
       const selections = immutableSelections(next);
       const previous = current;
@@ -173,6 +179,49 @@ export function createRuntimeSelectionCatalog(
       previous.retired = true;
       if (previous.pins > 0) retired.add(previous);
       collect(previous);
+    },
+    beginCandidate(next, project = current.currentProject) {
+      if (closing || closed || pending !== undefined) throw new Error("runtime selection candidate is unavailable");
+      const previous = current;
+      const candidate: Epoch = {
+        id: nextEpochId++,
+        currentProject: CurrentProjectRuntimeContextSchema.parse(project),
+        selections: immutableSelections(next),
+        pins: 0,
+        retired: false,
+      };
+      pending = { previous, candidate };
+      current = candidate;
+      let settled = false;
+      return Object.freeze({
+        commit(): void {
+          if (settled || pending?.candidate !== candidate || current !== candidate) throw new Error("runtime selection candidate is stale");
+          settled = true;
+          pending = undefined;
+          previous.retired = true;
+          if (previous.pins > 0) retired.add(previous);
+          collect(previous);
+        },
+        rollback(): void {
+          if (settled) return;
+          settled = true;
+          if (pending?.candidate !== candidate || current !== candidate) throw new Error("runtime selection candidate is stale");
+          pending = undefined;
+          candidate.retired = true;
+          if (candidate.pins > 0) retired.add(candidate);
+          current = previous;
+          collect(candidate);
+        },
+      });
+    },
+    rollbackCandidate() {
+      if (pending === undefined) return;
+      const { previous, candidate } = pending;
+      pending = undefined;
+      candidate.retired = true;
+      if (candidate.pins > 0) retired.add(candidate);
+      current = previous;
+      collect(candidate);
     },
     async close() {
       if (closed) return;

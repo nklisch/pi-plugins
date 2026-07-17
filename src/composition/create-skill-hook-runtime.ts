@@ -43,6 +43,8 @@ export type ComposedSkillHookRuntime = Readonly<{
   catalog: SkillHookRuntimeCatalog;
   subagent?: RegisteredSubagentHookRuntime;
   replaceSessionLease(selections: readonly RuntimeSelection[], signal: AbortSignal): Promise<void>;
+  quiesce(): void;
+  resume(): void;
   close(): Promise<void>;
 }>;
 
@@ -178,6 +180,8 @@ export async function createComposedSkillHookRuntime(input: Readonly<{
       catalog: source.catalog,
       ...(subagent === undefined ? {} : { subagent }),
       replaceSessionLease,
+      quiesce: delegates.quiesce,
+      resume: delegates.resume,
       close,
     });
   } catch (error) {

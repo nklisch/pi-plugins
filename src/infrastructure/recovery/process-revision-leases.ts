@@ -9,7 +9,7 @@ import { classifyProcessIdentity, readLinuxProcessStartToken } from "../process/
 function json(value: unknown): string { return JSON.stringify(value); }
 function abort(signal: AbortSignal): void { if (signal.aborted) throw signal.reason; }
 
-export async function createProcessRevisionLeaseStore(options: Readonly<{ hostRoot: string; verifyLocalFilesystem?: (root: string) => Promise<void> }>): Promise<RevisionLeaseStore> {
+export async function createProcessRevisionLeaseStore(options: Readonly<{ hostRoot: string; verifyLocalFilesystem?: (root: string) => Promise<void> }>): Promise<RevisionLeaseStore & Readonly<{ close(): Promise<void> }>> {
   const root = await ensurePrivateLockRoot(join(options.hostRoot, "recovery", "leases", "v1"));
   await (options.verifyLocalFilesystem ?? verifyLocalFilesystemCapability)(root);
   const database = new DatabaseSync(join(root, "leases.sqlite"), { allowExtension: false, defensive: true, enableForeignKeyConstraints: true, timeout: 0 });
@@ -55,5 +55,13 @@ export async function createProcessRevisionLeaseStore(options: Readonly<{ hostRo
       return RevisionLeaseCollectionSchema.parse({ complete: true, leases, owners });
     },
   };
-  return Object.freeze(store);
+  let closed = false;
+  return Object.freeze({
+    ...store,
+    async close(): Promise<void> {
+      if (closed) return;
+      closed = true;
+      database.close();
+    },
+  });
 }

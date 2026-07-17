@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-packaged-host-composition-reload-recovery-application-container
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management-packaged-host-composition
 depends_on: [epic-native-plugin-management-packaged-host-composition-durable-state-configuration, epic-native-plugin-management-packaged-host-composition-installed-revision-loader, epic-native-plugin-management-packaged-host-composition-hook-subagent-composition, epic-native-plugin-management-packaged-host-composition-mcp-composition]
@@ -55,3 +55,11 @@ Implement the one complete-plugin `LifecycleReloadPort`, exact old/new Pi reload
 ## Ordering constraint
 
 Convergence checkpoint after durable/reconstruction and both runtime participant stories. Package/public hardening is the final dependent.
+
+## Implementation notes
+
+- Added one complete-plugin reload path with candidate selection epochs, admission quiescence, skill/hook → MCP → resource ordering, complete contribution observation, rollback restoration, session lease replacement, and fail-closed observation.
+- Added an exact process-local Pi reload broker for one predecessor/successor handoff. Lifecycle settlement now always carries scope, and recovery exposes a restart-safe scoped transition facade plus idempotently closable lease/retention databases.
+- Added the construct-only packaged host application root. Explicit startup opens the canonical state/config/content/recovery graph, project/trust/secret authorities, capability/compatibility graph, lifecycle/recovery/collection, concrete marketplace inspection/probe/update services, and both runtime participants; it runs bounded recovery before desired-state reconciliation and starts no scheduler/network refresh.
+- Added immutable marketplace update probing that materializes, inspects, assesses, and discards candidates without promotion.
+- Verification: composition, Pi, recovery, lifecycle, and packaged startup suites passed (53 focused tests); `npm run typecheck` and `npm run boundaries` passed.

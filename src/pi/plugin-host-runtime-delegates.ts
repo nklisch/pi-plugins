@@ -4,6 +4,8 @@ import type { PiSessionBindingPort } from "../composition/packaged-plugin-host-c
 export type PluginHostRuntimeDelegates = Readonly<{
   pi: ExtensionAPI;
   bindSession(binding: PiSessionBindingPort): void;
+  quiesce(): void;
+  resume(): void;
   clear(): void;
 }>;
 
@@ -15,6 +17,7 @@ export function createPluginHostRuntimeDelegates(pi: ExtensionAPI): PluginHostRu
   if (pi === null || typeof pi !== "object" || typeof pi.on !== "function") throw new TypeError("Pi ExtensionAPI is required");
   const handlers = new Map<string, (event: unknown, context: ExtensionContext) => unknown>();
   let binding: PiSessionBindingPort | undefined;
+  let quiesced = false;
   const names = [
     "input",
     "tool_call",
@@ -28,7 +31,7 @@ export function createPluginHostRuntimeDelegates(pi: ExtensionAPI): PluginHostRu
     // the one host-bound registration cast; event payloads remain Pi-owned.
     (pi.on as (event: string, handler: (event: unknown, context: ExtensionContext) => unknown) => void)(name, (event, context) => {
       const target = handlers.get(name);
-      if (target === undefined || binding === undefined) return undefined;
+      if (target === undefined || binding === undefined || quiesced) return undefined;
       binding.assertContext(context);
       return target(event, context);
     });
@@ -39,7 +42,7 @@ export function createPluginHostRuntimeDelegates(pi: ExtensionAPI): PluginHostRu
   for (const name of ["session_start", "session_shutdown"] as const) {
     (pi.on as (event: string, handler: (event: unknown, context: ExtensionContext) => unknown) => void)(name, (event, context) => {
       const target = handlers.get(name);
-      if (target === undefined || binding === undefined) return undefined;
+      if (target === undefined || binding === undefined || quiesced) return undefined;
       binding.assertContext(context);
       return target(event, context);
     });
@@ -62,7 +65,13 @@ export function createPluginHostRuntimeDelegates(pi: ExtensionAPI): PluginHostRu
       if (binding !== undefined && binding !== next) throw new Error("runtime delegates are already session-bound");
       binding = next;
     },
+    quiesce(): void { quiesced = true; },
+    resume(): void {
+      if (binding === undefined) throw new Error("runtime delegates are not session-bound");
+      quiesced = false;
+    },
     clear(): void {
+      quiesced = true;
       binding = undefined;
       handlers.clear();
     },

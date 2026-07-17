@@ -9,7 +9,7 @@ import { ensurePrivateLockRoot, verifyLocalFilesystemCapability } from "../state
 function key(ref: RetainedArtifactRef): string { return JSON.stringify(ref); }
 function abort(signal: AbortSignal): void { if (signal.aborted) throw signal.reason; }
 
-export async function createSqliteRevisionRetention(options: Readonly<{ hostRoot: string; verifyLocalFilesystem?: (root: string) => Promise<void> }>): Promise<RevisionRetentionStore> {
+export async function createSqliteRevisionRetention(options: Readonly<{ hostRoot: string; verifyLocalFilesystem?: (root: string) => Promise<void> }>): Promise<RevisionRetentionStore & Readonly<{ close(): Promise<void> }>> {
   const root = await ensurePrivateLockRoot(join(options.hostRoot, "recovery", "retention", "v1"));
   await (options.verifyLocalFilesystem ?? verifyLocalFilesystemCapability)(root);
   const path = join(root, "retention.sqlite");
@@ -37,5 +37,13 @@ export async function createSqliteRevisionRetention(options: Readonly<{ hostRoot
       database.prepare("DELETE FROM retention_marks WHERE reference = ?").run(key(RetainedArtifactRefSchema.parse(reference)));
     },
   };
-  return Object.freeze(store);
+  let closed = false;
+  return Object.freeze({
+    ...store,
+    async close(): Promise<void> {
+      if (closed) return;
+      closed = true;
+      database.close();
+    },
+  });
 }
