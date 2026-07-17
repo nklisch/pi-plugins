@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-lifecycle-sync-operations
 kind: feature
-stage: review
+stage: done
 tags: [compatibility]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-inspection-diagnostics]
@@ -868,3 +868,51 @@ Execution capability: one xhigh feature owner, selected because the ten stories 
 - Native lifecycle composition now consumes the prepared-candidate aliases over the finalized trusted-install implementation rather than introducing another acquisition/materialization path.
 - Focused trusted-install, lifecycle-sync, configuration/lifecycle/recovery, project-file, and security verification: 47 files / 205 tests passed.
 - Full `npm test`: 260 files / 1,287 tests passed; typecheck green; dependency boundaries green (337 modules / 2,412 dependencies); package imports green (711 root exports / 3 Pi exports); isolated packed Pi startup passed.
+
+## Review (2026-07-17)
+
+**Verdict**: Approve after receiver fixes and verification. Per caller instruction, the completed standard-weight sole review was not repeated.
+
+**Blockers**: Two critical and five high findings were accepted and fixed:
+
+1. Project lifecycle mutation, transition completion, rollback, and startup recovery rebuilt project state through V2 and could discard V3 registration origin/source evidence.
+2. Project sync could execute multiple lifecycle reload actions even though one packaged Pi operation frame carries one consumable reload authority.
+3. Sync plans did not explicitly bind exact trust/configuration/capability readiness through both the first-effect and declaration-digest commit boundaries.
+4. Direct update confirmation did not echo the exact configuration revision and trust fingerprint, and later failures could lose safe retained-preflight evidence.
+5. Project intent replacement used inspect-then-rename, which is not a filesystem compare-and-swap and could overwrite an editor save.
+6. Cancellation bypassed the operation facade's owned release path and swallowed candidate cleanup failure/retry authority.
+7. Acceptance evidence did not integrate the V3 state, real lifecycle/reconciler/recovery, reload broker, sync executor, and Node project-file adapter deeply enough.
+
+**Fixes**:
+
+- All project plugin mutations now use `createProjectLocalStateDocumentV3`; exact `declarationDigest` and byte-equivalent native/adopted `marketplaceUpdates` survive lifecycle success, rollback, transition reconciliation, and real-journal startup recovery.
+- Sync now treats a changed lifecycle action as the one reload horizon for that admitted operation. It returns exact partial effects plus `repreview-sync`, leaves the baseline old, and converges by deterministic re-preview. Active removal plans one uninstall rather than disable plus uninstall; two-plugin plans were verified across successive real plans without a second broker reload in one call.
+- Plans carry current and convergence readiness digests derived from capability, project trust, exact plugin trust fingerprints, exact configuration revisions/absence, and readiness state. Apply revalidates before its first effect, after re-preview following a lifecycle action, and twice at finalization with the last read immediately adjacent to declaration CAS. Readiness loss produces zero/partial truthful effects and explicit required actions; the old baseline remains.
+- Update previews and confirmations bind an exact nullable configuration revision and opaque trust fingerprint, and preview IDs include that authority. Exact rereads precede writes/lifecycle transfer. Terminal results retain only safe booleans plus configuration revision/trust fingerprint—never values, locators, roots, commands, or native causes.
+- The Node project-file adapter no longer renames over an existing leaf. Existing-file changes return `PROJECT_INTENT_WRITE_UNAVAILABLE`. Missing-file publication capability-probes and uses same-filesystem hard-link create-if-absent, binds a newly created parent identity, fsyncs, rereads, and reports stale/ambiguous without overwriting editor bytes. Ordinary and paused editor races were exercised against the real adapter.
+- Cancellation now calls `releaseEntry`; cleanup failure becomes terminal `CLEANUP_FAILED`, retains opaque retry ownership, and is retried by `status` and `close` without abandoning staging.
+- Integrated evidence now runs actual V3 lifecycle success/rollback, real reload-broker tickets, project sync re-preview convergence, real SQLite transition-journal recovery, and the Node project-file adapter. Sync composition remains local/offline and has no source materializer, refresh, install, update, trust-grant, configuration-save, or foreign-state dependency.
+
+**Objective capability-unavailable behavior**: Node provides a genuine conditional create primitive through same-filesystem hard links, so missing `.pi/plugins.json` can be safely published. Node exposes no conditional replacement primitive for an existing leaf; publish/merge that would change an existing file now fail closed with `PROJECT_INTENT_WRITE_UNAVAILABLE`. Apply-intent and unchanged-file convergence remain available.
+
+**Important parked follow-ups**:
+
+- `idea-tighten-native-lifecycle-operation-result-unions`
+- `idea-stabilize-project-sync-conflict-resolution-order`
+- `idea-refine-native-lifecycle-progress-outcomes`
+
+**Commits**:
+
+- `f588108` — parked native lifecycle result-union tightening.
+- `bdea2c4` — parked conflict-resolution order stabilization.
+- `cdad293` — parked native lifecycle progress outcome refinement.
+- `534ae8e` — fixed all seven accepted lifecycle/project-sync review findings and added integrated evidence.
+
+**Totals**:
+
+- Review-fix diff before this record: 26 files, 948 insertions, 116 deletions.
+- Focused lifecycle-sync/trusted-install/lifecycle/recovery/file/process/security verification: 47 test files / 227 tests passed; no type errors.
+- Full verification: 260 test files / 1,297 tests passed; TypeScript green; dependency boundaries green (337 modules / 2,423 dependencies); package build/import green (713 root exports / 3 Pi exports); isolated packed Pi startup passed.
+- All ten child stories remain `stage: done`.
+
+**Notes**: Review weight `standard`, from project convention and caller instruction: one independent sole review, receiver adjudication, blocker fixes, full verification, then closure without re-review. No nested agent, peer mechanism, second independent pass, update-policy work, fork/refactor, later feature, release, push, or `.work/bin/work-view` change was made. The feature advanced `review → done`.
