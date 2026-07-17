@@ -207,4 +207,42 @@ describe("subagent hook coordinator", () => {
     await expect(fixture.coordinator.beforeStart(startRequest())).resolves.toMatchObject({ action: "abort", code: "hook-failed" });
     await fixture.coordinator.dispose();
   });
+
+  it("fails closed when the parent session changes between planning and execution", async () => {
+    const planned = session();
+    const replaced = session({ cwd: "/workspace/replaced" });
+    const resolve = vi.fn()
+      .mockResolvedValueOnce(planned)
+      .mockResolvedValueOnce(replaced);
+    const fixture = setup(
+      [hook("SubagentStart", "reviewer", [], "b")],
+      async () => ({ kind: "completed", handlers: [] }),
+      resolve,
+    );
+
+    await expect(fixture.coordinator.beforeStart(startRequest())).resolves.toMatchObject({
+      action: "abort",
+      code: "hook-failed",
+    });
+    expect(fixture.executor.execute).not.toHaveBeenCalled();
+    expect(resolve).toHaveBeenCalledTimes(2);
+    await fixture.coordinator.dispose();
+  });
+
+  it("maps resolver abort-shaped failures to a typed hook failure when no signal aborted", async () => {
+    const resolve = vi.fn(async () => {
+      throw new DOMException("adapter stopped", "AbortError");
+    });
+    const fixture = setup(
+      [hook("SubagentStart", "reviewer", [], "b")],
+      async () => ({ kind: "completed", handlers: [] }),
+      resolve,
+    );
+
+    await expect(fixture.coordinator.beforeStart(startRequest())).resolves.toMatchObject({
+      action: "abort",
+      code: "hook-failed",
+    });
+    await fixture.coordinator.dispose();
+  });
 });

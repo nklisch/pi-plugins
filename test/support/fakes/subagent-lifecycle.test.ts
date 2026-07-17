@@ -30,8 +30,9 @@ describe("deterministic subagent lifecycle fake", () => {
         beforeComplete: async (request) => ({ action: "complete", result: request.proposedResult }),
       },
     }, signal);
+    const identity = lifecycleIdentity();
     const execution = fake.execute({
-      identity: lifecycleIdentity(),
+      identity,
       execution: lifecyclePath(),
       prompt: "PROMPT_SECRET_CANARY",
       proposedResults: ["RESULT_SECRET_CANARY"],
@@ -42,5 +43,6 @@ describe("deterministic subagent lifecycle fake", () => {
     await expect(execution).rejects.toMatchObject({ name: "AbortError" });
     await fake.shutdown();
     expect(fake.registrationDisposeCounts()).toEqual([1]);
+    expect(fake.sessionDisposeCount(identity.sessionId)).toBe(1);
   });
 });

@@ -366,7 +366,6 @@ export type {
   SubagentLifecycleRegistrationEvidence,
   SubagentLifecycleInterceptor,
   SubagentLifecycleRegistrationRequest,
-  SubagentLifecycleRegistration,
   SubagentLifecyclePort,
 } from "./application/ports/subagent-lifecycle.js";
 export { HOOK_SUBAGENT_CONTINUATION_BUDGET } from "./domain/hook-runtime-limits.js";

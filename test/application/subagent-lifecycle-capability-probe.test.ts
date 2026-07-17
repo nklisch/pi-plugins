@@ -76,6 +76,26 @@ describe("subagent lifecycle capability probe", () => {
     expect(status(await unavailable.snapshot(new AbortController().signal))).toBe("unavailable");
   });
 
+  it("fails malformed published semver evidence closed", async () => {
+    const malformedVersion = publishedCapabilities({
+      provider: {
+        ...publishedCapabilities().provider,
+        version: "1.2.3-01",
+      } as never,
+    });
+    const probe = createSubagentLifecycleCapabilityProbe({
+      base: { snapshot: vi.fn(async () => baseSnapshot()) },
+      lifecycle: lifecycle(malformedVersion),
+      capturedBy: "malformed-package-version",
+      runtime: { nodeVersion: "24.0.0", piVersion: "0.80.8" },
+    });
+
+    await expect(probe.snapshot(new AbortController().signal)).rejects.toMatchObject({
+      code: "ADAPTER_FAILED",
+      operation: "probeSubagentLifecycleCapabilities",
+    });
+  });
+
   it("fails malformed present evidence closed without serializing native or callback data", async () => {
     const canary = "PROMPT_RESULT_SECRET_CANARY";
     const probe = createSubagentLifecycleCapabilityProbe({

@@ -26,14 +26,24 @@ export type SubagentExecutionCheckpoint =
   | "proposed-result"
   | "completion-interceptor"
   | "continuation-prompt"
+  | "workspace-addendum"
+  | "status-update"
   | "finalize"
-  | "completion-event";
+  | "completion-event"
+  | "history"
+  | "notification";
+
+export type SubagentAppliedDecision =
+  | "start-prompt-replacement"
+  | "completion-result-replacement"
+  | "same-session-continuation";
 
 export type SubagentExecutionTrace = Readonly<{
   identity: SubagentExecutionIdentity;
   execution: SubagentExecutionPath;
   checkpoints: readonly SubagentExecutionCheckpoint[];
   decisionKinds: readonly string[];
+  appliedDecisions: readonly SubagentAppliedDecision[];
   terminal: "completed" | "aborted" | "cancelled";
   continuationRounds: number;
 }>;
@@ -49,6 +59,8 @@ export interface SubagentLifecycleContractHarness {
     signal: AbortSignal;
   }>): Promise<SubagentExecutionTrace>;
   disposeSession(sessionId: string): Promise<void>;
+  sessionDisposeCount(sessionId: string): number;
+  registrationDisposeCounts(): readonly number[];
   shutdown(): Promise<void>;
 }
 
@@ -137,10 +149,10 @@ function awaitWithSignal<T>(value: Promise<T>, signal: AbortSignal): Promise<T> 
   });
 }
 
-function isAbort(error: unknown, signal: AbortSignal): boolean {
-  return signal.aborted ||
-    (error !== null && typeof error === "object" &&
-      (error as { readonly name?: unknown }).name === "AbortError");
+function isAbort(_error: unknown, signal: AbortSignal): boolean {
+  // Only the composed execution/runtime signal owns cancellation. An adapter
+  // callback that merely throws an AbortError is still an interceptor failure.
+  return signal.aborted;
 }
 
 /**
@@ -251,11 +263,16 @@ export class FakeSubagentLifecycle implements SubagentLifecycleContractHarness {
     if (this.seenRunIds.has(identity.runId)) {
       throw new Error("subagent execution run id was reused");
     }
+    if ((this.disposedSessions.get(identity.sessionId) ?? 0) > 0) {
+      throw new Error("subagent session was already disposed");
+    }
     this.seenRunIds.add(identity.runId);
+    this.disposedSessions.set(identity.sessionId, 0);
 
     const signal = AbortSignal.any([request.signal, this.runtimeAbort.signal]);
     const checkpoints: SubagentExecutionCheckpoint[] = [];
     const decisionKinds: string[] = [];
+    const appliedDecisions: SubagentAppliedDecision[] = [];
     let continuationRound = 0;
 
     const trace = (terminal: SubagentExecutionTrace["terminal"]): SubagentExecutionTrace =>
@@ -264,6 +281,7 @@ export class FakeSubagentLifecycle implements SubagentLifecycleContractHarness {
         execution,
         checkpoints: [...checkpoints],
         decisionKinds: [...decisionKinds],
+        appliedDecisions: [...appliedDecisions],
         terminal,
         continuationRounds: continuationRound,
       });
@@ -292,6 +310,7 @@ export class FakeSubagentLifecycle implements SubagentLifecycleContractHarness {
         prompt = decision.prompt;
       }
       signal.throwIfAborted();
+      if (prompt !== request.prompt) appliedDecisions.push("start-prompt-replacement");
       checkpoints.push("prompt");
 
       while (true) {
@@ -333,16 +352,27 @@ export class FakeSubagentLifecycle implements SubagentLifecycleContractHarness {
             decisionKinds.push("completion:abort:continuation-limit");
             return trace("aborted");
           }
+          // The exact continuation prompt is callback-lifetime only. The trace
+          // records that the same-session decision was applied, never its text.
+          prompt = terminalDecision.prompt;
+          void prompt;
+          appliedDecisions.push("same-session-continuation");
           checkpoints.push("continuation-prompt");
           continuationRound += 1;
           continue;
         }
         signal.throwIfAborted();
+        if (result !== proposedResult) {
+          appliedDecisions.push("completion-result-replacement");
+        }
         // `result` deliberately dies here. Trace evidence never retains it.
         void result;
+        checkpoints.push("workspace-addendum");
+        checkpoints.push("status-update");
         checkpoints.push("finalize");
         checkpoints.push("completion-event");
-        this.disposedSessions.set(identity.sessionId, this.disposedSessions.get(identity.sessionId) ?? 0);
+        checkpoints.push("history");
+        checkpoints.push("notification");
         return trace("completed");
       }
     } catch (error) {

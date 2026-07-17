@@ -38,10 +38,11 @@ function productionQualificationAvailable(
   runtime: Readonly<{ nodeVersion: string; piVersion: string }>,
 ): boolean {
   if (capabilities.provider.kind !== "published-package") return false;
+  const packageVersion = valid(capabilities.provider.version);
   const nodeRange = validRange(capabilities.provider.nodeEngine);
   const piRange = validRange(capabilities.provider.piPeerRange);
-  if (nodeRange === null || piRange === null) {
-    throw new TypeError("published package qualification contains an invalid runtime range");
+  if (packageVersion === null || nodeRange === null || piRange === null) {
+    throw new TypeError("published package qualification contains invalid semver evidence");
   }
   return (
     allTrue(capabilities.semantics) &&
