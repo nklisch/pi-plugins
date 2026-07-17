@@ -9,6 +9,7 @@ import {
 } from "../domain/marketplace-registration.js";
 import { ScopeReferenceSchema } from "../domain/state/scope.js";
 import type { Sha256 } from "../domain/source.js";
+import type { InspectionSnapshotBinding } from "./ports/native-inspection-evidence.js";
 import {
   InspectionCursorSchema,
   InspectionDetailIdSchema,
@@ -105,6 +106,12 @@ function decodeEnvelope(value: string, prefix: "inspection-detail-v1" | "inspect
 /** Derive a safe snapshot token from an already-redacted canonical binding. */
 export function deriveInspectionSnapshotId(binding: unknown, sha256: Sha256): InspectionSnapshotId {
   return InspectionSnapshotIdSchema.parse(`inspection-snapshot-v1:sha256:${taggedDigest("inspection-snapshot-v1", binding, sha256)}`);
+}
+
+/** Capture time is observational metadata, not an authority epoch. */
+export function deriveInspectionEvidenceSnapshotId(binding: InspectionSnapshotBinding, sha256: Sha256): InspectionSnapshotId {
+  const { capturedAt: _capturedAt, ...authority } = binding;
+  return deriveInspectionSnapshotId(authority, sha256);
 }
 
 export function deriveInspectionDetailId(subjectInput: InspectionDetailSubject, sha256: Sha256): InspectionDetailId {
