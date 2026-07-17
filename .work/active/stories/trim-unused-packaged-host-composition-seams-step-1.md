@@ -1,7 +1,7 @@
 ---
 id: trim-unused-packaged-host-composition-seams-step-1
 kind: story
-stage: implementing
+stage: done
 tags: [refactor, infra]
 parent: trim-unused-packaged-host-composition-seams
 depends_on: []
@@ -83,3 +83,14 @@ Delete `mcp-runtime-state.ts`. Retain the no-runtime composition test and route 
 ## Risk and Rollback
 
 Risk is low because the removed surface is internal, unexported from package entry points, and has no production caller. Revert this story's commit to restore it; no public contract or persisted evidence changes.
+
+## Implementation Notes
+
+- Execution capability: direct inline implementation; the bounded three-file deletion had known integration points and no unresolved ownership questions.
+- Review weight: not applicable; this child story is a verification checkpoint and does not enter review.
+- Files changed: `src/composition/create-mcp-runtime.ts`, deleted `src/composition/mcp-runtime-state.ts`, and `test/composition/create-mcp-runtime.test.ts`.
+- Tests updated: the no-runtime composition test now constructs the existing projection contract and observes through `McpLifecycleParticipant`, preserving exact inactive/`none` evidence without a launch effect.
+- Simplification: removed the test-only `project` and `observe` methods, their capability probe/projection plumbing, and the one-function helper module (net 53 lines deleted for this step).
+- Verification: focused MCP composition, complete-reload, lifecycle, launch-value, and lease coverage passed (60 tests); typecheck and dependency boundaries passed.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.

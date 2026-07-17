@@ -1,11 +1,7 @@
 import type { ContentStorePort } from "../application/ports/content-store.js";
 import type { LifecycleClock } from "../application/ports/lifecycle-clock.js";
 import type { McpLaunchEnvironmentPort } from "../application/ports/mcp-launch-environment.js";
-import {
-  McpRuntimeCapabilitiesSchemaV1,
-  type McpRuntimeCapabilities,
-  type McpRuntimePort,
-} from "../application/ports/mcp-runtime.js";
+import type { McpRuntimePort } from "../application/ports/mcp-runtime.js";
 import type { RevisionLeaseStore } from "../application/ports/revision-lease-store.js";
 import { createMcpLaunchContextPort } from "../application/mcp-launch-context.js";
 import { createInactiveProjectionExpectation } from "../application/ports/runtime-projection.js";
@@ -18,21 +14,17 @@ import {
   type McpLifecycleReconcileResult,
   type McpLifecycleState,
   type McpLifecycleTransitionRequest,
-  type McpLifecycleObservationResult,
 } from "../runtime/mcp/lifecycle-participant.js";
 import { createMcpRevisionLeaseProvider } from "../runtime/mcp/revision-lease-provider.js";
 import type { HostConfigurationDependencies } from "./create-host-configuration.js";
-import type { RuntimeSelection, RuntimeSelectionCatalog } from "./runtime-selection-catalog.js";
-import { projectRuntimeSelectionToMcpState } from "./mcp-runtime-state.js";
+import type { RuntimeSelectionCatalog } from "./runtime-selection-catalog.js";
 
 export type ComposedMcpRuntime = Readonly<{
   participant: McpLifecycleParticipant;
-  project(selection: RuntimeSelection, capabilities: McpRuntimeCapabilities): McpLifecycleState;
   reconcileAll(
     transitions: readonly Readonly<{ from: McpLifecycleState; to: McpLifecycleState }>[],
     signal: AbortSignal,
   ): Promise<readonly McpLifecycleReconcileResult[]>;
-  observe(selection: RuntimeSelection, signal: AbortSignal): Promise<McpLifecycleObservationResult>;
   close(): Promise<void>;
 }>;
 
@@ -95,14 +87,6 @@ export function createComposedMcpRuntime(input: Readonly<{
   const owned = new Map<string, McpLifecycleState>();
   let closePromise: Promise<void> | undefined;
 
-  function project(selection: RuntimeSelection, capabilities: McpRuntimeCapabilities): McpLifecycleState {
-    return projectRuntimeSelectionToMcpState(
-      selection,
-      McpRuntimeCapabilitiesSchemaV1.parse(capabilities),
-      input.sha256,
-    );
-  }
-
   async function reconcileAll(
     transitions: readonly Readonly<{ from: McpLifecycleState; to: McpLifecycleState }>[],
     signal: AbortSignal,
@@ -123,29 +107,6 @@ export function createComposedMcpRuntime(input: Readonly<{
       }
     }
     return Object.freeze(results);
-  }
-
-  async function observe(selection: RuntimeSelection, signal: AbortSignal): Promise<McpLifecycleObservationResult> {
-    signal.throwIfAborted();
-    const capabilities = input.runtime === undefined
-      ? McpRuntimeCapabilitiesSchemaV1.parse({
-          schemaVersion: 1,
-          sourceLifecycle: { initialSourcesBeforeToolRegistration: false, isolatedFileDiscovery: false, localValidation: false, atomicReplace: false, exactRemove: false, inspect: false, cancellable: false, lateLaunchValues: false, runtimeLeases: false },
-          transports: { stdio: false, streamableHttp: false, legacySse: false, websocket: false },
-          oauth: { authorizationCode: false, clientCredentials: false },
-          features: { sampling: false, elicitationForm: false, elicitationUrl: false, toolApproval: false, resources: false, pluginToolAliases: false },
-        })
-      : McpRuntimeCapabilitiesSchemaV1.parse(await input.runtime.capabilities(signal));
-    const to = project(selection, capabilities);
-    const from = owned.get(stateKey(to)) ?? {
-      kind: "inactive" as const,
-      expectation: createInactiveProjectionExpectation({
-        scope: selection.scope,
-        plugin: selection.plugin,
-        sha256: input.sha256,
-      }),
-    };
-    return participant.observe({ from, to, currentProject: input.project.current() }, signal);
   }
 
   async function close(): Promise<void> {
@@ -185,5 +146,5 @@ export function createComposedMcpRuntime(input: Readonly<{
     return closePromise;
   }
 
-  return Object.freeze({ participant, project, reconcileAll, observe, close });
+  return Object.freeze({ participant, reconcileAll, close });
 }

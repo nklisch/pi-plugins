@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
+import { createPluginMcpProjection } from "../../src/application/mcp-plugin-projection.js";
 import { createComposedMcpRuntime } from "../../src/composition/create-mcp-runtime.js";
 import { createRuntimeSelectionCatalog, type RuntimeSelection } from "../../src/composition/runtime-selection-catalog.js";
 import { createActiveProjectionExpectation, createInactiveProjectionExpectation, createPluginRuntimeProjection } from "../../src/application/ports/runtime-projection.js";
@@ -64,11 +65,18 @@ function composed() {
 describe("composed MCP runtime", () => {
   it("reports exact none/inactive evidence without a runtime and performs no launch effect", async () => {
     const { selection, runtime } = composed();
-    const to = runtime.project(selection, noRuntime);
-    expect(to.kind).toBe("none");
+    const expectation = selection.skillHook.prepared.expectation;
+    const projection = createPluginMcpProjection({
+      projection: expectation.projection,
+      compatibility: selection.compatibility,
+      runtimeCapabilities: noRuntime,
+      sha256,
+    });
+    expect(projection.kind).toBe("none");
+    const to = { kind: "none" as const, expectation, projection };
     const from = { kind: "inactive" as const, expectation: createInactiveProjectionExpectation({ scope: selection.scope, plugin: selection.plugin, sha256 }) };
     await expect(runtime.reconcileAll([{ from, to }], new AbortController().signal)).resolves.toEqual([{ kind: "unchanged" }]);
-    const observed = await runtime.observe(selection, new AbortController().signal);
+    const observed = await runtime.participant.observe({ from, to, currentProject }, new AbortController().signal);
     expect(observed).toMatchObject({ kind: "ready", observation: { participant: "mcp", registration: { kind: "none" } } });
     await runtime.close();
     await runtime.close();
