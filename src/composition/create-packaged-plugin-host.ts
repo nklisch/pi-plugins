@@ -382,6 +382,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           piReload: qualification.hostApi,
           secrets: secrets.availability.status,
         });
+        const hostStatus = createHostStatusService({ startup });
         const candidateContent = createCandidateContentLeasePort({ content: content.content, materializer: materializers.plugins });
         const nativeInspection = createNativeInspectionComposition({
           state: state.state,
@@ -394,6 +395,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           capabilities: capabilitySnapshot,
           recovery: recoveryResult,
           startup,
+          status: hostStatus,
           configurations,
           projectTrust: project.trust,
           secretCustody: startup.capabilities.secrets,
@@ -517,7 +519,6 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           status: requireOperationContext(operations.application.status),
           cancel: requireOperationContext(operations.application.cancel),
         });
-        const hostStatus = createHostStatusService({ startup });
         const background = createBackgroundUpdateCoordinator({
           scheduler: marketplaceComposition.updates.scheduler,
           status: hostStatus,

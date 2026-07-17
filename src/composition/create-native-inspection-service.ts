@@ -22,6 +22,7 @@ import type { RuntimeDesiredState } from "./runtime-desired-state.js";
 import type { RuntimeSelectionCatalog } from "./runtime-selection-catalog.js";
 import type { HostCapabilityStatus, HostStartupResult } from "../application/host-observation-contract.js";
 import type { NativeInspectionMarketplaceServices } from "./create-marketplace-discovery-services.js";
+import type { HostStatusService } from "./host-status-service.js";
 
 /** Wire the read model from narrow existing-evidence ports; no mutation service enters. */
 export function createNativeInspectionComposition(input: Readonly<{
@@ -35,6 +36,7 @@ export function createNativeInspectionComposition(input: Readonly<{
   capabilities?: RuntimeCapabilitySnapshot;
   recovery: LifecycleRecoveryResult;
   startup: HostStartupResult;
+  status?: HostStatusService;
   configurations: PluginConfigurationStore;
   projectTrust: ProjectTrustPort;
   secretCustody: HostCapabilityStatus;
@@ -57,6 +59,7 @@ export function createNativeInspectionComposition(input: Readonly<{
     ...(input.capabilities === undefined ? {} : { capabilities: input.capabilities }),
     recovery: input.recovery,
     startup: input.startup,
+    ...(input.status === undefined ? {} : { status: input.status }),
     clock: input.clock,
     sha256: input.sha256,
   });

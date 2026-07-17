@@ -1,6 +1,6 @@
 import type { MarketplaceCacheStatus } from "../marketplace-management-contract.js";
 import type { StateLoadResult } from "../state-contract.js";
-import type { HostStartupResult } from "../host-observation-contract.js";
+import type { HostStartupResult, HostStatusSnapshot } from "../host-observation-contract.js";
 import type { RuntimeCapabilitySnapshot } from "../../domain/compatibility-policy.js";
 import type { ContentDigest } from "../../domain/content-manifest.js";
 import type { ComponentId } from "../../domain/components.js";
@@ -82,6 +82,7 @@ export type InspectionEvidenceSnapshot = Readonly<{
   runtime: readonly InstalledRuntimeEvidence[];
   recovery: LifecycleRecoveryResult;
   startup: HostStartupResult;
+  hostStatus?: HostStatusSnapshot;
 }>;
 
 export interface NativeInspectionEvidencePort {

@@ -23,6 +23,7 @@ function fixture() {
   let projectCatalog = false;
   let failingCatalogScope: "user" | "project" | undefined;
   let catalogCache: MarketplaceCacheStatus;
+  let updateState: "running" | "degraded" = "running";
   const currentProject = () => ({ identity: projectIdentity, projectKey, trust: { kind: trust } as const });
   const source = { kind: "github" as const, repository: "example/community" };
   const resolved = createResolvedMarketplaceSource({ declared: source, revision: "a".repeat(40) }, sha256);
@@ -74,6 +75,9 @@ function fixture() {
       piReload: { status: "available", explanation: "ready" },
       secrets: { status: "available", explanation: "ready" },
     } },
+    status: { snapshot: () => ({ status: updateState === "degraded" ? "degraded" : "ready", local: { recovery: "settled", runtime: "reconciled" }, update: { state: updateState, unreadCount: 0, unresolvedCount: 0 }, blocked: [], capabilities: {
+      mcp: { status: "unavailable", explanation: "not composed" }, subagents: { status: "unavailable", explanation: "not composed" }, piReload: { status: "available", explanation: "ready" }, secrets: { status: "available", explanation: "ready" },
+    } }) } as never,
     clock: { nowEpochMilliseconds: () => now } as never,
     sha256,
   });
@@ -93,6 +97,7 @@ function fixture() {
     setCatalogCache: (value: MarketplaceCacheStatus) => { catalogCache = value; },
     setTrust: (value: "trusted" | "untrusted") => { trust = value; },
     setNow: (value: number) => { now = value; },
+    setUpdateState: (value: "running" | "degraded") => { updateState = value; },
   };
 }
 
@@ -128,6 +133,11 @@ describe("native inspection evidence", () => {
     const third = await runtimeChange.port.capture(new AbortController().signal);
     await runtimeChange.selections.replace([], runtimeChange.currentProject() as never);
     expect(await runtimeChange.port.validate(third.binding, new AbortController().signal)).toBe("stale");
+
+    const updateChange = fixture();
+    const fourth = await updateChange.port.capture(new AbortController().signal);
+    updateChange.setUpdateState("degraded");
+    expect(await updateChange.port.validate(fourth.binding, new AbortController().signal)).toBe("stale");
   });
 
   it("binds quarantined v3 records while preserving readable siblings", async () => {

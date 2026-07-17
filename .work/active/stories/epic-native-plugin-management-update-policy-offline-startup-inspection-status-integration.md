@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-update-policy-offline-startup-inspection-status-integration
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, reliability]
 parent: epic-native-plugin-management-update-policy-offline-startup
 depends_on: [epic-native-plugin-management-update-policy-offline-startup-policy-facade, epic-native-plugin-management-update-policy-offline-startup-notification-ledger, epic-native-plugin-management-update-policy-offline-startup-startup-readiness-orchestrator]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Project Update Policy and Startup Status Into Inspection
@@ -35,3 +35,15 @@ Extend the existing snapshot-bound native inspection and diagnostic registry wit
 - Any policy/notice/schedule lease/startup/catalog/target/project/capability change invalidates the bound snapshot.
 - Offline stale catalogs and remote MCP/update failures degrade rather than erase exact local activation; transition/recovery mismatches remain blocking.
 - Updated split-inspector data validates with no renderer, command copy, owner ID, path, secret/provider text, native cause, or publisher error leakage.
+
+## Implementation notes
+
+- Extended the existing lifecycle inspection view with effective policy/winning source, exact unread/unresolved notice disposition, schedule freshness/clock regression, and host update-subsystem status.
+- `updateDigest` now binds complete v4 registration policy/lease/notice/schedule state plus the derived host status snapshot; any relevant state or background-health change makes prior inspection evidence stale.
+- Added registry-owned diagnostics for automatic-pending, configuration-blocked, capability-blocked, and clock-regressed states. No adapter/native message or owner/lease ID reaches output.
+- Offline refresh failure remains degraded/stale while exact local activation evidence continues to report the active installed revision; transition/recovery evidence retains blocking precedence.
+
+## Verification
+
+- `npx vitest run test/application/native-installed-inspection.test.ts test/application/native-diagnostic-registry.test.ts test/composition/native-inspection-evidence.test.ts test/application/native-inspection-contract.test.ts` — 38 tests passed.
+- `npx tsc -p tsconfig.json --noEmit` — passed.

@@ -17,6 +17,7 @@ import type { StateLoadResult } from "../application/state-contract.js";
 import type { RuntimeDesiredState } from "./runtime-desired-state.js";
 import type { RuntimeSelectionCatalog } from "./runtime-selection-catalog.js";
 import type { HostStartupResult } from "../application/host-observation-contract.js";
+import type { HostStatusService } from "./host-status-service.js";
 import type {
   InspectionEvidenceSnapshot,
   InspectionMcpExpectation,
@@ -117,6 +118,7 @@ export function createNativeInspectionEvidence(input: Readonly<{
   capabilities?: RuntimeCapabilitySnapshot;
   recovery: LifecycleRecoveryResult;
   startup: HostStartupResult;
+  status?: HostStatusService;
   clock: LifecycleClock;
   sha256: Sha256;
 }>): NativeInspectionEvidencePort {
@@ -239,11 +241,15 @@ export function createNativeInspectionEvidence(input: Readonly<{
       runtime,
     }, input.sha256);
     const recoveryDigest = digest("inspection-recovery-v1", recovery, input.sha256);
-    const updateDigest = digest("inspection-update-v1", states.filter((result) => result.ok).map((result) => ({
-      scope: toScopeReference(result.snapshot.scope),
-      generation: result.snapshot.generation,
-      records: marketplaceUpdateRecords(result.snapshot),
-    })), input.sha256);
+    const hostStatus = input.status?.snapshot();
+    const updateDigest = digest("inspection-update-v1", {
+      scopes: states.filter((result) => result.ok).map((result) => ({
+        scope: toScopeReference(result.snapshot.scope),
+        generation: result.snapshot.generation,
+        records: marketplaceUpdateRecords(result.snapshot),
+      })),
+      ...(hostStatus === undefined ? {} : { hostStatus }),
+    }, input.sha256);
     const projectEpoch = digest("inspection-project-trust-v1", { projectKey: currentProject.projectKey, trust: currentProject.trust }, input.sha256);
     const binding: InspectionSnapshotBinding = Object.freeze({
       capturedAt: input.clock.nowEpochMilliseconds(),
@@ -268,6 +274,7 @@ export function createNativeInspectionEvidence(input: Readonly<{
         ...(capabilities === undefined ? {} : { capabilities }),
         recovery,
         startup: input.startup,
+        ...(input.status === undefined ? {} : { hostStatus: input.status.snapshot() }),
       });
     },
     async validate(binding, signal) {

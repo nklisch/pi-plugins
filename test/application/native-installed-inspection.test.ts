@@ -84,6 +84,18 @@ describe("native installed inspection", () => {
     expect(mismatch.detail.diagnostics.map((item) => item.code)).toContain("ACTIVATION_EVIDENCE_MISMATCH");
   });
 
+  it("projects policy, unread/unresolved notice, schedule, and host update status without work", async () => {
+    const { detail } = await inspect({ updatePending: true, updateClockRegressed: true });
+    expect(detail.lifecycle).toMatchObject({
+      update: "automatic-pending",
+      notice: { disposition: "automatic-pending", unread: true, unresolved: true },
+      schedule: { state: "clock-regressed", nextAt: 30 },
+      updateSubsystem: "running",
+    });
+    expect(detail.lifecycle.policy).toMatchObject({ application: "manual", winningLevel: "guard" });
+    expect(detail.diagnostics.map((item) => item.code)).toEqual(expect.arrayContaining(["UPDATE_AUTOMATIC_PENDING", "UPDATE_CLOCK_REGRESSED"]));
+  });
+
   it("derives failed update condition from compiled registry diagnostics", async () => {
     const { detail } = await inspect({ updateFailed: true });
     expect(detail.lifecycle.update).toBe("failed");

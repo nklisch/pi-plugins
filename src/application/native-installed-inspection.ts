@@ -12,6 +12,8 @@ import type { InspectionEvidenceSnapshot, InstalledRuntimeEvidence } from "./por
 import { digestCompatibilityReport } from "./ports/runtime-projection.js";
 import { marketplaceUpdateRecords } from "./marketplace-update-state.js";
 import type { Sha256 } from "../domain/source.js";
+import { deriveMarketplaceSourceIdentity } from "../domain/update-policy.js";
+import { resolveEffectiveUpdatePolicy } from "./update-policy-resolution.js";
 import {
   NativeActivationViewSchema,
   NativeCompatibilityViewSchema,
@@ -86,23 +88,68 @@ function recoveryTransition(subject: InstalledInspectionDetailSubject, snapshot:
   return snapshot.startup.blocked.some((entry) => entry.plugin === subject.plugin) ? "recovery-required" : "none";
 }
 
-function updateState(subject: InstalledInspectionDetailSubject, snapshot: InspectionEvidenceSnapshot) {
+function updateState(
+  subject: InstalledInspectionDetailSubject,
+  snapshot: InspectionEvidenceSnapshot,
+  revision: InstalledRevisionRecord,
+  sha256: Sha256,
+) {
   const loaded = snapshot.states.find((result) => result.ok && sameScope(toScopeReference(result.snapshot.scope), subject.scope));
-  if (loaded === undefined || !loaded.ok) return { state: "unknown" as const, stale: false };
+  if (loaded === undefined || !loaded.ok) return {
+    state: "unknown" as const,
+    stale: false,
+    policy: undefined,
+    notice: undefined,
+    schedule: undefined,
+    updateSubsystem: undefined,
+  };
+  const user = snapshot.states.find((result) => result.ok && result.snapshot.scope.kind === "user");
+  const global = user?.ok && "config" in user.snapshot
+    ? (user.snapshot.config as typeof user.snapshot.config & { global?: { application?: "manual" | "automatic" } }).global?.application ?? "manual"
+    : "manual";
   for (const registration of marketplaceUpdateRecords(loaded.snapshot)) {
-    const notification = registration.notices.find((entry) => sameScope(entry.scope, subject.scope) && entry.plugin === subject.plugin && entry.resolution === undefined);
-    if (notification !== undefined) {
-      return {
-        state: notification.disposition,
-        stale: registration.refresh.lastAttempt?.outcome === "failed" || registration.refresh.lastAttempt?.outcome === "unavailable",
-      };
-    }
-    if (subject.plugin.endsWith(`@${registration.marketplace}`)) {
-      const stale = registration.refresh.lastAttempt?.outcome === "failed" || registration.refresh.lastAttempt?.outcome === "unavailable";
-      return { state: stale ? "failed" as const : "current" as const, stale };
-    }
+    if (!subject.plugin.endsWith(`@${registration.marketplace}`)) continue;
+    const notice = [...registration.notices]
+      .filter((entry) => sameScope(entry.scope, subject.scope) && entry.plugin === subject.plugin)
+      .sort((left, right) => right.discoveredAt - left.discoveredAt || compareUtf8(right.id, left.id))[0];
+    const stale = registration.refresh.lastAttempt?.outcome === "failed" || registration.refresh.lastAttempt?.outcome === "unavailable";
+    const scoped = "config" in loaded.snapshot
+      ? (loaded.snapshot.config as typeof loaded.snapshot.config & { scope?: { application?: "manual" | "automatic" } }).scope?.application
+      : (loaded.snapshot.project as typeof loaded.snapshot.project & { scope?: { application?: "manual" | "automatic" } }).scope?.application;
+    const policy = resolveEffectiveUpdatePolicy({
+      plugin: subject.plugin,
+      record: registration,
+      global,
+      ...(scoped === undefined ? {} : { scope: scoped }),
+      marketplaceSourceIdentity: revision.evidence.source.marketplaceSourceIdentity ?? "legacy-unavailable",
+      registeredMarketplaceSourceIdentity: deriveMarketplaceSourceIdentity(registration.source, sha256),
+      pluginSourceIdentity: revision.evidence.source.pluginSourceIdentity ?? "legacy-unavailable",
+    });
+    const schedule = registration.refresh.schedule;
+    const scheduleView = schedule === undefined
+      ? { state: "unavailable" as const }
+      : snapshot.binding.capturedAt < schedule.anchorAt
+        ? { state: "clock-regressed" as const, nextAt: schedule.dueAt }
+        : snapshot.binding.capturedAt >= schedule.dueAt
+          ? { state: "due" as const, nextAt: schedule.dueAt }
+          : { state: "current" as const, nextAt: schedule.dueAt };
+    return {
+      state: notice === undefined ? (stale ? "failed" as const : "current" as const) : notice.disposition,
+      stale,
+      policy,
+      ...(notice === undefined ? {} : { notice: { disposition: notice.disposition, unread: notice.unread, unresolved: notice.resolution === undefined } }),
+      schedule: scheduleView,
+      ...(snapshot.hostStatus === undefined ? {} : { updateSubsystem: snapshot.hostStatus.update.state }),
+    };
   }
-  return { state: "unknown" as const, stale: false };
+  return {
+    state: "unknown" as const,
+    stale: false,
+    policy: undefined,
+    notice: undefined,
+    schedule: undefined,
+    updateSubsystem: undefined,
+  };
 }
 
 type ParticipantStatus = "matching" | "missing" | "mismatched" | "unavailable";
@@ -249,7 +296,7 @@ export function createNativeInstalledInspector(dependencies: Readonly<{
       const skillsStatus = participantStatus({ evidence: runtime, participant: "skills-hooks", expectedSkills, expectedHooks, selectedRevision: subject.selectedRevision, activeExpected });
       const mcpStatus = participantStatus({ evidence: runtime, participant: "mcp", expectedMcp, selectedRevision: subject.selectedRevision, activeExpected });
       const transition = authority.record.pendingTransition !== undefined ? "pending" as const : recoveryTransition(subject, snapshot);
-      const update = updateState(subject, snapshot);
+      const update = updateState(subject, snapshot, authority.revision, dependencies.sha256);
       const findings: NativeDiagnosticInput["findings"][number][] = [];
       if (transition === "pending") findings.push(finding("transitionPending", detailId));
       else if (transition === "deferred") findings.push(finding("recoveryDeferred", detailId));
@@ -296,11 +343,15 @@ export function createNativeInstalledInspector(dependencies: Readonly<{
           else if (server.state === "failed") findings.push(finding("mcpRemoteFailed", detailId, server.componentId));
         }
       }
-      if (update.state === "automatic-pending" || update.state === "automatic-retryable") findings.push(finding("updateAvailable", detailId));
+      if (update.state === "automatic-pending") findings.push(finding("updateAutomaticPending", detailId));
+      else if (update.state === "configuration-blocked") findings.push(finding("updateConfigurationBlocked", detailId));
+      else if (update.state === "capability-blocked") findings.push(finding("updateCapabilityBlocked", detailId));
+      else if (update.state === "automatic-retryable") findings.push(finding("updateAvailable", detailId));
       else if (update.state === "approval-required") findings.push(finding("updateApprovalRequired", detailId));
       else if (update.state === "manual-required") findings.push(finding("updateManualRequired", detailId));
       else if (update.state === "recovery-required") findings.push(finding("updateRecoveryRequired", detailId));
       else if (update.state === "failed" || update.stale) findings.push(finding("updateFailed", detailId));
+      if (update.schedule?.state === "clock-regressed") findings.push(finding("updateClockRegressed", detailId));
 
       const diagnostics = compileNativeDiagnostics({ findings }, dependencies.sha256);
       const condition = deriveNativeInspectionCondition(diagnostics);
@@ -375,7 +426,16 @@ export function createNativeInstalledInspector(dependencies: Readonly<{
           compatibility,
           trust,
           configuration,
-          lifecycle: { installed: true, activationIntent: authority.record.activation, transition, update: update.state },
+          lifecycle: {
+            installed: true,
+            activationIntent: authority.record.activation,
+            transition,
+            update: update.state,
+            ...(update.policy === undefined ? {} : { policy: update.policy }),
+            ...(update.notice === undefined ? {} : { notice: update.notice }),
+            ...(update.schedule === undefined ? {} : { schedule: update.schedule }),
+            ...(update.updateSubsystem === undefined ? {} : { updateSubsystem: update.updateSubsystem }),
+          },
           activation,
           ...(mcpHealth === undefined ? {} : { mcpHealth }),
           diagnostics,

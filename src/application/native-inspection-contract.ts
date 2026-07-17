@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { EffectiveUpdatePolicySchema } from "./native-update-contract.js";
+import { UpdateNoticeDispositionSchema } from "../domain/update-policy.js";
 import { ComponentIdSchema } from "../domain/components.js";
 import { ConfigurationKeySchema, ConfigurationValueKindRegistry } from "../domain/configuration.js";
 import { ContentDigestSchema } from "../domain/content-manifest.js";
@@ -161,7 +163,22 @@ export const NativeLifecycleViewSchema = z.object({
   installed: z.boolean(),
   activationIntent: z.enum(["enabled", "disabled"]).optional(),
   transition: z.enum(["none", "pending", "recovery-required", "deferred", "blocked"]),
-  update: z.enum(["current", "available", "manual-required", "approval-required", "automatic-applied", "automatic-retryable", "recovery-required", "failed", "unknown", "not-applicable"]),
+  update: z.enum([
+    "current", "available", "manual-required", "approval-required", "automatic-pending",
+    "automatic-applied", "automatic-retryable", "configuration-blocked", "capability-blocked",
+    "recovery-required", "failed", "unknown", "not-applicable",
+  ]),
+  policy: EffectiveUpdatePolicySchema.optional(),
+  notice: z.object({
+    disposition: UpdateNoticeDispositionSchema,
+    unread: z.boolean(),
+    unresolved: z.boolean(),
+  }).strict().readonly().optional(),
+  schedule: z.object({
+    state: z.enum(["current", "due", "clock-regressed", "unavailable"]),
+    nextAt: z.number().int().nonnegative().optional(),
+  }).strict().readonly().optional(),
+  updateSubsystem: z.enum(["disabled", "standby", "running", "clock-regressed", "degraded", "stopped"]).optional(),
 }).strict().readonly();
 
 export const NativeActivationViewSchema = z.object({
