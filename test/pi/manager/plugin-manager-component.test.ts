@@ -64,6 +64,29 @@ describe("plugin manager component", () => {
     expect(h.component.render(70).join("\n")).not.toContain(CURSOR_MARKER);
   });
 
+  it("closes the manager surface before presenting a mutating action", () => {
+    const h = harness();
+    h.setState({
+      ...createPluginManagerState(),
+      focus: { pane: "actions", action: "install" },
+    });
+    h.component.handleInput("\r");
+    expect(h.done).toHaveBeenCalledWith({ kind: "action", action: "install" });
+    expect(h.intents).not.toContainEqual({ type: "action", action: "install" });
+  });
+
+  it("makes repeated Escape a no-op while cancellation waits for owner truth", () => {
+    const h = harness();
+    let operation = pluginManagerReducer(createPluginManagerState(), { type: "operation-started", action: "enable" });
+    h.setState(operation);
+    h.component.handleInput("\u001b");
+    operation = pluginManagerReducer(operation, { type: "operation-cancelling" });
+    h.setState(operation);
+    h.component.handleInput("\u001b");
+    expect(h.intents.filter((intent) => intent.type === "cancel-operation")).toHaveLength(1);
+    expect(h.done).not.toHaveBeenCalled();
+  });
+
   it("handles resize/theme invalidation and idempotent disposal", () => {
     const h = harness();
     h.component.render(55);

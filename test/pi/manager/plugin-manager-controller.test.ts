@@ -102,6 +102,25 @@ describe("plugin manager controller", () => {
     expect(controller.state().detail.envelope?.status).toBe("stale");
   });
 
+  it("detaches an admitted action on reload while closing reads and repeated cancellation remains owner-bound", async () => {
+    const execute = vi.fn(async () => report("inspection.list", installedPage()));
+    let resolveAction!: (value: any) => void;
+    const actions = {
+      run: vi.fn(() => new Promise((resolve) => { resolveAction = resolve; })),
+      cancel: vi.fn(),
+    };
+    const controller = createPluginManagerController({ execute, actions });
+    await controller.refresh("view");
+    controller.dispatch({ type: "action", action: "enable" });
+    await vi.waitFor(() => expect(actions.run).toHaveBeenCalledOnce());
+    controller.dispatch({ type: "cancel-operation" });
+    controller.dispatch({ type: "cancel-operation" });
+    expect(actions.cancel).toHaveBeenCalledOnce();
+    await controller.close("reload");
+    expect(actions.cancel).toHaveBeenCalledOnce();
+    resolveAction({ kind: "completed", presentation: "successor", envelope: createNativeControlEnvelope({ executionId, command: "lifecycle.enable", status: "ok" }) });
+  });
+
   it("keeps safe dynamic completion only and clears all ephemeral state on close", async () => {
     const execute = vi.fn(async (argv: readonly string[]) => argv[0] === "updates"
       ? report("updates.status", updateStatus())

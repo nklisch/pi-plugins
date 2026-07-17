@@ -9,7 +9,7 @@ import {
 import type { PluginManagerController } from "./plugin-manager-controller.js";
 import { projectTerminalText } from "./pi-terminal-text.js";
 import { renderPluginManager } from "./plugin-manager-render.js";
-import { pluginManagerRowActions, rowKeyIdentity, type PluginManagerView } from "./plugin-manager-model.js";
+import { pluginManagerRowActions, rowKeyIdentity, type PluginManagerScrollRegion, type PluginManagerView } from "./plugin-manager-model.js";
 
 export type PluginManagerCloseResult = Readonly<{ kind: "closed" | "action"; action?: string }>;
 
@@ -92,6 +92,7 @@ export class PluginManagerComponent implements Component, Focusable {
       this.controller.dispatch({ type: "cancel-operation" });
       return;
     }
+    if (state.operation.state === "cancelling") return;
     if (state.screen !== "manager") {
       this.controller.dispatch({ type: "return-manager" });
       return;
@@ -133,6 +134,31 @@ export class PluginManagerComponent implements Component, Focusable {
     return false;
   }
 
+  private scrollRegion(): PluginManagerScrollRegion {
+    const pane = this.controller.state().focus.pane;
+    if (this.controller.state().operation.state !== "idle") return "operation";
+    if (pane === "actions") return "actions";
+    if (pane === "disclosure") return "disclosure";
+    if (pane === "detail") return "detail";
+    return "list";
+  }
+
+  private activateAction(action: string): void {
+    if (action === "inspect") this.controller.dispatch({ type: "action", action });
+    else this.finish({ kind: "action", action });
+  }
+
+  private page(delta: number): void {
+    const state = this.controller.state();
+    const amount = Math.max(1, state.viewport.rows - 6) * delta;
+    const region = this.scrollRegion();
+    if (region === "list" && delta > 0 && state.page.next !== undefined && state.page.rows.length > 0 && state.scroll.list >= Math.max(0, state.page.rows.length - Math.max(1, state.viewport.rows - 6))) {
+      this.controller.dispatch({ type: "next-page" });
+      return;
+    }
+    this.controller.dispatch({ type: "scroll", region, delta: amount });
+  }
+
   handleInput(data: string): void {
     if (this.disposed) return;
     if (this.keybindings.matches(data, "tui.select.cancel") || this.keybindings.matches(data, "app.interrupt")) {
@@ -142,17 +168,22 @@ export class PluginManagerComponent implements Component, Focusable {
     if (this.queryInput(data)) return;
     if (matchesKey(data, Key.tab)) this.controller.dispatch({ type: "focus-next" });
     else if (matchesKey(data, Key.shift("tab"))) this.controller.dispatch({ type: "focus-previous" });
-    else if (this.keybindings.matches(data, "tui.select.up")) this.controller.dispatch(this.controller.state().focus.pane === "actions" ? { type: "move-action", delta: -1 } : { type: "move-selection", delta: -1 });
-    else if (this.keybindings.matches(data, "tui.select.down")) this.controller.dispatch(this.controller.state().focus.pane === "actions" ? { type: "move-action", delta: 1 } : { type: "move-selection", delta: 1 });
-    else if (this.keybindings.matches(data, "tui.select.pageUp")) this.controller.dispatch({ type: "move-selection", delta: -10 });
-    else if (this.keybindings.matches(data, "tui.select.pageDown")) {
-      if (this.controller.state().page.next !== undefined) this.controller.dispatch({ type: "next-page" });
-      else this.controller.dispatch({ type: "move-selection", delta: 10 });
-    } else if (this.keybindings.matches(data, "tui.select.confirm")) {
+    else if (this.keybindings.matches(data, "tui.select.up")) {
+      const pane = this.controller.state().focus.pane;
+      this.controller.dispatch(pane === "actions" ? { type: "move-action", delta: -1 } : pane === "disclosure" ? { type: "move-disclosure", delta: -1 } : pane === "detail" || this.controller.state().operation.state !== "idle" ? { type: "scroll", region: this.scrollRegion(), delta: -1 } : { type: "move-selection", delta: -1 });
+    }
+    else if (this.keybindings.matches(data, "tui.select.down")) {
+      const pane = this.controller.state().focus.pane;
+      this.controller.dispatch(pane === "actions" ? { type: "move-action", delta: 1 } : pane === "disclosure" ? { type: "move-disclosure", delta: 1 } : pane === "detail" || this.controller.state().operation.state !== "idle" ? { type: "scroll", region: this.scrollRegion(), delta: 1 } : { type: "move-selection", delta: 1 });
+    }
+    else if (this.keybindings.matches(data, "tui.select.pageUp")) this.page(-1);
+    else if (this.keybindings.matches(data, "tui.select.pageDown")) this.page(1);
+    else if (this.keybindings.matches(data, "tui.select.confirm")) {
       const pane = this.controller.state().focus.pane;
       if (pane === "tabs") this.controller.dispatch({ type: "focus-next" });
-      else if (pane === "actions") this.controller.dispatch({ type: "action", action: this.controller.state().focus.action ?? "inspect" });
-      else if (pane === "detail") this.controller.dispatch({ type: "toggle-disclosure", key: "components" });
+      else if (pane === "actions") this.activateAction(this.controller.state().focus.action ?? "inspect");
+      else if (pane === "detail") this.controller.dispatch({ type: "focus-next" });
+      else if (pane === "disclosure") this.controller.dispatch({ type: "toggle-disclosure", key: this.controller.state().focus.disclosure ?? "components" });
       else this.controller.dispatch({ type: "open-detail" });
     } else if (matchesKey(data, Key.left) && this.controller.state().focus.pane === "tabs") this.switchView(-1);
     else if (matchesKey(data, Key.right) && this.controller.state().focus.pane === "tabs") this.switchView(1);
@@ -160,11 +191,11 @@ export class PluginManagerComponent implements Component, Focusable {
     else if (data === "u") {
       const state = this.controller.state();
       const row = state.page.rows.find((entry) => state.focus.row !== undefined && rowKeyIdentity(entry.key) === rowKeyIdentity(state.focus.row)) ?? state.page.rows[0];
-      if (pluginManagerRowActions(row).includes("update")) this.controller.dispatch({ type: "action", action: "update" });
+      if (pluginManagerRowActions(row).includes("update")) this.activateAction("update");
     } else if (data === " ") {
       const state = this.controller.state();
       const row = state.page.rows.find((entry) => state.focus.row !== undefined && rowKeyIdentity(entry.key) === rowKeyIdentity(state.focus.row)) ?? state.page.rows[0];
-      if (pluginManagerRowActions(row).includes("enable")) this.controller.dispatch({ type: "action", action: "enable" });
+      if (pluginManagerRowActions(row).includes("enable")) this.activateAction("enable");
     }
     else if (data === "r") this.controller.dispatch({ type: "refresh", scope: "all" });
     else if (data === "?") this.controller.dispatch({ type: "toggle-help" });

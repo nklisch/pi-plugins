@@ -1,4 +1,5 @@
 import { Writable } from "node:stream";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import type {
   ExtensionAPI,
@@ -9,10 +10,12 @@ import type { NativePluginControlService } from "../../src/application/native-co
 import type { NativeControlExecutionReport } from "../../src/application/ports/native-control-execution.js";
 import type { PackagedPluginHost } from "../../src/composition/packaged-plugin-host-contract.js";
 import { createNativeControlEnvelope } from "../../src/application/native-control-contract.js";
-import { createPluginCommandAdapter } from "../../src/pi/plugin-command.js";
+import { createPluginCommandAdapter, type PluginManagerPresentation } from "../../src/pi/plugin-command.js";
 import { createPiControlChannel } from "../../src/pi/pi-control-channel.js";
 
 const executionId = "native-control-execution-v1:123e4567-e89b-42d3-a456-426614174000" as never;
+const sourcePath = "/pkg/dist/pi/extension.js";
+const sourceUrl = pathToFileURL(sourcePath).href;
 
 function report(command: "presentation" | "status" = "status"): NativeControlExecutionReport {
   return {
@@ -22,17 +25,17 @@ function report(command: "presentation" | "status" = "status"): NativeControlExe
   };
 }
 
-function harness(mode: ExtensionContext["mode"] = "tui") {
+function harness(mode: ExtensionContext["mode"] = "tui", commandPath: string | readonly string[] = sourcePath) {
   const commands: Array<{ name: string; options: any }> = [];
   const entries: Array<{ type: string; data: unknown }> = [];
   const notifications: string[] = [];
   const pi = {
     registerCommand(name: string, options: any) { commands.push({ name, options }); },
-    getCommands: () => [{
-      name: "plugin:1",
-      source: "extension",
-      sourceInfo: { path: "/pkg/dist/pi/extension.js", source: "pkg", scope: "user", origin: "package" },
-    }],
+    getCommands: () => (typeof commandPath === "string" ? [commandPath] : commandPath).map((path, index) => ({
+      name: index === 0 ? "plugin" : "plugin:1",
+      source: "extension" as const,
+      sourceInfo: { path, source: "pkg", scope: "user" as const, origin: "package" as const },
+    })),
     appendEntry(type: string, data: unknown) { entries.push({ type, data }); },
   } as unknown as ExtensionAPI;
   const context = {
@@ -74,58 +77,100 @@ function host(controlService: NativePluginControlService): PackagedPluginHost {
   };
 }
 
-describe("Pi /plugin command adapter", () => {
-  it("registers exactly one command and preserves raw argv text byte-for-byte", async () => {
-    const h = harness();
-    const runText = vi.fn(async () => report("status"));
-    const service = control(runText);
-    const manager = { open: vi.fn(), presentReport: vi.fn(), dynamicCompletions: () => [] as const, close: vi.fn() };
-    const adapter = createPluginCommandAdapter({ pi: h.pi, host: host(service), manager, channel: createPiControlChannel({ pi: h.pi }) });
+function manager(overrides: Partial<PluginManagerPresentation> = {}): PluginManagerPresentation {
+  return {
+    open: vi.fn(async () => undefined),
+    presentOperation: vi.fn(async (_context, operation) => {
+      const sink = { write: vi.fn(async () => undefined), close: vi.fn(async () => undefined) };
+      const value = await operation.run(sink, new AbortController().signal);
+      operation.settle(value);
+    }),
+    presentReport: vi.fn(async () => undefined),
+    dynamicCompletions: () => [] as const,
+    close: vi.fn(async () => undefined),
+    ...overrides,
+  };
+}
 
-    adapter.register();
+function adapter(input: Readonly<{
+  pi: ExtensionAPI;
+  host: PackagedPluginHost;
+  manager: PluginManagerPresentation;
+  channel?: ReturnType<typeof createPiControlChannel>;
+  handoff?: any;
+}>) {
+  return createPluginCommandAdapter({
+    pi: input.pi,
+    sourceUrl,
+    host: input.host,
+    manager: input.manager,
+    channel: input.channel ?? createPiControlChannel({ pi: input.pi }),
+    ...(input.handoff === undefined ? {} : { handoff: input.handoff }),
+  });
+}
+
+describe("Pi /plugin command adapter", () => {
+  it("opens the live operation presentation before preserving raw argv text byte-for-byte", async () => {
+    const h = harness();
+    const order: string[] = [];
+    const runText = vi.fn(async () => { order.push("facade"); return report("status"); });
+    const service = control(runText);
+    const presentation = manager({
+      presentOperation: vi.fn(async (_context, operation) => {
+        order.push("view");
+        const value = await operation.run({ write: async () => undefined, close: async () => undefined }, new AbortController().signal);
+        operation.settle(value);
+      }),
+    });
+    const value = adapter({ pi: h.pi, host: host(service), manager: presentation });
+
+    value.register();
     expect(h.commands.map((entry) => entry.name)).toEqual(["plugin"]);
     const raw = "browse  'α beta'\t--scope=all-current";
     await h.commands[0]!.options.handler(raw, h.context);
+    expect(order).toEqual(["view", "facade"]);
     expect(runText).toHaveBeenCalledWith(raw, expect.objectContaining({ mode: "tui" }), expect.any(AbortSignal));
-    expect(manager.open).not.toHaveBeenCalled();
+    expect(presentation.open).not.toHaveBeenCalled();
+    expect(presentation.presentReport).not.toHaveBeenCalled();
   });
 
   it("opens only the TUI manager for empty text and keeps headless empty dispatch on the facade", async () => {
     const tui = harness("tui");
     const tuiControl = control();
-    const manager = { open: vi.fn(async () => undefined), presentReport: vi.fn(), dynamicCompletions: () => [] as const, close: vi.fn() };
-    const adapter = createPluginCommandAdapter({ pi: tui.pi, host: host(tuiControl), manager, channel: createPiControlChannel({ pi: tui.pi }) });
-    adapter.register();
+    const presentation = manager();
+    const value = adapter({ pi: tui.pi, host: host(tuiControl), manager: presentation });
+    value.register();
     await tui.commands[0]!.options.handler("", tui.context);
     expect(tui.context.waitForIdle).toHaveBeenCalledOnce();
-    expect(manager.open).toHaveBeenCalledOnce();
+    expect(presentation.open).toHaveBeenCalledOnce();
     expect(tuiControl.runText).not.toHaveBeenCalled();
 
     const rpc = harness("rpc");
     const rpcRun = vi.fn(async () => report("presentation"));
     const rpcControl = control(rpcRun);
-    createPluginCommandAdapter({ pi: rpc.pi, host: host(rpcControl), manager, channel: createPiControlChannel({ pi: rpc.pi }) }).register();
+    adapter({ pi: rpc.pi, host: host(rpcControl), manager: presentation }).register();
     await rpc.commands[0]!.options.handler("", rpc.context);
-    expect(manager.open).toHaveBeenCalledOnce();
+    expect(presentation.open).toHaveBeenCalledOnce();
     expect(rpcRun).toHaveBeenCalledWith("", expect.objectContaining({ mode: "rpc" }), expect.any(AbortSignal));
     expect(rpc.entries.at(-1)).toMatchObject({ type: "plugin-host:control-report-v1" });
   });
 
-  it("reports Pi-assigned command suffixes without overriding the collision", () => {
-    const h = harness();
-    const adapter = createPluginCommandAdapter({
-      pi: h.pi,
-      host: host(control()),
-      manager: { open: vi.fn(), presentReport: vi.fn(), dynamicCompletions: () => [] as const, close: vi.fn() },
-      channel: createPiControlChannel({ pi: h.pi }),
-    });
-    adapter.register();
-    adapter.bindSession(h.context);
+  it("identifies only its exact normalized import.meta.url among same-suffix package paths", () => {
+    const h = harness("tui", [`/other${sourcePath}`, sourcePath]);
+    const value = adapter({ pi: h.pi, host: host(control()), manager: manager() });
+    value.register();
+    value.bindSession(h.context);
     expect(h.notifications).toEqual([expect.stringContaining("/plugin:1")]);
     expect(h.commands).toHaveLength(1);
+
+    const lookalikeOnly = harness("tui", `/other${sourcePath}`);
+    const other = adapter({ pi: lookalikeOnly.pi, host: host(control()), manager: manager() });
+    other.register();
+    other.bindSession(lookalikeOnly.context);
+    expect(lookalikeOnly.notifications).toEqual([]);
   });
 
-  it("hands reload-causing subcommand results to the successor without touching predecessor UI", async () => {
+  it("hands reload-causing live results to the successor without replaying predecessor UI", async () => {
     const h = harness("tui");
     const envelope = createNativeControlEnvelope({ executionId, command: "lifecycle.enable", status: "ok" });
     const service = control(vi.fn(async () => ({ envelope, delivery: "complete", deliveredThrough: -1 })));
@@ -134,13 +179,13 @@ describe("Pi /plugin command adapter", () => {
       command: { command: "lifecycle.enable", request: {} as never, invocation: { grammarVersion: "plugin-control/v1", output: "human", nonInteractive: false, input: { kind: "none" } } },
       warnings: [],
     });
-    const manager = { open: vi.fn(), presentReport: vi.fn(), dynamicCompletions: () => [] as const, close: vi.fn() };
+    const presentation = manager();
     const handoff = { open: vi.fn(() => ({ id: "ticket" })), publish: vi.fn(() => "successor"), fail: vi.fn() } as any;
-    createPluginCommandAdapter({ pi: h.pi, host: host(service), manager, channel: createPiControlChannel({ pi: h.pi }), handoff }).register();
+    adapter({ pi: h.pi, host: host(service), manager: presentation, handoff }).register();
     await h.commands[0]!.options.handler("enable demo@market --scope user --yes", h.context);
     expect(handoff.open).toHaveBeenCalledWith({ sessionId: "session-1", cwd: "/workspace", destination: "operation-result" });
     expect(handoff.publish).toHaveBeenCalledWith({ id: "ticket" }, envelope);
-    expect(manager.presentReport).not.toHaveBeenCalled();
+    expect(presentation.presentReport).not.toHaveBeenCalled();
     expect(h.notifications).toEqual([]);
   });
 
@@ -152,13 +197,12 @@ describe("Pi /plugin command adapter", () => {
       candidates: [{ value: "demo@market", kind: "dynamic", canonical: true, safe: { text: "demo", escaped: false, truncated: false } }],
       incomplete: false,
     });
-    const adapter = createPluginCommandAdapter({
+    const value = adapter({
       pi: h.pi,
       host: host(service),
-      manager: { open: vi.fn(), presentReport: vi.fn(), dynamicCompletions: () => [{ category: "plugin", value: "demo@market", safe: { text: "demo", escaped: false, truncated: false } }] as const, close: vi.fn() },
-      channel: createPiControlChannel({ pi: h.pi }),
+      manager: manager({ dynamicCompletions: () => [{ category: "plugin", value: "demo@market", safe: { text: "demo", escaped: false, truncated: false } }] as const }),
     });
-    adapter.register();
+    value.register();
     expect(h.commands[0]!.options.getArgumentCompletions("show d")).toEqual([{ value: "demo@market", label: "demo" }]);
     expect(service.complete).toHaveBeenCalledWith(expect.objectContaining({ text: "show d", dynamic: expect.any(Array) }));
   });

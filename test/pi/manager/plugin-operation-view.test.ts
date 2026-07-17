@@ -11,7 +11,8 @@ const keybindings = { matches: (data: string, id: string) => (id.includes("cance
 describe("plugin operation view", () => {
   it("renders long exact progress/result output bounded and scrollable", () => {
     const cancel = vi.fn();
-    const view = new PluginOperationView({ theme, keybindings, height: () => 12, cancel });
+    const close = vi.fn();
+    const view = new PluginOperationView({ theme, keybindings, height: () => 12, cancel, close });
     for (let sequence = 1; sequence <= 60; sequence += 1) {
       view.push({ schemaVersion: 1, type: "progress", executionId, sequence, phase: `phase-${sequence}`, state: "started", safe: [] });
     }
@@ -23,7 +24,8 @@ describe("plugin operation view", () => {
     view.handleInput("\u001b[A");
     expect(view.render(38)).not.toEqual(lines);
     view.handleInput("\u001b");
-    expect(cancel).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+    expect(cancel).not.toHaveBeenCalled();
   });
 
   it("renders exact signed activation evidence instead of raw JSON", () => {

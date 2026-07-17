@@ -18,6 +18,7 @@ export default function packagedPluginHostExtension(pi: ExtensionAPI): void {
   const manager = createPluginManagerSession({ host, handoff });
   const command = createPluginCommandAdapter({
     pi,
+    sourceUrl: import.meta.url,
     host,
     manager,
     channel: createPiControlChannel({ pi }),

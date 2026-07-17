@@ -14,6 +14,11 @@ export interface PiControlInputPort extends NativeControlInputPort {
   dispose(): void;
 }
 
+export type PiControlInputPreset = Readonly<{
+  nonSensitive?: Readonly<Record<string, unknown>>;
+  consentId?: string;
+}>;
+
 function safe(value: unknown, limit = 512): string {
   return projectTerminalText(typeof value === "string" ? value : String(value ?? ""), limit).text;
 }
@@ -26,6 +31,7 @@ function unavailable(code: Extract<NativeControlInputResult, { kind: "unavailabl
 export function createPiControlInputPort(input: Readonly<{
   context: ExtensionCommandContext;
   mode: ExtensionContext["mode"];
+  preset?: PiControlInputPreset;
 }>): PiControlInputPort {
   let terminal = false;
   let cancelled = false;
@@ -75,9 +81,9 @@ export function createPiControlInputPort(input: Readonly<{
     signal.addEventListener("abort", abort, { once: true });
     cancelActive = abort;
     try {
-      return await input.context.ui.custom<boolean>((_tui, theme, keybindings, done) => {
+      return await input.context.ui.custom<boolean>((tui, theme, keybindings, done) => {
         settle = done;
-        return new ConfirmationOverlay({ theme, keybindings, title: "Confirm exact plugin action", lines, disclosure, done });
+        return new ConfirmationOverlay({ theme, keybindings, title: "Confirm exact plugin action", lines, disclosure, height: () => tui.terminal.rows, done });
       }, { overlay: true, overlayOptions: { anchor: "center", width: "70%", minWidth: 40, maxHeight: "70%", margin: 1 } });
     } finally {
       signal.removeEventListener("abort", abort);
@@ -106,6 +112,11 @@ export function createPiControlInputPort(input: Readonly<{
             if (result.kind === "cancelled") return Object.freeze({ kind: "cancelled" as const });
             sensitive.push(Object.freeze({ key: field.key, value: result.value }));
           } else {
+            const preset = input.preset?.nonSensitive;
+            if (preset !== undefined && Object.prototype.hasOwnProperty.call(preset, field.key)) {
+              nonSensitive.push(Object.freeze({ key: field.key, value: preset[field.key] }));
+              continue;
+            }
             const value = await input.context.ui.input(field.label.text, field.description?.text, { signal });
             if (value === undefined) return Object.freeze({ kind: "cancelled" as const });
             nonSensitive.push(Object.freeze({ key: field.key, value }));
@@ -113,7 +124,9 @@ export function createPiControlInputPort(input: Readonly<{
         }
         const consentId = request.consent?.consentId ?? request.expected.consentId;
         if (request.purpose === "uninstall") return unavailable("CHANNEL_UNSUPPORTED");
-        const approved = await confirm(request, signal);
+        const approved = consentId !== undefined && input.preset?.consentId === consentId
+          ? true
+          : await confirm(request, signal);
         if (!approved) {
           return consentId === undefined
             ? Object.freeze({ kind: "cancelled" as const })

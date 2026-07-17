@@ -1,3 +1,4 @@
+import type { SessionShutdownEvent } from "@earendil-works/pi-coding-agent";
 import type { NativeControlEnvelope } from "../../application/native-control-contract.js";
 import type { NativeControlFrame } from "../../application/native-control-progress.js";
 import type { NativeControlInputPort } from "../../application/ports/native-control-input.js";
@@ -24,6 +25,19 @@ export type PluginManagerActionIntent =
   | Readonly<{ action: "project-sync"; mode: "apply-intent" | "publish-intent" | "merge" }>
   | Readonly<{ action: "operation-status" | "operation-cancel"; token: string }>;
 
+type ConfirmedPluginManagerActionIntent =
+  | Readonly<{ action: "enable" | "disable" | "update"; row: PluginManagerRow }>
+  | Readonly<{ action: "uninstall-keep" | "uninstall-delete"; row: PluginManagerRow }>
+  | Readonly<{ action: "marketplace-remove"; row: PluginManagerRow }>
+  | Readonly<{ action: "project-sync"; mode: "apply-intent" | "publish-intent" | "merge" }>;
+
+export type PluginManagerActionConfirmation = Readonly<{
+  action: "enable" | "disable" | "update" | "uninstall-keep" | "uninstall-delete" | "marketplace-remove" | "project-sync";
+  title: string;
+  lines: readonly string[];
+  destructive: boolean;
+}>;
+
 export type PluginManagerMutationExecutionOptions = Readonly<{
   input?: NativeControlInputPort;
   sink: NativeControlFrameSink;
@@ -34,15 +48,14 @@ export type PluginManagerMutationExecutor = (
   signal: AbortSignal,
 ) => Promise<NativeControlExecutionReport>;
 
-export type PluginManagerActionResult = Readonly<{
-  envelope: NativeControlEnvelope;
-  presentation: "local" | "successor";
-}>;
+export type PluginManagerActionResult =
+  | Readonly<{ kind: "completed"; envelope: NativeControlEnvelope; presentation: "local" | "successor" }>
+  | Readonly<{ kind: "cancelled"; presentation: "local" }>;
 
 export interface PluginManagerActionRunner {
   run(intent: PluginManagerActionIntent): Promise<PluginManagerActionResult>;
   cancel(): void;
-  close(): void;
+  close(reason?: SessionShutdownEvent["reason"]): void;
 }
 
 function exactRow(row: PluginManagerRow): Readonly<{ plugin: string; scope: "user" | "project"; snapshotId: string; detailId: string }> {
@@ -52,14 +65,64 @@ function exactRow(row: PluginManagerRow): Readonly<{ plugin: string; scope: "use
   return { plugin: row.plugin, scope: row.scope, snapshotId: row.key.snapshotId, detailId: row.key.detailId };
 }
 
-function actionArgv(intent: PluginManagerActionIntent): readonly string[] {
+function needsConfirmation(intent: PluginManagerActionIntent): intent is ConfirmedPluginManagerActionIntent {
+  return ["enable", "disable", "update", "uninstall-keep", "uninstall-delete", "marketplace-remove", "project-sync"].includes(intent.action);
+}
+
+export function pluginManagerActionConfirmation(intent: ConfirmedPluginManagerActionIntent): PluginManagerActionConfirmation {
+  if (intent.action === "project-sync") {
+    return Object.freeze({
+      action: intent.action,
+      title: "Confirm project synchronization",
+      lines: Object.freeze([
+        `action: project sync (${intent.mode})`,
+        "scope: current trusted project",
+        "The exact current project intent and conflict decisions will be applied once.",
+      ]),
+      destructive: true,
+    });
+  }
+  if (intent.action === "marketplace-remove") {
+    if (intent.row.scope === undefined) throw new TypeError("marketplace removal requires exact scope");
+    return Object.freeze({
+      action: intent.action,
+      title: "Confirm marketplace removal",
+      lines: Object.freeze([
+        `registration: ${intent.row.key.key}`,
+        `scope: ${intent.row.scope}`,
+        "The marketplace registration will be removed; installed plugin state is not inferred here.",
+      ]),
+      destructive: true,
+    });
+  }
+  const row = exactRow(intent.row);
+  const persistentData = intent.action === "uninstall-delete"
+    ? "delete persistent plugin data"
+    : intent.action === "uninstall-keep"
+      ? "keep persistent plugin data"
+      : undefined;
+  return Object.freeze({
+    action: intent.action,
+    title: intent.action.startsWith("uninstall-") ? "Confirm plugin uninstall" : `Confirm plugin ${intent.action}`,
+    lines: Object.freeze([
+      `plugin: ${row.plugin}`,
+      `scope: ${row.scope}`,
+      `snapshot: ${row.snapshotId}`,
+      `detail: ${row.detailId}`,
+      ...(persistentData === undefined ? [] : [`data: ${persistentData}`]),
+    ]),
+    destructive: intent.action.startsWith("uninstall-"),
+  });
+}
+
+function actionArgv(intent: PluginManagerActionIntent, confirmed: boolean): readonly string[] {
   if (intent.action === "enable" || intent.action === "disable" || intent.action === "update") {
     const row = exactRow(intent.row);
     return nativeControlArgv(`lifecycle.${intent.action}`, [row.plugin], {
       scope: row.scope,
       snapshotId: row.snapshotId,
       detailId: row.detailId,
-      confirmed: true,
+      confirmed,
     });
   }
   if (intent.action === "uninstall-keep" || intent.action === "uninstall-delete") {
@@ -68,7 +131,7 @@ function actionArgv(intent: PluginManagerActionIntent): readonly string[] {
       scope: row.scope,
       snapshotId: row.snapshotId,
       detailId: row.detailId,
-      confirmed: true,
+      confirmed,
       [intent.action === "uninstall-delete" ? "deleteData" : "keepData"]: true,
     });
   }
@@ -88,10 +151,10 @@ function actionArgv(intent: PluginManagerActionIntent): readonly string[] {
   }
   if (intent.action === "marketplace-remove") {
     if (intent.row.scope === undefined) throw new TypeError("marketplace removal requires exact scope");
-    return nativeControlArgv("marketplace.remove", [intent.row.key.key], { scope: intent.row.scope, confirmed: true });
+    return nativeControlArgv("marketplace.remove", [intent.row.key.key], { scope: intent.row.scope, confirmed });
   }
   if (intent.action === "notice-acknowledge") return nativeControlArgv("updates.notices.acknowledge", [intent.row.key.key]);
-  if (intent.action === "project-sync") return nativeControlArgv("project.sync", [], { mode: intent.mode, confirmed: true });
+  if (intent.action === "project-sync") return nativeControlArgv("project.sync", [], { mode: intent.mode, confirmed });
   if (intent.action === "operation-status" || intent.action === "operation-cancel") {
     return nativeControlArgv(intent.action === "operation-status" ? "operation.status" : "operation.cancel", [intent.token]);
   }
@@ -106,11 +169,12 @@ function activating(intent: PluginManagerActionIntent): boolean {
   return ["enable", "disable", "update", "uninstall-keep", "uninstall-delete", "install-run", "install-apply", "install-recover", "project-sync"].includes(intent.action);
 }
 
-/** One foreground facade mutation with exact frame, abort, stale, and reload semantics. */
+/** One foreground facade mutation with fresh confirmation, exact frame, abort, and reload semantics. */
 export function createPluginManagerActionRunner(input: Readonly<{
   execute: PluginManagerMutationExecutor;
   input?: NativeControlInputPort;
   sink?: NativeControlFrameSink;
+  confirm?: (confirmation: PluginManagerActionConfirmation, signal: AbortSignal) => Promise<boolean>;
   handoff?: Pick<PiManagerReloadHandoff, "open" | "publish" | "fail">;
   session?: Readonly<{ sessionId: string; cwd: string }>;
   onFrame?(frame: NativeControlFrame): void;
@@ -118,6 +182,8 @@ export function createPluginManagerActionRunner(input: Readonly<{
 }>): PluginManagerActionRunner {
   let active: AbortController | undefined;
   let activeInput: (NativeControlInputPort & { cancel?: () => void }) | undefined;
+  let activeIsActivating = false;
+  let admitted = false;
   let closed = false;
 
   const runner: PluginManagerActionRunner = {
@@ -126,13 +192,22 @@ export function createPluginManagerActionRunner(input: Readonly<{
       if (active !== undefined) throw new Error("a plugin manager mutation is already running");
       const controller = new AbortController();
       active = controller;
-      activeInput = input.input;
+      activeIsActivating = activating(intent);
+      admitted = false;
       let ticket: PiManagerHandoffTicket | undefined;
-      if (activating(intent) && input.handoff !== undefined && input.session !== undefined) {
-        ticket = input.handoff.open({ ...input.session, destination: destination(intent) });
-      }
       try {
-        const report = await input.execute(actionArgv(intent), {
+        let confirmed = false;
+        if (needsConfirmation(intent)) {
+          if (input.confirm === undefined) throw new Error("plugin manager action requires a fresh presentation confirmation");
+          confirmed = await input.confirm(pluginManagerActionConfirmation(intent), controller.signal);
+          if (!confirmed || controller.signal.aborted) return Object.freeze({ kind: "cancelled", presentation: "local" });
+        }
+        if (activeIsActivating && input.handoff !== undefined && input.session !== undefined) {
+          ticket = input.handoff.open({ ...input.session, destination: destination(intent) });
+        }
+        admitted = true;
+        activeInput = input.input;
+        const report = await input.execute(actionArgv(intent, confirmed), {
           sink: createPiManagerFrameSink({ ...(input.onFrame === undefined ? {} : { onFrame: input.onFrame }), ...(input.sink === undefined ? {} : { delegate: input.sink }) }),
           ...(input.input === undefined ? {} : { input: input.input }),
         }, controller.signal);
@@ -140,7 +215,7 @@ export function createPluginManagerActionRunner(input: Readonly<{
         const presentation = ticket === undefined || input.handoff === undefined
           ? "local" as const
           : input.handoff.publish(ticket, report.envelope);
-        return Object.freeze({ envelope: report.envelope, presentation });
+        return Object.freeze({ kind: "completed", envelope: report.envelope, presentation });
       } catch (error) {
         if (ticket !== undefined && input.handoff !== undefined) {
           try { input.handoff.fail(ticket, error); } catch { /* preserve facade/owner failure */ }
@@ -149,6 +224,8 @@ export function createPluginManagerActionRunner(input: Readonly<{
       } finally {
         if (active === controller) active = undefined;
         activeInput = undefined;
+        activeIsActivating = false;
+        admitted = false;
       }
     },
     cancel(): void {
@@ -156,9 +233,12 @@ export function createPluginManagerActionRunner(input: Readonly<{
       activeInput?.cancel?.();
       active.abort(new DOMException("manager operation cancelled", "AbortError"));
     },
-    close(): void {
+    close(reason = "quit"): void {
       if (closed) return;
       closed = true;
+      // Reload is special: the admitted activation owns a plain-data handoff
+      // result for the successor and must outlive predecessor UI disposal.
+      if (reason === "reload" && admitted && activeIsActivating) return;
       runner.cancel();
     },
   };

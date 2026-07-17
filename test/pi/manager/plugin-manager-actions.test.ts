@@ -22,8 +22,11 @@ function result(status: "ok" | "stale" | "cancelled" = "ok") {
   return createNativeControlEnvelope({ executionId, command: "lifecycle.enable", status });
 }
 
+const confirmed = async () => true;
+const marketplaceRow: PluginManagerRow = { ...row, key: { subject: "marketplace", key: "registration-1" } };
+
 describe("plugin manager action runner", () => {
-  it("routes exact hidden IDs through one canonical facade command and streams ordered frames", async () => {
+  it("confirms fresh exact evidence, adds --yes only then, and streams ordered frames", async () => {
     const frames: unknown[] = [];
     const execute = vi.fn(async (argv: readonly string[], options: { sink: NativeControlFrameSink }, signal: AbortSignal) => {
       await options.sink.write({ schemaVersion: 1, type: "accepted", executionId, sequence: 0, command: "lifecycle.enable" }, signal);
@@ -32,12 +35,57 @@ describe("plugin manager action runner", () => {
       await options.sink.write({ schemaVersion: 1, type: "result", executionId, sequence: 2, result: envelope }, signal);
       return { envelope, delivery: "complete" as const, deliveredThrough: 2 };
     });
-    const runner = createPluginManagerActionRunner({ execute, onFrame: (frame) => frames.push(frame) });
-    await expect(runner.run({ action: "enable", row })).resolves.toMatchObject({ presentation: "local", envelope: { status: "ok" } });
+    const confirm = vi.fn(confirmed);
+    const runner = createPluginManagerActionRunner({ execute, confirm, onFrame: (frame) => frames.push(frame) });
+    await expect(runner.run({ action: "enable", row })).resolves.toMatchObject({ kind: "completed", presentation: "local", envelope: { status: "ok" } });
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ action: "enable", lines: expect.arrayContaining([`snapshot: ${snapshotId}`]) }), expect.any(AbortSignal));
     expect(execute).toHaveBeenCalledWith([
       "enable", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes",
     ], expect.objectContaining({ sink: expect.any(Object) }), expect.any(AbortSignal));
     expect(frames.map((frame: any) => frame.sequence)).toEqual([0, 1, 2]);
+  });
+
+  it.each([
+    { action: "enable", row },
+    { action: "disable", row },
+    { action: "update", row },
+    { action: "uninstall-keep", row },
+    { action: "uninstall-delete", row },
+    { action: "marketplace-remove", row: marketplaceRow },
+    { action: "project-sync", mode: "apply-intent" },
+    { action: "project-sync", mode: "publish-intent" },
+    { action: "project-sync", mode: "merge" },
+  ] as const)("cancels fresh $action confirmation with zero facade mutation", async (intent) => {
+    const execute = vi.fn();
+    const runner = createPluginManagerActionRunner({ execute, confirm: async () => false });
+    await expect(runner.run(intent)).resolves.toEqual({ kind: "cancelled", presentation: "local" });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ action: "disable", row }, ["disable", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes"]],
+    [{ action: "update", row }, ["update", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes"]],
+    [{ action: "uninstall-keep", row }, ["uninstall", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes", "--keep-data"]],
+    [{ action: "uninstall-delete", row }, ["uninstall", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes", "--delete-data"]],
+    [{ action: "marketplace-remove", row: marketplaceRow }, ["marketplace", "remove", "registration-1", "--scope", "user", "--yes"]],
+    [{ action: "project-sync", mode: "apply-intent" }, ["project", "sync", "--mode", "apply-intent", "--yes"]],
+    [{ action: "project-sync", mode: "publish-intent" }, ["project", "sync", "--mode", "publish-intent", "--yes"]],
+    [{ action: "project-sync", mode: "merge" }, ["project", "sync", "--mode", "merge", "--yes"]],
+  ] as const)("executes confirmed destructive intent %# with exact facade argv", async (intent, expectedArgv) => {
+    const execute = vi.fn(async () => ({ envelope: result(), delivery: "complete" as const, deliveredThrough: -1 }));
+    const confirm = vi.fn(confirmed);
+    const runner = createPluginManagerActionRunner({ execute, confirm });
+    await runner.run(intent);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledWith(expectedArgv, expect.objectContaining({ sink: expect.any(Object) }), expect.any(AbortSignal));
+  });
+
+  it("routes workflow recovery through the public install recover command", async () => {
+    const token = `trusted-install-session-v1:123e4567-e89b-42d3-a456-426614174000.${"a".repeat(64)}`;
+    const execute = vi.fn(async () => ({ envelope: result(), delivery: "complete" as const, deliveredThrough: -1 }));
+    const runner = createPluginManagerActionRunner({ execute });
+    await runner.run({ action: "install-recover", token });
+    expect(execute).toHaveBeenCalledWith(["install", "recover", token], expect.objectContaining({ sink: expect.any(Object) }), expect.any(AbortSignal));
   });
 
   it("sends one abort and waits for stronger owner cancellation result", async () => {
@@ -46,32 +94,41 @@ describe("plugin manager action runner", () => {
       await new Promise<void>((resolve) => signal.addEventListener("abort", () => { aborts += 1; resolve(); }, { once: true }));
       return { envelope: result("cancelled"), delivery: "complete" as const, deliveredThrough: -1 };
     });
-    const runner = createPluginManagerActionRunner({ execute });
+    const runner = createPluginManagerActionRunner({ execute, confirm: confirmed });
     const pending = runner.run({ action: "enable", row });
+    await Promise.resolve();
     runner.cancel();
     runner.cancel();
-    await expect(pending).resolves.toMatchObject({ envelope: { status: "cancelled" } });
+    await expect(pending).resolves.toMatchObject({ kind: "completed", envelope: { status: "cancelled" } });
     expect(aborts).toBe(1);
   });
 
   it("refreshes stale authority without replaying the mutation", async () => {
     const onStale = vi.fn();
     const execute = vi.fn(async () => ({ envelope: result("stale"), delivery: "complete" as const, deliveredThrough: -1 }));
-    const runner = createPluginManagerActionRunner({ execute, onStale });
+    const runner = createPluginManagerActionRunner({ execute, confirm: confirmed, onStale });
     await runner.run({ action: "enable", row });
     expect(execute).toHaveBeenCalledOnce();
     expect(onStale).toHaveBeenCalledWith(expect.objectContaining({ status: "stale" }));
   });
 
-  it("hands activating results to a claimed reload successor", async () => {
+  it("detaches an admitted activating mutation on reload so its successor result remains live", async () => {
+    let resolve!: () => void;
     const handoff = {
       open: vi.fn(() => ({ id: "ticket" })),
       publish: vi.fn(() => "successor"),
       fail: vi.fn(),
     } as any;
-    const execute = vi.fn(async () => ({ envelope: result(), delivery: "complete" as const, deliveredThrough: -1 }));
-    const runner = createPluginManagerActionRunner({ execute, handoff, session: { sessionId: "s1", cwd: "/workspace" } });
-    await expect(runner.run({ action: "enable", row })).resolves.toMatchObject({ presentation: "successor" });
+    const execute = vi.fn(async () => {
+      await new Promise<void>((done) => { resolve = done; });
+      return { envelope: result(), delivery: "complete" as const, deliveredThrough: -1 };
+    });
+    const runner = createPluginManagerActionRunner({ execute, confirm: confirmed, handoff, session: { sessionId: "s1", cwd: "/workspace" } });
+    const pending = runner.run({ action: "enable", row });
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+    runner.close("reload");
+    resolve();
+    await expect(pending).resolves.toMatchObject({ kind: "completed", presentation: "successor" });
     expect(handoff.open).toHaveBeenCalledWith({ sessionId: "s1", cwd: "/workspace", destination: "operation-result" });
     expect(handoff.publish).toHaveBeenCalledWith({ id: "ticket" }, expect.objectContaining({ status: "ok" }));
   });
@@ -79,8 +136,9 @@ describe("plugin manager action runner", () => {
   it("serializes foreground mutations", async () => {
     let resolve!: () => void;
     const execute = vi.fn(async () => { await new Promise<void>((done) => { resolve = done; }); return { envelope: result(), delivery: "complete" as const, deliveredThrough: -1 }; });
-    const runner = createPluginManagerActionRunner({ execute });
+    const runner = createPluginManagerActionRunner({ execute, confirm: confirmed });
     const first = runner.run({ action: "enable", row });
+    await Promise.resolve();
     await expect(runner.run({ action: "disable", row })).rejects.toThrow(/already running/);
     resolve();
     await first;

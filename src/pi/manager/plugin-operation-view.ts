@@ -13,17 +13,29 @@ export class PluginOperationView implements Component {
   private readonly theme: Theme;
   private readonly keybindings: KeybindingsManager;
   private readonly height: () => number;
+  private readonly title: string;
   private cancel: (() => void) | undefined;
+  private close: (() => void) | undefined;
   private frames: NativeControlFrame[] = [];
   private envelope: NativeControlEnvelope | undefined;
   private offset = 0;
+  private cancellationRequested = false;
   private disposed = false;
 
-  constructor(input: Readonly<{ theme: Theme; keybindings: KeybindingsManager; height(): number; cancel(): void }>) {
+  constructor(input: Readonly<{
+    theme: Theme;
+    keybindings: KeybindingsManager;
+    height(): number;
+    title?: string;
+    cancel(): void;
+    close?(): void;
+  }>) {
     this.theme = input.theme;
     this.keybindings = input.keybindings;
     this.height = input.height;
+    this.title = safe(input.title ?? "Plugin operation", 256);
     this.cancel = input.cancel;
+    this.close = input.close;
   }
 
   push(frameInput: NativeControlFrame): void {
@@ -37,17 +49,23 @@ export class PluginOperationView implements Component {
 
   finish(envelope: NativeControlEnvelope): void {
     if (this.disposed) return;
+    // The schema-validated final envelope is stronger than any prior progress
+    // or local cancellation request and is always rendered last.
     this.envelope = envelope;
     this.offset = 0;
   }
 
   private content(): string[] {
-    const lines = [this.theme.fg("accent", this.theme.bold("Plugin operation"))];
+    const lines = [this.theme.fg("accent", this.theme.bold(this.title))];
     for (const frame of this.frames) {
       if (frame.type === "accepted") lines.push(`#${frame.sequence} accepted ${safe(frame.command)}`);
       else if (frame.type === "progress") lines.push(`#${frame.sequence} ${safe(frame.phase)} ${safe(frame.state)}${frame.code === undefined ? "" : ` ${safe(frame.code)}`}`);
     }
+    if (this.cancellationRequested && this.envelope === undefined) {
+      lines.push(this.theme.fg("warning", "Cancellation requested once; waiting for the owner result."));
+    }
     if (this.envelope !== undefined) {
+      lines.push(this.theme.fg("accent", "Final owner result"));
       lines.push(`${safe(this.envelope.command.id)} ${safe(this.envelope.status)} · ${safe(this.envelope.exit.classification)} (${this.envelope.exit.code})`);
       for (const field of this.envelope.human) lines.push(safe(field.text));
       const install = TrustedInstallActivationResultSchema.safeParse(this.envelope.data);
@@ -63,14 +81,18 @@ export class PluginOperationView implements Component {
       }
       for (const diagnostic of this.envelope.diagnostics) lines.push(`${safe(diagnostic.severity)} ${safe(diagnostic.code)} · ${safe(diagnostic.action)}`);
     }
-    lines.push(this.theme.fg("dim", "Up/down scroll · Escape cancels once and waits for owner result"));
+    lines.push(this.theme.fg("dim", this.envelope === undefined ? "Configured up/down/page keys scroll · Escape cancels once and waits" : "Configured up/down/page keys scroll · Escape closes result"));
     return lines;
   }
 
   handleInput(data: string): void {
     if (this.disposed) return;
     if (this.keybindings.matches(data, "tui.select.cancel") || this.keybindings.matches(data, "app.interrupt")) {
-      this.cancel?.();
+      if (this.envelope !== undefined) this.close?.();
+      else if (!this.cancellationRequested) {
+        this.cancellationRequested = true;
+        this.cancel?.();
+      }
     } else if (this.keybindings.matches(data, "tui.select.up") || matchesKey(data, Key.up)) this.offset += 1;
     else if (this.keybindings.matches(data, "tui.select.down") || matchesKey(data, Key.down)) this.offset = Math.max(0, this.offset - 1);
     else if (this.keybindings.matches(data, "tui.select.pageUp") || matchesKey(data, Key.pageUp)) this.offset += Math.max(1, this.height() - 2);
@@ -91,6 +113,7 @@ export class PluginOperationView implements Component {
     if (this.disposed) return;
     this.disposed = true;
     this.cancel = undefined;
+    this.close = undefined;
     this.frames = [];
     this.envelope = undefined;
   }

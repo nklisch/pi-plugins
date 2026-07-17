@@ -6,14 +6,27 @@ import type {
 import { NativeInspectionDetailResultSchema } from "../../application/native-inspection-contract.js";
 import type { NativeControlDynamicCandidate } from "../../application/native-control-help.js";
 import type { NativeControlEnvelope } from "../../application/native-control-contract.js";
-import type { NativeControlExecutionReport } from "../../application/ports/native-control-execution.js";
+import type { NativeControlExecutionReport, NativeControlFrameSink } from "../../application/ports/native-control-execution.js";
 import type { NativeControlFrame } from "../../application/native-control-progress.js";
+import {
+  TrustedInstallActivationResultSchema,
+  TrustedInstallOpenResultSchema,
+} from "../../application/trusted-install-contract.js";
 import type { PackagedPluginHost } from "../../composition/packaged-plugin-host-contract.js";
-import type { PluginManagerPresentation } from "../plugin-command.js";
+import type { PluginManagerLiveOperation, PluginManagerPresentation } from "../plugin-command.js";
 import type { PiManagerReloadHandoff, PluginManagerDestination } from "../pi-manager-reload-handoff.js";
+import { presentConfirmationOverlay } from "./confirmation-overlay.js";
 import { createPiControlInputPort } from "./pi-control-input.js";
-import { createPluginManagerActionRunner, type PluginManagerActionIntent, type PluginManagerActionRunner } from "./plugin-manager-actions.js";
-import { PluginManagerComponent } from "./plugin-manager-component.js";
+import { createPiManagerFrameSink } from "./pi-manager-frame-sink.js";
+import { PluginInstallComponent, type PluginInstallComponentAction } from "./plugin-install-component.js";
+import { createPluginInstallState, pluginInstallReducer, type PluginInstallEvent, type PluginInstallState } from "./plugin-install-flow.js";
+import {
+  createPluginManagerActionRunner,
+  type PluginManagerActionConfirmation,
+  type PluginManagerActionIntent,
+  type PluginManagerActionRunner,
+} from "./plugin-manager-actions.js";
+import { PluginManagerComponent, type PluginManagerCloseResult } from "./plugin-manager-component.js";
 import { createPluginManagerController, type PluginManagerController } from "./plugin-manager-controller.js";
 import { rowKeyIdentity, type PluginManagerRow, type PluginManagerState } from "./plugin-manager-model.js";
 import { PluginOperationView } from "./plugin-operation-view.js";
@@ -34,12 +47,18 @@ function actionIntent(action: string, state: PluginManagerState): PluginManagerA
   if (action === "enable" || action === "disable" || action === "update") return { action, row };
   if (action === "uninstall-keep" || action === "uninstall-delete") return { action, row };
   if (action === "marketplace-refresh" || action === "marketplace-remove" || action === "notice-acknowledge") return { action, row };
-  if (action === "install") {
-    const detail = NativeInspectionDetailResultSchema.safeParse(state.detail.envelope?.data);
-    if (!detail.success || detail.data.kind !== "found") throw new TypeError("install requires a current inspected candidate");
-    return { action: "install-run", row, snapshotId: detail.data.detail.snapshotId, detailId: detail.data.detail.summary.detailId };
-  }
+  if (action === "project-sync-apply") return { action: "project-sync", mode: "apply-intent" };
+  if (action === "project-sync-publish") return { action: "project-sync", mode: "publish-intent" };
+  if (action === "project-sync-merge") return { action: "project-sync", mode: "merge" };
   throw new TypeError("plugin manager action is unavailable for this row");
+}
+
+function linkedAbort(parent: AbortSignal | undefined): Readonly<{ controller: AbortController; dispose(): void }> {
+  const controller = new AbortController();
+  if (parent === undefined) return Object.freeze({ controller, dispose() {} });
+  const abort = () => controller.abort(parent.reason);
+  if (parent.aborted) abort(); else parent.addEventListener("abort", abort, { once: true });
+  return Object.freeze({ controller, dispose: () => parent.removeEventListener("abort", abort) });
 }
 
 /** Own one fresh controller/component/input set per command presentation. */
@@ -51,43 +70,217 @@ export function createPluginManagerSession(input: Readonly<{
   let activeController: PluginManagerController | undefined;
   let activeRunner: PluginManagerActionRunner | undefined;
   let activeClose: (() => void) | undefined;
+  let activeOperationAbort: AbortController | undefined;
+  let activeOperationReloadSafe = false;
+  let presentationDetached = false;
+  let closingReason: SessionShutdownEvent["reason"] | undefined;
   let completions: readonly NativeControlDynamicCandidate[] = Object.freeze([]);
   let closed = false;
 
-  async function replaceActive(): Promise<void> {
+  function execute(context: ExtensionCommandContext, argv: readonly string[], options: Readonly<{ sink: NativeControlFrameSink; input?: ReturnType<typeof createPiControlInputPort> }>, signal: AbortSignal): Promise<NativeControlExecutionReport> {
+    return input.host.runWithPiOperationContext(context, signal, (application) =>
+      application.control.runArgv(argv, { mode: "tui", output: "json", sink: options.sink, ...(options.input === undefined ? {} : { input: options.input }) }, signal));
+  }
+
+  function freshRunner(context: ExtensionCommandContext, options: Readonly<{
+    input?: ReturnType<typeof createPiControlInputPort>;
+    onFrame?(frame: NativeControlFrame): void;
+    confirm?: boolean;
+  }> = {}): PluginManagerActionRunner {
+    const runner = createPluginManagerActionRunner({
+      execute: (argv, executionOptions, signal) => execute(context, argv, { sink: executionOptions.sink, ...(executionOptions.input === undefined ? {} : { input: executionOptions.input as ReturnType<typeof createPiControlInputPort> }) }, signal),
+      ...(options.input === undefined ? {} : { input: options.input }),
+      handoff: input.handoff,
+      session: { sessionId: context.sessionManager.getSessionId(), cwd: context.cwd },
+      ...(options.onFrame === undefined ? {} : { onFrame: options.onFrame }),
+      ...(options.confirm === true ? {
+        confirm: (confirmation: PluginManagerActionConfirmation, signal: AbortSignal) => presentConfirmationOverlay(context, {
+          title: confirmation.title,
+          lines: confirmation.lines,
+        }, signal),
+      } : {}),
+    });
+    activeRunner = runner;
+    return runner;
+  }
+
+  async function replaceActive(reason: SessionShutdownEvent["reason"] = "new"): Promise<void> {
     activeClose?.();
     activeClose = undefined;
     if (activeController !== undefined) {
       completions = activeController.dynamicCompletions();
-      await activeController.close("reload");
+      await activeController.close(reason);
       activeController = undefined;
     }
-    activeRunner?.close();
+    activeRunner?.close(reason);
     activeRunner = undefined;
+    if (activeOperationAbort !== undefined && !(reason === "reload" && activeOperationReloadSafe)) {
+      activeOperationAbort.abort(new DOMException("plugin presentation replaced", "AbortError"));
+    }
+  }
+
+  async function runInstallFlow(context: ExtensionCommandContext, managerState: PluginManagerState): Promise<Readonly<{ kind: "cancelled" | "handled"; presentation?: "local" | "successor" }>> {
+    const row = selectedRow(managerState);
+    const detail = NativeInspectionDetailResultSchema.safeParse(managerState.detail.envelope?.data);
+    if (row === undefined || !detail.success || detail.data.kind !== "found") return Object.freeze({ kind: "cancelled" });
+    const candidateDetail = detail.data.detail;
+    let state = createPluginInstallState(candidateDetail);
+    let component: PluginInstallComponent | undefined;
+    let currentRunner: PluginManagerActionRunner | undefined;
+    let result: Readonly<{ kind: "cancelled" | "handled"; presentation?: "local" | "successor" }> = Object.freeze({ kind: "cancelled" });
+
+    await context.ui.custom<void>((tui, theme, keybindings, done) => {
+      const apply = (event: PluginInstallEvent): void => {
+        state = pluginInstallReducer(state, event);
+        component?.update(state);
+        tui.requestRender();
+      };
+
+      const runPhase = async (phase: "open" | "apply" | "recover"): Promise<void> => {
+        if (state.busy) return;
+        apply({ type: "busy", value: true });
+        const port = phase === "open"
+          ? undefined
+          : createPiControlInputPort({ context, mode: "tui", preset: { nonSensitive: state.values, ...(state.consentId === undefined ? {} : { consentId: state.consentId }) } });
+        const runner = freshRunner(context, {
+          ...(port === undefined ? {} : { input: port }),
+          onFrame: (frame) => {
+            if (!presentationDetached) apply({ type: "frame", frame });
+          },
+        });
+        currentRunner = runner;
+        try {
+          if (phase === "open") {
+            const phaseResult = await runner.run({
+              action: "install-open",
+              row,
+              snapshotId: candidateDetail.snapshotId,
+              detailId: candidateDetail.summary.detailId,
+            });
+            if (phaseResult.kind === "cancelled") {
+              apply({ type: "busy", value: false });
+              return;
+            }
+            const opened = TrustedInstallOpenResultSchema.safeParse(phaseResult.envelope.data);
+            if (!opened.success || opened.data.kind !== "opened") {
+              apply({ type: "authority-stale" });
+              context.ui.notify("Install candidate evidence changed; review the refreshed candidate before continuing.", "warning");
+              return;
+            }
+            apply({ type: "session-opened", session: opened.data.session });
+            return;
+          }
+
+          const session = state.session;
+          if (session === undefined || state.consentId !== session.consent.consentId) {
+            apply({ type: "busy", value: false });
+            return;
+          }
+          const phaseResult = await runner.run({ action: phase === "recover" ? "install-recover" : "install-apply", token: session.token });
+          if (phaseResult.kind === "cancelled") {
+            apply({ type: "busy", value: false });
+            return;
+          }
+          if (phaseResult.presentation === "successor") {
+            result = Object.freeze({ kind: "handled", presentation: "successor" });
+            // Reload teardown already closed the predecessor custom component.
+            // Calling its done callback here would reuse stale Pi/TUI state.
+            return;
+          }
+          const activation = TrustedInstallActivationResultSchema.safeParse(phaseResult.envelope.data);
+          if (!activation.success) {
+            apply({ type: "busy", value: false });
+            const diagnostic = phaseResult.envelope.diagnostics[0]?.code;
+            context.ui.notify(`Install result did not match the public facade contract (${phaseResult.envelope.status}${diagnostic === undefined ? "" : ` · ${diagnostic}`}).`, "error");
+            return;
+          }
+          if (activation.data.kind === "needs-input") {
+            apply({ type: "session-opened", session: activation.data.session, submission: phase === "recover" ? "recover" : "apply" });
+            context.ui.notify("Configuration or exact consent needs renewed input.", "warning");
+            return;
+          }
+          apply({ type: "activation-result", result: activation.data });
+        } catch (error) {
+          if (closingReason === "reload" || closed) return;
+          apply({ type: "busy", value: false });
+          context.ui.notify(error instanceof DOMException && error.name === "AbortError" ? "Install cancellation is waiting for owner truth." : "Install flow could not complete.", "warning");
+        } finally {
+          port?.dispose();
+          runner.close(closingReason ?? "quit");
+          if (currentRunner === runner) currentRunner = undefined;
+          if (activeRunner === runner) activeRunner = undefined;
+        }
+      };
+
+      const action = (event: PluginInstallComponentAction): void => {
+        if (event.type === "cancel") {
+          currentRunner?.cancel();
+          return;
+        }
+        if (event.type === "edit-field") {
+          if (event.sensitive) {
+            context.ui.notify("Sensitive values stay out of flow state and are collected in masked custody only when Apply begins.", "info");
+            return;
+          }
+          const field = state.session?.fields.find((entry) => entry.key === event.key);
+          if (field === undefined) return;
+          void context.ui.input(field.label.text, field.description?.text).then((value) => {
+            if (value !== undefined && !closed) apply({ type: "set-value", key: field.key, value });
+          });
+          return;
+        }
+        if (event.type === "back") {
+          if (state.busy) return;
+          if (state.step === "choose-inspect") {
+            result = Object.freeze({ kind: "cancelled" });
+            done();
+          } else if (state.step === "activation-result") {
+            result = Object.freeze({ kind: "handled", presentation: "local" });
+            done();
+          } else apply({ type: "back" });
+          return;
+        }
+        if (state.step === "activation-result") {
+          const activation = state.result;
+          if (activation?.kind === "recovery-required" && activation.action !== "run-recovery" && activation.session !== undefined) {
+            apply({ type: "session-opened", session: activation.session, submission: "recover" });
+            return;
+          }
+          result = Object.freeze({ kind: "handled", presentation: "local" });
+          done();
+        } else void runPhase(state.step === "choose-inspect" ? "open" : state.submission);
+      };
+
+      component = new PluginInstallComponent({ state, theme, keybindings, height: () => tui.terminal.rows, onEvent: apply, onAction: action });
+      activeClose = () => done();
+      return component;
+    });
+    activeClose = undefined;
+    currentRunner?.close(closingReason ?? "quit");
+    return result;
   }
 
   async function open(context: ExtensionCommandContext): Promise<void> {
     if (closed) return;
-    await replaceActive();
+    await replaceActive("new");
     let controller!: PluginManagerController;
     const read = (argv: readonly string[], signal: AbortSignal) => input.host.runWithPiOperationContext(context, signal, (application) =>
       application.control.runArgv(argv, { mode: "tui", output: "json" }, signal));
     const actions = {
       async run(action: string, state: PluginManagerState) {
+        if (action === "install") return runInstallFlow(context, state);
         const port = createPiControlInputPort({ context, mode: "tui" });
-        const runner = createPluginManagerActionRunner({
-          execute: (argv, options, signal) => input.host.runWithPiOperationContext(context, signal, (application) =>
-            application.control.runArgv(argv, { mode: "tui", output: "json", sink: options.sink, ...(options.input === undefined ? {} : { input: options.input }) }, signal)),
+        const runner = freshRunner(context, {
           input: port,
-          handoff: input.handoff,
-          session: { sessionId: context.sessionManager.getSessionId(), cwd: context.cwd },
-          onFrame: (frame) => controller.observe({ type: "frame", frame }),
+          confirm: true,
+          onFrame: (frame) => {
+            if (!presentationDetached) controller.observe({ type: "frame", frame });
+          },
         });
-        activeRunner = runner;
         try { return await runner.run(actionIntent(action, state)); }
         finally {
           port.dispose();
-          runner.close();
+          runner.close(closingReason ?? "quit");
           if (activeRunner === runner) activeRunner = undefined;
         }
       },
@@ -98,37 +291,103 @@ export function createPluginManagerSession(input: Readonly<{
     await controller.refresh("all");
     if (closed || activeController !== controller) return;
     try {
-      await context.ui.custom((tui, theme, keybindings, done) => {
-        const component = new PluginManagerComponent({ tui, theme, keybindings, controller, done });
-        activeClose = () => component.requestClose();
-        return component;
-      });
+      while (!closed && activeController === controller) {
+        const closeResult = await context.ui.custom<PluginManagerCloseResult>((tui, theme, keybindings, done) => {
+          const component = new PluginManagerComponent({ tui, theme, keybindings, controller, done });
+          activeClose = () => component.requestClose();
+          return component;
+        });
+        activeClose = undefined;
+        if (closeResult.kind !== "action" || closeResult.action === undefined) break;
+
+        // Pi custom components are single-owner surfaces. Close the manager
+        // before presenting confirmation/install overlays, then reopen it from
+        // the controller's authoritative result. Nesting custom() calls lets
+        // Pi dispose the predecessor manager and races its cleanup against the
+        // foreground mutation's AbortSignal.
+        controller.dispatch({ type: "action", action: closeResult.action });
+        await controller.idle();
+      }
     } catch {
-      context.ui.notify("Plugin manager terminal rendering failed; facade state is unchanged.", "error");
+      if (!presentationDetached) context.ui.notify("Plugin manager terminal rendering failed; facade state is unchanged.", "error");
     } finally {
       if (activeController === controller) {
         completions = controller.dynamicCompletions();
-        await controller.close("quit");
+        await controller.close(closingReason ?? "quit");
         activeController = undefined;
       }
       activeClose = undefined;
     }
   }
 
-  async function presentOperation(context: ExtensionContext, envelope: NativeControlEnvelope, frames: readonly NativeControlFrame[]): Promise<void> {
+  async function presentStaticOperation(context: ExtensionContext, envelope: NativeControlEnvelope, frames: readonly NativeControlFrame[], title = "Plugin operation"): Promise<void> {
     if (context.mode !== "tui" || closed) return;
-    await replaceActive();
+    await replaceActive("new");
     try {
       await context.ui.custom<void>((tui, theme, keybindings, done) => {
-        const view = new PluginOperationView({ theme, keybindings, height: () => tui.terminal.rows, cancel: () => done() });
+        const view = new PluginOperationView({ theme, keybindings, height: () => tui.terminal.rows, title, cancel: () => {}, close: () => done() });
         for (const frame of frames) view.push(frame);
         view.finish(envelope);
         activeClose = () => done();
         return view;
       });
     } catch {
-      context.ui.notify(`Plugin operation ${envelope.status}; custom renderer unavailable.`, envelope.exit.code === 0 ? "info" : "error");
+      if (!presentationDetached) context.ui.notify(`Plugin operation ${envelope.status}; custom renderer unavailable.`, envelope.exit.code === 0 ? "info" : "error");
     } finally {
+      activeClose = undefined;
+    }
+  }
+
+  async function presentOperation(context: ExtensionCommandContext, operation: PluginManagerLiveOperation): Promise<void> {
+    if (closed) return;
+    await replaceActive("new");
+    const linked = linkedAbort(operation.signal);
+    activeOperationAbort = linked.controller;
+    activeOperationReloadSafe = operation.reloadSafe;
+    presentationDetached = false;
+    let task: Promise<void> | undefined;
+    let failure: unknown;
+    try {
+      await context.ui.custom<void>((tui, theme, keybindings, done) => {
+        const view = new PluginOperationView({
+          theme,
+          keybindings,
+          height: () => tui.terminal.rows,
+          cancel: () => linked.controller.abort(new DOMException("plugin command cancelled", "AbortError")),
+          close: () => done(),
+        });
+        activeClose = () => done();
+        task = Promise.resolve().then(async () => {
+          const sink = createPiManagerFrameSink({
+            onFrame: (frame) => {
+              if (presentationDetached) return;
+              view.push(frame);
+              tui.requestRender();
+            },
+          });
+          try {
+            const report = await operation.run(sink, linked.controller.signal);
+            const presentation = operation.settle(report);
+            if (presentationDetached || presentation === "successor") {
+              // session_shutdown already closed the predecessor view. No Pi/TUI
+              // callback remains valid once the successor owns presentation.
+              return;
+            }
+            view.finish(report.envelope);
+            tui.requestRender();
+          } catch (error) {
+            failure = error;
+            done();
+          }
+        });
+        return view;
+      });
+      await task;
+      if (failure !== undefined) throw failure;
+    } finally {
+      linked.dispose();
+      if (activeOperationAbort === linked.controller) activeOperationAbort = undefined;
+      activeOperationReloadSafe = false;
       activeClose = undefined;
     }
   }
@@ -136,19 +395,19 @@ export function createPluginManagerSession(input: Readonly<{
   const session: PluginManagerSession = {
     bind(context): void {
       closed = false;
+      closingReason = undefined;
+      presentationDetached = false;
       bound = Object.freeze({ sessionId: context.sessionManager.getSessionId(), cwd: context.cwd });
     },
     open,
+    presentOperation,
     async presentReport(context: ExtensionCommandContext, report: NativeControlExecutionReport, frames: readonly NativeControlFrame[]): Promise<void> {
-      await presentOperation(context, report.envelope, frames);
+      await presentStaticOperation(context, report.envelope, frames);
     },
-    async presentHandoff(context, _destination, envelope): Promise<void> {
+    async presentHandoff(context, destination, envelope): Promise<void> {
       const current = bound;
       if (current === undefined || current.sessionId !== context.sessionManager.getSessionId() || current.cwd !== context.cwd) return;
-      // session_start has no command-capable operation context in Pi 0.80.8.
-      // Show only the transferred safe result; the next manager command creates
-      // a fresh controller and refreshes authoritative snapshots.
-      await presentOperation(context, envelope, Object.freeze([]));
+      await presentStaticOperation(context, envelope, Object.freeze([]), destination === "install-result" ? "Plugin install · activation result" : "Plugin operation · successor result");
     },
     dynamicCompletions(): readonly NativeControlDynamicCandidate[] {
       return activeController?.dynamicCompletions() ?? completions;
@@ -156,8 +415,13 @@ export function createPluginManagerSession(input: Readonly<{
     async close(reason: SessionShutdownEvent["reason"]): Promise<void> {
       if (closed && activeController === undefined && activeClose === undefined) return;
       closed = true;
+      closingReason = reason;
+      presentationDetached = true;
       activeClose?.();
-      activeRunner?.close();
+      activeRunner?.close(reason);
+      if (activeOperationAbort !== undefined && !(reason === "reload" && activeOperationReloadSafe)) {
+        activeOperationAbort.abort(new DOMException("plugin presentation closed", "AbortError"));
+      }
       if (activeController !== undefined) {
         completions = reason === "reload" ? activeController.dynamicCompletions() : Object.freeze([]);
         await activeController.close(reason);

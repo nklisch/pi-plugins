@@ -2,9 +2,11 @@ import type { NativeControlDynamicCandidate } from "../../application/native-con
 import type { NativeControlEnvelope } from "../../application/native-control-contract.js";
 import type { NativeControlFrame } from "../../application/native-control-progress.js";
 import type { JsonValue } from "../../domain/schema.js";
+import type { PluginManagerStatusTone } from "./plugin-manager-status.js";
 
 export type PluginManagerView = "installed" | "updates" | "browse" | "marketplaces";
-export type PluginManagerPane = "tabs" | "query" | "list" | "detail" | "actions";
+export type PluginManagerPane = "tabs" | "query" | "list" | "detail" | "disclosure" | "actions";
+export type PluginManagerScrollRegion = "list" | "detail" | "actions" | "disclosure" | "operation";
 export type PluginManagerScreen = "manager" | "install-inspect" | "install-configure" | "install-result" | "operation-result";
 
 export const PluginManagerActionRegistry = Object.freeze({
@@ -18,6 +20,9 @@ export const PluginManagerActionRegistry = Object.freeze({
   "marketplace-refresh": { label: "Refresh marketplace" },
   "marketplace-remove": { label: "Remove marketplace" },
   "notice-acknowledge": { label: "Acknowledge notice" },
+  "project-sync-apply": { label: "Project sync · apply intent" },
+  "project-sync-publish": { label: "Project sync · publish intent" },
+  "project-sync-merge": { label: "Project sync · resolve merge" },
 } as const);
 export type PluginManagerActionId = keyof typeof PluginManagerActionRegistry;
 
@@ -33,6 +38,7 @@ export type PluginManagerRow = Readonly<{
   title: string;
   subtitle: string;
   status: string;
+  statusTone?: PluginManagerStatusTone;
   scope?: "user" | "project";
   plugin?: string;
   completion: NativeControlDynamicCandidate;
@@ -56,7 +62,7 @@ export type PluginManagerOperationState = Readonly<{
 export type PluginManagerState = Readonly<{
   screen: PluginManagerScreen;
   view: PluginManagerView;
-  focus: Readonly<{ pane: PluginManagerPane; row?: PluginManagerRowKey; action?: string }>;
+  focus: Readonly<{ pane: PluginManagerPane; row?: PluginManagerRowKey; action?: string; disclosure?: string }>;
   query: string;
   page: Readonly<{
     rows: readonly PluginManagerRow[];
@@ -72,6 +78,7 @@ export type PluginManagerState = Readonly<{
   operation: PluginManagerOperationState;
   disclosure: ReadonlySet<string>;
   viewport: Readonly<{ columns: number; rows: number }>;
+  scroll: Readonly<Record<PluginManagerScrollRegion, number>>;
   help: boolean;
   closed: boolean;
 }>;
@@ -82,6 +89,8 @@ export type PluginManagerIntent =
   | Readonly<{ type: "submit-search" }>
   | Readonly<{ type: "move-selection"; delta: number }>
   | Readonly<{ type: "move-action"; delta: number }>
+  | Readonly<{ type: "move-disclosure"; delta: number }>
+  | Readonly<{ type: "scroll"; region: PluginManagerScrollRegion; delta: number }>
   | Readonly<{ type: "select-row"; row: PluginManagerRowKey }>
   | Readonly<{ type: "open-detail" }>
   | Readonly<{ type: "detail-back" }>
@@ -111,6 +120,7 @@ export type PluginManagerEvent =
   | Readonly<{ type: "frame"; frame: NativeControlFrame }>
   | Readonly<{ type: "operation-started"; action: string }>
   | Readonly<{ type: "operation-cancelling" }>
+  | Readonly<{ type: "operation-abandoned" }>
   | Readonly<{ type: "operation-finished"; envelope: NativeControlEnvelope }>
   | Readonly<{ type: "screen"; screen: PluginManagerScreen }>
   | Readonly<{ type: "resized"; columns: number; rows: number }>
@@ -131,6 +141,7 @@ export function createPluginManagerState(): PluginManagerState {
     operation: EMPTY_OPERATION,
     disclosure: new Set<string>(),
     viewport: Object.freeze({ columns: 100, rows: 24 }),
+    scroll: Object.freeze({ list: 0, detail: 0, actions: 0, disclosure: 0, operation: 0 }),
     help: false,
     closed: false,
   });
@@ -149,7 +160,10 @@ export function pluginManagerRowActions(row: PluginManagerRow | undefined): read
   if (row.key.subject === "candidate") return Object.freeze(["inspect", "install"]);
   if (row.key.subject === "marketplace") return Object.freeze(["marketplace-refresh", "marketplace-remove"]);
   if (row.key.subject === "notice") return Object.freeze(["inspect", "notice-acknowledge"]);
-  return Object.freeze(["inspect", "enable", "disable", "update", "uninstall-keep", "uninstall-delete"]);
+  return Object.freeze([
+    "inspect", "enable", "disable", "update", "uninstall-keep", "uninstall-delete",
+    ...(row.scope === "project" ? ["project-sync-apply", "project-sync-publish", "project-sync-merge"] as const : []),
+  ]);
 }
 
 function selectedIndex(state: PluginManagerState): number {
@@ -167,6 +181,7 @@ function resetPage(state: PluginManagerState, view: PluginManagerView, query = s
     page: Object.freeze({ rows: Object.freeze([]), loading: false, request: state.page.request, pages: 0, append: false }),
     detail: Object.freeze({ loading: false, request: state.detail.request }),
     disclosure: new Set<string>(),
+    scroll: Object.freeze({ ...state.scroll, list: 0, detail: 0, actions: 0, disclosure: 0 }),
   });
 }
 
@@ -179,7 +194,9 @@ function reduceIntent(state: PluginManagerState, intent: PluginManagerIntent): P
     if (state.page.rows.length === 0) return state;
     const current = Math.max(0, selectedIndex(state));
     const index = Math.max(0, Math.min(state.page.rows.length - 1, current + intent.delta));
-    return Object.freeze({ ...state, focus: Object.freeze({ pane: "list", row: state.page.rows[index]!.key }) });
+    const pageSize = Math.max(1, state.viewport.rows - 6);
+    const list = Math.max(0, Math.min(index, Math.max(state.scroll.list, index - pageSize + 1)));
+    return Object.freeze({ ...state, focus: Object.freeze({ pane: "list", row: state.page.rows[index]!.key }), scroll: Object.freeze({ ...state.scroll, list }) });
   }
   if (intent.type === "move-action") {
     const row = state.page.rows[Math.max(0, selectedIndex(state))];
@@ -189,6 +206,15 @@ function reduceIntent(state: PluginManagerState, intent: PluginManagerIntent): P
     const action = actions[(current + intent.delta + actions.length) % actions.length]!;
     return Object.freeze({ ...state, focus: Object.freeze({ pane: "actions", ...(row === undefined ? {} : { row: row.key }), action }) });
   }
+  if (intent.type === "move-disclosure") {
+    const keys = ["components", "diagnostics"] as const;
+    const current = Math.max(0, keys.indexOf(state.focus.disclosure as typeof keys[number]));
+    const disclosure = keys[(current + intent.delta + keys.length) % keys.length]!;
+    return Object.freeze({ ...state, focus: Object.freeze({ pane: "disclosure", ...(state.focus.row === undefined ? {} : { row: state.focus.row }), disclosure }) });
+  }
+  if (intent.type === "scroll") {
+    return Object.freeze({ ...state, scroll: Object.freeze({ ...state.scroll, [intent.region]: Math.max(0, state.scroll[intent.region] + intent.delta) }) });
+  }
   if (intent.type === "open-detail") {
     const index = Math.max(0, selectedIndex(state));
     const row = state.page.rows[index];
@@ -197,13 +223,14 @@ function reduceIntent(state: PluginManagerState, intent: PluginManagerIntent): P
   if (intent.type === "detail-back") return Object.freeze({ ...state, focus: Object.freeze({ pane: "list", ...(state.focus.row === undefined ? {} : { row: state.focus.row }) }) });
   if (intent.type === "focus-query") return Object.freeze({ ...state, focus: Object.freeze({ pane: "query" }) });
   if (intent.type === "focus-next" || intent.type === "focus-previous") {
-    const order: readonly PluginManagerPane[] = ["tabs", "query", "list", "detail", "actions"];
+    const order: readonly PluginManagerPane[] = ["tabs", "query", "list", "detail", "disclosure", "actions"];
     const current = Math.max(0, order.indexOf(state.focus.pane));
     const direction = intent.type === "focus-next" ? 1 : -1;
     const pane = order[(current + direction + order.length) % order.length]!;
     const row = state.page.rows[Math.max(0, selectedIndex(state))];
     const action = pane === "actions" ? pluginManagerRowActions(row)[0] : undefined;
-    return Object.freeze({ ...state, focus: Object.freeze({ pane, ...(state.focus.row === undefined ? row === undefined ? {} : { row: row.key } : { row: state.focus.row }), ...(action === undefined ? {} : { action }) }) });
+    const disclosure = pane === "disclosure" ? "components" : undefined;
+    return Object.freeze({ ...state, focus: Object.freeze({ pane, ...(state.focus.row === undefined ? row === undefined ? {} : { row: row.key } : { row: state.focus.row }), ...(action === undefined ? {} : { action }), ...(disclosure === undefined ? {} : { disclosure }) }) });
   }
   if (intent.type === "toggle-disclosure") {
     const disclosure = new Set(state.disclosure);
@@ -266,8 +293,12 @@ export function pluginManagerReducer(state: PluginManagerState, event: PluginMan
   if (event.type === "update-counts") return Object.freeze({ ...state, updateCounts: Object.freeze({ unread: event.unread, unresolved: event.unresolved }) });
   if (event.type === "toggle-disclosure") return reduceIntent(state, { type: "toggle-disclosure", key: event.key });
   if (event.type === "operation-started") return Object.freeze({ ...state, operation: Object.freeze({ state: "running", action: event.action, frames: Object.freeze([]) }) });
-  if (event.type === "operation-cancelling") return Object.freeze({ ...state, operation: Object.freeze({ ...state.operation, state: "cancelling" }) });
-  if (event.type === "frame") return Object.freeze({ ...state, operation: Object.freeze({ ...state.operation, frames: Object.freeze([...state.operation.frames.slice(-199), event.frame]) }) });
+  if (event.type === "operation-cancelling") {
+    if (state.operation.state !== "running") return state;
+    return Object.freeze({ ...state, operation: Object.freeze({ ...state.operation, state: "cancelling" }) });
+  }
+  if (event.type === "operation-abandoned") return Object.freeze({ ...state, screen: "manager", operation: EMPTY_OPERATION });
+  if (event.type === "frame") return Object.freeze({ ...state, operation: Object.freeze({ ...state.operation, frames: Object.freeze([...state.operation.frames.slice(-199), event.frame]) }), scroll: Object.freeze({ ...state.scroll, operation: 0 }) });
   if (event.type === "operation-finished") return Object.freeze({ ...state, screen: "operation-result", operation: Object.freeze({ ...state.operation, state: "finished", envelope: event.envelope }) });
   if (event.type === "screen") return Object.freeze({ ...state, screen: event.screen });
   if (event.type === "resized") return Object.freeze({ ...state, viewport: Object.freeze({ columns: Math.max(1, event.columns), rows: Math.max(1, event.rows) }) });

@@ -41,8 +41,17 @@ function context(mode: "tui" | "rpc" | "json" | "print") {
       resolve,
     );
     component.focused = true;
-    if (component.constructor.name === "MaskedInputOverlay") component.handleInput(canary);
-    component.handleInput("\r");
+    if (component.constructor.name === "MaskedInputOverlay") {
+      component.handleInput(canary);
+      component.handleInput("\r");
+    } else {
+      component.handleInput(" ");
+      for (let index = 0; index < 32; index += 1) {
+        component.render(48);
+        component.handleInput("\u001b[6~");
+      }
+      component.handleInput("\r");
+    }
   }));
   const ctx = {
     mode,
@@ -71,6 +80,15 @@ describe("Pi control input adapter", () => {
     expect((h.ctx.ui as any).setEditorText).not.toHaveBeenCalled();
     expect((h.ctx.ui as any).pasteToEditor).not.toHaveBeenCalled();
     port.dispose();
+  });
+
+  it("uses retained non-sensitive values and exact pre-reviewed consent without reopening visible prompts", async () => {
+    const h = context("tui");
+    const port = createPiControlInputPort({ context: h.ctx, mode: "tui", preset: { nonSensitive: { DIRECTORY: "/retained" }, consentId } });
+    const result = await port.collect(request([field(false)]), new AbortController().signal);
+    expect(result).toMatchObject({ kind: "supplied", nonSensitive: [{ key: "DIRECTORY", value: "/retained" }], decision: { kind: "grant", consentId } });
+    expect(h.input).not.toHaveBeenCalled();
+    expect(h.custom).not.toHaveBeenCalled();
   });
 
   it("includes exact executable disclosure in supported RPC trust confirmation", async () => {

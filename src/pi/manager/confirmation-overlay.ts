@@ -1,6 +1,12 @@
-import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
+import type { ExtensionCommandContext, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import { projectTerminalText } from "./pi-terminal-text.js";
+
+export type ConfirmationOverlayRequest = Readonly<{
+  title: string;
+  lines: readonly string[];
+  disclosure?: readonly string[];
+}>;
 
 export class ConfirmationOverlay implements Component {
   private readonly theme: Theme;
@@ -8,7 +14,10 @@ export class ConfirmationOverlay implements Component {
   private readonly title: string;
   private readonly lines: readonly string[];
   private readonly disclosure: readonly string[];
+  private readonly height: () => number;
   private disclosed = false;
+  private offset = 0;
+  private maxOffset = 0;
   private done: ((confirmed: boolean) => void) | undefined;
   private disposed = false;
 
@@ -18,6 +27,7 @@ export class ConfirmationOverlay implements Component {
     title: string;
     lines: readonly string[];
     disclosure?: readonly string[];
+    height?(): number;
     done(confirmed: boolean): void;
   }>) {
     this.theme = input.theme;
@@ -25,13 +35,21 @@ export class ConfirmationOverlay implements Component {
     this.title = projectTerminalText(input.title, 256).text;
     this.lines = Object.freeze(input.lines.map((line) => projectTerminalText(line, 2_048).text));
     this.disclosure = Object.freeze((input.disclosure ?? []).map((line) => projectTerminalText(line, 4_096).text));
+    this.height = input.height ?? (() => 20);
     this.done = input.done;
   }
 
   handleInput(data: string): void {
     if (this.disposed) return;
-    if (data === " " && this.disclosure.length > 0) this.disclosed = !this.disclosed;
-    else if (this.keybindings.matches(data, "tui.select.confirm")) this.finish(true);
+    const page = Math.max(1, this.height() - 3);
+    if (data === " " && this.disclosure.length > 0) {
+      this.disclosed = !this.disclosed;
+      this.offset = 0;
+    } else if (this.keybindings.matches(data, "tui.select.up") || matchesKey(data, Key.up)) this.offset = Math.max(0, this.offset - 1);
+    else if (this.keybindings.matches(data, "tui.select.down") || matchesKey(data, Key.down)) this.offset = Math.min(this.maxOffset, this.offset + 1);
+    else if (this.keybindings.matches(data, "tui.select.pageUp") || matchesKey(data, Key.pageUp)) this.offset = Math.max(0, this.offset - page);
+    else if (this.keybindings.matches(data, "tui.select.pageDown") || matchesKey(data, Key.pageDown)) this.offset = Math.min(this.maxOffset, this.offset + page);
+    else if (this.keybindings.matches(data, "tui.select.confirm") && (this.disclosure.length === 0 || this.disclosed && this.offset >= this.maxOffset)) this.finish(true);
     else if (this.keybindings.matches(data, "tui.select.cancel") || this.keybindings.matches(data, "app.interrupt")) this.finish(false);
   }
 
@@ -45,17 +63,45 @@ export class ConfirmationOverlay implements Component {
 
   render(width: number): string[] {
     if (this.disposed) return [];
-    return [
+    const height = Math.max(4, this.height());
+    const content = [
       this.theme.fg("warning", this.theme.bold(this.title)),
       ...this.lines,
       ...(this.disclosure.length === 0 ? [] : this.disclosed
         ? [this.theme.fg("accent", "Exact executable disclosure"), ...this.disclosure]
         : [this.theme.fg("muted", "Space: show exact skills, hook commands, MCP process/tools, and requirements")]),
-      this.theme.fg("dim", "Enter confirm · Escape cancel"),
     ].flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width)))
       .map((line) => truncateToWidth(line, Math.max(1, width), ""));
+    const bodyHeight = Math.max(1, height - 1);
+    this.maxOffset = Math.max(0, content.length - bodyHeight);
+    this.offset = Math.min(this.offset, this.maxOffset);
+    const confirm = this.disclosure.length === 0 || this.disclosed && this.offset >= this.maxOffset
+      ? "Enter confirm · Escape cancel"
+      : "Review the complete disclosure to the end before confirming · Escape cancel";
+    return [...content.slice(this.offset, this.offset + bodyHeight), this.theme.fg("dim", confirm)];
   }
 
   invalidate(): void {}
   dispose(): void { this.done = undefined; this.disposed = true; }
+}
+
+/** Open a fresh confirmation component; cancellation never implies approval. */
+export async function presentConfirmationOverlay(
+  context: ExtensionCommandContext,
+  request: ConfirmationOverlayRequest,
+  signal: AbortSignal,
+): Promise<boolean> {
+  signal.throwIfAborted();
+  let settle: ((confirmed: boolean) => void) | undefined;
+  const abort = () => settle?.(false);
+  signal.addEventListener("abort", abort, { once: true });
+  try {
+    return await context.ui.custom<boolean>((tui, theme, keybindings, done) => {
+      settle = done;
+      return new ConfirmationOverlay({ ...request, theme, keybindings, height: () => tui.terminal.rows, done });
+    }, { overlay: true, overlayOptions: { anchor: "center", width: "70%", minWidth: 40, maxHeight: "70%", margin: 1 } });
+  } finally {
+    signal.removeEventListener("abort", abort);
+    settle = undefined;
+  }
 }

@@ -56,6 +56,17 @@ describe("plugin manager reducer", () => {
     expect(state.focus).toMatchObject({ pane: "tabs" });
   });
 
+  it("keeps independent semantic scroll anchors for list, detail, actions, disclosure, and operation", () => {
+    let state = createPluginManagerState();
+    for (const region of ["list", "detail", "actions", "disclosure", "operation"] as const) {
+      state = pluginManagerReducer(state, { type: "intent", intent: { type: "scroll", region, delta: 7 } });
+    }
+    expect(state.scroll).toEqual({ list: 7, detail: 7, actions: 7, disclosure: 7, operation: 7 });
+    state = pluginManagerReducer(state, { type: "intent", intent: { type: "scroll", region: "detail", delta: -99 } });
+    expect(state.scroll.detail).toBe(0);
+    expect(state.scroll.list).toBe(7);
+  });
+
   it("keeps status, diagnostics, disclosure, operation frames, and resize as presentation state only", () => {
     let state = createPluginManagerState();
     state = pluginManagerReducer(state, { type: "update-counts", unread: 2, unresolved: 3 });
@@ -65,6 +76,10 @@ describe("plugin manager reducer", () => {
     expect(state.updateCounts).toEqual({ unread: 2, unresolved: 3 });
     expect(state.disclosure.has("diagnostics")).toBe(true);
     expect(state.operation).toMatchObject({ state: "running", action: "update" });
+    state = pluginManagerReducer(state, { type: "operation-cancelling" });
+    const cancelling = state;
+    state = pluginManagerReducer(state, { type: "operation-cancelling" });
+    expect(state).toBe(cancelling);
     state = pluginManagerReducer(state, { type: "operation-finished", envelope: {} as never });
     state = pluginManagerReducer(state, { type: "intent", intent: { type: "return-manager" } });
     expect(state.screen).toBe("manager");

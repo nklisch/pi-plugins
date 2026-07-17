@@ -25,10 +25,9 @@ import {
   type PluginManagerState,
 } from "./plugin-manager-model.js";
 
-type PluginManagerControllerActionResult = Readonly<{
-  envelope: NativeControlEnvelope;
-  presentation: "local" | "successor";
-}>;
+type PluginManagerControllerActionResult =
+  | Readonly<{ kind: "completed"; envelope: NativeControlEnvelope; presentation: "local" | "successor" }>
+  | Readonly<{ kind: "cancelled" | "handled"; presentation?: "local" | "successor" }>;
 
 export type PluginManagerControlExecutor = (
   argv: readonly string[],
@@ -68,6 +67,7 @@ function installedRows(envelope: NativeControlEnvelope): readonly PluginManagerR
       title: item.name.text,
       subtitle: `${item.marketplace.text} · ${scope ?? "unknown scope"}`,
       status: item.condition,
+      statusTone: item.condition === "ready" ? "success" : item.condition === "degraded" ? "warning" : "error",
       ...(scope === undefined ? {} : { scope }),
       plugin: item.plugin,
       completion: Object.freeze({ category: "plugin" as const, value: item.plugin, safe: item.name }),
@@ -86,6 +86,7 @@ function browseRows(envelope: NativeControlEnvelope): readonly PluginManagerRow[
       title: item.name,
       subtitle: `${item.marketplace} · ${scope ?? "unknown scope"}`,
       status: item.availability,
+      statusTone: item.availability === "available" || item.availability === "installed-by-default" ? "success" : "error",
       ...(scope === undefined ? {} : { scope }),
       plugin: item.plugin,
       completion: Object.freeze({ category: "candidate" as const, value: item.id, safe: safe(item.name) }),
@@ -104,6 +105,7 @@ function marketplaceRows(envelope: NativeControlEnvelope): readonly PluginManage
       title: item.marketplace,
       subtitle: `${scope ?? "unknown scope"} · ${item.source.kind}`,
       status: item.cache.kind,
+      statusTone: item.cache.kind === "ready" ? "success" : item.cache.kind === "stale" ? "warning" : "error",
       ...(scope === undefined ? {} : { scope }),
       completion: Object.freeze({ category: "marketplace" as const, value: item.id, safe: safe(item.marketplace) }),
       data: item as unknown as JsonValue,
@@ -121,6 +123,7 @@ function noticeRows(envelope: NativeControlEnvelope): readonly PluginManagerRow[
       title: item.plugin,
       subtitle: `${item.installed} → ${item.available} · ${scope ?? "unknown scope"}`,
       status: `${item.disposition}${item.unresolved ? " · unresolved" : ""}`,
+      statusTone: item.unresolved ? "warning" : item.disposition === "automatic-applied" ? "success" : "muted",
       ...(scope === undefined ? {} : { scope }),
       plugin: item.plugin,
       completion: Object.freeze({ category: "notice" as const, value: item.id, safe: safe(item.plugin) }),
@@ -262,12 +265,14 @@ export function createPluginManagerController(input: Readonly<{
     state: () => model,
     dispatch(intent): void {
       if (closed) return;
+      const previous = model;
       apply({ type: "intent", intent });
       if (intent.type === "set-view" || intent.type === "submit-search") schedule(() => refresh("all"));
       else if (intent.type === "next-page" && model.page.next !== undefined && !model.page.loading) schedule(() => loadPage(true));
       else if (intent.type === "open-detail" || intent.type === "select-row" || intent.type === "action" && intent.action === "inspect") schedule(loadDetail);
       else if (intent.type === "refresh") schedule(() => refresh(intent.scope));
       else if (intent.type === "cancel-operation") {
+        if (previous.operation.state !== "running") return;
         input.actions?.cancel();
         apply({ type: "operation-cancelling" });
       } else if (intent.type === "action" && input.actions !== undefined) {
@@ -285,6 +290,11 @@ export function createPluginManagerController(input: Readonly<{
           try {
             const result = await input.actions!.run(intent.action, actionState);
             if (result.presentation === "successor" || closed) return;
+            if (result.kind !== "completed") {
+              apply({ type: "operation-abandoned" });
+              if (result.kind === "handled") await refresh("all");
+              return;
+            }
             apply({ type: "operation-finished", envelope: result.envelope });
             if (result.envelope.status === "stale" || result.envelope.status === "conflict") await refresh("all");
           } catch {
@@ -319,8 +329,14 @@ export function createPluginManagerController(input: Readonly<{
       closed = true;
       pageAbort?.abort(new DOMException("manager closed", "AbortError"));
       detailAbort?.abort(new DOMException("manager closed", "AbortError"));
-      input.actions?.cancel();
-      await pending.catch(() => undefined);
+      if (_reason !== "reload") {
+        input.actions?.cancel();
+        await pending.catch(() => undefined);
+      } else {
+        // Reload teardown must not await or abort the admitted mutation whose
+        // plain-data result is being produced for the successor extension.
+        void pending.catch(() => undefined);
+      }
       listeners.clear();
       model = createPluginManagerState();
     },

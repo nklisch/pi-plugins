@@ -1,6 +1,8 @@
 import type {
   AutocompleteItem,
 } from "@earendil-works/pi-tui";
+import { normalize, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -10,14 +12,22 @@ import type {
 import { createNativeControlParser } from "../application/native-control-parser.js";
 import type { NativeControlDynamicCandidate } from "../application/native-control-help.js";
 import type { NativeControlInputPort } from "../application/ports/native-control-input.js";
-import type { NativeControlExecutionReport } from "../application/ports/native-control-execution.js";
+import type { NativeControlExecutionReport, NativeControlFrameSink } from "../application/ports/native-control-execution.js";
 import type { NativeControlFrame } from "../application/native-control-progress.js";
 import type { PackagedPluginHost } from "../composition/packaged-plugin-host-contract.js";
 import type { PiControlChannel } from "./pi-control-channel.js";
 import type { PiManagerHandoffTicket, PiManagerReloadHandoff, PluginManagerDestination } from "./pi-manager-reload-handoff.js";
 
+export type PluginManagerLiveOperation = Readonly<{
+  signal?: AbortSignal;
+  reloadSafe: boolean;
+  run(sink: NativeControlFrameSink, signal: AbortSignal): Promise<NativeControlExecutionReport>;
+  settle(report: NativeControlExecutionReport): "local" | "successor";
+}>;
+
 export interface PluginManagerPresentation {
   open(context: ExtensionCommandContext): Promise<void>;
+  presentOperation(context: ExtensionCommandContext, operation: PluginManagerLiveOperation): Promise<void>;
   presentReport(
     context: ExtensionCommandContext,
     report: NativeControlExecutionReport,
@@ -42,11 +52,11 @@ function linkedAbort(parent: AbortSignal | undefined): Readonly<{ controller: Ab
   return Object.freeze({ controller, dispose: () => parent.removeEventListener("abort", abort) });
 }
 
-function ownInvocationName(pi: ExtensionAPI): string | undefined {
+function ownInvocationName(pi: ExtensionAPI, sourceUrl: string): string | undefined {
+  const ownPath = normalize(resolve(fileURLToPath(sourceUrl)));
   const commands = pi.getCommands().filter((command) => {
     if (command.source !== "extension") return false;
-    const path = command.sourceInfo.path.replaceAll("\\", "/");
-    return path.endsWith("/dist/pi/extension.js");
+    return normalize(resolve(command.sourceInfo.path)) === ownPath;
   });
   return commands.length === 1 ? commands[0]!.name : undefined;
 }
@@ -60,6 +70,7 @@ function reloadDestination(command: string): PluginManagerDestination | undefine
 /** Register the sole Pi management command without interpreting its grammar. */
 export function createPluginCommandAdapter(input: Readonly<{
   pi: ExtensionAPI;
+  sourceUrl: string;
   host: PackagedPluginHost;
   manager: PluginManagerPresentation;
   channel: PiControlChannel;
@@ -98,20 +109,42 @@ export function createPluginCommandAdapter(input: Readonly<{
       : undefined;
     try {
       const output = parsed.kind === "parsed" ? parsed.command.invocation.output : "human";
-      const report = await input.host.runWithPiOperationContext(context, abort.controller.signal, (application) =>
-        application.control.runText(args, {
-          mode: context.mode,
-          output,
-          sink: input.channel.createSink(context, context.mode),
-          ...(executionInput === undefined ? {} : { input: executionInput }),
-        }, abort.controller.signal));
-      const presentation = handoffTicket === undefined || input.handoff === undefined
-        ? "local" as const
-        : input.handoff.publish(handoffTicket, report.envelope);
-      if (presentation === "successor") return;
-      const frames = input.channel.takeFrames(context);
-      if (context.mode === "tui") await input.manager.presentReport(context, report, frames);
-      else await input.channel.publishReport(context, report);
+      if (context.mode === "tui") {
+        await input.manager.presentOperation(context, {
+          signal: abort.controller.signal,
+          reloadSafe: destination !== undefined,
+          async run(viewSink, signal) {
+            // The live TUI owns these frames directly. Retaining them in the
+            // Pi channel would require touching the predecessor command context
+            // after a reload, when only the plain-data handoff remains valid.
+            return input.host.runWithPiOperationContext(context, signal, (application) =>
+              application.control.runText(args, {
+                mode: context.mode,
+                output,
+                sink: viewSink,
+                ...(executionInput === undefined ? {} : { input: executionInput }),
+              }, signal));
+          },
+          settle(report) {
+            return handoffTicket === undefined || input.handoff === undefined
+              ? "local"
+              : input.handoff.publish(handoffTicket, report.envelope);
+          },
+        });
+      } else {
+        const report = await input.host.runWithPiOperationContext(context, abort.controller.signal, (application) =>
+          application.control.runText(args, {
+            mode: context.mode,
+            output,
+            sink: input.channel.createSink(context, context.mode),
+            ...(executionInput === undefined ? {} : { input: executionInput }),
+          }, abort.controller.signal));
+        const presentation = handoffTicket === undefined || input.handoff === undefined
+          ? "local" as const
+          : input.handoff.publish(handoffTicket, report.envelope);
+        if (presentation === "successor") return;
+        await input.channel.publishReport(context, report);
+      }
     } catch {
       if (handoffTicket !== undefined && input.handoff !== undefined) {
         try { input.handoff.fail(handoffTicket); } catch { /* retain the original command failure */ }
@@ -148,7 +181,7 @@ export function createPluginCommandAdapter(input: Readonly<{
       });
     },
     bindSession(context): void {
-      const invocationName = ownInvocationName(input.pi);
+      const invocationName = ownInvocationName(input.pi, input.sourceUrl);
       if (invocationName !== undefined && invocationName !== "plugin") {
         input.channel.publishCollision(context, invocationName);
       }

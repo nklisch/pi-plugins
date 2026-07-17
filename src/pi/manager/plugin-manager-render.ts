@@ -9,6 +9,7 @@ import { NativeInspectionDetailResultSchema } from "../../application/native-ins
 import type { NativeControlEnvelope } from "../../application/native-control-contract.js";
 import { projectTerminalText } from "./pi-terminal-text.js";
 import { PluginManagerActionRegistry, pluginManagerRowActions, rowKeyIdentity, type PluginManagerRow, type PluginManagerState, type PluginManagerView } from "./plugin-manager-model.js";
+import { NativeControlStatusTone, pluginManagerStatusTone, type PluginManagerStatusTone } from "./plugin-manager-status.js";
 
 const VIEW_LABELS: Readonly<Record<PluginManagerView, string>> = Object.freeze({
   installed: "Installed",
@@ -21,12 +22,17 @@ function plain(value: unknown, limit = 2_048): string {
   return projectTerminalText(typeof value === "string" ? value : String(value ?? ""), limit).text;
 }
 
-function styledStatus(theme: Theme, status: string): string {
+function statusToken(tone: PluginManagerStatusTone): Readonly<{ color: "success" | "warning" | "error" | "muted"; sigil: string }> {
+  if (tone === "success") return { color: "success", sigil: "✓" };
+  if (tone === "warning") return { color: "warning", sigil: "△" };
+  if (tone === "error") return { color: "error", sigil: "!" };
+  return { color: "muted", sigil: "○" };
+}
+
+function styledStatus(theme: Theme, status: string, tone = pluginManagerStatusTone(status)): string {
   const value = plain(status, 128);
-  if (/ready|active|current|success|supported|available|applied/u.test(value)) return theme.fg("success", `✓ ${value}`);
-  if (/blocked|failed|error|incompatible|recovery/u.test(value)) return theme.fg("error", `! ${value}`);
-  if (/warning|attention|stale|unresolved|manual|unknown/u.test(value)) return theme.fg("warning", `△ ${value}`);
-  return theme.fg("muted", `○ ${value}`);
+  const token = statusToken(tone);
+  return theme.fg(token.color, `${token.sigil} ${value}`);
 }
 
 function finish(line: string, width: number): string {
@@ -40,6 +46,13 @@ function wrap(line: string, width: number): readonly string[] {
 function pad(line: string, width: number): string {
   const clipped = finish(line, width);
   return `${clipped}${" ".repeat(Math.max(0, width - visibleWidth(clipped)))}`;
+}
+
+function window(lines: readonly string[], offset: number, height: number): readonly string[] {
+  const boundedHeight = Math.max(1, height);
+  const max = Math.max(0, lines.length - boundedHeight);
+  const start = Math.max(0, Math.min(Math.floor(offset), max));
+  return lines.slice(start, start + boundedHeight);
 }
 
 function selectedRow(state: PluginManagerState): PluginManagerRow | undefined {
@@ -68,29 +81,40 @@ function sourceSummary(value: unknown): string {
 function envelopeLines(envelope: NativeControlEnvelope | undefined, theme: Theme): string[] {
   if (envelope === undefined) return [];
   const lines = [
-    `${theme.fg("accent", "Result")} ${styledStatus(theme, envelope.status)}`,
+    `${theme.fg("accent", "Final owner result")} ${styledStatus(theme, envelope.status, NativeControlStatusTone[envelope.status])}`,
     `${theme.fg("muted", "exit")} ${plain(envelope.exit.classification)} (${envelope.exit.code})`,
   ];
-  for (const field of envelope.human.slice(0, 16)) lines.push(plain(field.text));
-  for (const diagnostic of envelope.diagnostics.slice(0, 24)) {
+  for (const field of envelope.human) lines.push(plain(field.text));
+  for (const diagnostic of envelope.diagnostics) {
     lines.push(`${theme.fg(diagnostic.severity === "error" ? "error" : diagnostic.severity === "warning" ? "warning" : "muted", diagnostic.code)} · ${plain(diagnostic.action)}`);
   }
   return lines;
 }
 
-function detailLines(state: PluginManagerState, theme: Theme): string[] {
+type DetailSegments = Readonly<{
+  summary: readonly string[];
+  disclosure: readonly string[];
+  actions: readonly string[];
+}>;
+
+function detailSegments(state: PluginManagerState, theme: Theme): DetailSegments {
   const row = selectedRow(state);
-  if (row === undefined) return [theme.fg("muted", `No ${VIEW_LABELS[state.view].toLowerCase()} details`), "", theme.fg("accent", "Actions"), "  Refresh"];
-  const lines: string[] = [
+  if (row === undefined) return {
+    summary: [theme.fg("muted", `No ${VIEW_LABELS[state.view].toLowerCase()} details`)],
+    disclosure: [],
+    actions: [theme.fg("accent", "Actions"), "  Refresh"],
+  };
+  const summary: string[] = [
     theme.bold(plain(row.plugin ?? row.title)),
-    styledStatus(theme, row.status),
+    styledStatus(theme, row.status, row.statusTone),
     "",
     `${theme.fg("muted", "scope")} ${plain(scopeName(row))}`,
   ];
+  const disclosure: string[] = [];
   const parsed = NativeInspectionDetailResultSchema.safeParse(state.detail.envelope?.data);
   if (parsed.success && parsed.data.kind === "found") {
     const detail = parsed.data.detail;
-    lines.push(
+    summary.push(
       `${theme.fg("muted", "installed")} ${plain(detail.summary.revision.installed?.text ?? "not installed")}`,
       `${theme.fg("muted", "available")} ${plain(detail.summary.revision.available?.text ?? "not reported")}`,
       `${theme.fg("muted", "source")} ${sourceSummary(detail.source)}`,
@@ -105,39 +129,66 @@ function detailLines(state: PluginManagerState, theme: Theme): string[] {
       `  lifecycle ${plain(detail.lifecycle.transition)} · update ${plain(detail.lifecycle.update)}`,
     );
     if (detail.configuration.length > 0) {
-      lines.push("", theme.fg("accent", "Configuration"));
-      for (const field of detail.configuration.slice(0, 16)) {
-        lines.push(`  ${plain(field.label.text)} · ${field.required ? "required" : "optional"} · ${plain(field.state)}${field.sensitive ? " · secret" : ""}`);
+      summary.push("", theme.fg("accent", "Configuration"));
+      for (const field of detail.configuration) {
+        summary.push(`  ${plain(field.label.text)} · ${field.required ? "required" : "optional"} · ${plain(field.state)}${field.sensitive ? " · secret" : ""}`);
       }
     }
+    const componentsFocused = state.focus.pane === "disclosure" && state.focus.disclosure === "components";
+    disclosure.push("", componentsFocused ? theme.bg("selectedBg", "> Component inventory") : theme.fg("accent", "Component inventory"));
     if (state.disclosure.has("components")) {
-      lines.push("", theme.fg("accent", "Component inventory"));
-      for (const component of [...detail.compatibility.components.skills, ...detail.compatibility.components.hooks, ...detail.compatibility.components.mcpServers, ...detail.compatibility.components.foreign].slice(0, 40)) {
-        lines.push(`  ${plain(component.kind)} · ${plain(component.componentId)} · ${plain(component.verdict)}`);
+      for (const component of [...detail.compatibility.components.skills, ...detail.compatibility.components.hooks, ...detail.compatibility.components.mcpServers, ...detail.compatibility.components.foreign]) {
+        disclosure.push(`  ${plain(component.kind)} · ${plain(component.componentId)} · ${plain(component.verdict)}`);
       }
-    } else lines.push("", "  [Enter] expand component inventory");
-    if (detail.diagnostics.length > 0) {
-      lines.push("", theme.fg("accent", "Diagnostics"));
-      for (const diagnostic of detail.diagnostics.slice(0, 16)) lines.push(`  ${diagnostic.severity.toUpperCase()} ${plain(diagnostic.code)} · ${plain(diagnostic.summary.text)}`);
-    }
+      if (disclosure.length === 2) disclosure.push("  No declared components");
+    } else disclosure.push("  [Enter] expand complete executable inventory");
+
+    const diagnosticsFocused = state.focus.pane === "disclosure" && state.focus.disclosure === "diagnostics";
+    disclosure.push("", diagnosticsFocused ? theme.bg("selectedBg", "> Diagnostics") : theme.fg("accent", "Diagnostics"));
+    if (state.disclosure.has("diagnostics")) {
+      if (detail.diagnostics.length === 0) disclosure.push("  No diagnostics");
+      for (const diagnostic of detail.diagnostics) disclosure.push(`  ${diagnostic.severity.toUpperCase()} ${plain(diagnostic.code)} · ${plain(diagnostic.summary.text)}`);
+    } else disclosure.push(`  [Enter] expand all ${detail.diagnostics.length} diagnostics`);
   } else {
-    lines.push(
+    summary.push(
       "",
       theme.fg("accent", "Runtime surface"),
       "  Select Inspect to load exact component counts and executable detail.",
       "",
       theme.fg("accent", "Compatibility / health"),
-      `  ${styledStatus(theme, row.status)}`,
+      `  ${styledStatus(theme, row.status, row.statusTone)}`,
       ...envelopeLines(state.detail.envelope, theme).map((line) => `  ${line}`),
     );
   }
-  lines.push("", theme.fg("accent", "Actions"));
+  const actions: string[] = ["", theme.fg("accent", "Actions")];
   for (const action of pluginManagerRowActions(row)) {
     const label = PluginManagerActionRegistry[action].label;
     const focused = state.focus.pane === "actions" && state.focus.action === action;
-    lines.push(focused ? theme.bg("selectedBg", `> ${label}`) : `  ${label}`);
+    actions.push(focused ? theme.bg("selectedBg", `> ${label}`) : `  ${label}`);
   }
-  return lines;
+  return { summary, disclosure, actions };
+}
+
+function detailLines(state: PluginManagerState, theme: Theme): Readonly<{ lines: readonly string[]; offset: number }> {
+  const segments = detailSegments(state, theme);
+  const lines = [...segments.summary, ...segments.disclosure, ...segments.actions];
+  if (state.focus.pane === "actions") {
+    const row = selectedRow(state);
+    const focusedIndex = pluginManagerRowActions(row).findIndex((action) => action === state.focus.action);
+    // Keep the exact focused action visible even when a small terminal cannot
+    // display the summary, disclosures, and full action list together.
+    const focusOffset = focusedIndex < 0 ? 0 : focusedIndex;
+    return { lines, offset: segments.summary.length + segments.disclosure.length + Math.max(state.scroll.actions, focusOffset) };
+  }
+  if (state.focus.pane === "disclosure") {
+    let anchor = segments.summary.length;
+    if (state.focus.disclosure === "diagnostics") {
+      const index = segments.disclosure.findIndex((line) => plain(line).includes("Diagnostics"));
+      if (index >= 0) anchor += index;
+    }
+    return { lines, offset: anchor + state.scroll.disclosure };
+  }
+  return { lines, offset: state.scroll.detail };
 }
 
 function listLines(state: PluginManagerState, theme: Theme, focused: boolean): string[] {
@@ -148,12 +199,12 @@ function listLines(state: PluginManagerState, theme: Theme, focused: boolean): s
   if (state.page.rows.length === 0) lines.push(theme.fg("muted", `No ${VIEW_LABELS[state.view].toLowerCase()} plugins or records`));
   for (const row of state.page.rows) {
     const selected = state.focus.row !== undefined && rowKeyIdentity(state.focus.row) === rowKeyIdentity(row.key);
-    const title = `${selected ? ">" : " "} ${plain(row.title, 256)}  ${styledStatus(theme, row.status)}`;
+    const title = `${selected ? ">" : " "} ${plain(row.title, 256)}  ${styledStatus(theme, row.status, row.statusTone)}`;
     lines.push(selected ? theme.bg("selectedBg", title) : title);
     lines.push(theme.fg("muted", `    ${plain(row.subtitle, 512)}`));
   }
   if (state.page.loading) lines.push(theme.fg("accent", "… loading authoritative snapshot"));
-  if (state.page.next !== undefined) lines.push(theme.fg("muted", "Page down: load next facade page"));
+  if (state.page.next !== undefined) lines.push(theme.fg("muted", "Page down at list end: load next facade page"));
   return lines;
 }
 
@@ -168,7 +219,7 @@ function tabLine(state: PluginManagerState, theme: Theme): string {
 
 function footer(theme: Theme, keybindings: KeybindingsManager): string {
   const key = (id: Parameters<KeybindingsManager["getKeys"]>[0], fallback: string) => plain(keybindings.getKeys(id)[0] ?? fallback, 32);
-  return theme.fg("dim", `${key("tui.select.up", "up")}/${key("tui.select.down", "down")} move · ${key("tui.select.confirm", "enter")} inspect/action · tab focus · / search · r refresh · ? help · ${key("app.interrupt", "escape")} back/close`);
+  return theme.fg("dim", `${key("tui.select.up", "up")}/${key("tui.select.down", "down")} move · ${key("tui.select.pageUp", "pageUp")}/${key("tui.select.pageDown", "pageDown")} scroll · ${key("tui.select.confirm", "enter")} inspect/action · tab focus · / search · r refresh · ? help · ${key("app.interrupt", "escape")} back/close`);
 }
 
 function operationLines(state: PluginManagerState, theme: Theme): string[] {
@@ -178,6 +229,7 @@ function operationLines(state: PluginManagerState, theme: Theme): string[] {
     else if (frame.type === "progress") lines.push(`#${frame.sequence} ${plain(frame.phase)} ${plain(frame.state)}${frame.code === undefined ? "" : ` ${plain(frame.code)}`}`);
   }
   lines.push(...envelopeLines(state.operation.envelope, theme));
+  if (state.operation.state === "cancelling") lines.push(theme.fg("warning", "Cancellation requested once; waiting for the owner result."));
   return lines;
 }
 
@@ -196,25 +248,31 @@ export function renderPluginManager(input: Readonly<{
   const bodyHeight = Math.max(1, height - 2);
   let body: string[];
   if (input.state.screen === "operation-result" || input.state.operation.state !== "idle") {
-    body = operationLines(input.state, input.theme).flatMap((line) => wrap(line, width)).slice(-bodyHeight);
+    const operation = operationLines(input.state, input.theme).flatMap((line) => wrap(line, width));
+    body = [...window(operation, input.state.scroll.operation, bodyHeight)];
   } else {
-    const left = listLines(input.state, input.theme, input.focused === true).flatMap((line) => wrap(line, width));
-    const right = detailLines(input.state, input.theme);
+    const list = listLines(input.state, input.theme, input.focused === true).flatMap((line) => wrap(line, width));
+    const detail = detailLines(input.state, input.theme);
     if (width >= 92) {
       const leftWidth = Math.max(30, Math.floor(width * 0.34));
       const rightWidth = Math.max(1, width - leftWidth - 1);
       const leftWrapped = listLines(input.state, input.theme, input.focused === true).flatMap((line) => wrap(line, leftWidth));
-      const rightWrapped = right.flatMap((line) => wrap(line, rightWidth));
-      const count = Math.min(bodyHeight, Math.max(leftWrapped.length, rightWrapped.length));
-      body = Array.from({ length: count }, (_, index) => `${pad(leftWrapped[index] ?? "", leftWidth)}${input.theme.fg("border", "│")}${finish(rightWrapped[index] ?? "", rightWidth)}`);
+      const rightWrapped = detail.lines.flatMap((line) => wrap(line, rightWidth));
+      const leftWindow = window(leftWrapped, input.state.scroll.list * 2, bodyHeight);
+      const rightWindow = window(rightWrapped, detail.offset, bodyHeight);
+      body = Array.from({ length: bodyHeight }, (_, index) => `${pad(leftWindow[index] ?? "", leftWidth)}${input.theme.fg("border", "│")}${finish(rightWindow[index] ?? "", rightWidth)}`);
     } else {
-      const showDetail = input.state.focus.pane === "detail" || input.state.focus.pane === "actions";
+      const showDetail = input.state.focus.pane === "detail" || input.state.focus.pane === "disclosure" || input.state.focus.pane === "actions";
       const heading = input.theme.fg("borderAccent", showDetail ? "‹ Detail · escape returns to list" : "List · enter opens detail ›");
-      body = [heading, ...(showDetail ? right.flatMap((line) => wrap(line, width)) : left)].slice(0, bodyHeight);
+      const content = showDetail
+        ? detail.lines.flatMap((line) => wrap(line, width))
+        : list;
+      const offset = showDetail ? detail.offset : input.state.scroll.list * 2;
+      body = [heading, ...window(content, offset, Math.max(1, bodyHeight - 1))];
     }
   }
   if (input.state.help) {
-    body = [input.theme.fg("warning", "Help: tab/shift-tab traverses every pane; Enter activates; mnemonics are optional."), ...body].slice(0, bodyHeight);
+    body = [input.theme.fg("warning", "Help: tab/shift-tab traverses every pane; configured page keys scroll the focused region; Enter activates."), ...body].slice(0, bodyHeight);
   }
   return Object.freeze([title, ...body.map((line) => finish(line, width)), bottom].slice(0, height));
 }

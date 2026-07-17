@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { trustedInstallFlowFixture } from "../../fixtures/trusted-install/plugin-install-flow.js";
 import { createPluginInstallState, pluginInstallReducer } from "../../../src/pi/manager/plugin-install-flow.js";
-import { renderPluginInstall } from "../../../src/pi/manager/plugin-install-component.js";
+import { TrustedInstallActivationResultSchema } from "../../../src/application/trusted-install-contract.js";
+import { PluginInstallComponent, renderPluginInstall } from "../../../src/pi/manager/plugin-install-component.js";
 
 const theme = { fg: (_token: string, text: string) => text, bg: (_token: string, text: string) => text, bold: (text: string) => text } as any;
 
@@ -18,7 +19,7 @@ describe("signed plugin install flow", () => {
     lines = renderPluginInstall({ state, width: 84, height: 30, theme });
     expect(lines.join("\n")).toContain("Step 2/3 · Configure and trust");
     expect(lines.join("\n")).toContain("Executable surface");
-    expect(lines.join("\n")).toContain("exact hook commands");
+    expect(lines.join("\n")).toContain("Expand exact executable disclosure");
     expect(lines.join("\n")).not.toContain("bundle-hook");
 
     state = pluginInstallReducer(state, { type: "toggle-disclosure", key: "executable" });
@@ -48,13 +49,83 @@ describe("signed plugin install flow", () => {
     if (result.kind === "rolled-back") expect(output).toContain("restored");
   });
 
-  it("clears exact consent whenever authority becomes stale", () => {
+  it("retains only non-sensitive values across Back while exact evidence remains current", () => {
+    let state = createPluginInstallState(trustedInstallFlowFixture.chooseInspect);
+    const session = trustedInstallFlowFixture.states.missingInput.session;
+    state = pluginInstallReducer(state, { type: "session-opened", session });
+    state = pluginInstallReducer(state, { type: "set-value", key: "ROOT", value: "/audit" });
+    state = pluginInstallReducer(state, { type: "consent", consentId: session.consent.consentId });
+    state = pluginInstallReducer(state, { type: "back" });
+    state = pluginInstallReducer(state, { type: "session-opened", session });
+    expect(state.values).toEqual({ ROOT: "/audit" });
+    expect(state.consentId).toBeUndefined();
+    expect(JSON.stringify(state)).not.toContain("SECRET-CANARY");
+  });
+
+  it("requires keyboard inspection through the end of exact disclosure before Continue", () => {
     let state = createPluginInstallState(trustedInstallFlowFixture.chooseInspect);
     state = pluginInstallReducer(state, { type: "session-opened", session: trustedInstallFlowFixture.states.missingInput.session });
+    state = pluginInstallReducer(state, { type: "toggle-disclosure", key: "executable" });
+    state = pluginInstallReducer(state, { type: "focus", focus: "disclosure" });
+    const actions: unknown[] = [];
+    let component!: PluginInstallComponent;
+    const keybindings = {
+      matches: (data: string, id: string) => id === "tui.select.confirm" ? data === "\r" : id === "tui.select.pageDown" ? data === "\u001b[6~" : false,
+    } as any;
+    const onEvent = (event: any) => {
+      state = pluginInstallReducer(state, event);
+      component.update(state);
+    };
+    component = new PluginInstallComponent({ state, theme, keybindings, height: () => 6, onEvent, onAction: (action) => actions.push(action) });
+    component.render(44);
+    component.handleInput("\t");
+    component.handleInput("\t");
+    component.handleInput("\r");
+    expect(actions).toEqual([]);
+    onEvent({ type: "focus", focus: "disclosure" });
+    for (let index = 0; index < 128; index += 1) {
+      component.handleInput("\u001b[6~");
+      component.render(44);
+    }
+    component.handleInput("\t");
+    component.handleInput("\t");
+    component.handleInput("\r");
+    expect(state.consentId).toBe(state.session?.consent.consentId);
+    expect(actions).toContainEqual({ type: "continue" });
+  });
+
+  it("clears exact consent and retained values whenever authority becomes stale", () => {
+    let state = createPluginInstallState(trustedInstallFlowFixture.chooseInspect);
+    state = pluginInstallReducer(state, { type: "session-opened", session: trustedInstallFlowFixture.states.missingInput.session });
+    state = pluginInstallReducer(state, { type: "set-value", key: "ROOT", value: "/audit" });
     state = pluginInstallReducer(state, { type: "consent", consentId: trustedInstallFlowFixture.configureTrust.consent.consentId });
     expect(state.consentId).toBeDefined();
-    state = pluginInstallReducer(state, { type: "authority-stale" });
+    state = pluginInstallReducer(state, { type: "activation-result", result: trustedInstallFlowFixture.states.candidateStale });
     expect(state.consentId).toBeUndefined();
+    expect(state.values).toEqual({});
+    expect(state.session).toBeUndefined();
+    expect(state.step).toBe("activation-result");
+
+    state = pluginInstallReducer(state, { type: "authority-stale" });
     expect(state.step).toBe("choose-inspect");
+  });
+
+  it("routes owner-provided workflow recovery back through renewed configuration and trust", () => {
+    const session = trustedInstallFlowFixture.states.missingInput.session;
+    const retry = TrustedInstallActivationResultSchema.parse({
+      kind: "recovery-required",
+      action: "retry-trust-recovery",
+      session,
+      progress: [],
+      retained: { configuration: true, trust: false },
+    });
+    let state = createPluginInstallState(trustedInstallFlowFixture.chooseInspect);
+    state = pluginInstallReducer(state, { type: "session-opened", session });
+    state = pluginInstallReducer(state, { type: "activation-result", result: retry });
+    expect(renderPluginInstall({ state, width: 72, height: 20, theme }).join("\n")).toContain("Review recovery configuration");
+    state = pluginInstallReducer(state, { type: "session-opened", session: retry.session!, submission: "recover" });
+    expect(state).toMatchObject({ step: "configure-trust", submission: "recover" });
+    expect(state.consentId).toBeUndefined();
+    expect(renderPluginInstall({ state, width: 72, height: 20, theme }).join("\n")).toContain("Retry owner recovery");
   });
 });
