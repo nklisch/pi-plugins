@@ -1,8 +1,10 @@
-import type {
-  CandidateContentLease,
-  CandidateContentLeaseAdapterDependencies,
-  CandidateContentLeasePort,
-  ClaimedCandidateContent,
+import {
+  CandidateContentCleanupError,
+  type CandidateContentCleanupRecovery,
+  type CandidateContentLease,
+  type CandidateContentLeaseAdapterDependencies,
+  type CandidateContentLeasePort,
+  type ClaimedCandidateContent,
 } from "../application/ports/candidate-content-lease.js";
 import type { ResolvedMarketplaceCandidate } from "../application/marketplace-catalog-service.js";
 import type { MaterializedPlugin, SourceContext } from "../application/source-materialization.js";
@@ -20,6 +22,23 @@ function sourceContext(candidate: ResolvedMarketplaceCandidate): SourceContext {
     : { kind: "external" };
 }
 
+function createCleanupRecovery(
+  discard: () => Promise<void>,
+): CandidateContentCleanupRecovery {
+  let settled = false;
+  let inFlight: Promise<void> | undefined;
+  return Object.freeze({
+    async retry(): Promise<void> {
+      if (settled) return;
+      if (inFlight !== undefined) return inFlight;
+      inFlight = discard()
+        .then(() => { settled = true; })
+        .finally(() => { inFlight = undefined; });
+      return inFlight;
+    },
+  }) as CandidateContentCleanupRecovery;
+}
+
 /** One allocation, one materialization, and one transfer-or-discard owner. */
 export function createCandidateContentLeasePort(
   dependencies: CandidateContentLeaseAdapterDependencies,
@@ -30,6 +49,8 @@ export function createCandidateContentLeasePort(
     async acquire(candidate, signal) {
       signal.throwIfAborted();
       const allocation = await dependencies.content.allocateStaging(signal);
+      const cleanup = createCleanupRecovery(() =>
+        dependencies.content.discardStaging(allocation, new AbortController().signal));
       let materialized;
       try {
         materialized = await dependencies.materializer.materialize(
@@ -40,9 +61,11 @@ export function createCandidateContentLeasePort(
         );
       } catch (error) {
         try {
-          await dependencies.content.discardStaging(allocation, new AbortController().signal);
+          await cleanup.retry();
         } catch (cleanupError) {
-          throw new AggregateError([error, cleanupError], "candidate acquisition and cleanup failed");
+          throw new CandidateContentCleanupError(cleanup, {
+            cause: new AggregateError([error, cleanupError], "candidate acquisition cleanup failed"),
+          });
         }
         throw error;
       }
@@ -60,8 +83,12 @@ export function createCandidateContentLeasePort(
         },
         release(): Promise<void> {
           if (state === "claimed" || state === "released") return releasePromise ?? Promise.resolve();
-          state = "released";
-          releasePromise = dependencies.content.discardStaging(allocation, new AbortController().signal);
+          releasePromise = cleanup.retry()
+            .then(() => { state = "released"; })
+            .catch((error) => {
+              releasePromise = undefined;
+              throw new CandidateContentCleanupError(cleanup, { cause: error });
+            });
           return releasePromise;
         },
       } as CandidateContentLease;

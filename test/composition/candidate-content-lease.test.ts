@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createCandidateContentLeasePort } from "../../src/composition/candidate-content-lease.js";
+import { CandidateContentCleanupError } from "../../src/application/ports/candidate-content-lease.js";
 
 const candidate = {
   entry: { source: { value: { kind: "git", url: "https://example.invalid/plugin.git" } } },
@@ -49,5 +50,38 @@ describe("candidate content lease", () => {
     } as never);
     await expect(port.acquire(candidate, new AbortController().signal)).rejects.toThrow("offline");
     expect(discardStaging).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns opaque recoverable ownership when acquisition cleanup fails", async () => {
+    let cleanupFails = true;
+    const discardStaging = vi.fn(async () => {
+      if (cleanupFails) throw new Error("CANARY_PRIVATE_STAGING_PATH");
+    });
+    const port = createCandidateContentLeasePort({
+      content: { allocateStaging: vi.fn(async () => allocation), discardStaging },
+      materializer: { materialize: vi.fn(async () => { throw new Error("offline"); }) },
+    } as never);
+    const failure = await port.acquire(candidate, new AbortController().signal).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(CandidateContentCleanupError);
+    expect(JSON.stringify(failure)).not.toContain("/private/staging");
+    cleanupFails = false;
+    await expect((failure as CandidateContentCleanupError).recovery.retry()).resolves.toBeUndefined();
+    expect(discardStaging).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a failed release retryable instead of marking the lease released", async () => {
+    let cleanupFails = true;
+    const discardStaging = vi.fn(async () => {
+      if (cleanupFails) throw new Error("cleanup failed");
+    });
+    const port = createCandidateContentLeasePort({
+      content: { allocateStaging: vi.fn(async () => allocation), discardStaging },
+      materializer: { materialize: vi.fn(async () => materialized) },
+    } as never);
+    const lease = await port.acquire(candidate, new AbortController().signal);
+    await expect(lease.release()).rejects.toBeInstanceOf(CandidateContentCleanupError);
+    cleanupFails = false;
+    await expect(lease.release()).resolves.toBeUndefined();
+    expect(discardStaging).toHaveBeenCalledTimes(2);
   });
 });

@@ -2,6 +2,8 @@ import type { LifecycleClock } from "./ports/lifecycle-clock.js";
 import type { LifecycleOperationIdPort } from "./ports/lifecycle-operation-id.js";
 import type { ContentDigest } from "../domain/content-manifest.js";
 import type { Sha256 } from "../domain/source.js";
+import type { PluginConfigurationDocument } from "../domain/configured-values.js";
+import type { ConfigurationRecoveryCapability } from "./configuration-service.js";
 import type { TrustedInstallCandidate } from "./trusted-install-candidate.js";
 import {
   TrustedInstallSessionPolicy,
@@ -11,6 +13,12 @@ import {
   type TrustedInstallSessionToken,
 } from "./trusted-install-contract.js";
 import { createTrustedInstallSessionToken, verifyTrustedInstallSessionToken } from "./trusted-install-identifiers.js";
+
+export type PendingTrustedInstallConfigurationRecovery =
+  | Readonly<{ kind: "ambiguous"; recovery: ConfigurationRecoveryCapability }>
+  | Readonly<{ kind: "stored-cleanup"; recovery: ConfigurationRecoveryCapability; document: PluginConfigurationDocument }>
+  | Readonly<{ kind: "stale-cleanup"; recovery: ConfigurationRecoveryCapability }>
+  | Readonly<{ kind: "retry-save"; recovery: ConfigurationRecoveryCapability }>;
 
 export type TrustedInstallSessionEntry = {
   readonly token: TrustedInstallSessionToken;
@@ -23,7 +31,9 @@ export type TrustedInstallSessionEntry = {
   readonly controller: AbortController;
   readonly progress: TrustedInstallProgressEvent[];
   retained: { configuration: boolean; trust: boolean };
-  configurationRevision?: string;
+  configurationRevision?: ContentDigest;
+  configurationRecovery?: PendingTrustedInstallConfigurationRecovery;
+  trustRecoveryPending?: true;
   result?: TrustedInstallActivationResult;
   terminalMonotonic?: number;
 };
@@ -62,7 +72,7 @@ export function createTrustedInstallSessionRegistry(dependencies: Readonly<{
   async function reap(): Promise<void> {
     const at = now();
     for (const [token, entry] of entries) {
-      if (!terminalStates.has(entry.state) && expired(entry, at)) await expire(entry);
+      if (entry.terminalMonotonic === undefined && expired(entry, at)) await expire(entry);
       if (entry.terminalMonotonic !== undefined && at - entry.terminalMonotonic >= TrustedInstallSessionPolicy.terminalRetentionMs) entries.delete(token);
     }
   }
@@ -90,7 +100,7 @@ export function createTrustedInstallSessionRegistry(dependencies: Readonly<{
       if (entry === undefined) return { kind: "missing" };
       if (entry.state === "expired") return { kind: "expired" };
       if (entry.state === "disposed") return { kind: "disposed" };
-      if (touch && !terminalStates.has(entry.state)) entry.lastAccessMonotonic = now();
+      if (touch && entry.terminalMonotonic === undefined) entry.lastAccessMonotonic = now();
       return { kind: "found", entry };
     },
     expiresAt(entry: TrustedInstallSessionEntry): number {
@@ -104,21 +114,39 @@ export function createTrustedInstallSessionRegistry(dependencies: Readonly<{
       entry.result = result;
       entry.terminalMonotonic = now();
     },
-    restore(entry: TrustedInstallSessionEntry): void { entry.state = "awaiting-input"; },
+    pause(entry: TrustedInstallSessionEntry, state: TrustedInstallSessionState, result: TrustedInstallActivationResult): void {
+      entry.state = state;
+      entry.result = result;
+      delete entry.terminalMonotonic;
+    },
+    restore(entry: TrustedInstallSessionEntry): void {
+      entry.state = "awaiting-input";
+      delete entry.result;
+      delete entry.terminalMonotonic;
+    },
     quiesce(): void { accepting = false; },
     async reap(): Promise<void> { await reap(); },
     async close(): Promise<void> {
       if (disposed) return;
       accepting = false;
-      disposed = true;
       const failures: unknown[] = [];
       for (const entry of entries.values()) {
-        entry.state = "disposed";
         entry.controller.abort(new DOMException("trusted-install session disposed", "AbortError"));
+        if (entry.configurationRecovery !== undefined) {
+          try {
+            const settlement = await entry.configurationRecovery.recovery.settle(new AbortController().signal);
+            if (settlement.kind === "recovery-required") failures.push(new Error("configuration recovery remains incomplete"));
+            else delete entry.configurationRecovery;
+          } catch (error) {
+            failures.push(error);
+          }
+        }
         try { await entry.candidate.lease.release(); } catch (error) { failures.push(error); }
       }
-      entries.clear();
       if (failures.length > 0) throw new AggregateError(failures, "trusted-install session cleanup failed");
+      disposed = true;
+      for (const entry of entries.values()) entry.state = "disposed";
+      entries.clear();
     },
   });
 }

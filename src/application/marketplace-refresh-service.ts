@@ -210,7 +210,8 @@ export function automaticDisposition(result: AutomaticDispositionInput): "automa
         case "PROJECTION_FAILED":
         case "PROMOTION_FAILED":
         case "ABORTED":
-        case "AVAILABLE_REVISION_CHANGED": return "automatic-retryable";
+        case "AVAILABLE_REVISION_CHANGED":
+        case "CONFIGURATION_STALE": return "automatic-retryable";
       }
   }
 }

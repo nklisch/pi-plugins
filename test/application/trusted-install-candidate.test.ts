@@ -11,7 +11,7 @@ const candidateId = `marketplace-candidate-v1:sha256:${"22".repeat(32)}` as neve
 const catalogSnapshot = `marketplace-snapshot-v1:sha256:${"33".repeat(32)}` as never;
 const subject = { version: 1 as const, subject: "marketplace-candidate" as const, scope: { kind: "user" as const }, plugin: "fixture@compatibility" as never, registrationId, candidateId, catalogSnapshot };
 
-function setup() {
+function setup(options: { releaseFails?: boolean } = {}) {
   const plugin = directPlugin();
   const content = createContentManifest([], fixtureSha);
   const materialized = { root: "/private/candidate/content", source: plugin.source, content, binding: createMaterializationBinding(plugin.source.hash, content.rootDigest, fixtureSha) };
@@ -21,7 +21,10 @@ function setup() {
     marketplace: { root: "/private/market", source: marketplaceSource, content, binding: createMaterializationBinding(marketplaceSource.hash, content.rootDigest, fixtureSha) },
     entry: { identity: { value: plugin.identity, provenance: [fixtureProvenance()] }, source: { value: { kind: "git", url: "https://example.invalid/plugin.git" }, provenance: [fixtureProvenance()] } },
   } as never;
-  const release = vi.fn(async () => undefined);
+  let releaseFails = options.releaseFails ?? false;
+  const release = vi.fn(async () => {
+    if (releaseFails) throw new Error("CANARY_PRIVATE_CLEANUP_FAILURE");
+  });
   const lease = { candidate, materialized, claim: vi.fn(), release } as never;
   const resolve = vi.fn(async () => ({ kind: "resolved" as const, candidate }));
   const acquire = vi.fn(async () => lease);
@@ -46,7 +49,7 @@ function setup() {
     capabilities: capabilities(), runtime: [], recovery: { results: [], deferred: false, processed: 0 },
     startup: { status: "ready", blocked: [], capabilities: { mcp: { status: "available", explanation: "yes" }, subagents: { status: "available", explanation: "yes" }, piReload: { status: "available", explanation: "yes" }, secrets: { status: "available", explanation: "yes" } } },
   } as never;
-  return { service, snapshot, release, resolve, acquire };
+  return { service, snapshot, release, resolve, acquire, allowCleanup: () => { releaseFails = false; } };
 }
 
 describe("trusted-install candidate", () => {
@@ -88,5 +91,17 @@ describe("trusted-install candidate", () => {
     const result = await service.acquire({ subject, snapshot }, new AbortController().signal);
     expect(result.kind).toBe("rejected");
     expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces post-inspection cleanup failure with opaque retry ownership", async () => {
+    const { service, snapshot, release, allowCleanup } = setup({ releaseFails: true });
+    snapshot.binding.capability.digest = undefined;
+    const result = await service.acquire({ subject, snapshot }, new AbortController().signal);
+    expect(result.kind).toBe("cleanup-failed");
+    if (result.kind !== "cleanup-failed") return;
+    expect(JSON.stringify(result)).not.toContain("CANARY_PRIVATE_CLEANUP_FAILURE");
+    allowCleanup();
+    await expect(result.cleanup.retry()).resolves.toBeUndefined();
+    expect(release).toHaveBeenCalledTimes(2);
   });
 });

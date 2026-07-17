@@ -44,14 +44,20 @@ import {
   preparePluginCandidate,
 } from "./plugin-candidate-preparation.js";
 import type { PluginMaterializer } from "./source-materialization.js";
-import type { CandidateContentLease } from "./ports/candidate-content-lease.js";
+import {
+  CandidateContentCleanupError,
+  isCandidateContentCleanupError,
+  type CandidateContentCleanupRecovery,
+  type CandidateContentLease,
+} from "./ports/candidate-content-lease.js";
 import type { TrustedInstallCandidateBinding } from "./trusted-install-contract.js";
 import type { PluginInspectionService } from "./inspection-service.js";
 import type { CompatibilityService } from "./compatibility-service.js";
 import type { ContentStorePort, PromotionResult } from "./ports/content-store.js";
 import type { ProjectTrustPort } from "./ports/project-trust.js";
 import type { ProjectRootAuthorityPort } from "./ports/project-root-authority.js";
-import type { PluginConfigurationStore } from "./ports/plugin-configuration-store.js";
+import { PluginConfigurationReadResultSchema, type PluginConfigurationStore } from "./ports/plugin-configuration-store.js";
+import { verifyPluginConfigurationDocument } from "../domain/configured-values.js";
 import type { SecretStore } from "./ports/secret-store.js";
 import type { ConfigurationPathPort, ConfigurationPathContext } from "./ports/configuration-path.js";
 import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
@@ -105,6 +111,7 @@ export type UpdatePluginRequest = InstallPluginRequest;
 type PreparedInstallPluginRequest = InstallPluginRequest & Readonly<{
   candidateLease: CandidateContentLease;
   expectedBinding: TrustedInstallCandidateBinding;
+  expectedConfigurationRevision?: import("../domain/content-manifest.js").ContentDigest;
 }>;
 export type EnablePluginRequest = Readonly<{
   scope: ScopeContext;
@@ -112,6 +119,7 @@ export type EnablePluginRequest = Readonly<{
   origin?: LifecycleOrigin;
   trustRecords?: readonly TrustStateRecord[];
   configurationPathContext: ConfigurationPathContext;
+  expectedConfigurationRevision?: import("../domain/content-manifest.js").ContentDigest;
 }>;
 export type DisablePluginRequest = Readonly<{
   scope: ScopeContext;
@@ -177,6 +185,7 @@ export interface PreparedInstallLifecycleAuthority {
     sourceContext: SourceContext;
     lease: CandidateContentLease;
     expected: TrustedInstallCandidateBinding;
+    expectedConfigurationRevision?: import("../domain/content-manifest.js").ContentDigest;
     configurationPathContext: ConfigurationPathContext;
   }>, signal: AbortSignal): Promise<PluginLifecycleResult>;
 }
@@ -219,6 +228,20 @@ class PromotionFailure extends Error {
   constructor() {
     super("content promotion did not return the requested immutable revision");
     this.name = "PromotionFailure";
+  }
+}
+
+class ConfigurationGuardMismatch extends Error {
+  constructor() {
+    super("prepared configuration authority changed");
+    this.name = "ConfigurationGuardMismatch";
+  }
+}
+
+class ConfigurationGuardUnavailable extends Error {
+  constructor() {
+    super("prepared configuration authority is unavailable");
+    this.name = "ConfigurationGuardUnavailable";
   }
 }
 
@@ -289,6 +312,7 @@ function mapPreparationCode(code: CandidatePreparationCode): LifecycleRejectionC
     case "PROJECTION_FAILED": return "PROJECTION_FAILED";
     case "ABORTED": return "ABORTED";
     case "AVAILABLE_REVISION_CHANGED": return "AVAILABLE_REVISION_CHANGED";
+    case "CONFIGURATION_STALE": return "CONFIGURATION_STALE";
     default: return "MALFORMED";
   }
 }
@@ -310,10 +334,13 @@ async function discardCandidate(
   candidate: PreparedPluginCandidate | undefined,
 ): Promise<void> {
   if (candidate?.allocation === undefined) return;
+  const recovery = Object.freeze({
+    retry: () => dependencies.content.discardStaging(candidate.allocation!, cleanupSignal()),
+  }) as CandidateContentCleanupRecovery;
   try {
-    await dependencies.content.discardStaging(candidate.allocation, cleanupSignal());
-  } catch {
-    // Published content and staging roots are inert until referenced by state.
+    await recovery.retry();
+  } catch (error) {
+    throw new CandidateContentCleanupError(recovery, { cause: error });
   }
 }
 
@@ -460,6 +487,32 @@ function createPluginLifecycleImplementation(
     return snapshot !== undefined && "trust" in snapshot ? snapshot.trust.records : [];
   }
 
+  async function exactConfigurationState(
+    prepared: PreparedPluginCandidate | undefined,
+    expectedRevision: import("../domain/content-manifest.js").ContentDigest | undefined,
+  ): Promise<"current" | "stale" | "unavailable"> {
+    if (expectedRevision === undefined) return "current";
+    const ref = prepared?.revision.configurationRef;
+    if (ref === undefined || prepared === undefined) return "stale";
+    try {
+      const result = PluginConfigurationReadResultSchema.parse(
+        await dependencies.configurations.read(ref, new AbortController().signal),
+      );
+      if (result.kind === "missing") return "stale";
+      const document = verifyPluginConfigurationDocument(
+        result.document,
+        prepared.normalized.configuration,
+        dependencies.sha256,
+      );
+      return document.configurationRef === ref && document.plugin === prepared.plugin &&
+        sameJson(document.scope, toScopeReference(prepared.scope)) && document.revision === expectedRevision
+        ? "current"
+        : "stale";
+    } catch {
+      return "unavailable";
+    }
+  }
+
   async function runFirstCommit(
     operation: LifecycleOperation,
     scope: ScopeContext,
@@ -469,6 +522,7 @@ function createPluginLifecycleImplementation(
     candidate: InstalledPluginRecord,
     prepared: PreparedPluginCandidate | undefined,
     reference: import("../domain/state/references.js").PendingTransitionRef,
+    expectedConfigurationRevision: import("../domain/content-manifest.js").ContentDigest | undefined,
     signal: AbortSignal,
   ): Promise<Readonly<{ kind: "committed"; snapshot: GenerationSnapshot }> | Readonly<{ kind: "stale"; expected: Generation; actual: Generation }> | Readonly<{ kind: "rejected"; code: LifecycleRejectionCode }> | Readonly<{ kind: "recovery"; committed?: Generation }>> {
     let expected = before.generation;
@@ -480,6 +534,9 @@ function createPluginLifecycleImplementation(
             await context.assertOwned();
             const current = targetRecord(context.snapshot, plugin);
             if (!sameJson(current, previous)) throw new GuardMismatch(context.snapshot.generation);
+            const configurationState = await exactConfigurationState(prepared, expectedConfigurationRevision);
+            if (configurationState === "stale") throw new ConfigurationGuardMismatch();
+            if (configurationState === "unavailable") throw new ConfigurationGuardUnavailable();
             let promotion: PromotionResult | undefined;
             if (prepared?.promotion !== undefined) {
               try {
@@ -519,6 +576,8 @@ function createPluginLifecycleImplementation(
       } catch (error) {
         if (signal.aborted) return { kind: "rejected", code: "ABORTED" };
         if (error instanceof GuardMismatch) return { kind: "stale", expected, actual: error.generation };
+        if (error instanceof ConfigurationGuardMismatch) return { kind: "rejected", code: "CONFIGURATION_STALE" };
+        if (error instanceof ConfigurationGuardUnavailable) return { kind: "rejected", code: "MALFORMED" };
         if (error instanceof PromotionFailure) return { kind: "rejected", code: "PROMOTION_FAILED" };
         return { kind: "recovery" };
       }
@@ -628,6 +687,9 @@ function createPluginLifecycleImplementation(
           ...("candidateLease" in installRequest ? {
             candidateLease: (installRequest as PreparedInstallPluginRequest).candidateLease,
             expectedBinding: (installRequest as PreparedInstallPluginRequest).expectedBinding,
+            ...((installRequest as PreparedInstallPluginRequest).expectedConfigurationRevision === undefined
+              ? {}
+              : { expectedConfigurationRevision: (installRequest as PreparedInstallPluginRequest).expectedConfigurationRevision }),
           } : {}),
         };
         const result = await preparePluginCandidate(preparation, candidateRequest, signal);
@@ -659,6 +721,7 @@ function createPluginLifecycleImplementation(
           installed: previous,
           trustRecords,
           configurationPathContext: enableRequest.configurationPathContext,
+          ...(enableRequest.expectedConfigurationRevision === undefined ? {} : { expectedConfigurationRevision: enableRequest.expectedConfigurationRevision }),
         } satisfies EnableCandidatePreparationRequest, signal);
         if (result.kind === "rejected") return rejected(operation, mapPreparationCode(result.code));
         prepared = result.candidate;
@@ -668,6 +731,7 @@ function createPluginLifecycleImplementation(
       }
     } catch (error) {
       await discardCandidate(dependencies, prepared);
+      if (isCandidateContentCleanupError(error)) throw error;
       return rejected(operation, signal.aborted ? "ABORTED" : "PROJECTION_FAILED");
     }
 
@@ -725,14 +789,44 @@ function createPluginLifecycleImplementation(
       return rejected(operation, signal.aborted ? "ABORTED" : "MALFORMED");
     }
 
-    const first = await runFirstCommit(operation, scope, plugin, initial, previous, candidate, prepared, reference, signal);
+    const expectedConfigurationRevision = "expectedConfigurationRevision" in request
+      ? request.expectedConfigurationRevision
+      : undefined;
+    const first = await runFirstCommit(
+      operation,
+      scope,
+      plugin,
+      initial,
+      previous,
+      candidate,
+      prepared,
+      reference,
+      expectedConfigurationRevision,
+      signal,
+    );
     await discardCandidate(dependencies, prepared);
     if (first.kind === "stale") return { kind: "stale", operation, expected: first.expected, actual: first.actual };
     if (first.kind === "rejected") return rejected(operation, first.code);
     if (first.kind === "recovery") return recovery(operation, reference, first.committed);
 
     const committed = first.snapshot;
-    const activation = await reloadAndObserve(dependencies, scope, plugin, reference, candidateExpectation, signal);
+    const beforeReloadConfiguration = await exactConfigurationState(prepared, expectedConfigurationRevision);
+    let activation: Awaited<ReturnType<typeof reloadAndObserve>>;
+    if (beforeReloadConfiguration === "stale") {
+      activation = { ok: false, failure: { kind: "observation-mismatch", code: "OBSERVATION_MISMATCH" } };
+    } else if (beforeReloadConfiguration === "unavailable") {
+      activation = { ok: false, failure: { kind: "adapter-error", code: "ADAPTER_FAILED" } };
+    } else {
+      activation = await reloadAndObserve(dependencies, scope, plugin, reference, candidateExpectation, signal);
+      if (activation.ok) {
+        const observedConfiguration = await exactConfigurationState(prepared, expectedConfigurationRevision);
+        if (observedConfiguration !== "current") {
+          activation = observedConfiguration === "stale"
+            ? { ok: false, failure: { kind: "observation-mismatch", code: "OBSERVATION_MISMATCH" } }
+            : { ok: false, failure: { kind: "adapter-error", code: "ADAPTER_FAILED" } };
+        }
+      }
+    }
     const reconciled = await reconciler.completeCommittedTransition({
       operation,
       scope,
@@ -783,6 +877,7 @@ function createPluginLifecycleImplementation(
           sourceContext: request.sourceContext,
           configurationPathContext: request.configurationPathContext,
           expectedRevision: request.expected.immutableRevision,
+          ...(request.expectedConfigurationRevision === undefined ? {} : { expectedConfigurationRevision: request.expectedConfigurationRevision }),
           candidateLease: request.lease,
           expectedBinding: request.expected,
         };

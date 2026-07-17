@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   removePluginConfiguration,
   savePluginConfiguration,
-  type ConfigurationSaveResult,
 } from "../../src/application/configuration-service.js";
 import { withSensitiveValue, SensitiveValue } from "../../src/application/sensitive-value.js";
 import { derivePluginConfigurationRef } from "../../src/domain/state/references.js";
@@ -376,9 +375,13 @@ describe("configuration replacement service", () => {
     expect(result.kind).toBe("ambiguous-with-recovery-required");
     if (result.kind !== "ambiguous-with-recovery-required") return;
     expect(result.recovery.code).toBe("CONFIGURATION_RECONCILIATION_REQUIRED");
-    expect(result.recovery.locators).toHaveLength(1);
+    expect(JSON.stringify(result)).not.toContain("secret-v1:");
     expect(JSON.stringify(result)).not.toContain("second");
     expect(secrets.values.size).toBe(2);
+    configurations.failReconciliationRead = false;
+    await expect(result.recovery.recovery.settle(new AbortController().signal))
+      .resolves.toMatchObject({ kind: "stored", document: { revision: configurations.document?.revision } });
+    expect(secrets.values.size).toBe(1);
   });
 
   it("retains fresh credentials and returns safe evidence for malformed authority", async () => {
@@ -422,7 +425,14 @@ describe("configuration replacement service", () => {
     const result = await savePluginConfiguration(request({ NAME: "demo", TOKEN: "second" }), deps(configurations, secrets), new AbortController().signal);
     expect(result.kind).toBe("stored-with-cleanup-required");
     expect(configurations.document?.secrets[0]?.locator).not.toBe(oldLocator);
-    expect((result as Extract<ConfigurationSaveResult, { kind: "stored-with-cleanup-required" }>).cleanup.locators).toEqual([oldLocator]);
+    if (result.kind !== "stored-with-cleanup-required") return;
+    expect(JSON.stringify(result)).not.toContain(oldLocator);
+    await expect(result.cleanup.recovery.settle(new AbortController().signal))
+      .resolves.toEqual({ kind: "recovery-required" });
+    secrets.failRemove.delete(oldLocator);
+    await expect(result.cleanup.recovery.settle(new AbortController().signal))
+      .resolves.toEqual({ kind: "settled" });
+    expect(secrets.values.has(oldLocator)).toBe(false);
   });
 
   it("requires literal deletion confirmation and exposes partial removal safely", async () => {

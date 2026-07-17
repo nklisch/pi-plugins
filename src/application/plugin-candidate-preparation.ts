@@ -52,7 +52,11 @@ import type { ProjectRootAuthorityPort } from "./ports/project-root-authority.js
 import type { SecretStore } from "./ports/secret-store.js";
 import type { ConfigurationPathPort } from "./ports/configuration-path.js";
 import type { ContentStorePort, StagingAllocation, VerifiedPromotionPlan } from "./ports/content-store.js";
-import type { CandidateContentLease } from "./ports/candidate-content-lease.js";
+import {
+  CandidateContentCleanupError,
+  type CandidateContentCleanupRecovery,
+  type CandidateContentLease,
+} from "./ports/candidate-content-lease.js";
 import type { TrustedInstallCandidateBinding } from "./trusted-install-contract.js";
 import { digestConfigurationDescriptors } from "../domain/configured-values.js";
 import { digestCompatibilityReport } from "./ports/runtime-projection.js";
@@ -81,6 +85,7 @@ export const CandidatePreparationCodeRegistry = {
   aborted: { tag: "ABORTED" },
   malformed: { tag: "MALFORMED" },
   availableRevisionChanged: { tag: "AVAILABLE_REVISION_CHANGED" },
+  configurationStale: { tag: "CONFIGURATION_STALE" },
 } as const;
 export type CandidatePreparationCode = (typeof CandidatePreparationCodeRegistry)[keyof typeof CandidatePreparationCodeRegistry]["tag"];
 const candidatePreparationCodes = Object.values(CandidatePreparationCodeRegistry).map((entry) => entry.tag) as [
@@ -116,6 +121,7 @@ export type PluginCandidatePreparationRequest = Readonly<{
   configurationPathContext: ConfigurationPathContext;
   existing?: InstalledPluginRecord;
   expectedRevision?: import("../domain/content-manifest.js").ContentDigest;
+  expectedConfigurationRevision?: import("../domain/content-manifest.js").ContentDigest;
   candidateLease?: CandidateContentLease;
   expectedBinding?: TrustedInstallCandidateBinding;
   automaticAuthorization?: AutomaticUpdateAuthorizationEvidence;
@@ -127,6 +133,7 @@ export type EnableCandidatePreparationRequest = Readonly<{
   installed: InstalledPluginRecord;
   trustRecords: readonly TrustStateRecord[];
   configurationPathContext: ConfigurationPathContext;
+  expectedConfigurationRevision?: import("../domain/content-manifest.js").ContentDigest;
 }>;
 
 export type PreparedPluginCandidate = Readonly<{
@@ -165,6 +172,7 @@ class ProjectionPreparationError extends Error {
 function mapFailure(error: unknown, phase: "materialize" | "inspect" | "compatibility" | "trust" | "configuration" | "projection"): CandidatePreparationCode {
   if (error instanceof ProjectionPreparationError) return "PROJECTION_FAILED";
   if (error instanceof ConfigurationResolutionError) {
+    if (error.code === "CONFIGURATION_STALE") return "CONFIGURATION_STALE";
     return error.code === "PROJECT_UNTRUSTED" || error.code === "TRUST_ABSENT" || error.code === "TRUST_REVOKED" || error.code === "TRUST_EVIDENCE_INVALID"
       ? "UNTRUSTED"
       : "UNCONFIGURED";
@@ -176,19 +184,28 @@ function mapFailure(error: unknown, phase: "materialize" | "inspect" | "compatib
   return "MALFORMED";
 }
 
+function allocationCleanupRecovery(
+  dependencies: PluginCandidatePreparationDependencies,
+  allocation: StagingAllocation,
+): CandidateContentCleanupRecovery {
+  return Object.freeze({
+    retry: () => dependencies.content.discardStaging(allocation, new AbortController().signal),
+  }) as CandidateContentCleanupRecovery;
+}
+
 async function discardOwned(
   dependencies: PluginCandidatePreparationDependencies,
   allocation: StagingAllocation | undefined,
   _signal: AbortSignal,
 ): Promise<void> {
   if (allocation === undefined) return;
+  const recovery = allocationCleanupRecovery(dependencies, allocation);
   try {
     // Cleanup is deliberate even after caller cancellation; the staging
     // capability is owned by this preparation and carries no user data.
-    await dependencies.content.discardStaging(allocation, new AbortController().signal);
-  } catch {
-    // The allocation is an inert staging capability. A later store cleanup can
-    // reclaim it; do not hide the original typed preparation outcome.
+    await recovery.retry();
+  } catch (error) {
+    throw new CandidateContentCleanupError(recovery, { cause: error });
   }
 }
 
@@ -214,6 +231,7 @@ async function resolveReadiness(
     trust: TrustCandidate;
     trustRecords: readonly TrustStateRecord[];
     configurationRef: InstalledRevisionRecord["configurationRef"];
+    expectedConfigurationRevision?: import("../domain/content-manifest.js").ContentDigest;
     normalized: NormalizedPlugin;
     configurationPathContext: ConfigurationPathContext;
     automaticAuthorization?: AutomaticUpdateAuthorizationEvidence;
@@ -235,6 +253,7 @@ async function resolveReadiness(
     candidate: input.trust,
     trustRecords: input.trustRecords,
     configurationRef: input.configurationRef,
+    ...(input.expectedConfigurationRevision === undefined ? {} : { expectedConfigurationRevision: input.expectedConfigurationRevision }),
     descriptors: input.normalized.configuration,
     pathContext,
   };
@@ -307,6 +326,7 @@ async function prepareNormalizedCandidate(
     trust,
     trustRecords: input.trustRecords,
     configurationRef: revision.configurationRef,
+    ...(input.expectedConfigurationRevision === undefined ? {} : { expectedConfigurationRevision: input.expectedConfigurationRevision }),
     normalized,
     configurationPathContext: input.configurationPathContext,
     ...(input.automaticAuthorization === undefined ? {} : { automaticAuthorization: input.automaticAuthorization }),
@@ -473,6 +493,7 @@ export async function prepareEnableCandidate(
       trust,
       trustRecords: input.trustRecords,
       configurationRef: selected.configurationRef,
+      ...(input.expectedConfigurationRevision === undefined ? {} : { expectedConfigurationRevision: input.expectedConfigurationRevision }),
       normalized: normalizedLoaded,
       configurationPathContext: input.configurationPathContext,
     }, signal);

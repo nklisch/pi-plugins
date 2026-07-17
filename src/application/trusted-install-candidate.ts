@@ -9,7 +9,12 @@ import { createTrustCandidate, type TrustCandidate } from "../domain/trust-polic
 import { deriveMarketplaceSourceIdentity, derivePluginSourceIdentity } from "../domain/update-policy.js";
 import { createMcpLaunchTemplate } from "../domain/mcp-launch-template.js";
 import { digestCompatibilityReport } from "./ports/runtime-projection.js";
-import type { CandidateContentLease, CandidateContentLeasePort } from "./ports/candidate-content-lease.js";
+import {
+  isCandidateContentCleanupError,
+  type CandidateContentCleanupRecovery,
+  type CandidateContentLease,
+  type CandidateContentLeasePort,
+} from "./ports/candidate-content-lease.js";
 import type { InspectionReadinessPort } from "./ports/inspection-readiness.js";
 import type { InspectionEvidenceSnapshot } from "./ports/native-inspection-evidence.js";
 import type { PluginInspectionService } from "./inspection-service.js";
@@ -68,7 +73,32 @@ export interface TrustedInstallCandidateService {
 
 export type TrustedInstallCandidateResult =
   | Readonly<{ kind: "ready"; candidate: TrustedInstallCandidate }>
-  | Readonly<{ kind: "stale" | "unavailable" | "rejected"; diagnostics: readonly import("./native-inspection-contract.js").NativeDiagnostic[] }>;
+  | Readonly<{ kind: "stale" | "unavailable" | "rejected"; diagnostics: readonly import("./native-inspection-contract.js").NativeDiagnostic[] }>
+  | Readonly<{
+      kind: "cleanup-failed";
+      cleanup: CandidateContentCleanupRecovery;
+      diagnostics: readonly import("./native-inspection-contract.js").NativeDiagnostic[];
+    }>;
+
+function leaseCleanupRecovery(lease: CandidateContentLease): CandidateContentCleanupRecovery {
+  return Object.freeze({ retry: () => lease.release() }) as CandidateContentCleanupRecovery;
+}
+
+async function releaseForResult(
+  lease: CandidateContentLease,
+  result: Exclude<TrustedInstallCandidateResult, { kind: "ready" | "cleanup-failed" }>,
+): Promise<TrustedInstallCandidateResult> {
+  try {
+    await lease.release();
+    return result;
+  } catch (error) {
+    return {
+      kind: "cleanup-failed",
+      cleanup: isCandidateContentCleanupError(error) ? error.recovery : leaseCleanupRecovery(lease),
+      diagnostics: result.diagnostics,
+    };
+  }
+}
 
 function sameScope(left: ReturnType<typeof toScopeReference>, right: CandidateInspectionDetailSubject["scope"]): boolean {
   return left.kind === right.kind && (left.kind === "user" || (right.kind === "project" && left.projectKey === right.projectKey));
@@ -233,14 +263,16 @@ export function createTrustedInstallCandidateService(dependencies: TrustedInstal
     let lease: CandidateContentLease;
     try { lease = await dependencies.content.acquire(resolution.candidate, signal); }
     catch (error) {
+      if (isCandidateContentCleanupError(error)) {
+        return { kind: "cleanup-failed", cleanup: error.recovery, diagnostics: [] };
+      }
       if (signal.aborted) throw signal.reason ?? error;
       return { kind: "unavailable", diagnostics: [] };
     }
     try {
       const inspected = await dependencies.inspector.inspect({ entry: resolution.candidate.entry, materialized: lease.materialized }, signal);
       if (!inspected.ok || inspected.value.identity.key !== request.subject.plugin || request.snapshot.capabilities === undefined || request.snapshot.binding.capability.digest === undefined) {
-        await lease.release();
-        return { kind: "rejected", diagnostics: [] };
+        return releaseForResult(lease, { kind: "rejected", diagnostics: [] });
       }
       const plugin = inspected.value;
       const compatibility = CompatibilityReportSchema.parse(evaluateCompatibility({
@@ -249,8 +281,7 @@ export function createTrustedInstallCandidateService(dependencies: TrustedInstal
         ...(resolution.candidate.entry.policy === undefined ? {} : { marketplacePolicy: resolution.candidate.entry.policy }),
       }));
       if (!compatibility.activatable) {
-        await lease.release();
-        return { kind: "rejected", diagnostics: [] };
+        return releaseForResult(lease, { kind: "rejected", diagnostics: [] });
       }
       const scope = toScopeReference(resolution.candidate.scope);
       const trust = createTrustCandidate({
@@ -289,11 +320,10 @@ export function createTrustedInstallCandidateService(dependencies: TrustedInstal
       });
       const detailResult = await nativeDetail(request.subject, request.snapshot, resolution.candidate, lease, dependencies, signal);
       if (detailResult.kind !== "found") {
-        await lease.release();
         if (detailResult.kind === "stale" || detailResult.kind === "missing" || detailResult.kind === "invalid-id") {
-          return { kind: "stale", diagnostics: [] };
+          return releaseForResult(lease, { kind: "stale", diagnostics: [] });
         }
-        return { kind: "unavailable", diagnostics: detailResult.diagnostics };
+        return releaseForResult(lease, { kind: "unavailable", diagnostics: detailResult.diagnostics });
       }
       const detail = detailResult.detail;
       const exactDetail = detail.snapshotId === deriveInspectionEvidenceSnapshotId(request.snapshot.binding, dependencies.sha256) &&
@@ -303,8 +333,10 @@ export function createTrustedInstallCandidateService(dependencies: TrustedInstal
         detail.source.identity === binding.sourceIdentity && detail.compatibility.status === "activatable" &&
         detail.compatibility.reportFingerprint === binding.compatibilityFingerprint;
       if (!exactDetail || detail.summary.condition === "unavailable" || detail.trust === "unavailable" || detail.trust === "project-untrusted") {
-        await lease.release();
-        return { kind: detail.summary.condition === "unavailable" || detail.trust === "unavailable" ? "unavailable" : "rejected", diagnostics: detail.diagnostics };
+        return releaseForResult(lease, {
+          kind: detail.summary.condition === "unavailable" || detail.trust === "unavailable" ? "unavailable" : "rejected",
+          diagnostics: detail.diagnostics,
+        });
       }
       // Candidate inspection has no installed-revision reference. The install
       // form does, so enrich its field state from that exact configuration
@@ -318,8 +350,7 @@ export function createTrustedInstallCandidateService(dependencies: TrustedInstal
       const configurationFields = fields(plugin, configurationReadiness);
       const components = projectSafeComponents({ plugin, compatibility });
       if (!executableDisclosureComplete(plugin, components)) {
-        await lease.release();
-        return { kind: "rejected", diagnostics: detail.diagnostics };
+        return releaseForResult(lease, { kind: "rejected", diagnostics: detail.diagnostics });
       }
       const consent = TrustedInstallConsentDisclosureSchema.parse({
         consentId: deriveTrustedInstallConsentId(binding, dependencies.sha256),
@@ -336,9 +367,10 @@ export function createTrustedInstallCandidateService(dependencies: TrustedInstal
       });
       return { kind: "ready", candidate: Object.freeze({ lease, resolved: resolution.candidate, plugin, compatibility, revision, trust, binding, detail, fields: configurationFields, consent, snapshotBinding: request.snapshot.binding }) };
     } catch (error) {
-      await lease.release().catch(() => undefined);
+      const released = await releaseForResult(lease, { kind: "rejected", diagnostics: [] });
+      if (released.kind === "cleanup-failed") return released;
       if (signal.aborted) throw signal.reason ?? error;
-      return { kind: "rejected", diagnostics: [] };
+      return released;
     }
   }
 

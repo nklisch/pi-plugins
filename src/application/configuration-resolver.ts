@@ -1,3 +1,4 @@
+import type { ContentDigest } from "../domain/content-manifest.js";
 import {
   CanonicalConfigurationPathSchema,
   ConfiguredValueSchema,
@@ -44,6 +45,7 @@ export type ConfigurationResolutionCode =
   | "TRUST_EVIDENCE_INVALID"
   | "CONFIGURATION_MISSING"
   | "CONFIGURATION_INVALID"
+  | "CONFIGURATION_STALE"
   | "CONFIG_SECRET_MISSING"
   | "CONFIG_PATH_INVALID"
   | "CONFIG_PATH_MISSING"
@@ -237,6 +239,7 @@ async function resolvePluginConfiguration(
     candidate: TrustCandidate;
     trustRecords: readonly import("../domain/state/trust-state.js").TrustStateRecord[];
     configurationRef: PluginConfigurationRef | undefined;
+    expectedConfigurationRevision?: ContentDigest;
     descriptors: PluginConfiguration;
     pathContext: ConfigurationPathContext;
   }>,
@@ -298,6 +301,9 @@ async function resolvePluginConfiguration(
     let validated: ValidatedConfigurationSubmission;
     try {
       const verified = verifyPluginConfigurationDocument(document, descriptors, dependencies.sha256);
+      if (request.expectedConfigurationRevision !== undefined && verified.revision !== request.expectedConfigurationRevision) {
+        throw new ConfigurationResolutionError("CONFIGURATION_STALE");
+      }
       const rawValues = configuredInput(verified);
       validated = await validateConfigurationSubmission({
         configurationRef: ref,
@@ -341,6 +347,7 @@ export async function withResolvedPluginConfiguration(
     candidate: TrustCandidate;
     trustRecords: readonly import("../domain/state/trust-state.js").TrustStateRecord[];
     configurationRef: PluginConfigurationRef | undefined;
+    expectedConfigurationRevision?: ContentDigest;
     descriptors: PluginConfiguration;
     pathContext: ConfigurationPathContext;
   }>,
@@ -364,6 +371,7 @@ export async function withAuthorizedPluginConfiguration(
     candidate: TrustCandidate;
     trustRecords: readonly import("../domain/state/trust-state.js").TrustStateRecord[];
     configurationRef: PluginConfigurationRef | undefined;
+    expectedConfigurationRevision?: ContentDigest;
     descriptors: PluginConfiguration;
     pathContext: ConfigurationPathContext;
   }>,

@@ -6,6 +6,8 @@ import { deriveInspectionDetailId, deriveInspectionEvidenceSnapshotId } from "..
 const sha256 = (bytes: Uint8Array) => new Uint8Array(createHash("sha256").update(bytes).digest());
 const revision = `sha256:${"1".repeat(64)}` as never;
 const projectionDigest = `sha256:${"2".repeat(64)}` as never;
+const configurationRef = `plugin-configuration-v1:sha256:${"a".repeat(64)}` as never;
+const configurationRevision = `sha256:${"b".repeat(64)}` as never;
 const registrationId = `marketplace-registration-v1:sha256:${"3".repeat(64)}` as never;
 const candidateId = `marketplace-candidate-v1:sha256:${"4".repeat(64)}` as never;
 const catalogSnapshot = `marketplace-snapshot-v1:sha256:${"5".repeat(64)}` as never;
@@ -47,24 +49,59 @@ function makeCandidate(releaseError = false) {
   } as never;
 }
 
-function setup(options: { trustGate?: Promise<void>; releaseError?: boolean; sessionIdFailure?: boolean; evidenceValidation?: "current" | "stale" } = {}) {
+function setup(options: {
+  trustGate?: Promise<void>;
+  releaseError?: boolean;
+  sessionIdFailure?: boolean;
+  evidenceValidation?: "current" | "stale";
+  configuration?: "stored" | "adapter-failure" | "ambiguous" | "cleanup";
+  stateRead?: (signal: AbortSignal) => Promise<never>;
+  trustRecoveryOnce?: boolean;
+} = {}) {
   let id = 0;
   const candidates: ReturnType<typeof makeCandidate>[] = [];
   const candidateService = {
-    acquire: vi.fn(async () => { const candidate = makeCandidate(options.releaseError); candidates.push(candidate); return { kind: "ready" as const, candidate }; }),
+    acquire: vi.fn(async () => {
+      const candidate = makeCandidate(options.releaseError);
+      if (options.configuration !== undefined) {
+        candidate.binding = { ...candidate.binding, configurationRef };
+        candidate.revision = { ...candidate.revision, configurationRef };
+      }
+      candidates.push(candidate);
+      return { kind: "ready" as const, candidate };
+    }),
     validate: vi.fn(async () => "current" as const),
   };
-  const trustGrant = vi.fn(async () => { await options.trustGate; return { kind: "recorded" as const, subject: binding.trustSubject, generation: 1 }; });
+  let trustAttempts = 0;
+  const trustGrant = vi.fn(async () => {
+    await options.trustGate;
+    trustAttempts += 1;
+    if (options.trustRecoveryOnce && trustAttempts === 1) return { kind: "recovery-required" as const, subject: binding.trustSubject };
+    return { kind: "recorded" as const, subject: binding.trustSubject, generation: 1 };
+  });
   const evidenceValidate = vi.fn(async () => options.evidenceValidation ?? "current" as const);
+  let recoverySettled = false;
+  const recovery = { settle: vi.fn(async () => recoverySettled ? { kind: "stored" as const, document: { revision: configurationRevision } } : { kind: "recovery-required" as const }) } as never;
+  const saveConfiguration = vi.fn(async () => {
+    if (options.configuration === "adapter-failure") throw new Error("CANARY_CONFIG_ADAPTER");
+    if (options.configuration === "ambiguous") return { kind: "ambiguous-with-recovery-required" as const, recovery: { code: "CONFIGURATION_RECONCILIATION_REQUIRED" as const, recovery } };
+    if (options.configuration === "cleanup") return { kind: "stored-with-cleanup-required" as const, document: { revision: configurationRevision }, cleanup: { code: "SECRET_CLEANUP_REQUIRED" as const, recovery } };
+    return { kind: "stored" as const, document: { revision: configurationRevision } };
+  });
+  const readCurrent = vi.fn(async () => ({ kind: "missing" as const }));
+  const readExact = vi.fn(async () => ({ kind: "current" as const, document: { revision: configurationRevision } }));
+  const installPrepared = vi.fn(async () => ({ kind: "changed", operation: "install", snapshot: {}, observation: { kind: "active", scope: binding.scope, plugin: binding.plugin, revision, projectionDigest } }));
   const composition = createTrustedInstallationService({
     candidate: candidateService,
-    configuration: { save: vi.fn(), remove: vi.fn() } as never,
-    configurationAuthority: { readCurrent: vi.fn(), readExact: vi.fn() },
+    configuration: { save: saveConfiguration, remove: vi.fn() } as never,
+    configurationAuthority: { readCurrent, readExact } as never,
     configurationInput: () => ({ pathContext: { scope: { kind: "user" }, trustedBaseDirectory: "/session/cwd" }, paths: { normalizeAndInspect: vi.fn() }, secretCustody: { status: "available", explanation: "ready" } }) as never,
     trust: { grant: trustGrant },
     lifecycle: {
-      state: { read: vi.fn(async () => ({ ok: true, snapshot: { installed: { plugins: [] } } })) } as never,
-      prepared: { installPrepared: vi.fn(async () => ({ kind: "changed", operation: "install", snapshot: {}, observation: { kind: "active", scope: binding.scope, plugin: binding.plugin, revision, projectionDigest } })) } as never,
+      state: { read: vi.fn(async (_scope, signal) => options.stateRead === undefined
+        ? { ok: true, snapshot: { installed: { plugins: [] } } }
+        : options.stateRead(signal)) } as never,
+      prepared: { installPrepared } as never,
       publicLifecycle: { enable: vi.fn() } as never,
     },
     evidence: { capture: vi.fn(async () => ({ binding: snapshotBinding })), validate: evidenceValidate } as never,
@@ -78,7 +115,20 @@ function setup(options: { trustGate?: Promise<void>; releaseError?: boolean; ses
   });
   const openRequest = { inspectionSnapshotId: snapshotId, detailId };
   const submission = { expectedVersion: 0, nonSensitive: [], sensitive: [], consent: { kind: "grant" as const, consentId: `trusted-install-consent-v1:sha256:${"2".repeat(64)}` as never } };
-  return { composition, candidateService, trustGrant, evidenceValidate, candidates, openRequest, submission };
+  return {
+    composition,
+    candidateService,
+    trustGrant,
+    evidenceValidate,
+    candidates,
+    openRequest,
+    submission,
+    saveConfiguration,
+    readExact,
+    installPrepared,
+    recovery,
+    settleRecovery: () => { recoverySettled = true; },
+  };
 }
 
 describe("trusted installation service", () => {
@@ -157,5 +207,68 @@ describe("trusted installation service", () => {
     await expect(value.composition.application.cancel({ token: opened.session.token }, new AbortController().signal)).resolves.toMatchObject({ kind: "accepted", state: "cancelled" });
     expect(value.candidates[0]!.release).toHaveBeenCalledTimes(1);
     expect(value.trustGrant).not.toHaveBeenCalled();
+  });
+
+  it("classifies ordinary configuration adapter rejection as ADAPTER_FAILED", async () => {
+    const value = setup({ configuration: "adapter-failure" });
+    const opened = await value.composition.application.open(value.openRequest, new AbortController().signal);
+    if (opened.kind !== "opened") throw new Error("open failed");
+    await expect(value.composition.application.activate({ token: opened.session.token, submission: value.submission }, {}, new AbortController().signal))
+      .resolves.toMatchObject({ kind: "failed", code: "ADAPTER_FAILED" });
+  });
+
+  it("classifies an abort during the lifecycle initial state read as cancelled", async () => {
+    const controller = new AbortController();
+    const value = setup({
+      stateRead: async () => {
+        controller.abort(new DOMException("cancelled", "AbortError"));
+        throw controller.signal.reason;
+      },
+    });
+    const opened = await value.composition.application.open(value.openRequest, new AbortController().signal);
+    if (opened.kind !== "opened") throw new Error("open failed");
+    await expect(value.composition.application.activate({ token: opened.session.token, submission: value.submission }, {}, controller.signal))
+      .resolves.toMatchObject({ kind: "cancelled", phase: "activation-transaction" });
+  });
+
+  it("threads the exact configuration revision into prepared lifecycle authority", async () => {
+    const value = setup({ configuration: "stored" });
+    const opened = await value.composition.application.open(value.openRequest, new AbortController().signal);
+    if (opened.kind !== "opened") throw new Error("open failed");
+    await expect(value.composition.application.activate({ token: opened.session.token, submission: value.submission }, {}, new AbortController().signal))
+      .resolves.toMatchObject({ kind: "succeeded" });
+    expect(value.readExact).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: configurationRevision }), expect.any(AbortSignal));
+    expect(value.installPrepared).toHaveBeenCalledWith(expect.objectContaining({ expectedConfigurationRevision: configurationRevision }), expect.any(AbortSignal));
+  });
+
+  it("retries ambiguous trust through the actual grant operation without citing lifecycle recovery", async () => {
+    const value = setup({ trustRecoveryOnce: true });
+    const opened = await value.composition.application.open(value.openRequest, new AbortController().signal);
+    if (opened.kind !== "opened") throw new Error("open failed");
+    const first = await value.composition.application.activate({ token: opened.session.token, submission: value.submission }, {}, new AbortController().signal);
+    expect(first).toMatchObject({ kind: "recovery-required", action: "retry-trust-recovery", session: { version: 1 } });
+    expect(first).not.toHaveProperty("transition");
+    const resumed = await value.composition.application.recover({
+      token: opened.session.token,
+      submission: { ...value.submission, expectedVersion: 1 },
+    }, {}, new AbortController().signal);
+    expect(resumed.kind).toBe("succeeded");
+    expect(value.trustGrant).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["ambiguous", "cleanup"] as const)("invokes opaque configuration recovery for %s save outcomes", async (configuration) => {
+    const value = setup({ configuration });
+    const opened = await value.composition.application.open(value.openRequest, new AbortController().signal);
+    if (opened.kind !== "opened") throw new Error("open failed");
+    const first = await value.composition.application.activate({ token: opened.session.token, submission: value.submission }, {}, new AbortController().signal);
+    expect(first).toMatchObject({ kind: "recovery-required", action: "retry-configuration-recovery", session: { version: 1 } });
+    expect(JSON.stringify(first)).not.toContain("secret-v1:");
+    value.settleRecovery();
+    const resumed = await value.composition.application.recover({
+      token: opened.session.token,
+      submission: { ...value.submission, expectedVersion: 1 },
+    }, {}, new AbortController().signal);
+    expect(resumed.kind).toBe("succeeded");
+    expect(value.recovery.settle).toHaveBeenCalledTimes(2);
   });
 });

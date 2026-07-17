@@ -70,6 +70,7 @@ export const LifecycleRejectionCodeRegistry = {
   promotionFailed: { tag: "PROMOTION_FAILED" },
   aborted: { tag: "ABORTED" },
   availableRevisionChanged: { tag: "AVAILABLE_REVISION_CHANGED" },
+  configurationStale: { tag: "CONFIGURATION_STALE" },
 } as const;
 export type LifecycleRejectionCode = (typeof LifecycleRejectionCodeRegistry)[keyof typeof LifecycleRejectionCodeRegistry]["tag"];
 const lifecycleRejectionCodes = Object.values(LifecycleRejectionCodeRegistry).map((entry) => entry.tag) as [

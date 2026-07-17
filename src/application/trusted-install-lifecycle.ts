@@ -1,3 +1,4 @@
+import type { ContentDigest } from "../domain/content-manifest.js";
 import type { TrustedInstallCandidate } from "./trusted-install-candidate.js";
 import type { ConfigurationPathContext } from "./ports/configuration-path.js";
 import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
@@ -11,7 +12,12 @@ export type TrustedInstallLifecycleResult =
   | Readonly<{ kind: "lifecycle"; result: PluginLifecycleResult; enabledExisting: boolean }>
   | Readonly<{ kind: "current-state"; activation: "enabled"; revision: TrustedInstallCandidate["revision"]["revision"] }>
   | Readonly<{ kind: "conflict"; reason: "already-installed-different-revision" | "pending-transition" }>
-  | Readonly<{ kind: "recovery-required" }>;
+  | Readonly<{ kind: "recovery-required" }>
+  | Readonly<{
+      kind: "boundary-failure";
+      boundary: "before-transaction";
+      reason: "aborted" | "adapter-failed" | "cleanup-failed";
+    }>;
 
 export type TrustedInstallLifecycleDependencies = Readonly<{
   state: LifecycleStateStore;
@@ -32,38 +38,59 @@ function sourceContext(candidate: TrustedInstallCandidate): import("./source-mat
     : { kind: "external" };
 }
 
+async function releaseBeforeTransaction(
+  candidate: TrustedInstallCandidate,
+): Promise<Extract<TrustedInstallLifecycleResult, { kind: "boundary-failure" }> | undefined> {
+  try {
+    await candidate.lease.release();
+    return undefined;
+  } catch {
+    return { kind: "boundary-failure", boundary: "before-transaction", reason: "cleanup-failed" };
+  }
+}
+
 /** Select install/enable/current/conflict, leaving all mutation semantics to lifecycle. */
 export async function executeTrustedInstallLifecycle(
   candidate: TrustedInstallCandidate,
   configurationPathContext: ConfigurationPathContext,
   dependencies: TrustedInstallLifecycleDependencies,
   signal: AbortSignal,
+  expectedConfigurationRevision?: ContentDigest,
 ): Promise<TrustedInstallLifecycleResult> {
-  signal.throwIfAborted();
-  const loaded = await dependencies.state.read(candidate.resolved.scope, signal).catch((error) => {
-    if (signal.aborted) throw signal.reason ?? error;
-    return undefined;
-  });
-  if (loaded === undefined || !loaded.ok) {
-    await candidate.lease.release();
-    return { kind: "recovery-required" };
+  if (signal.aborted) {
+    return { kind: "boundary-failure", boundary: "before-transaction", reason: "aborted" };
+  }
+  let loaded: Awaited<ReturnType<LifecycleStateStore["read"]>>;
+  try {
+    loaded = await dependencies.state.read(candidate.resolved.scope, signal);
+  } catch {
+    return {
+      kind: "boundary-failure",
+      boundary: "before-transaction",
+      reason: signal.aborted ? "aborted" : "adapter-failed",
+    };
+  }
+  if (!loaded.ok) {
+    const cleanup = await releaseBeforeTransaction(candidate);
+    return cleanup ?? { kind: "recovery-required" };
   }
   const records = "installed" in loaded.snapshot ? loaded.snapshot.installed.plugins : loaded.snapshot.project.plugins;
   const current = records.find((record) => record.plugin === candidate.binding.plugin);
   if (current?.pendingTransition !== undefined) {
-    await candidate.lease.release();
-    return { kind: "conflict", reason: "pending-transition" };
+    const cleanup = await releaseBeforeTransaction(candidate);
+    return cleanup ?? { kind: "conflict", reason: "pending-transition" };
   }
   if (current !== undefined && current.selectedRevision !== candidate.binding.immutableRevision) {
-    await candidate.lease.release();
-    return { kind: "conflict", reason: "already-installed-different-revision" };
+    const cleanup = await releaseBeforeTransaction(candidate);
+    return cleanup ?? { kind: "conflict", reason: "already-installed-different-revision" };
   }
   if (current?.activation === "enabled") {
-    await candidate.lease.release();
-    return { kind: "current-state", activation: "enabled", revision: candidate.binding.immutableRevision };
+    const cleanup = await releaseBeforeTransaction(candidate);
+    return cleanup ?? { kind: "current-state", activation: "enabled", revision: candidate.binding.immutableRevision };
   }
   if (current?.activation === "disabled") {
-    await candidate.lease.release();
+    const cleanup = await releaseBeforeTransaction(candidate);
+    if (cleanup !== undefined) return cleanup;
     return {
       kind: "lifecycle",
       enabledExisting: true,
@@ -71,6 +98,7 @@ export async function executeTrustedInstallLifecycle(
         scope: candidate.resolved.scope,
         plugin: candidate.binding.plugin,
         configurationPathContext,
+        ...(expectedConfigurationRevision === undefined ? {} : { expectedConfigurationRevision }),
       }, signal),
     };
   }
@@ -85,6 +113,7 @@ export async function executeTrustedInstallLifecycle(
       sourceContext: sourceContext(candidate),
       lease: candidate.lease,
       expected: candidate.binding,
+      ...(expectedConfigurationRevision === undefined ? {} : { expectedConfigurationRevision }),
       configurationPathContext,
     }, signal),
   };

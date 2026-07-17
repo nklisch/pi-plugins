@@ -537,6 +537,8 @@ export type {
   RemovePluginConfigurationRequest,
   ConfigurationCleanup,
   ConfigurationReconciliation,
+  ConfigurationRecoveryCapability,
+  ConfigurationRecoverySettlement,
   ConfigurationSaveResult,
   ConfigurationRemovalResult,
 } from "./application/configuration-service.js";

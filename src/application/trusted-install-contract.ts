@@ -188,7 +188,22 @@ export const TrustedInstallActivationResultSchema = z.discriminatedUnion("kind",
   z.object({ kind: z.literal("conflict"), reason: TrustedInstallConflictReasonSchema, progress: SafeProgressSchema, retained: RetainedSchema }).strict().readonly(),
   z.object({ kind: z.literal("rejected"), code: z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/), diagnostics: z.array(NativeDiagnosticSchema).readonly(), progress: SafeProgressSchema, retained: RetainedSchema }).strict().readonly(),
   z.object({ kind: z.literal("rolled-back"), failure: z.enum(["reload-rejected", "observation-mismatch", "adapter-error"]), restored: z.boolean(), progress: SafeProgressSchema, retained: RetainedSchema }).strict().readonly(),
-  z.object({ kind: z.literal("recovery-required"), transition: z.string().regex(/^pending-transition-v1:sha256:[0-9a-f]{64}$/).optional(), committed: z.number().int().nonnegative().optional(), action: z.literal("run-recovery"), progress: SafeProgressSchema, retained: RetainedSchema }).strict().readonly(),
+  z.object({
+    kind: z.literal("recovery-required"),
+    transition: z.string().regex(/^pending-transition-v1:sha256:[0-9a-f]{64}$/).optional(),
+    committed: z.number().int().nonnegative().optional(),
+    action: z.enum(["run-recovery", "retry-configuration-recovery", "retry-trust-recovery"]),
+    session: TrustedInstallSessionViewSchema.optional(),
+    progress: SafeProgressSchema,
+    retained: RetainedSchema,
+  }).strict().readonly().superRefine((result, context) => {
+    if (result.action !== "run-recovery") {
+      if (result.session === undefined) context.addIssue({ code: "custom", path: ["session"], message: "workflow recovery requires the owning session" });
+      if (result.transition !== undefined || result.committed !== undefined) context.addIssue({ code: "custom", path: ["transition"], message: "workflow recovery cannot cite lifecycle evidence" });
+    } else if (result.session !== undefined) {
+      context.addIssue({ code: "custom", path: ["session"], message: "lifecycle recovery cannot cite a workflow session action" });
+    }
+  }),
   z.object({ kind: z.literal("failed"), code: z.enum(["ADAPTER_FAILED", "INTERACTION_FAILED", "CLEANUP_FAILED", "DISPOSED"]), progress: SafeProgressSchema, retained: RetainedSchema }).strict().readonly(),
   z.object({ kind: z.literal("expired") }).strict().readonly(),
   z.object({ kind: z.literal("disposed") }).strict().readonly(),
@@ -225,6 +240,7 @@ export type TrustedInstallRunOptions = TrustedInstallExecutionOptions & Readonly
 export interface TrustedInstallationService {
   open(request: TrustedInstallOpenRequest, signal: AbortSignal): Promise<TrustedInstallOpenResult>;
   activate(request: Readonly<{ token: TrustedInstallSessionToken; submission: TrustedInstallSubmission }>, options: TrustedInstallExecutionOptions, signal: AbortSignal): Promise<TrustedInstallActivationResult>;
+  recover(request: Readonly<{ token: TrustedInstallSessionToken; submission: TrustedInstallSubmission }>, options: TrustedInstallExecutionOptions, signal: AbortSignal): Promise<TrustedInstallActivationResult>;
   run(request: TrustedInstallOpenRequest, options: TrustedInstallRunOptions, signal: AbortSignal): Promise<TrustedInstallActivationResult>;
   status(request: Readonly<{ token: TrustedInstallSessionToken }>, signal: AbortSignal): Promise<TrustedInstallStatusResult>;
   cancel(request: Readonly<{ token: TrustedInstallSessionToken }>, signal: AbortSignal): Promise<TrustedInstallCancellationResult>;

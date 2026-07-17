@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createPluginLifecycleComposition, createPluginLifecycleService, type PluginLifecycleServiceDependencies } from "../../src/application/plugin-lifecycle-service.js";
-import { digestConfigurationDescriptors } from "../../src/domain/configured-values.js";
+import { createPluginConfigurationDocument, digestConfigurationDescriptors } from "../../src/domain/configured-values.js";
 import { digestCompatibilityReport } from "../../src/application/ports/runtime-projection.js";
 import { prepareEnableCandidate } from "../../src/application/plugin-candidate-preparation.js";
 import { createMaterializationBinding, createContentManifest } from "../../src/domain/content-manifest.js";
@@ -20,6 +20,7 @@ import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.j
 import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
 import { deriveStateBlobRef } from "../../src/domain/state/references.js";
 import { grantTrust, createTrustCandidate } from "../../src/domain/trust-policy.js";
+import { deriveMarketplaceSourceIdentity, derivePluginSourceIdentity } from "../../src/domain/update-policy.js";
 import type { GenerationSnapshot } from "../../src/application/state-contract.js";
 import type { LifecycleStateStore } from "../../src/application/ports/lifecycle-state-store.js";
 import type { GenerationMutationCoordinator } from "../../src/application/generation-mutation-coordinator.js";
@@ -235,6 +236,128 @@ describe("plugin lifecycle service", () => {
     const result = await service.install({ ...installRequest, expectedRevision: `sha256:${"9".repeat(64)}` }, signal);
     expect(result).toMatchObject({ kind: "rejected", operation: "install", code: "AVAILABLE_REVISION_CHANGED" });
     expect(state.current.installed.plugins).toHaveLength(0);
+  });
+
+  it("rejects a prepared install when the exact configuration revision changes before lifecycle resolution", async () => {
+    const descriptorProvenance = entry.identity.provenance[0]!;
+    const configuredPlugin = NormalizedPluginSchema.parse({
+      ...plugin,
+      configuration: {
+        options: [{
+          key: "NAME",
+          label: claim("Name", descriptorProvenance),
+          value: { kind: "string", default: "first" },
+          required: true,
+          sensitive: false,
+          provenance: [descriptorProvenance],
+        }],
+      },
+    });
+    const configuredCompatibility = CompatibilityReportSchema.parse({ ...compatibility, plugin: configuredPlugin.identity });
+    const configuredRevision = createInstalledRevisionRecord({
+      plugin: configuredPlugin,
+      compatibility: configuredCompatibility,
+      content,
+      scope: { kind: "user" },
+      marketplaceSourceIdentity: deriveMarketplaceSourceIdentity(marketplaceSource.declared, sha256),
+      pluginSourceIdentity: derivePluginSourceIdentity(entry.source.value, sha256),
+    }, sha256);
+    if (configuredRevision.configurationRef === undefined) throw new Error("configured revision requires a reference");
+    const firstDocument = createPluginConfigurationDocument({
+      schemaVersion: 1,
+      configurationRef: configuredRevision.configurationRef,
+      plugin: configuredPlugin.identity.key,
+      scope: { kind: "user" },
+      descriptorDigest: digestConfigurationDescriptors(configuredPlugin.configuration, sha256),
+      values: [{ key: "NAME", value: { kind: "string", value: "first" } }],
+      secrets: [],
+    }, sha256);
+    const secondDocument = createPluginConfigurationDocument({
+      schemaVersion: 1,
+      configurationRef: configuredRevision.configurationRef,
+      plugin: configuredPlugin.identity.key,
+      scope: { kind: "user" },
+      descriptorDigest: digestConfigurationDescriptors(configuredPlugin.configuration, sha256),
+      values: [{ key: "NAME", value: { kind: "string", value: "second" } }],
+      secrets: [],
+    }, sha256);
+    const configuredTrustCandidate = createTrustCandidate({
+      scope: { kind: "user" },
+      marketplaceSource,
+      plugin: configuredPlugin,
+      compatibility: configuredCompatibility,
+      content,
+      materializationBinding: binding,
+    }, sha256);
+    const state = new MemoryState(snapshot(0, [], [grantTrust(configuredTrustCandidate, sha256)]));
+    const base = dependencies(state);
+    let reloads = 0;
+    let promotions = 0;
+    let transitions = 0;
+    const composition = createPluginLifecycleComposition({
+      ...base,
+      inspector: { async inspect() { return { ok: true as const, value: configuredPlugin, diagnostics: [] }; } },
+      compatibility: { async assess() { return configuredCompatibility; } },
+      configurations: {
+        async read() { return { kind: "found" as const, document: secondDocument }; },
+        async replace() { return { kind: "stored" as const }; },
+        async remove() { return "missing" as const; },
+      },
+      content: {
+        ...base.content,
+        async promote(plan) { promotions += 1; return base.content.promote(plan, signal); },
+      },
+      transitions: {
+        async prepare() { transitions += 1; return "stored" as const; },
+        async settle() { return undefined; },
+      },
+      reload: {
+        async reload() { reloads += 1; return { kind: "accepted" as const }; },
+        async observe() { throw new Error("observation must not run"); },
+      },
+    });
+    const expected = {
+      scope: { kind: "user" as const },
+      registrationId: `marketplace-registration-v1:sha256:${"1".repeat(64)}` as never,
+      candidateId: `marketplace-candidate-v1:sha256:${"2".repeat(64)}` as never,
+      catalogSnapshot: `marketplace-snapshot-v1:sha256:${"3".repeat(64)}` as never,
+      plugin: configuredPlugin.identity.key,
+      sourceIdentity: configuredPlugin.source.hash,
+      immutableRevision: configuredRevision.revision,
+      contentDigest: content.rootDigest,
+      compatibilityFingerprint: digestCompatibilityReport(configuredCompatibility, sha256),
+      configurationDescriptorDigest: digestConfigurationDescriptors(configuredPlugin.configuration, sha256),
+      configurationRef: configuredRevision.configurationRef,
+      trustSubject: configuredTrustCandidate.subject,
+      executableSurfaceDigest: configuredTrustCandidate.evidence.executableSurfaceDigest,
+      capabilityDigest: `sha256:${"4".repeat(64)}` as never,
+    };
+    const claimedCandidate = { id: expected.candidateId, registrationId: expected.registrationId, snapshot: expected.catalogSnapshot, scope: { kind: "user" }, entry, marketplace: { source: marketplaceSource } } as never;
+    const configuredMaterialized = { ...materialized, source: configuredPlugin.source };
+    const lease = {
+      candidate: claimedCandidate,
+      materialized: configuredMaterialized,
+      async claim() { return { candidate: claimedCandidate, materialized: configuredMaterialized, allocation: { slot: { root: "/virtual/stage" }, allocationId: "configured-stage" } }; },
+      async release() {},
+    } as never;
+
+    const result = await composition.preparedInstall.installPrepared({
+      scope: { kind: "user" },
+      plugin: configuredPlugin.identity.key,
+      entry,
+      marketplaceSource,
+      sourceContext: installRequest.sourceContext,
+      lease,
+      expected,
+      expectedConfigurationRevision: firstDocument.revision,
+      configurationPathContext: installRequest.configurationPathContext,
+    }, signal);
+
+    expect(result).toMatchObject({ kind: "rejected", code: "CONFIGURATION_STALE" });
+    expect(state.current.installed.plugins).toHaveLength(0);
+    expect(transitions).toBe(0);
+    expect(promotions).toBe(0);
+    expect(reloads).toBe(0);
   });
 
   it("consumes prepared candidate bytes without a second materializer call", async () => {

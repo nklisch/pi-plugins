@@ -48,15 +48,29 @@ export type BoundPluginConfigurationService = Readonly<{
   remove(request: RemovePluginConfigurationRequest, signal: AbortSignal): Promise<ConfigurationRemovalResult>;
 }>;
 
+declare const configurationRecoveryCapabilityBrand: unique symbol;
+
+export type ConfigurationRecoverySettlement =
+  | Readonly<{ kind: "settled" }>
+  | Readonly<{ kind: "stored"; document: PluginConfigurationDocument }>
+  | Readonly<{ kind: "stale"; actualRevision: ContentDigest | null }>
+  | Readonly<{ kind: "recovery-required" }>;
+
+/** Opaque, bounded authority that owns every locator/evidence needed to settle recovery. */
+export interface ConfigurationRecoveryCapability {
+  readonly [configurationRecoveryCapabilityBrand]: true;
+  settle(signal: AbortSignal): Promise<ConfigurationRecoverySettlement>;
+}
+
 export type ConfigurationCleanup = Readonly<{
   code: "SECRET_CLEANUP_REQUIRED";
-  locators: readonly SecretLocator[];
+  recovery: ConfigurationRecoveryCapability;
 }>;
 
-/** Safe evidence for a replace whose durable outcome could not be reconciled. */
+/** Safe opaque authority for a replace whose durable outcome could not be reconciled. */
 export type ConfigurationReconciliation = Readonly<{
   code: "CONFIGURATION_RECONCILIATION_REQUIRED";
-  locators: readonly SecretLocator[];
+  recovery: ConfigurationRecoveryCapability;
 }>;
 
 export type ConfigurationSaveResult =
@@ -234,17 +248,17 @@ type OwnedSecretLocator = Readonly<{
 async function cleanupOwnedLocators(
   secrets: SecretStore,
   owned: readonly OwnedSecretLocator[],
-): Promise<SecretLocator[]> {
+): Promise<OwnedSecretLocator[]> {
   // Cleanup is recovery work. Reusing an already-aborted caller signal would
   // turn a guaranteed cleanup attempt into an orphaning path.
   const cleanupSignal = new AbortController().signal;
-  const failed: SecretLocator[] = [];
+  const failed: OwnedSecretLocator[] = [];
   for (const entry of owned) {
     try {
       const result = SecretStoreRemoveResultSchema.parse(await secrets.removeOwned(entry.evidence, cleanupSignal));
       void result;
     } catch {
-      failed.push(entry.locator);
+      failed.push(entry);
     }
   }
   return failed;
@@ -268,17 +282,93 @@ async function cleanupUnownedLocators(
   return failed;
 }
 
+function recoveryCapability(
+  settle: (signal: AbortSignal) => Promise<ConfigurationRecoverySettlement>,
+): ConfigurationRecoveryCapability {
+  return Object.freeze({ settle }) as ConfigurationRecoveryCapability;
+}
+
+function credentialCleanupRecovery(
+  secrets: SecretStore,
+  initialOwned: readonly OwnedSecretLocator[],
+  initialUnowned: readonly SecretLocator[],
+): ConfigurationRecoveryCapability {
+  let owned = [...initialOwned];
+  let unowned = [...initialUnowned];
+  return recoveryCapability(async (signal) => {
+    signal.throwIfAborted();
+    owned = [...await cleanupOwnedLocators(secrets, owned)];
+    unowned = [...await cleanupUnownedLocators(secrets, unowned)];
+    return owned.length === 0 && unowned.length === 0
+      ? { kind: "settled" }
+      : { kind: "recovery-required" };
+  });
+}
+
 function cleanupFailure(
   operation: "save" | "remove",
-  locators: readonly SecretLocator[],
+  secrets: SecretStore,
+  owned: readonly OwnedSecretLocator[],
+  unowned: readonly SecretLocator[],
   aborted: boolean,
 ): ConfigurationCleanupError | undefined {
-  const cleanup = cleanupResult(locators);
+  const cleanup = cleanupResult(secrets, owned, unowned);
   return cleanup === undefined ? undefined : new ConfigurationCleanupError(operation, cleanup, aborted);
 }
 
-function cleanupResult(locators: readonly SecretLocator[]): ConfigurationCleanup | undefined {
-  return locators.length === 0 ? undefined : { code: "SECRET_CLEANUP_REQUIRED", locators: [...locators] };
+function cleanupResult(
+  secrets: SecretStore,
+  owned: readonly OwnedSecretLocator[],
+  unowned: readonly SecretLocator[],
+): ConfigurationCleanup | undefined {
+  return owned.length === 0 && unowned.length === 0
+    ? undefined
+    : { code: "SECRET_CLEANUP_REQUIRED", recovery: credentialCleanupRecovery(secrets, owned, unowned) };
+}
+
+function replaceRecovery(
+  configurations: PluginConfigurationStore,
+  secrets: SecretStore,
+  ref: PluginConfigurationRef,
+  candidate: PluginConfigurationDocument,
+  owned: readonly OwnedSecretLocator[],
+  current: PluginConfigurationDocument | undefined,
+  request: Readonly<{ configurationRef: PluginConfigurationRef; plugin: PluginKey; scope: ScopeContext; descriptors: ConfigurationSubmission["descriptors"] }>,
+  sha256: Sha256,
+): ConfigurationRecoveryCapability {
+  let settledAuthority: Extract<ConfigurationRecoverySettlement, { kind: "stored" | "stale" }> | undefined;
+  let pendingOwned: readonly OwnedSecretLocator[] = [];
+  let pendingUnowned: readonly SecretLocator[] = [];
+  return recoveryCapability(async (signal) => {
+    signal.throwIfAborted();
+    if (settledAuthority === undefined) {
+      const reconciliation = await reconcileReplace(
+        configurations,
+        ref,
+        candidate,
+        owned.map((entry) => entry.locator),
+        request,
+        sha256,
+      );
+      if (reconciliation.kind === "unknown") return { kind: "recovery-required" };
+      if (reconciliation.kind === "inactive") {
+        settledAuthority = { kind: "stale", actualRevision: reconciliation.actualRevision };
+        pendingOwned = owned;
+      } else {
+        settledAuthority = { kind: "stored", document: reconciliation.document };
+        const live = new Set(reconciliation.liveFreshLocators);
+        pendingOwned = owned.filter((entry) => !live.has(entry.locator));
+        const activeLocators = new Set(reconciliation.document.secrets.map((entry) => entry.locator));
+        pendingUnowned = (current?.secrets.map((entry) => entry.locator) ?? [])
+          .filter((locator) => !activeLocators.has(locator));
+      }
+    }
+    pendingOwned = await cleanupOwnedLocators(secrets, pendingOwned);
+    pendingUnowned = await cleanupUnownedLocators(secrets, pendingUnowned);
+    return pendingOwned.length === 0 && pendingUnowned.length === 0
+      ? settledAuthority
+      : { kind: "recovery-required" };
+  });
 }
 
 function ensureWriteId(value: unknown): ReturnType<typeof ConfigurationWriteIdSchema.parse> {
@@ -414,14 +504,14 @@ export async function savePluginConfiguration(
       // Only already-returned evidence can be used for cleanup; the current
       // locator is deliberately not guessed from its caller-supplied string.
       const failedCleanup = await cleanupOwnedLocators(dependencies.secrets, owned);
-      const cleanupError = cleanupFailure("save", failedCleanup, signal.aborted || isAbortRejection(error));
+      const cleanupError = cleanupFailure("save", dependencies.secrets, failedCleanup, [], signal.aborted || isAbortRejection(error));
       if (cleanupError !== undefined) throw cleanupError;
       if (signal.aborted || isAbortRejection(error)) return assertAbort(signal, error);
       throw adapterFailure("putConfigurationSecret");
     }
     if (creation.kind === "collision") {
       const failedCleanup = await cleanupOwnedLocators(dependencies.secrets, owned);
-      const cleanupError = cleanupFailure("save", failedCleanup, false);
+      const cleanupError = cleanupFailure("save", dependencies.secrets, failedCleanup, [], false);
       if (cleanupError !== undefined) throw cleanupError;
       // Collision is a pre-CAS failure. No configuration mutation is allowed,
       // and the colliding credential has no ownership evidence for this op.
@@ -439,7 +529,7 @@ export async function savePluginConfiguration(
         locator: creation.locator,
         evidence: creation.evidence,
       }]);
-      const cleanupError = cleanupFailure("save", failedCleanup, false);
+      const cleanupError = cleanupFailure("save", dependencies.secrets, failedCleanup, [], false);
       if (cleanupError !== undefined) throw cleanupError;
       throw adapterFailure("putConfigurationSecret");
     }
@@ -465,7 +555,19 @@ export async function savePluginConfiguration(
     if (reconciliation.kind === "unknown") {
       return {
         kind: "ambiguous-with-recovery-required",
-        recovery: { code: "CONFIGURATION_RECONCILIATION_REQUIRED", locators: owned.map((entry) => entry.locator) },
+        recovery: {
+          code: "CONFIGURATION_RECONCILIATION_REQUIRED",
+          recovery: replaceRecovery(
+            dependencies.configurations,
+            dependencies.secrets,
+            request.configurationRef,
+            document,
+            owned,
+            current,
+            { ...request, scope: verifiedScope },
+            dependencies.sha256,
+          ),
+        },
       };
     }
 
@@ -473,7 +575,7 @@ export async function savePluginConfiguration(
     // it safe to delete fresh credentials after an ambiguous replace.
     if (reconciliation.kind === "inactive") {
       const failedCleanup = await cleanupOwnedLocators(dependencies.secrets, owned);
-      const cleanupError = cleanupFailure("save", failedCleanup, signal.aborted || isAbortRejection(error));
+      const cleanupError = cleanupFailure("save", dependencies.secrets, failedCleanup, [], signal.aborted || isAbortRejection(error));
       if (cleanupError !== undefined) throw cleanupError;
       if (signal.aborted || isAbortRejection(error)) return assertAbort(signal, error);
       throw adapterFailure("replacePluginConfiguration");
@@ -493,8 +595,7 @@ export async function savePluginConfiguration(
       owned.filter((entry) => inactiveFreshLocators.includes(entry.locator)),
     );
     const failedSupersededCleanup = await cleanupUnownedLocators(dependencies.secrets, superseded);
-    const failedCleanup = [...new Set([...failedOwnedCleanup, ...failedSupersededCleanup])];
-    const cleanup = cleanupResult(failedCleanup);
+    const cleanup = cleanupResult(dependencies.secrets, failedOwnedCleanup, failedSupersededCleanup);
     return cleanup === undefined
       ? { kind: "stored", document: reconciliation.document }
       : { kind: "stored-with-cleanup-required", document: reconciliation.document, cleanup };
@@ -515,7 +616,19 @@ export async function savePluginConfiguration(
     if (reconciliation.kind === "unknown") {
       return {
         kind: "ambiguous-with-recovery-required",
-        recovery: { code: "CONFIGURATION_RECONCILIATION_REQUIRED", locators: owned.map((entry) => entry.locator) },
+        recovery: {
+          code: "CONFIGURATION_RECONCILIATION_REQUIRED",
+          recovery: replaceRecovery(
+            dependencies.configurations,
+            dependencies.secrets,
+            request.configurationRef,
+            document,
+            owned,
+            current,
+            { ...request, scope: verifiedScope },
+            dependencies.sha256,
+          ),
+        },
       };
     }
     const live = reconciliation.kind === "active"
@@ -523,14 +636,14 @@ export async function savePluginConfiguration(
       : new Set<SecretLocator>();
     const inactiveOwned = owned.filter((entry) => !live.has(entry.locator));
     const failedCleanup = await cleanupOwnedLocators(dependencies.secrets, inactiveOwned);
-    const cleanup = cleanupResult(failedCleanup);
+    const cleanup = cleanupResult(dependencies.secrets, failedCleanup, []);
     if (reconciliation.kind === "active") {
       return cleanup === undefined
         ? { kind: "stored", document: reconciliation.document }
         : { kind: "stored-with-cleanup-required", document: reconciliation.document, cleanup };
     }
     if (signal.aborted) {
-      const cleanupError = cleanupFailure("save", failedCleanup, true);
+      const cleanupError = cleanupFailure("save", dependencies.secrets, failedCleanup, [], true);
       if (cleanupError !== undefined) throw cleanupError;
       return assertAbort(signal, signal.reason);
     }
@@ -543,7 +656,7 @@ export async function savePluginConfiguration(
   const superseded = (current?.secrets.map((entry) => entry.locator) ?? [])
     .filter((locator) => !activeLocators.has(locator));
   const failedCleanup = await cleanupUnownedLocators(dependencies.secrets, superseded);
-  const cleanup = cleanupResult(failedCleanup);
+  const cleanup = cleanupResult(dependencies.secrets, [], failedCleanup);
   // Once CAS wins, the new document is authoritative. Never roll it back on
   // cancellation; return cleanup evidence for any old locators that remain.
   return cleanup === undefined
