@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-inspection-diagnostics
 kind: feature
-stage: review
+stage: done
 tags: [compatibility]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-marketplace-discovery-adoption]
@@ -787,7 +787,30 @@ The countermeasures are snapshot validation, strict authority precedence, activa
 - **Coherence**: state generations, project trust, catalog tokens/cache status, one packaged capability capture, monotonic runtime selections, local skill/hook observations, MCP local/live status, recovery, and update memory bind each result. Capture-time metadata is excluded from authority identity; any authority change returns stale rather than retrying or mixing.
 - **Safety/read-only behavior**: candidate acquisition is callback-scoped disposable staging; all other reads remain local/offline. Public schemas cannot contain raw declarations, configuration/secret values or locators, custody/project paths, URL query/fragment/userinfo values, native messages/causes, command output, or remote bodies. Hostile display text is escaped before rendering.
 - **Packaged composition**: capabilities are captured once per host epoch and reused by compatibility, desired runtime, and inspection. `PackagedPluginHostApplication.inspection` exposes only `list/detail/diagnose`; the low-level bundle inspector and all raw adapters remain private. Classifiable local runtime reconstruction failure retains a blocked read-only container.
-- **Verification**: the post-rebase focused inspection/marketplace/packaged/security run passed 128 tests. Full `npm test` passed typecheck, 302-module / 2,044-edge dependency boundaries, 233 Vitest files / 1,145 tests with no type errors, package build, exact 623 root exports, exact 3 Pi exports, and isolated packed extension startup.
+- **Verification**: final focused inspection/marketplace/packaged-host/security verification passed 216 tests. Full `npm test` passed typecheck, 303-module / 2,046-edge dependency boundaries, 233 Vitest files / 1,186 tests with no type errors, package build, exact 623 root exports, exact 3 Pi exports, and isolated packed extension startup.
 - **Review readiness**: all eight child checkpoints are `done`; integrated verification is green. Effective review weight is project-default `standard`. Independent feature review is intentionally left to the invoking orchestrator because this owner was explicitly forbidden from nesting agents.
 - **Owner pre-review correction**: a final authority-precedence walk found that exact inactive skill evidence could be mislabeled when a disabled plugin declared components and no MCP runtime was composed. The projector now treats exact inactivity/structural MCP absence as matching only for disabled intent (or an active no-MCP projection), while enabled missing-selection evidence remains unavailable/blocked.
 - **Post-marketplace-rebase correction**: inspection now binds quarantined lifecycle-v3 record evidence by digest while preserving readable siblings; consumes the catalog service's finalized publication observations so corrupt content stays distinct from unavailable content; revalidates every public detail outcome; reports blocked packaged startup; redacts query/fragment values from SCP-style URL fallbacks; and proves candidate bytes use and leave the production private staging layout. Snapshot revalidation remains centralized at the public service boundary to avoid repeated whole-host captures inside item projectors.
+
+## Review (2026-07-17)
+
+**Verdict**: Approve
+
+**Blockers**: Six receiver-accepted blockers from the sole standard-weight inspection review, fixed in `2126516` and covered in `e0f5b82` plus the acquisition-race regression `6b7a5cd`:
+
+1. Safe-display schemas now reject every raw unsafe scalar through the sanitizer's shared predicate; the public service parses final detail results; provenance recognizes POSIX, UNC, device, drive-qualified, Windows root-relative, and mixed-case `file:` paths while preserving the declared local-source exception.
+2. Catalog acquisition and evidence capture search each successfully captured scope independently. A failed/unreadable scope cannot abort a readable sibling or publish an adapter error; the result retains sibling candidates and a redacted unavailable observation.
+3. List observations and condition use only requested scopes and subjects. Installed requests use state authority, candidate requests use catalog authority, condition summarizes the complete post-query/post-condition-filter result rather than one page slice, and wholly unreadable requested authority is `unavailable`.
+4. Installed projection distinguishes missing, unavailable, and mismatched runtime evidence through registry-owned diagnostics. MCP health rows are current or stale from exact authority, omit transport when no exact declaration joins, and stale recovery/trust/mismatch health never becomes current activation or live-health diagnostics.
+5. Host diagnostic identity includes safe owner facts for scopes, catalogs, startup owners, recovery plugins/transitions, and adoption documents; missing detail diagnostics follow installed versus candidate subject kind; every production summary condition derives from compiled diagnostics.
+6. Self-confirming runtime/security fixture assertions were replaced by composed-service and real-projector coverage. Hostile state/catalog/quarantine/trust/root/capability/runtime/recovery/update/native-error/control/path/URL/command/credential values are injected at capture, acquisition, projection, and return boundaries.
+
+**Important**: Broader contract questions were parked without release binding:
+- `idea-native-inspection-detail-invalid-error-code` (`e50508a`)
+- `idea-define-native-inspection-page-condition-scope` (`cdbaf0d`)
+
+**Nits**: none
+
+**Rejected**: none
+
+**Notes**: Effective review weight was project-default `standard`; pass count was one. This closure applied and verified the six accepted blockers without a second review or nested agent, as explicitly required. The required host-focused run also reproduced a real concurrent clean-start `ENOENT → mkdir → EEXIST` race; `1104a8a` now tolerates only `EEXIST` and immediately re-applies the existing directory/symlink/capability checks, preserving rather than weakening host-root safety. Focused inspection-only verification passed 107 tests; the required combined inspection/marketplace/packaged-host/security run passed 216; full verification passed 233 files / 1,186 tests plus typecheck, 303-module / 2,046-edge boundaries, package build/import checks, and isolated packed startup. All eight child stories remain `done`; this feature advances `review → done`.
