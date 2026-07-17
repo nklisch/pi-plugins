@@ -15,7 +15,6 @@ import {
   type NativeLifecycleOperationRequest,
   type NativeLifecycleOperationResult,
   type NativeLifecycleOperationService,
-  type NativeLifecycleOperationSessionState,
   type NativeLifecycleProgressPhase,
   type NativeLifecycleRetainedPreflightEvidence,
   type NativeLifecycleRunOptions,
@@ -53,9 +52,6 @@ export type NativeLifecycleOperationServiceDependencies = Readonly<{
   sha256: Sha256;
 }>;
 
-function stateFor(result: NativeLifecycleOperationResult): NativeLifecycleOperationSessionState {
-  return result.kind;
-}
 function effects() { return { state: "unchanged" as const, projectFile: "unchanged" as const, completedActionIds: [], pendingActionIds: [] }; }
 
 export function createNativeLifecycleOperationService(dependencies: NativeLifecycleOperationServiceDependencies): Readonly<{
@@ -241,7 +237,7 @@ export function createNativeLifecycleOperationService(dependencies: NativeLifecy
       entry.version += 1;
       let result = NativeLifecycleOperationResultSchema.parse({ kind: "cancelled", operation: entry.preview.operation, previewId: entry.preview.previewId, progress: entry.progress, diagnostics: [], effects: effects(), phase: "preflight" });
       if (await releaseEntry(entry) === "cleanup-failed") result = failed(entry, "CLEANUP_FAILED");
-      sessions.finish(entry, stateFor(result), result);
+      sessions.finish(entry, result);
       return result;
     }
     entry.state = "applying";
@@ -264,7 +260,7 @@ export function createNativeLifecycleOperationService(dependencies: NativeLifecy
         }
       }
       if (await releaseEntry(entry) === "cleanup-failed") result = failed(entry, "CLEANUP_FAILED", retainedFrom(result));
-      sessions.finish(entry, stateFor(result), result);
+      sessions.finish(entry, result);
       return result;
     } catch (error) {
       let result: NativeLifecycleOperationResult;
@@ -287,7 +283,7 @@ export function createNativeLifecycleOperationService(dependencies: NativeLifecy
         result = failed(entry, "ADAPTER_FAILED");
       }
       if (await releaseEntry(entry) === "cleanup-failed") result = failed(entry, "CLEANUP_FAILED", retainedFrom(result));
-      sessions.finish(entry, stateFor(result), result);
+      sessions.finish(entry, result);
       return result;
     } finally { settleCompletion(); delete entry.completion; }
   }
@@ -318,7 +314,7 @@ export function createNativeLifecycleOperationService(dependencies: NativeLifecy
           if (lookup.kind !== "found") return NativeLifecycleOperationResultSchema.parse({ kind: lookup.kind });
           let result = failed(lookup.entry, "ADAPTER_FAILED");
           if (await releaseEntry(lookup.entry) === "cleanup-failed") result = failed(lookup.entry, "CLEANUP_FAILED");
-          sessions.finish(lookup.entry, stateFor(result), result);
+          sessions.finish(lookup.entry, result);
           return result;
         }
       }
@@ -346,7 +342,7 @@ export function createNativeLifecycleOperationService(dependencies: NativeLifecy
       if (entry.state !== "applying" && entry.result === undefined) {
         let result = NativeLifecycleOperationResultSchema.parse({ kind: "cancelled", operation: entry.preview.operation, previewId: entry.preview.previewId, progress: entry.progress, diagnostics: [], effects: effects(), phase: "preflight" });
         if (await releaseEntry(entry) === "cleanup-failed") result = failed(entry, "CLEANUP_FAILED");
-        sessions.finish(entry, stateFor(result), result);
+        sessions.finish(entry, result);
       }
       return NativeLifecycleOperationCancellationResultSchema.parse({ kind: "accepted", state: entry.state });
     },

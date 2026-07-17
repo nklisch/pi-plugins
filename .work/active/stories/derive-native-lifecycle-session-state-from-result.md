@@ -1,7 +1,7 @@
 ---
 id: derive-native-lifecycle-session-state-from-result
 kind: story
-stage: implementing
+stage: review
 tags: [refactor]
 parent: null
 depends_on: []
@@ -102,3 +102,19 @@ Delete `stateFor` and its now-unused `NativeLifecycleOperationSessionState` type
 ## Risk and Rollback
 
 Risk is low because the removed argument is currently always `result.kind`, and the registry remains the sole owner of mutable session state. A type error will expose any result kind that is not a valid terminal session state. Revert the implementation commit to restore the explicit parameter and identity helper.
+
+## Implementation notes
+
+- Execution capability: direct inline implementation; the change is a bounded private refactor across two files, and the caller prohibited nested agents.
+- Review weight: standard from `.work/CONVENTIONS.md`; as a standalone story, review uses the bounded inline lane without an independent reviewer.
+- Files changed: `src/application/native-lifecycle-operation-session.ts`, `src/application/native-lifecycle-operation-service.ts`.
+- Tests added/removed: none; unchanged operation-service coverage protects terminal settlements and the private signature is typechecked.
+- Simplification: removed the redundant `state` argument, identity `stateFor` helper, and now-unused session-state type import; all five settlements pass only entry and result.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+
+## Verification
+
+- `npm run typecheck` — passed.
+- `npm run test:unit -- --run test/application/native-lifecycle-operation-service.test.ts` — passed (1 file, 10 tests).
+- Source diff after implementation: 7 insertions, 11 deletions (net -4 lines).

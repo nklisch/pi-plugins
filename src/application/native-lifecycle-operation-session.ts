@@ -98,8 +98,8 @@ export function createNativeLifecycleOperationSessionRegistry(input: Readonly<{
     expiresAt(entry: NativeLifecycleOperationSessionEntry): number {
       return entry.createdEpoch + Math.min(entry.lastAccessMonotonic - entry.createdMonotonic + NativeLifecycleOperationSessionPolicy.idleTtlMs, NativeLifecycleOperationSessionPolicy.absoluteTtlMs);
     },
-    finish(entry: NativeLifecycleOperationSessionEntry, state: NativeLifecycleOperationSessionState, result: NativeLifecycleOperationResult): void {
-      entry.state = state;
+    finish(entry: NativeLifecycleOperationSessionEntry, result: NativeLifecycleOperationResult): void {
+      entry.state = result.kind;
       entry.result = result;
       entry.progress = "progress" in result ? result.progress : [];
       entry.terminalMonotonic = now();
