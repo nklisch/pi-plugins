@@ -1,7 +1,7 @@
 ---
 id: derive-native-lifecycle-session-state-from-result
 kind: story
-stage: review
+stage: done
 tags: [refactor]
 parent: null
 depends_on: []
@@ -117,4 +117,19 @@ Risk is low because the removed argument is currently always `result.kind`, and 
 
 - `npm run typecheck` — passed.
 - `npm run test:unit -- --run test/application/native-lifecycle-operation-service.test.ts` — passed (1 file, 10 tests).
+- `npm test` — passed: typecheck, dependency boundaries, 275 test files / 1,351 tests, package build/import checks, and isolated packed Pi extension startup.
 - Source diff after implementation: 7 insertions, 11 deletions (net -4 lines).
+
+## Review (2026-07-17)
+
+**Verdict**: Approve
+
+**Blockers**: none
+
+**Important**: none
+
+**Nits**: none
+
+**Rejected**: none
+
+**Notes**: Bounded inline standalone-story review; no independent, fresh-context, cross-model, or nested agent ran. Confirmed all five settlement paths now pass the same result directly, `finish` derives only `result.kind`, and result storage, progress projection, terminal timestamp placement, release/cleanup ordering, schemas, public service signatures, and lifecycle branches are otherwise unchanged. Typecheck and focused/full verification are green.
