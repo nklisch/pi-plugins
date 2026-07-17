@@ -44,6 +44,7 @@ export function projectPluginLifecycleResult(input: Readonly<{
   diagnostics?: readonly NativeDiagnostic[];
   cancellationPhase?: NativeLifecycleProgressPhase;
   persistentData?: "keep" | "delete-confirmed";
+  cleanupPersistentData?: "retained" | "deleted" | "recovery-required";
   components?: Readonly<{ skills: number; hooks: number; mcpServers: number }>;
   sha256: Sha256;
 }>): NativeLifecycleOperationResult {
@@ -66,7 +67,7 @@ export function projectPluginLifecycleResult(input: Readonly<{
       ...(after === undefined ? {} : { after }),
       ...(input.components === undefined ? {} : { components: input.components }),
       ...(result.operation === "uninstall" ? { cleanup: {
-        persistentData: input.persistentData === "delete-confirmed" ? "recovery-required" : "retained",
+        persistentData: input.cleanupPersistentData ?? (input.persistentData === "delete-confirmed" ? "recovery-required" : "retained"),
         configuration: "retained",
         trust: "retained",
         revisions: "collection-deferred",

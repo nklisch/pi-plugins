@@ -58,13 +58,14 @@ export async function createNodeRecoveryAdapters(options: NodeRecoveryAdapterOpt
   const list: NonNullable<LifecycleTransitionStore["list"]> = (scope, signal) => transitions(scope).list!(scope, signal);
   const markRecoveryRequired: NonNullable<LifecycleTransitionStore["markRecoveryRequired"]> = (request, signal) => transitions(request.scope).markRecoveryRequired!(request, signal);
   const markCollectionComplete: NonNullable<LifecycleTransitionStore["markCollectionComplete"]> = (request, signal) => transitions(request.scope).markCollectionComplete!(request, signal);
+  const markCleanup: NonNullable<LifecycleTransitionStore["markCleanup"]> = (request, signal) => transitions(request.scope).markCleanup!(request, signal);
   const ownerStatus: NonNullable<LifecycleTransitionStore["ownerStatus"]> = (scope, reference, signal) => transitions(scope).ownerStatus!(scope, reference, signal);
   const pruneTerminal: NonNullable<LifecycleTransitionStore["pruneTerminal"]> = async (request, signal) => {
     let pruned = 0;
     for (const journal of journals.values()) pruned += await journal.pruneTerminal!(request, signal);
     return pruned;
   };
-  const transitionStore: LifecycleTransitionStore = Object.freeze({ prepare, settle, read, list, markRecoveryRequired, markCollectionComplete, ownerStatus, pruneTerminal });
+  const transitionStore: LifecycleTransitionStore = Object.freeze({ prepare, settle, read, list, markRecoveryRequired, markCleanup, markCollectionComplete, ownerStatus, pruneTerminal });
   const [leases, retention] = await Promise.all([
     createProcessRevisionLeaseStore(options),
     createSqliteRevisionRetention(options),

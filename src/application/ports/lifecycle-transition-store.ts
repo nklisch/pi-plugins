@@ -73,7 +73,31 @@ export const LifecycleTransitionJournalEntrySchemaV1 = z.object({
   statusAt: EpochMillisecondsSchema,
   collectionCompletedAt: EpochMillisecondsSchema.optional(),
 }).strict().readonly();
-export type LifecycleTransitionJournalEntry = z.infer<typeof LifecycleTransitionJournalEntrySchemaV1>;
+export type LifecycleTransitionJournalEntryV1 = z.infer<typeof LifecycleTransitionJournalEntrySchemaV1>;
+
+export const LifecycleUninstallCleanupStatusSchema = z.enum(["not-required", "pending-data-delete", "completed", "recovery-required"]);
+export type LifecycleUninstallCleanupStatus = z.infer<typeof LifecycleUninstallCleanupStatusSchema>;
+
+export const LifecycleTransitionJournalEntrySchemaV2 = z.object({
+  schemaVersion: z.literal(2),
+  record: LifecycleTransitionRecordSchemaV1,
+  status: LifecycleTransitionStatusSchema,
+  cleanup: LifecycleUninstallCleanupStatusSchema,
+  preparedAt: EpochMillisecondsSchema,
+  statusAt: EpochMillisecondsSchema,
+  collectionCompletedAt: EpochMillisecondsSchema.optional(),
+}).strict().readonly();
+export type LifecycleTransitionJournalEntry = z.infer<typeof LifecycleTransitionJournalEntrySchemaV2>;
+
+export function lifecycleCleanupStatus(record: LifecycleTransitionRecord, status: LifecycleTransitionStatus): LifecycleUninstallCleanupStatus {
+  if (record.operation !== "uninstall" || record.retainedData !== "delete-confirmed" || status.kind === "rolled-back" || status.kind === "abandoned") return "not-required";
+  return "pending-data-delete";
+}
+
+export function migrateLifecycleTransitionJournalEntryV1(input: unknown): LifecycleTransitionJournalEntry {
+  const entry = LifecycleTransitionJournalEntrySchemaV1.parse(input);
+  return LifecycleTransitionJournalEntrySchemaV2.parse({ ...entry, schemaVersion: 2, cleanup: lifecycleCleanupStatus(entry.record, entry.status) });
+}
 
 export const LifecycleTransitionPrepareResultSchema = z.enum(["stored", "already-present"]);
 export type LifecycleTransitionPrepareResult = z.infer<typeof LifecycleTransitionPrepareResultSchema>;
@@ -92,7 +116,7 @@ export type LifecycleTransitionSettleRequest = z.infer<typeof LifecycleTransitio
 
 export const TransitionJournalReadResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("missing") }).strict().readonly(),
-  z.object({ kind: z.literal("found"), entry: LifecycleTransitionJournalEntrySchemaV1 }).strict().readonly(),
+  z.object({ kind: z.literal("found"), entry: LifecycleTransitionJournalEntrySchemaV2 }).strict().readonly(),
   z.object({
     kind: z.literal("corrupt"),
     code: z.literal("TRANSITION_JOURNAL_CORRUPT"),
@@ -101,7 +125,7 @@ export const TransitionJournalReadResultSchema = z.discriminatedUnion("kind", [
 export type TransitionJournalReadResult = z.infer<typeof TransitionJournalReadResultSchema>;
 
 export const LifecycleTransitionCollectionSchema = z.object({
-  entries: z.array(LifecycleTransitionJournalEntrySchemaV1).readonly(),
+  entries: z.array(LifecycleTransitionJournalEntrySchemaV2).readonly(),
   complete: z.boolean(),
   diagnostics: z.array(z.object({ code: z.literal("TRANSITION_JOURNAL_CORRUPT"), scope: ScopeReferenceSchema.optional() }).strict().readonly()).readonly(),
 }).strict().readonly();
@@ -130,6 +154,7 @@ export interface LifecycleTransitionStore {
   list?(scope: ScopeReference, signal: AbortSignal): Promise<LifecycleTransitionCollection>;
   markRecoveryRequired?(request: Readonly<{ scope: ScopeReference; reference: PendingTransitionRef; generation?: Generation; at: EpochMilliseconds }>, signal: AbortSignal): Promise<"stored" | "already-present" | "terminal">;
   markCollectionComplete?(request: Readonly<{ scope: ScopeReference; reference: PendingTransitionRef; at: EpochMilliseconds }>, signal: AbortSignal): Promise<void>;
+  markCleanup?(request: Readonly<{ scope: ScopeReference; reference: PendingTransitionRef; status: "completed" | "recovery-required"; at: EpochMilliseconds }>, signal: AbortSignal): Promise<"stored" | "already-present" | "terminal">;
   pruneTerminal?(request: Readonly<{ before: EpochMilliseconds }>, signal: AbortSignal): Promise<number>;
   ownerStatus?(scope: ScopeReference, reference: PendingTransitionRef, signal: AbortSignal): Promise<"live" | "dead" | "unknown" | "released">;
 }

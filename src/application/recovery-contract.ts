@@ -23,6 +23,7 @@ export const RecoveryDiagnosticCodeSchema = z.enum([
   "STATE_CORRUPT",
   "RECOVERY_CONFLICT",
   "PREVIOUS_UNAVAILABLE",
+  "CLEANUP_FAILED",
 ]);
 export type RecoveryDiagnosticCode = z.infer<typeof RecoveryDiagnosticCodeSchema>;
 
@@ -43,6 +44,7 @@ export const TransitionRecoveryResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("finalized"), scope: ScopeReferenceSchema, plugin: PluginKeySchema, reference: PendingTransitionRefSchema, generation: GenerationSchema }).strict().readonly(),
   z.object({ kind: z.literal("rolled-back"), scope: ScopeReferenceSchema, plugin: PluginKeySchema, reference: PendingTransitionRefSchema, generation: GenerationSchema }).strict().readonly(),
   z.object({ kind: z.literal("abandoned"), scope: ScopeReferenceSchema, plugin: PluginKeySchema, reference: PendingTransitionRefSchema }).strict().readonly(),
+  z.object({ kind: z.literal("cleanup-completed"), scope: ScopeReferenceSchema, plugin: PluginKeySchema, reference: PendingTransitionRefSchema }).strict().readonly(),
   z.object({
     kind: z.literal("deferred"),
     scope: ScopeReferenceSchema,
@@ -55,7 +57,7 @@ export const TransitionRecoveryResultSchema = z.discriminatedUnion("kind", [
     scope: ScopeReferenceSchema,
     plugin: PluginKeySchema.optional(),
     reference: PendingTransitionRefSchema.optional(),
-    code: z.enum(["JOURNAL_MISSING", "JOURNAL_CORRUPT", "STATE_CORRUPT", "RECOVERY_CONFLICT", "PREVIOUS_UNAVAILABLE"]),
+    code: z.enum(["JOURNAL_MISSING", "JOURNAL_CORRUPT", "STATE_CORRUPT", "RECOVERY_CONFLICT", "PREVIOUS_UNAVAILABLE", "CLEANUP_FAILED"]),
   }).strict().readonly(),
 ]);
 export type TransitionRecoveryResult = z.infer<typeof TransitionRecoveryResultSchema>;

@@ -10,6 +10,7 @@ import { createNativeLifecycleProgressRecorder, type NativeLifecycleProgressReco
 import { projectPluginLifecycleResult } from "./native-lifecycle-result.js";
 import type { NativeLifecycleTargetService, VerifiedNativeLifecycleTarget } from "./native-lifecycle-target.js";
 import type { NativeLifecycleUpdateService, PreparedNativeLifecycleUpdate } from "./native-lifecycle-update.js";
+import type { NativeUninstallCleanupService } from "./native-uninstall-cleanup.js";
 import type { NativeDiagnostic } from "./native-inspection-contract.js";
 import type { NativeInspectionEvidencePort } from "./ports/native-inspection-evidence.js";
 import type { ProjectRootAuthorityPort, TrustedProjectRoot } from "./ports/project-root-authority.js";
@@ -29,6 +30,7 @@ export type NativeLifecycleOperationDependencies = Readonly<{
   trust: ExactTrustGrantService;
   evidence: NativeInspectionEvidencePort;
   projectRoots: ProjectRootAuthorityPort;
+  uninstallCleanup: NativeUninstallCleanupService;
   sha256: Sha256;
 }>;
 
@@ -214,7 +216,20 @@ export async function executeNativeLifecycleOperation(
     result = await dependencies.lifecycle.application.uninstall({ scope: target.scope, plugin: target.binding.plugin, retainedData: confirmation.persistentData, expectedTarget: target.expectation }, signal);
   }
   await progress.emit({ phase: "lifecycle-transaction", state: "completed", plugin: target.binding.plugin });
-  return projectPluginLifecycleResult({ result, target: context.target, previewId: context.previewId, progress: progress.events(), ...(context.diagnostics === undefined ? {} : { diagnostics: context.diagnostics }), ...(confirmation.kind === "confirm-uninstall" ? { persistentData: confirmation.persistentData } : {}), sha256: dependencies.sha256 });
+  let cleanupPersistentData: "retained" | "deleted" | "recovery-required" | undefined;
+  if (context.operation === "uninstall" && confirmation.kind === "confirm-uninstall" && result.kind === "changed") {
+    cleanupPersistentData = confirmation.persistentData === "keep" ? "retained" : "recovery-required";
+    if (confirmation.persistentData === "delete-confirmed" && result.cleanup !== undefined) {
+      await progress.emit({ phase: "uninstall-cleanup", state: "started", plugin: target.binding.plugin });
+      const cleanup = await dependencies.uninstallCleanup.complete({ scope: target.binding.scope, reference: result.cleanup.transition }, signal);
+      cleanupPersistentData = cleanup.kind === "deleted" ? "deleted" : cleanup.kind === "retained" ? "retained" : "recovery-required";
+      await progress.emit({ phase: "uninstall-cleanup", state: cleanup.kind === "recovery-required" ? "failed" : "completed", plugin: target.binding.plugin, ...(cleanup.kind === "recovery-required" ? { code: "CLEANUP_FAILED" } : {}) });
+      if (cleanup.kind === "recovery-required") {
+        return NativeLifecycleOperationResultSchema.parse({ kind: "recovery-required", operation: "uninstall", previewId: context.previewId, progress: progress.events(), diagnostics: context.diagnostics ?? [], effects: { state: "changed", projectFile: "unchanged", completedActionIds: [], pendingActionIds: [], generation: result.snapshot.generation }, code: "CLEANUP_FAILED", transition: cleanup.reference, committed: result.snapshot.generation, action: "run-recovery" });
+      }
+    }
+  }
+  return projectPluginLifecycleResult({ result, target: context.target, previewId: context.previewId, progress: progress.events(), ...(context.diagnostics === undefined ? {} : { diagnostics: context.diagnostics }), ...(confirmation.kind === "confirm-uninstall" ? { persistentData: confirmation.persistentData } : {}), ...(cleanupPersistentData === undefined ? {} : { cleanupPersistentData }), sha256: dependencies.sha256 });
 }
 
 export function createNativeLifecycleOperationExecutor(dependencies: NativeLifecycleOperationDependencies) {

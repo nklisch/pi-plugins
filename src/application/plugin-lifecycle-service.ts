@@ -145,6 +145,7 @@ export type LifecycleActivationFailure =
 export type LifecycleCleanupIntent = Readonly<{
   kind: "deferred";
   retainedData: LifecycleRetainedData;
+  transition: import("../domain/state/references.js").PendingTransitionRef;
 }>;
 
 export type PluginLifecycleResult =
@@ -874,7 +875,7 @@ function createPluginLifecycleImplementation(
       operation,
       snapshot: reconciled.snapshot,
       observation: reconciled.observation,
-      ...(operation === "uninstall" ? { cleanup: { kind: "deferred", retainedData: retainedData(request) } } : {}),
+      ...(operation === "uninstall" ? { cleanup: { kind: "deferred", retainedData: retainedData(request), transition: reference } } : {}),
     };
   }
 

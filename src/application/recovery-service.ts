@@ -10,6 +10,7 @@ import type { RecoveryArtifactsPort } from "./ports/recovery-artifacts.js";
 import type { LifecycleTransitionReconciler } from "./lifecycle-transition-reconciler.js";
 import { DefaultLifecycleRecoveryPolicy, LifecycleRecoveryResultSchema, RecoveryPolicySchema, TransitionRecoveryResultSchema, type LifecycleRecoveryResult, type RecoveryPolicy, type TransitionRecoveryResult } from "./recovery-contract.js";
 import type { ActivationObservation, LifecycleReloadPort } from "./ports/lifecycle-reload.js";
+import type { NativeUninstallCleanupService } from "./native-uninstall-cleanup.js";
 
 export type LifecycleRecoveryServiceDependencies = Readonly<{
   state: LifecycleStateStore;
@@ -18,6 +19,7 @@ export type LifecycleRecoveryServiceDependencies = Readonly<{
   reconciler: LifecycleTransitionReconciler;
   reload: LifecycleReloadPort;
   artifacts?: RecoveryArtifactsPort;
+  uninstallCleanup?: NativeUninstallCleanupService;
   clock?: LifecycleClock;
 }>;
 
@@ -123,6 +125,18 @@ export function createLifecycleRecoveryService(dependencies: LifecycleRecoverySe
           deferred = true;
           results.push({ kind: "blocked", scope: scopeReference, plugin: pluginRecord.plugin, reference, code: "RECOVERY_CONFLICT" });
           await journal.markRecoveryRequired?.({ scope: scopeReference, reference, ...(reconciled.committed === undefined ? {} : { generation: reconciled.committed }), at: clock.nowEpochMilliseconds() }, signal).catch(() => undefined);
+        }
+      }
+
+      // Terminal uninstall deletion is durable journal work, independent of
+      // the now-absent installed record. Failure never blocks another plugin.
+      if (dependencies.uninstallCleanup !== undefined) {
+        for (const entry of collection.entries.filter((candidate) => candidate.status.kind === "completed" && (candidate.cleanup === "pending-data-delete" || candidate.cleanup === "recovery-required")).sort((left, right) => left.record.reference.localeCompare(right.record.reference))) {
+          if (processed >= policy.maxTransitions || clock.monotonicMilliseconds() >= deadline) { deferred = true; results.push({ kind: "deferred", scope: scopeReference, plugin: entry.record.plugin, reference: entry.record.reference, code: "BUDGET_EXHAUSTED" }); continue; }
+          processed += 1;
+          const cleanup = await dependencies.uninstallCleanup.recover(entry, signal);
+          if (cleanup.kind === "deleted") results.push({ kind: "cleanup-completed", scope: scopeReference, plugin: entry.record.plugin, reference: entry.record.reference });
+          else if (cleanup.kind === "recovery-required") { deferred = true; results.push({ kind: "blocked", scope: scopeReference, plugin: entry.record.plugin, reference: entry.record.reference, code: "CLEANUP_FAILED" }); }
         }
       }
 

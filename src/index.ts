@@ -1352,6 +1352,9 @@ export {
   LifecycleTransitionRecordSchemaV1,
   LifecycleTransitionStatusSchema,
   LifecycleTransitionJournalEntrySchemaV1,
+  LifecycleTransitionJournalEntrySchemaV2,
+  LifecycleUninstallCleanupStatusSchema,
+  migrateLifecycleTransitionJournalEntryV1,
   LifecycleTransitionPrepareResultSchema,
   LifecycleTransitionOutcomeSchema,
   LifecycleTransitionSettleRequestSchema,
@@ -1362,7 +1365,9 @@ export type {
   LifecycleTransitionRecord,
   LifecycleTransitionPrepareResult,
   LifecycleTransitionStatus,
+  LifecycleTransitionJournalEntryV1,
   LifecycleTransitionJournalEntry,
+  LifecycleUninstallCleanupStatus,
   LifecycleTransitionOutcome,
   LifecycleTransitionSettleRequest,
   TransitionJournalReadResult,
@@ -1572,6 +1577,8 @@ export { createRevisionCollectionService } from "./application/revision-collecti
 export type { RevisionCollectionPolicy, RevisionCollectionResult, RevisionCollectionDependencies } from "./application/revision-collection-service.js";
 export { ConfirmedUninstallCleanupResultSchema, createConfirmedUninstallCleanup } from "./application/confirmed-uninstall-cleanup.js";
 export type { ConfirmedUninstallCleanupResult, ConfirmedUninstallCleanupDependencies, ConfirmedUninstallCleanupRequest } from "./application/confirmed-uninstall-cleanup.js";
+export { createNativeUninstallCleanupService } from "./application/native-uninstall-cleanup.js";
+export type { NativeUninstallCleanupResult, NativeUninstallCleanupService } from "./application/native-uninstall-cleanup.js";
 export { createNodeRecoveryAdapters } from "./infrastructure/recovery/create-node-recovery-adapters.js";
 export type { NodeRecoveryAdapterOptions, NodeRecoveryAdapters } from "./infrastructure/recovery/create-node-recovery-adapters.js";
 

@@ -25,9 +25,9 @@ const compatibility = CompatibilityReportSchema.parse({ plugin: plugin.identity,
 const content = createContentManifest([], sha256);
 const state = createInstalledPluginRecord({ plugin: plugin.identity.key, activation: "disabled", revisions: [{ plugin, compatibility, content }], scope: { kind: "user" } }, sha256);
 const projection = createInactiveProjectionExpectation({ scope: { kind: "user" }, plugin: plugin.identity.key, sha256 });
-function record(operationId: string) {
+function record(operationId: string, uninstall = false) {
   const reference = deriveLifecyclePendingTransitionRef({ operationId, scope: { kind: "user" }, plugin: plugin.identity.key, startingGeneration: 0 }, sha256);
-  return createLifecycleTransitionRecord({ operationId, operation: "disable", origin: "manual", scope: { kind: "user" }, plugin: plugin.identity.key, startingGeneration: 0, previous: state, candidate: state, final: state, previousProjection: projection, candidateProjection: projection, retainedData: "keep", reference, sha256 });
+  return createLifecycleTransitionRecord({ operationId, operation: uninstall ? "uninstall" : "disable", origin: "manual", scope: { kind: "user" }, plugin: plugin.identity.key, startingGeneration: 0, previous: state, candidate: state, final: uninstall ? null : state, previousProjection: projection, candidateProjection: projection, retainedData: uninstall ? "delete-confirmed" : "keep", reference, sha256 });
 }
 
 async function journalRoot() {
@@ -52,6 +52,19 @@ describe("SQLite transition journal", () => {
       const database = new DatabaseSync(path, { readOnly: true });
       expect((database.prepare("PRAGMA journal_mode").get() as { journal_mode: string }).journal_mode).toBe("delete");
       database.close();
+    } finally { await rm(fixture.root, { recursive: true, force: true }); }
+  });
+
+  it("durably tracks terminal uninstall cleanup before allowing journal pruning", async () => {
+    const fixture = await journalRoot();
+    try {
+      const value = record("00000000-0000-4000-8000-000000000005", true);
+      await fixture.journal.prepare({ record: value, preparedAt: 10 }, signal);
+      expect((await fixture.journal.read({ scope: { kind: "user" }, reference: value.reference }, signal))).toMatchObject({ kind: "found", entry: { cleanup: "pending-data-delete" } });
+      await fixture.journal.settle({ scope: { kind: "user" }, reference: value.reference, outcome: "completed", generation: 1, at: 11 }, signal);
+      expect(await fixture.journal.markCleanup!({ scope: { kind: "user" }, reference: value.reference, status: "recovery-required", at: 12 }, signal)).toBe("stored");
+      expect(await fixture.journal.markCleanup!({ scope: { kind: "user" }, reference: value.reference, status: "completed", at: 13 }, signal)).toBe("stored");
+      expect((await fixture.journal.read({ scope: { kind: "user" }, reference: value.reference }, signal))).toMatchObject({ kind: "found", entry: { cleanup: "completed" } });
     } finally { await rm(fixture.root, { recursive: true, force: true }); }
   });
 

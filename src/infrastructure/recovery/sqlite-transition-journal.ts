@@ -8,7 +8,9 @@ import { ScopeReferenceSchema, type ScopeReference } from "../../domain/state/sc
 import { PendingTransitionRefSchema, type PendingTransitionRef } from "../../domain/state/references.js";
 import { deriveLifecyclePendingTransitionRef } from "../../application/plugin-lifecycle-contract.js";
 import {
-  LifecycleTransitionJournalEntrySchemaV1,
+  LifecycleTransitionJournalEntrySchemaV2,
+  LifecycleUninstallCleanupStatusSchema,
+  lifecycleCleanupStatus,
   type LifecycleTransitionPrepareRequest,
   LifecycleTransitionRecordSchemaV1,
   LifecycleTransitionStatusSchema,
@@ -26,7 +28,7 @@ import { createLocalRecoveryFilesystem, digestJournalBytes, type RecoveryFilesys
 import { classifyProcessIdentity, readLinuxProcessStartToken } from "../process/process-identity.js";
 
 const PROTOCOL = "pi-plugin-host-recovery-journal";
-const VERSION = 1;
+const VERSION = 2;
 const MODE = 0o600;
 const BUSY = 5;
 const MAX_BUSY_RETRIES = 16;
@@ -78,10 +80,15 @@ function rowEntry(row: SqliteRow): LifecycleTransitionJournalEntry {
   const bytes = canonicalBytes(record);
   const digest = digestJournalBytes(bytes);
   if (digest !== row.record_digest) throw corruptError("readTransitionJournal");
-  return LifecycleTransitionJournalEntrySchemaV1.parse({
-    schemaVersion: 1,
+  const status = parseStatus(row.status, row.generation);
+  const cleanup = row.cleanup_status === undefined || row.cleanup_status === null
+    ? lifecycleCleanupStatus(record, status)
+    : LifecycleUninstallCleanupStatusSchema.parse(row.cleanup_status);
+  return LifecycleTransitionJournalEntrySchemaV2.parse({
+    schemaVersion: 2,
     record,
-    status: parseStatus(row.status, row.generation),
+    status,
+    cleanup,
     preparedAt: row.prepared_at,
     statusAt: row.status_at,
     ...(row.collection_completed_at === null || row.collection_completed_at === undefined ? {} : { collectionCompletedAt: row.collection_completed_at }),
@@ -94,10 +101,29 @@ function validateSchema(database: DatabaseSync): void {
   if (names !== "lifecycle_transitions:table,recovery_protocol:table,transition_quarantine:table") throw new Error("recovery journal contains an unexpected object");
   const protocol = database.prepare("SELECT protocol, version FROM recovery_protocol").all() as SqliteRow[];
   if (protocol.length !== 1 || protocol[0]?.protocol !== PROTOCOL || protocol[0]?.version !== VERSION) throw new Error("recovery journal protocol is invalid");
-  for (const table of ["lifecycle_transitions", "transition_quarantine"]) {
-    const columns = database.prepare(`PRAGMA table_info(${table})`).all() as SqliteRow[];
-    if (columns.length === 0) throw new Error(`recovery journal table ${table} is invalid`);
+  const transitionColumns = database.prepare("PRAGMA table_info(lifecycle_transitions)").all() as SqliteRow[];
+  if (!transitionColumns.some((column) => column.name === "cleanup_status")) throw new Error("recovery journal cleanup status is missing");
+  const quarantineColumns = database.prepare("PRAGMA table_info(transition_quarantine)").all() as SqliteRow[];
+  if (quarantineColumns.length === 0) throw new Error("recovery journal quarantine table is invalid");
+}
+
+function migrateSchema(database: DatabaseSync): void {
+  const protocol = database.prepare("SELECT protocol, version FROM recovery_protocol").all() as SqliteRow[];
+  if (protocol.length !== 1 || protocol[0]?.protocol !== PROTOCOL) throw new Error("recovery journal protocol is invalid");
+  if (protocol[0]?.version === VERSION) return;
+  if (protocol[0]?.version !== 1) throw new Error("recovery journal protocol is unsupported");
+  const columns = database.prepare("PRAGMA table_info(lifecycle_transitions)").all() as SqliteRow[];
+  if (!columns.some((column) => column.name === "cleanup_status")) database.exec("ALTER TABLE lifecycle_transitions ADD COLUMN cleanup_status TEXT NOT NULL DEFAULT 'not-required'");
+  const rows = database.prepare("SELECT reference, record_json, status, generation FROM lifecycle_transitions").all() as SqliteRow[];
+  const update = database.prepare("UPDATE lifecycle_transitions SET cleanup_status = ? WHERE reference = ?");
+  for (const row of rows) {
+    const record = LifecycleTransitionRecordSchemaV1.parse(JSON.parse(String(row.record_json)));
+    update.run(lifecycleCleanupStatus(record, parseStatus(row.status, row.generation)), String(row.reference));
   }
+  database.exec(`CREATE TABLE recovery_protocol_v2 (protocol TEXT PRIMARY KEY NOT NULL CHECK (protocol = '${PROTOCOL}'), version INTEGER NOT NULL CHECK (version = ${VERSION})) STRICT;
+    INSERT INTO recovery_protocol_v2(protocol, version) VALUES ('${PROTOCOL}', ${VERSION});
+    DROP TABLE recovery_protocol;
+    ALTER TABLE recovery_protocol_v2 RENAME TO recovery_protocol;`);
 }
 
 function createSchema(database: DatabaseSync): void {
@@ -113,6 +139,7 @@ function createSchema(database: DatabaseSync): void {
       prepared_at INTEGER NOT NULL,
       status_at INTEGER NOT NULL,
       collection_completed_at INTEGER,
+      cleanup_status TEXT NOT NULL CHECK (cleanup_status IN ('not-required', 'pending-data-delete', 'completed', 'recovery-required')),
       owner_pid INTEGER,
       owner_start_token TEXT,
       owner_nonce TEXT
@@ -164,7 +191,7 @@ async function openDatabase(filesystem: RecoveryFilesystem, scope: ScopeReferenc
     try {
       const objects = database.prepare("SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").all();
       const initialize = objects.length === 0;
-      if (initialize) createSchema(database); else validateSchema(database);
+      if (initialize) createSchema(database); else { migrateSchema(database); validateSchema(database); }
       ensureDatabaseMarker(path, filesystem.rootIdentity, databaseName, initialize);
       database.exec("COMMIT");
     } catch (error) {
@@ -226,8 +253,8 @@ export function createSqliteTransitionJournal(options: SqliteTransitionJournalOp
           if (existing.record_digest === digest && existing.record_json === new TextDecoder().decode(bytes) && existing.prepared_at === value.preparedAt && existing.scope_json === JSON.stringify(value.record.scope) && existing.plugin === value.record.plugin) return "already-present";
           throw conflictError("prepareTransitionJournal");
         }
-        database.prepare(`INSERT INTO lifecycle_transitions(reference, scope_json, plugin, record_json, record_digest, status, generation, prepared_at, status_at, collection_completed_at, owner_pid, owner_start_token, owner_nonce) VALUES (?, ?, ?, ?, ?, 'prepared', NULL, ?, ?, NULL, ?, ?, ?)`)
-          .run(value.record.reference, JSON.stringify(value.record.scope), value.record.plugin, new TextDecoder().decode(bytes), digest, value.preparedAt, value.preparedAt, owner.pid, owner.startToken, owner.nonce);
+        database.prepare(`INSERT INTO lifecycle_transitions(reference, scope_json, plugin, record_json, record_digest, status, generation, prepared_at, status_at, collection_completed_at, cleanup_status, owner_pid, owner_start_token, owner_nonce) VALUES (?, ?, ?, ?, ?, 'prepared', NULL, ?, ?, NULL, ?, ?, ?, ?)`)
+          .run(value.record.reference, JSON.stringify(value.record.scope), value.record.plugin, new TextDecoder().decode(bytes), digest, value.preparedAt, value.preparedAt, lifecycleCleanupStatus(value.record, { kind: "prepared" }), owner.pid, owner.startToken, owner.nonce);
         return "stored";
       });
     } catch (error) { if (error instanceof DomainContractError || error instanceof BoundaryError) throw error; throw dbError("prepareTransitionJournal", error); }
@@ -292,7 +319,8 @@ export function createSqliteTransitionJournal(options: SqliteTransitionJournalOp
             return true;
           }
           if (current !== "prepared" && current !== "recovery-required") throw conflictError("settleTransitionJournal");
-          database.prepare("UPDATE lifecycle_transitions SET status = ?, generation = ?, status_at = ?, owner_pid = NULL, owner_start_token = NULL, owner_nonce = NULL WHERE reference = ?").run(outcome, request.generation ?? null, request.at, String(request.reference));
+          const cleanup = outcome === "rolled-back" || outcome === "abandoned" ? "not-required" : undefined;
+          database.prepare(`UPDATE lifecycle_transitions SET status = ?, generation = ?, status_at = ?, cleanup_status = COALESCE(?, cleanup_status), owner_pid = NULL, owner_start_token = NULL, owner_nonce = NULL WHERE reference = ?`).run(outcome, request.generation ?? null, request.at, cleanup ?? null, String(request.reference));
           return true;
         });
         if (result) break;
@@ -314,9 +342,22 @@ export function createSqliteTransitionJournal(options: SqliteTransitionJournalOp
     } catch (error) { if (error instanceof DomainContractError) throw error; throw dbError("markRecoveryRequired", error); }
   }
 
+  async function markCleanup(request: Readonly<{ scope: ScopeReference; reference: PendingTransitionRef; status: "completed" | "recovery-required"; at: EpochMilliseconds }>, signal: AbortSignal): Promise<"stored" | "already-present" | "terminal"> {
+    try {
+      return await transaction(filesystem, request.scope, signal, (database) => {
+        const row = database.prepare("SELECT status, cleanup_status FROM lifecycle_transitions WHERE reference = ?").get(String(request.reference)) as SqliteRow | undefined;
+        if (row === undefined || row.status !== "completed" || row.cleanup_status === "not-required") return "terminal";
+        if (row.cleanup_status === request.status) return "already-present";
+        if (row.cleanup_status === "completed") return "terminal";
+        database.prepare("UPDATE lifecycle_transitions SET cleanup_status = ?, status_at = ? WHERE reference = ?").run(request.status, request.at, String(request.reference));
+        return "stored";
+      });
+    } catch (error) { throw dbError("markTransitionCleanup", error); }
+  }
+
   async function markCollectionComplete(request: Readonly<{ scope: ScopeReference; reference: PendingTransitionRef; at: EpochMilliseconds }>, signal: AbortSignal): Promise<void> {
     await transaction(filesystem, request.scope, signal, (database) => {
-      database.prepare("UPDATE lifecycle_transitions SET collection_completed_at = ? WHERE reference = ? AND status IN ('completed', 'rolled-back', 'abandoned')").run(request.at, String(request.reference));
+      database.prepare("UPDATE lifecycle_transitions SET collection_completed_at = ? WHERE reference = ? AND status IN ('completed', 'rolled-back', 'abandoned') AND cleanup_status IN ('not-required', 'completed')").run(request.at, String(request.reference));
     });
   }
 
@@ -326,7 +367,7 @@ export function createSqliteTransitionJournal(options: SqliteTransitionJournalOp
     for (const name of names.filter((entry) => entry.endsWith(".sqlite"))) {
       const scope: ScopeReference = name === "user.sqlite" ? { kind: "user" } : { kind: "project", projectKey: decodeURIComponent(name.slice(8, -7)) as never };
       removed += await transaction(filesystem, scope, signal, (database) => {
-        const result = database.prepare("DELETE FROM lifecycle_transitions WHERE status IN ('completed', 'rolled-back', 'abandoned') AND collection_completed_at IS NOT NULL AND collection_completed_at < ?").run(request.before);
+        const result = database.prepare("DELETE FROM lifecycle_transitions WHERE status IN ('completed', 'rolled-back', 'abandoned') AND cleanup_status IN ('not-required', 'completed') AND collection_completed_at IS NOT NULL AND collection_completed_at < ?").run(request.before);
         return Number(result.changes ?? 0);
       });
     }
@@ -345,7 +386,7 @@ export function createSqliteTransitionJournal(options: SqliteTransitionJournalOp
     } catch (error) { throw dbError("ownerStatus", error); }
   }
 
-  return Object.freeze({ prepare, read, list, settle, markRecoveryRequired, markCollectionComplete, pruneTerminal, ownerStatus });
+  return Object.freeze({ prepare, read, list, settle, markRecoveryRequired, markCleanup, markCollectionComplete, pruneTerminal, ownerStatus });
 }
 
 export async function createNodeTransitionJournal(options: Readonly<{ hostRoot: string; verifyLocalFilesystem?: (root: string) => Promise<void> }>): Promise<SqliteTransitionJournal> {
