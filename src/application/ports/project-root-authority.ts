@@ -29,4 +29,8 @@ export interface ProjectRootResolutionPort {
 export interface ProjectRootAuthorityPort {
   acquire(signal: AbortSignal): Promise<TrustedProjectRoot>;
   verify(capability: unknown, scope: ScopeContext): ScopeContext;
+  /** Re-resolve canonical root/repository identity before an effectful boundary. */
+  revalidate?(capability: unknown, scope: ScopeContext, signal: AbortSignal): Promise<ScopeContext>;
+  /** Re-resolve the session project even when no prior capability is available. */
+  revalidateCurrent?(signal: AbortSignal): Promise<ScopeContext>;
 }

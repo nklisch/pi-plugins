@@ -38,7 +38,6 @@
     "test": "npm run typecheck && npm run boundaries && npm run test:unit && npm run test:package"
   },
   "dependencies": {
-    "dbus-next": "0.10.2",
     "semver": "7.8.1",
     "smol-toml": "^1.7.0",
     "yaml": "2.8.1",

@@ -45,11 +45,18 @@ export async function createLocalRecoveryFilesystem(options: Readonly<{
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     marker = { protocol: "pi-plugin-host-recovery-root", version: 1, identity: randomUUID() };
     const temporary = `${markerPath}.${randomUUID()}.tmp`;
-    const { writeFile, rename, unlink } = await import("node:fs/promises");
+    const { writeFile, link, unlink, readFile } = await import("node:fs/promises");
     await writeFile(temporary, `${JSON.stringify(marker)}\n`, { flag: "wx", mode: LOCAL_LOCK_DATABASE_MODE });
-    try { await rename(temporary, markerPath); } catch (cause) {
+    try {
+      await link(temporary, markerPath);
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== "EEXIST") throw cause;
+    } finally {
       try { await unlink(temporary); } catch { /* preserve first failure */ }
-      throw cause;
+    }
+    marker = JSON.parse(await readFile(markerPath, "utf8")) as typeof marker;
+    if (marker.protocol !== "pi-plugin-host-recovery-root" || marker.version !== 1 || typeof marker.identity !== "string" || marker.identity.length === 0) {
+      throw new Error("recovery identity marker is invalid");
     }
   }
   const verify = async (): Promise<void> => {

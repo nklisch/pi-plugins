@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
-import { getAgentDir, type ExtensionCommandContext, type ExtensionContext, type SessionShutdownEvent, type SessionStartEvent } from "@earendil-works/pi-coding-agent";
+import { VERSION as PI_VERSION, getAgentDir, type ExtensionCommandContext, type ExtensionContext, type SessionShutdownEvent, type SessionStartEvent } from "@earendil-works/pi-coding-agent";
 import { createCompatibilityService } from "../application/compatibility-service.js";
 import { createGenerationMutationCoordinator } from "../application/generation-mutation-coordinator.js";
 import { createLifecycleTransitionReconciler } from "../application/lifecycle-transition-reconciler.js";
@@ -50,26 +50,34 @@ import {
   type StartedPackagedPluginHost,
 } from "./packaged-plugin-host-contract.js";
 import { createPluginHostPathPlan } from "./plugin-host-paths.js";
+import { qualifyRuntimeParticipants, type RuntimeQualificationStatus } from "./runtime-participant-qualification.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(bytes).digest());
 
 type Cleanup = () => Promise<void>;
+type PiApplicationOperationFrame = {
+  readonly context: ExtensionCommandContext;
+  reloadContext: ExtensionCommandContext | undefined;
+};
 
 function startupResult(input: Readonly<{
   blocked: readonly HostBlockedPlugin[];
-  mcp: boolean;
-  subagents: boolean;
+  mcp: RuntimeQualificationStatus;
+  subagents: RuntimeQualificationStatus;
+  piReload: RuntimeQualificationStatus;
   secrets: "available" | "unavailable";
 }>): HostStartupResult {
-  const status = (available: boolean, yes: string, no: string) => Object.freeze({ status: available ? "available" as const : "unavailable" as const, explanation: available ? yes : no });
+  const secrets = input.secrets === "available"
+    ? { status: "available" as const, explanation: "encrypted operating-system secret custody is available" }
+    : { status: "unavailable" as const, explanation: "encrypted operating-system secret custody is unavailable" };
   return Object.freeze({
     status: input.blocked.length === 0 ? "ready" : "blocked",
     blocked: Object.freeze(input.blocked.map((entry) => Object.freeze({ ...entry }))),
     capabilities: Object.freeze({
-      mcp: status(input.mcp, "an MCP runtime participant is supplied", "no MCP runtime participant is supplied"),
-      subagents: status(input.subagents, "a qualified subagent lifecycle participant is supplied", "no qualified subagent lifecycle participant is supplied"),
-      piReload: status(true, "Pi command-context reload handoff is supported", "Pi reload handoff is unavailable"),
-      secrets: status(input.secrets === "available", "encrypted operating-system secret custody is available", "encrypted operating-system secret custody is unavailable"),
+      mcp: Object.freeze({ status: input.mcp.status, explanation: input.mcp.explanation }),
+      subagents: Object.freeze({ status: input.subagents.status, explanation: input.subagents.explanation }),
+      piReload: Object.freeze({ status: input.piReload.status, explanation: input.piReload.explanation }),
+      secrets: Object.freeze(secrets),
     }),
   });
 }
@@ -82,7 +90,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
   const paths = createPluginHostPathPlan(options.agentDir ?? getAgentDir());
   const claim = claimPackagedPluginHostComposition(options.pi);
   const broker = createPiReloadBroker();
-  const operationContexts = new AsyncLocalStorage<ExtensionCommandContext>();
+  const operationContexts = new AsyncLocalStorage<PiApplicationOperationFrame>();
   let bootstrap: ReturnType<typeof createPluginHostBootstrap>;
   let delegates: ReturnType<typeof createPluginHostRuntimeDelegates>;
   try {
@@ -97,6 +105,16 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
   let startPromise: Promise<StartedPackagedPluginHost> | undefined;
   let reloadSuccessor: Readonly<{ ticket: PiReloadTicket; reload: ReturnType<typeof createCompletePluginReloadPort> }> | undefined;
   let terminal = false;
+  let operationAdmission = true;
+  let admittedOperations = 0;
+  let operationDrain: Promise<void> | undefined;
+  let resolveOperationDrain: (() => void) | undefined;
+  let closeRuntime: (() => Promise<void>) | undefined;
+  let closeApplication: (() => Promise<void>) | undefined;
+  let runtimeShutdownPromise: Promise<void> | undefined;
+  let finalClosePromise: Promise<void> | undefined;
+  let sessionStartDispatch: Promise<void> | undefined;
+  let sessionEndPromise: Promise<void> | undefined;
 
   async function start(_event: SessionStartEvent, context: ExtensionContext): Promise<StartedPackagedPluginHost> {
     if (terminal) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.terminal, "packaged plugin host is terminal");
@@ -115,6 +133,15 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
       try {
         const binding = createPiSessionBinding(context);
         activeBinding = binding;
+        const startupSignal = new AbortController().signal;
+        const qualification = await qualifyRuntimeParticipants({
+          pi: options.pi,
+          nodeVersion: process.versions.node,
+          piVersion: PI_VERSION,
+          ...(options.runtime?.mcp === undefined ? {} : { mcp: options.runtime.mcp }),
+          ...(options.runtime?.subagents === undefined ? {} : { subagents: options.runtime.subagents }),
+          signal: startupSignal,
+        });
         const successor = broker.claimSuccessor(binding.current());
         startupSuccessor = successor;
         claim.claimSession(binding.current().sessionId, successor?.id);
@@ -145,13 +172,8 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         });
         const executableResolver = createNodeHookExecutableResolver();
         const capabilities = createNodePiRuntimeCapabilityProbe({
-          commandHooks: true,
-          skillToolRestrictions: true,
           executables: executableResolver,
-          ...(options.runtime?.mcp === undefined ? {} : { mcp: options.runtime.mcp }),
-          ...(options.runtime?.subagents === undefined ? {} : { subagents: options.runtime.subagents }),
-          nodeVersion: process.versions.node,
-          piVersion: "0.80.8",
+          qualification,
         });
         const compatibility = createCompatibilityService(capabilities);
         const inspection = createNodePluginInspector();
@@ -169,11 +191,11 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           leases: recoveryAdapters.leases,
           clock,
           sha256,
-          ...(options.runtime?.subagents === undefined ? {} : { subagents: options.runtime.subagents }),
+          ...(qualification.subagents.lifecycle === undefined ? {} : { subagents: qualification.subagents.lifecycle }),
         });
         own(() => skillHook.close());
         const mcp = createComposedMcpRuntime({
-          ...(options.runtime?.mcp === undefined ? {} : { runtime: options.runtime.mcp }),
+          ...(qualification.mcp.runtime === undefined ? {} : { runtime: qualification.mcp.runtime }),
           selections,
           content: content.content,
           project,
@@ -185,25 +207,44 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           sha256,
         });
         own(() => mcp.close());
+        let closeRuntimeResources: Promise<void> | undefined;
+        closeRuntime = () => {
+          closeRuntimeResources ??= (async () => {
+            skillHook.quiesce();
+            const errors: unknown[] = [];
+            for (const dispose of [() => mcp.close(), () => skillHook.close(), () => selections.close()]) {
+              try { await dispose(); } catch (error) { errors.push(error); }
+            }
+            if (errors.length > 0) throw new AggregateError(errors, "packaged plugin runtime cleanup failed");
+          })();
+          return closeRuntimeResources;
+        };
         let latestDesired: RuntimeDesiredState | undefined;
         const desired = Object.freeze({
-          async load(signal: AbortSignal): Promise<RuntimeDesiredState> {
+          async load(signal: AbortSignal, overrides = []): Promise<RuntimeDesiredState> {
             latestDesired = await buildRuntimeDesiredState({
               installed: content.installed,
               compatibility,
               projections,
               project,
-              ...(options.runtime?.mcp === undefined ? {} : { mcp: options.runtime.mcp }),
+              ...(qualification.mcp.runtime === undefined ? {} : { mcp: qualification.mcp.runtime }),
               state: state.state,
               content: content.content,
               sha256,
-            }, signal);
+            }, signal, overrides);
             return latestDesired;
           },
         });
         const reload = createCompletePluginReloadPort({
           binding,
-          operationContext: { current: () => operationContexts.getStore() },
+          operationContext: {
+            takeReloadContext: () => {
+              const frame = operationContexts.getStore();
+              const context = frame?.reloadContext;
+              if (frame !== undefined) frame.reloadContext = undefined;
+              return context;
+            },
+          },
           broker,
           desired,
           selections,
@@ -274,9 +315,9 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           lifecycle,
         } });
 
-        await recovery.recover({ requiredScopes: [{ kind: "user" }, project.scope] }, new AbortController().signal);
-        if (successor === undefined) await reload.reconcileCurrent(new AbortController().signal);
-        else await reload.acceptSuccessor(successor, new AbortController().signal);
+        const recoveryResult = await recovery.recover({ requiredScopes: [{ kind: "user" }, project.scope] }, startupSignal);
+        if (successor === undefined) await reload.reconcileCurrent(startupSignal);
+        else await reload.acceptSuccessor(successor, startupSignal);
         if (successor !== undefined) reloadSuccessor = Object.freeze({ ticket: successor, reload });
         const application: PackagedPluginHostApplication = Object.freeze({
           lifecycle,
@@ -289,27 +330,38 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           capabilities,
           resources: skillHook.resources,
         });
+        const unresolvedRecovery: HostBlockedPlugin[] = successor === undefined
+          ? recoveryResult.results
+              .filter((result) => result.kind === "blocked" || result.kind === "deferred")
+              .map((result) => ({
+                plugin: result.plugin ?? "host-recovery",
+                code: `RECOVERY_${result.code}`,
+                explanation: "startup recovery did not settle authoritative pending state",
+              }))
+          : [];
         const startup = startupResult({
-          blocked: latestDesired?.blocked ?? [],
-          mcp: options.runtime?.mcp !== undefined,
-          subagents: skillHook.subagent !== undefined,
+          blocked: [...(latestDesired?.blocked ?? []), ...unresolvedRecovery],
+          mcp: qualification.mcp,
+          subagents: qualification.subagents,
+          piReload: qualification.hostApi,
           secrets: secrets.availability.status,
         });
-        let closePromise: Promise<void> | undefined;
+        let applicationClosePromise: Promise<void> | undefined;
+        closeApplication = () => {
+          applicationClosePromise ??= (async () => {
+            const errors: unknown[] = [];
+            for (const dispose of [...cleanup].reverse()) {
+              try { await dispose(); } catch (error) { errors.push(error); }
+            }
+            cleanup.length = 0;
+            if (errors.length > 0) throw new AggregateError(errors, "packaged plugin host cleanup failed");
+          })();
+          return applicationClosePromise;
+        };
         const value: StartedPackagedPluginHost = Object.freeze({
           application,
           startup,
-          close(): Promise<void> {
-            closePromise ??= (async () => {
-              const errors: unknown[] = [];
-              for (const dispose of [...cleanup].reverse()) {
-                try { await dispose(); } catch (error) { errors.push(error); }
-              }
-              cleanup.length = 0;
-              if (errors.length > 0) throw new AggregateError(errors, "packaged plugin host cleanup failed");
-            })();
-            return closePromise;
-          },
+          close: () => dispose("quit"),
         });
         started = value;
         return value;
@@ -329,22 +381,57 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
     return startPromise;
   }
 
-  async function dispose(_reason: SessionShutdownEvent["reason"]): Promise<void> {
-    terminal = true;
-    try {
-      if (started !== undefined) await started.close();
-      else if (startPromise !== undefined) await startPromise.then((value) => value.close(), () => undefined);
-    } finally {
-      started = undefined;
-      activeBinding = undefined;
-      if (reloadSuccessor !== undefined) {
-        try { reloadSuccessor.reload.failSuccessor(reloadSuccessor.ticket); } catch { /* ticket may already be settled */ }
-        reloadSuccessor = undefined;
+  function waitForOperations(): Promise<void> {
+    if (admittedOperations === 0) return Promise.resolve();
+    operationDrain ??= new Promise<void>((resolve) => { resolveOperationDrain = resolve; });
+    return operationDrain;
+  }
+
+  function ensureFinalClose(): Promise<void> {
+    finalClosePromise ??= (async () => {
+      try {
+        await waitForOperations();
+        if (closeApplication !== undefined) await closeApplication();
+        else if (startPromise !== undefined) await startPromise.then(() => closeApplication?.(), () => undefined);
+      } finally {
+        activeBinding = undefined;
+        if (reloadSuccessor !== undefined) {
+          try { reloadSuccessor.reload.failSuccessor(reloadSuccessor.ticket); } catch { /* ticket may already be settled */ }
+          reloadSuccessor = undefined;
+        }
+        bootstrap.clear(target);
+        delegates.clear();
+        claim.release();
       }
-      bootstrap.clear(target);
-      delegates.clear();
-      claim.release();
+    })();
+    return finalClosePromise;
+  }
+
+  async function beginSessionShutdown(
+    event?: SessionShutdownEvent,
+    context?: ExtensionContext,
+  ): Promise<void> {
+    terminal = true;
+    operationAdmission = false;
+    started = undefined;
+    if (event !== undefined && context !== undefined) {
+      sessionEndPromise ??= delegates.dispatchSessionEnd(event, context);
+      await sessionEndPromise;
     }
+    delegates.quiesce();
+    runtimeShutdownPromise ??= closeRuntime?.() ?? Promise.resolve();
+    try {
+      await runtimeShutdownPromise;
+    } finally {
+      // Do not await durable cleanup here: ctx.reload() cannot start the
+      // successor while Pi is blocked in predecessor session_shutdown.
+      void ensureFinalClose().catch(() => undefined);
+    }
+  }
+
+  async function dispose(_reason: SessionShutdownEvent["reason"]): Promise<void> {
+    await beginSessionShutdown();
+    await ensureFinalClose();
   }
 
   const host: PackagedPluginHost = {
@@ -357,14 +444,29 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
     ): Promise<T> {
       signal.throwIfAborted();
       const current = started;
-      if (current === undefined) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.terminal, "packaged plugin host is not started");
+      if (!operationAdmission || current === undefined) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.terminal, "packaged plugin host is not started");
       activeBinding?.assertContext(context);
-      return operationContexts.run(context, () => use(current.application));
+      admittedOperations += 1;
+      const frame: PiApplicationOperationFrame = { context, reloadContext: context };
+      try {
+        return await operationContexts.run(frame, () => use(current.application));
+      } finally {
+        admittedOperations -= 1;
+        if (admittedOperations === 0) {
+          resolveOperationDrain?.();
+          resolveOperationDrain = undefined;
+          operationDrain = undefined;
+        }
+      }
     },
     dispose,
   };
   const target = Object.freeze({
-    sessionStart: (event: SessionStartEvent, context: ExtensionContext) => start(event, context).then(() => undefined),
+    async sessionStart(event: SessionStartEvent, context: ExtensionContext): Promise<void> {
+      await start(event, context);
+      sessionStartDispatch ??= delegates.dispatchSessionStart(event, context);
+      await sessionStartDispatch;
+    },
     async resourcesDiscover(_event: Readonly<{ type: "resources_discover"; cwd: string; reason: "startup" | "reload" }>, context: ExtensionContext) {
       const current = started;
       if (current === undefined) return;
@@ -380,9 +482,9 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
       }
       return result.kind === "ready" ? { skillPaths: [...(result.skillPaths ?? [])] } : undefined;
     },
-    sessionShutdown: (event: SessionShutdownEvent, context: ExtensionContext) => {
+    async sessionShutdown(event: SessionShutdownEvent, context: ExtensionContext): Promise<void> {
       activeBinding?.assertContext(context);
-      return dispose(event.reason);
+      await beginSessionShutdown(event, context);
     },
   });
   bootstrap.activate(target);

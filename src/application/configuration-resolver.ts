@@ -258,7 +258,11 @@ async function resolvePluginConfiguration(
     verifiedScope = createScopeContext(request.pathContext.scope, dependencies.sha256);
     if (verifiedScope.kind === "project") {
       if (dependencies.projectRoots === undefined) throw new Error("project configuration requires the project-root authority port");
-      dependencies.projectRoots.verify(request.pathContext.trustedProjectRoot, verifiedScope);
+      if (dependencies.projectRoots.revalidate !== undefined) {
+        await dependencies.projectRoots.revalidate(request.pathContext.trustedProjectRoot, verifiedScope, signal);
+      } else {
+        dependencies.projectRoots.verify(request.pathContext.trustedProjectRoot, verifiedScope);
+      }
     }
   } catch {
     throw new ConfigurationResolutionError("CONFIGURATION_INVALID");

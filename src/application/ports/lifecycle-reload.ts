@@ -14,8 +14,10 @@ import {
 } from "../../domain/identity.js";
 import {
   ScopeReferenceSchema,
+  type ScopeContext,
   type ScopeReference,
 } from "../../domain/state/scope.js";
+import type { InstalledPluginRecord } from "../../domain/state/installed-state.js";
 import {
   CurrentProjectRuntimeContextSchema,
   type CurrentProjectRuntimeContext,
@@ -260,6 +262,13 @@ export function composeActivationObservation(input: Readonly<{
 export interface LifecycleReloadPort {
   reload(request: LifecycleReloadRequest, signal: AbortSignal): Promise<LifecycleReloadResult>;
   observe(request: LifecycleObservationRequest, signal: AbortSignal): Promise<ActivationObservation>;
+  /** Startup-only local participant reconciliation; it never invokes Pi reload. */
+  reconcileLocal?(request: Readonly<{
+    scope: ScopeContext;
+    plugin: PluginKey;
+    target: InstalledPluginRecord | null;
+    expectation: ProjectionExpectation;
+  }>, signal: AbortSignal): Promise<ActivationObservation>;
 }
 
 export function verifyActivationObservation(input: unknown): ActivationObservation {

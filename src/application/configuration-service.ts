@@ -339,6 +339,13 @@ export async function savePluginConfiguration(
   } catch {
     throw new ConfigurationValidationError("CONFIG_TYPE");
   }
+  if (verifiedScope.kind === "project" && dependencies.projectRoots?.revalidate !== undefined) {
+    try {
+      await dependencies.projectRoots.revalidate(request.pathContext.trustedProjectRoot, verifiedScope, signal);
+    } catch {
+      throw new ConfigurationValidationError("CONFIG_TYPE");
+    }
+  }
 
   const currentRaw = await readConfiguration(dependencies.configurations, request.configurationRef, signal);
   let current: PluginConfigurationDocument | undefined;
@@ -561,7 +568,11 @@ export async function removePluginConfiguration(
       throw new Error("configuration path scope does not match request");
     }
     if (dependencies.projectRoots === undefined) throw new Error("project configuration removal requires the project-root authority port");
-    dependencies.projectRoots.verify(pathContext.trustedProjectRoot, pathScope);
+    if (dependencies.projectRoots.revalidate !== undefined) {
+      await dependencies.projectRoots.revalidate(pathContext.trustedProjectRoot, pathScope, signal);
+    } else {
+      dependencies.projectRoots.verify(pathContext.trustedProjectRoot, pathScope);
+    }
   }
   const verifiedRequest = { ...request, scope: verifiedScope };
   const currentRaw = await readConfiguration(dependencies.configurations, ref, signal);

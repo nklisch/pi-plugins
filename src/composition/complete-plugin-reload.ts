@@ -8,13 +8,15 @@ import type { LifecycleTransitionStore } from "../application/ports/lifecycle-tr
 import type { ScopeReference } from "../domain/state/scope.js";
 import type { Sha256 } from "../domain/source.js";
 import type { PiSessionBindingPort } from "./packaged-plugin-host-contract.js";
-import type { RuntimeDesiredState } from "./runtime-desired-state.js";
+import type { RuntimeDesiredState, RuntimeDesiredStateOverride } from "./runtime-desired-state.js";
 import type { ComposedSkillHookRuntime } from "./create-skill-hook-runtime.js";
 import type { ComposedMcpRuntime } from "./create-mcp-runtime.js";
 import type { RuntimeSelection, RuntimeSelectionCatalog } from "./runtime-selection-catalog.js";
 import type { PiOperationContextPort, PiReloadBroker, PiReloadTicket } from "../pi/pi-reload-broker.js";
 
-export type RuntimeDesiredStateLoader = Readonly<{ load(signal: AbortSignal): Promise<RuntimeDesiredState> }>;
+export type RuntimeDesiredStateLoader = Readonly<{
+  load(signal: AbortSignal, overrides?: readonly RuntimeDesiredStateOverride[]): Promise<RuntimeDesiredState>;
+}>;
 
 export type CompletePluginReloadPort = LifecycleReloadPort & Readonly<{
   reconcileCurrent(signal: AbortSignal, expectations?: readonly ProjectionExpectation[]): Promise<readonly ActivationObservation[]>;
@@ -94,10 +96,14 @@ export function createCompletePluginReloadPort(input: Readonly<{
     }
   }
 
-  async function perform(signal: AbortSignal, expectations: readonly ProjectionExpectation[]): Promise<readonly ActivationObservation[]> {
+  async function perform(
+    signal: AbortSignal,
+    expectations: readonly ProjectionExpectation[],
+    overrides: readonly RuntimeDesiredStateOverride[] = [],
+  ): Promise<readonly ActivationObservation[]> {
     signal.throwIfAborted();
     const previous = current;
-    const desired = await input.desired.load(signal);
+    const desired = await input.desired.load(signal, overrides);
     const candidate = input.selections.beginCandidate(desired.selections, desired.currentProject);
     input.skillHook.quiesce();
     try {
@@ -134,6 +140,25 @@ export function createCompletePluginReloadPort(input: Readonly<{
     return task;
   }
 
+  function reconcileLocal(
+    request: Parameters<NonNullable<LifecycleReloadPort["reconcileLocal"]>>[0],
+    signal: AbortSignal,
+  ): Promise<ActivationObservation> {
+    const task = queue.then(async () => {
+      const observations = await perform(signal, [request.expectation], [{
+        scope: request.scope,
+        plugin: request.plugin,
+        record: request.target,
+      }]);
+      const scope = request.expectation.kind === "active" ? request.expectation.projection.scope : request.expectation.scope;
+      const observation = observations.find((entry) => entry.plugin === request.plugin && JSON.stringify(entry.scope) === JSON.stringify(scope));
+      if (observation === undefined) throw new Error("local recovery observation is unavailable");
+      return observation;
+    });
+    queue = task.then(() => undefined, () => undefined);
+    return task;
+  }
+
   async function acceptSuccessor(ticket: PiReloadTicket, signal: AbortSignal): Promise<readonly ActivationObservation[]> {
     const journal = input.transitions(ticket.scope);
     const entry = await journal.read?.({ scope: ticket.scope, reference: ticket.transition }, signal);
@@ -156,7 +181,7 @@ export function createCompletePluginReloadPort(input: Readonly<{
   }
 
   async function reload(request: Parameters<LifecycleReloadPort["reload"]>[0], signal: AbortSignal) {
-    const context = input.operationContext.current();
+    const context = input.operationContext.takeReloadContext();
     if (context === undefined) return { kind: "failed" as const, code: "PI_RELOAD_CONTEXT_UNAVAILABLE" };
     const ticket = input.broker.open(input.binding.current(), request.scope, request.transition);
     input.markDraining?.(ticket.id);
@@ -178,5 +203,5 @@ export function createCompletePluginReloadPort(input: Readonly<{
     return value;
   }
 
-  return Object.freeze({ reload, observe, reconcileCurrent, acceptSuccessor, publishSuccessor, failSuccessor });
+  return Object.freeze({ reload, observe, reconcileLocal, reconcileCurrent, acceptSuccessor, publishSuccessor, failSuccessor });
 }

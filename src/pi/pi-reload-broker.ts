@@ -30,7 +30,10 @@ function registry(): Registry {
 }
 
 export type PiReloadTicket = Readonly<{ id: string; sessionId: string; cwd: string; scope: ScopeReference; transition: PendingTransitionRef }>;
-export type PiOperationContextPort = Readonly<{ current(): ExtensionCommandContext | undefined }>;
+export type PiOperationContextPort = Readonly<{
+  /** Consume the one reload authority carried by an admitted Pi call frame. */
+  takeReloadContext(): ExtensionCommandContext | undefined;
+}>;
 export type PiReloadBroker = Readonly<{
   open(binding: PiSessionBinding, scope: ScopeReference, transition: PendingTransitionRef): PiReloadTicket;
   claimSuccessor(binding: PiSessionBinding): PiReloadTicket | undefined;

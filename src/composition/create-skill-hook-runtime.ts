@@ -48,12 +48,6 @@ export type ComposedSkillHookRuntime = Readonly<{
   close(): Promise<void>;
 }>;
 
-function qualifiedForProduction(capabilities: ReturnType<typeof SubagentLifecycleCapabilitiesSchemaV1.parse>): boolean {
-  return capabilities.provider.kind === "published-package" &&
-    Object.values(capabilities.semantics).every(Boolean) &&
-    Object.values(capabilities.coverage).every(Boolean);
-}
-
 function retainedArtifacts(selections: readonly RuntimeSelection[], sha256: Sha256) {
   // The store key can be recovered directly from the prepared content
   // selection without opening the filesystem. Deduplicate exact references.
@@ -130,21 +124,22 @@ export async function createComposedSkillHookRuntime(input: Readonly<{
       const qualification = SubagentLifecycleCapabilitiesSchemaV1.parse(
         await input.subagents.capabilities(runtimeAbort.signal),
       );
-      if (qualifiedForProduction(qualification)) {
-        coordinator = createSubagentHookCoordinator({
-          planner,
-          executor,
-          sessions: createPiSubagentSessionContext({ binding: input.binding, project: input.project }),
-          runtimeSignal: runtimeAbort.signal,
-          continuationBudget: 3,
-        });
-        subagent = await registerSubagentHookRuntime({
-          lifecycle: input.subagents,
-          qualification,
-          coordinator,
-          runtimeSignal: runtimeAbort.signal,
-        });
-      }
+      // Production composition passes only the centrally-qualified, pinned
+      // lifecycle port. Re-checking provider facts here would let registration
+      // disagree with capability and desired-state decisions.
+      coordinator = createSubagentHookCoordinator({
+        planner,
+        executor,
+        sessions: createPiSubagentSessionContext({ binding: input.binding, project: input.project }),
+        runtimeSignal: runtimeAbort.signal,
+        continuationBudget: 3,
+      });
+      subagent = await registerSubagentHookRuntime({
+        lifecycle: input.subagents,
+        qualification,
+        coordinator,
+        runtimeSignal: runtimeAbort.signal,
+      });
     }
 
     async function replaceSessionLease(selections: readonly RuntimeSelection[], signal: AbortSignal): Promise<void> {

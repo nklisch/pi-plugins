@@ -1,9 +1,11 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, SessionShutdownEvent, SessionStartEvent } from "@earendil-works/pi-coding-agent";
 import type { PiSessionBindingPort } from "../composition/packaged-plugin-host-contract.js";
 
 export type PluginHostRuntimeDelegates = Readonly<{
   pi: ExtensionAPI;
   bindSession(binding: PiSessionBindingPort): void;
+  dispatchSessionStart(event: SessionStartEvent, context: ExtensionContext): Promise<void>;
+  dispatchSessionEnd(event: SessionShutdownEvent, context: ExtensionContext): Promise<void>;
   quiesce(): void;
   resume(): void;
   clear(): void;
@@ -36,17 +38,6 @@ export function createPluginHostRuntimeDelegates(pi: ExtensionAPI): PluginHostRu
       return target(event, context);
     });
   }
-  // Session boundaries are already registered by bootstrap. Runtime handlers
-  // are still routed here so ordinary SessionStart/SessionEnd hooks can share
-  // the same inert-before-start guarantee when the bootstrap forwards them.
-  for (const name of ["session_start", "session_shutdown"] as const) {
-    (pi.on as (event: string, handler: (event: unknown, context: ExtensionContext) => unknown) => void)(name, (event, context) => {
-      const target = handlers.get(name);
-      if (target === undefined || binding === undefined || quiesced) return undefined;
-      binding.assertContext(context);
-      return target(event, context);
-    });
-  }
   const proxy = new Proxy(pi as object, {
     get(target, property, receiver) {
       if (property === "on") {
@@ -64,6 +55,20 @@ export function createPluginHostRuntimeDelegates(pi: ExtensionAPI): PluginHostRu
     bindSession(next): void {
       if (binding !== undefined && binding !== next) throw new Error("runtime delegates are already session-bound");
       binding = next;
+    },
+    async dispatchSessionStart(event, context): Promise<void> {
+      const target = handlers.get("session_start");
+      if (target === undefined || binding === undefined || quiesced) return;
+      binding.assertContext(context);
+      await target(event, context);
+    },
+    async dispatchSessionEnd(event, context): Promise<void> {
+      const target = handlers.get("session_shutdown");
+      if (target === undefined || binding === undefined) return;
+      binding.assertContext(context);
+      // The owner calls this before quiescing/aborting runtime work. SessionEnd
+      // is therefore ordered, not raced against an independent Pi handler.
+      await target(event, context);
     },
     quiesce(): void { quiesced = true; },
     resume(): void {

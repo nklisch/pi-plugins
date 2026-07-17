@@ -1,15 +1,13 @@
-import { valid } from "semver";
 import { createMcpRuntimeCapabilityProbe } from "../application/mcp-runtime-capability-probe.js";
 import { createSubagentLifecycleCapabilityProbe } from "../application/subagent-lifecycle-capability-probe.js";
 import type { HookExecutableResolverPort } from "../application/ports/hook-executable-resolver.js";
-import type { McpRuntimePort } from "../application/ports/mcp-runtime.js";
 import type { RuntimeCapabilityProbe } from "../application/ports/runtime-capability-probe.js";
-import type { SubagentLifecyclePort } from "../application/ports/subagent-lifecycle.js";
 import {
   RuntimeCapabilityRegistry,
   RuntimeCapabilitySnapshotSchema,
   type RuntimeCapabilityAvailability,
 } from "../domain/compatibility-policy.js";
+import type { RuntimeParticipantQualification } from "./runtime-participant-qualification.js";
 
 async function executableAvailable(
   resolver: HookExecutableResolverPort,
@@ -37,16 +35,10 @@ function fact(available: boolean, yes: string, no: string): RuntimeCapabilityAva
 
 /** Complete capability chain; optional participants remain truthful absence. */
 export function createNodePiRuntimeCapabilityProbe(input: Readonly<{
-  commandHooks: true;
-  skillToolRestrictions: true;
   executables: HookExecutableResolverPort;
-  mcp?: McpRuntimePort;
-  subagents?: SubagentLifecyclePort;
-  nodeVersion: string;
-  piVersion: string;
+  qualification: RuntimeParticipantQualification;
 }>): RuntimeCapabilityProbe {
-  if (input.commandHooks !== true || input.skillToolRestrictions !== true ||
-      valid(input.nodeVersion) === null || valid(input.piVersion) === null ||
+  if (input.qualification === null || typeof input.qualification !== "object" ||
       input.executables === null || typeof input.executables !== "object") {
     throw new TypeError("Node/Pi capability probe dependencies are invalid");
   }
@@ -62,8 +54,8 @@ export function createNodePiRuntimeCapabilityProbe(input: Readonly<{
         Object.values(RuntimeCapabilityRegistry).map((entry) => [entry.id, fact(false, unavailable, unavailable)]),
       );
       Object.assign(capabilities, {
-        [RuntimeCapabilityRegistry.skillToolRestrictions.id]: fact(true, "Pi skill tool restrictions are composed", unavailable),
-        [RuntimeCapabilityRegistry.commandHooks.id]: fact(true, "Pi command-hook runtime is composed", unavailable),
+        [RuntimeCapabilityRegistry.skillToolRestrictions.id]: fact(input.qualification.hostApi.status === "available", "Pi skill tool restrictions are composed", input.qualification.hostApi.explanation),
+        [RuntimeCapabilityRegistry.commandHooks.id]: fact(input.qualification.hostApi.status === "available", "Pi command-hook runtime is composed", input.qualification.hostApi.explanation),
         [RuntimeCapabilityRegistry.bash.id]: fact(bash, "Bash is locally available", "Bash is not locally available"),
         [RuntimeCapabilityRegistry.powershell.id]: fact(powershell, "PowerShell is locally available", "PowerShell is not locally available"),
       });
@@ -72,13 +64,13 @@ export function createNodePiRuntimeCapabilityProbe(input: Readonly<{
   });
   const mcp = createMcpRuntimeCapabilityProbe({
     base,
-    ...(input.mcp === undefined ? {} : { runtime: input.mcp }),
+    ...(input.qualification.mcp.runtime === undefined ? {} : { runtime: input.qualification.mcp.runtime }),
     capturedBy: "node-pi-mcp-v1",
   });
   return createSubagentLifecycleCapabilityProbe({
     base: mcp,
-    ...(input.subagents === undefined ? {} : { lifecycle: input.subagents }),
+    ...(input.qualification.subagents.lifecycle === undefined ? {} : { lifecycle: input.qualification.subagents.lifecycle }),
     capturedBy: "node-pi-runtime-v1",
-    runtime: { nodeVersion: input.nodeVersion, piVersion: input.piVersion },
+    runtime: { nodeVersion: input.qualification.nodeVersion, piVersion: input.qualification.piVersion },
   });
 }

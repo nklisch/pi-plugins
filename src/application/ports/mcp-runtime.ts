@@ -386,9 +386,28 @@ export const McpSourceStatusSchema = z
   });
 export type McpSourceStatus = z.infer<typeof McpSourceStatusSchema>;
 
+export const McpRuntimeProviderSchemaV1 = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("test"),
+    name: z.string().min(1),
+  }).strict().readonly(),
+  z.object({
+    kind: z.literal("published-package"),
+    packageName: z.string().min(1).regex(/^(?:@[a-z0-9][a-z0-9._~-]*\/[a-z0-9][a-z0-9._~-]*|[a-z0-9][a-z0-9._~-]*)$/),
+    version: z.string().min(1),
+    integrity: z.string().min(1),
+    nodeEngine: z.string().min(1),
+    piPeerRange: z.string().min(1),
+    contractVersion: z.literal(1),
+  }).strict().readonly(),
+]);
+export type McpRuntimeProvider = z.infer<typeof McpRuntimeProviderSchemaV1>;
+
 export const McpRuntimeCapabilitiesSchemaV1 = z
   .object({
     schemaVersion: z.literal(1),
+    /** Host qualification is optional at the package-neutral port, but production composition requires it. */
+    provider: McpRuntimeProviderSchemaV1.optional(),
     sourceLifecycle: z
       .object({
         initialSourcesBeforeToolRegistration: z.boolean(),

@@ -30,6 +30,12 @@ export type HostBlockedPlugin = Readonly<{
   explanation: string;
 }>;
 
+export type RuntimeDesiredStateOverride = Readonly<{
+  scope: ScopeContext;
+  plugin: string;
+  record: InstalledPluginRecord | null;
+}>;
+
 export type RuntimeDesiredState = Readonly<{
   currentProject: ReturnType<PiProjectContextAdapters["current"]>;
   selections: readonly RuntimeSelection[];
@@ -77,9 +83,9 @@ export async function buildRuntimeDesiredState(input: Readonly<{
   state: LifecycleStateStore;
   content?: Pick<ContentStorePort, "resolvePlugin" | "ensureDataRoot">;
   sha256: Sha256;
-}>, signal: AbortSignal): Promise<RuntimeDesiredState> {
+}>, signal: AbortSignal, overrides: readonly RuntimeDesiredStateOverride[] = []): Promise<RuntimeDesiredState> {
   signal.throwIfAborted();
-  const currentProject = input.project.current();
+  const currentProject = await input.project.revalidate(signal);
   const user = await input.state.read({ kind: "user" }, signal);
   if (!user.ok) throw new Error("authoritative user state is corrupt");
   const authoritative = [user.snapshot];
@@ -98,6 +104,15 @@ export async function buildRuntimeDesiredState(input: Readonly<{
       records.push(...snapshot.project.plugins.map((record) => ({ scope: snapshot.scope, record })));
     }
   }
+  const overrideByTarget = new Map(overrides.map((override) => [JSON.stringify([toScopeReference(override.scope), override.plugin]), override]));
+  const effectiveRecords = records.filter((entry) => {
+    const key = JSON.stringify([toScopeReference(entry.scope), entry.record.plugin]);
+    return !overrideByTarget.has(key);
+  });
+  for (const override of overrides) {
+    if (override.record !== null) effectiveRecords.push({ scope: override.scope, record: override.record });
+  }
+
   const blocked: HostBlockedPlugin[] = [];
   const selections: RuntimeSelection[] = [];
   const skillHookActive: RuntimeProjectionSelection[] = [];
@@ -106,8 +121,12 @@ export async function buildRuntimeDesiredState(input: Readonly<{
     ? unavailableMcpCapabilities
     : McpRuntimeCapabilitiesSchemaV1.parse(await input.mcp.capabilities(signal));
 
-  for (const entry of records) {
+  for (const entry of effectiveRecords) {
     signal.throwIfAborted();
+    if (entry.record.pendingTransition !== undefined) {
+      blocked.push({ plugin: entry.record.plugin, code: "RECOVERY_REQUIRED", explanation: "pending lifecycle state is excluded until recovery settles" });
+      continue;
+    }
     if (entry.record.activation !== "enabled") continue;
     const revision = selected(entry.record);
     if (revision === undefined) {

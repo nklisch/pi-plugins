@@ -1,4 +1,3 @@
-import { chmodSync, lstatSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { basename } from "node:path";
@@ -18,16 +17,18 @@ import { deriveStateBlobRef } from "../../domain/state/references.js";
 import { createScopeContext, ScopeContextSchema, toScopeReference, type ScopeContext } from "../../domain/state/scope.js";
 import type { Sha256 } from "../../domain/source.js";
 import { createLifecycleStateDefaultDocuments } from "./lifecycle-state-defaults.js";
-import { ensurePrivateLockRoot, LOCAL_LOCK_DATABASE_MODE, verifyLocalFilesystemCapability } from "./local-lock-filesystem.js";
+import { ensurePrivateLockRoot, verifyLocalFilesystemCapability } from "./local-lock-filesystem.js";
+import { openIdentityBoundSqliteDatabase, type IdentityBoundSqliteDatabase } from "./identity-bound-sqlite.js";
 
 const PROTOCOL = "pi-plugin-host-lifecycle-state";
 const VERSION = 1;
+const SQLITE_BUSY = 5;
+const MAX_BUSY_RETRIES = 16;
 
-type FileIdentity = Readonly<{ dev: number; ino: number }>;
 type OpenScopeDatabase = {
   readonly database: DatabaseSync;
+  readonly handle: IdentityBoundSqliteDatabase;
   readonly path: string;
-  readonly identity: FileIdentity;
   readonly scope: ScopeContext;
   closed: boolean;
 };
@@ -74,10 +75,8 @@ function sameJson(left: unknown, right: unknown): boolean {
 
 function assertFileIdentity(handle: OpenScopeDatabase): void {
   if (handle.closed) throw new LifecycleStateAdapterError("STATE_ADAPTER_FAILED", "lifecycle state adapter is closed");
-  const stats = lstatSync(handle.path);
-  if (!stats.isFile() || stats.isSymbolicLink() || stats.dev !== handle.identity.dev || stats.ino !== handle.identity.ino) {
-    throw new LifecycleStateAdapterError("STATE_ADAPTER_FAILED", "lifecycle state database identity changed");
-  }
+  try { handle.handle.assertIdentity(); }
+  catch (cause) { throw new LifecycleStateAdapterError("STATE_ADAPTER_FAILED", "lifecycle state database identity changed", cause); }
 }
 
 function begin(database: DatabaseSync): void {
@@ -85,7 +84,21 @@ function begin(database: DatabaseSync): void {
 }
 
 function rollback(database: DatabaseSync): void {
-  try { database.exec("ROLLBACK"); } catch { /* preserve the operation failure */ }
+  try { if (database.isTransaction) database.exec("ROLLBACK"); } catch { /* preserve the operation failure */ }
+}
+
+function isBusy(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { errcode?: unknown }).errcode === SQLITE_BUSY;
+}
+
+async function waitForBusy(signal: AbortSignal, attempt: number): Promise<void> {
+  signal.throwIfAborted();
+  const delay = Math.min(50, 2 ** Math.min(attempt, 5));
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => { signal.removeEventListener("abort", onAbort); resolve(); }, delay);
+    const onAbort = () => { clearTimeout(timer); signal.removeEventListener("abort", onAbort); reject(signal.reason); };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function initializeSchema(database: DatabaseSync): void {
@@ -93,7 +106,7 @@ function initializeSchema(database: DatabaseSync): void {
     PRAGMA journal_mode = DELETE;
     PRAGMA synchronous = FULL;
     PRAGMA foreign_keys = ON;
-    PRAGMA busy_timeout = 5000;
+    PRAGMA busy_timeout = 0;
     CREATE TABLE IF NOT EXISTS protocol (
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
       protocol TEXT NOT NULL,
@@ -117,6 +130,15 @@ function initializeSchema(database: DatabaseSync): void {
       pointer_json TEXT NOT NULL
     ) STRICT;
   `);
+}
+
+function validateSchema(database: DatabaseSync): void {
+  database.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 0;");
+  const rows = database.prepare("SELECT name, type FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name").all() as Array<{ name: string; type: string }>;
+  const expected = ["current_pointer", "generation_pointers", "protocol", "state_blobs"];
+  if (rows.length !== expected.length || rows.some((row, index) => row.name !== expected[index] || row.type !== "table")) {
+    throw new LifecycleStateAdapterError("STATE_CORRUPT", "lifecycle state schema is invalid");
+  }
 }
 
 function readProtocol(database: DatabaseSync): { protocol: string; version: number; scope_json: string } | undefined {
@@ -201,26 +223,13 @@ function writeGeneration(
 }
 
 function initializeScope(database: DatabaseSync, scope: ScopeContext, sha256: Sha256): void {
-  begin(database);
-  try {
-    const existing = readProtocol(database);
-    if (existing !== undefined) {
-      const stored = scopeFromProtocol(database, sha256);
-      if (!sameJson(stored, scope)) throw new LifecycleStateAdapterError("STATE_CORRUPT", "lifecycle state scope does not match its path");
-      database.exec("COMMIT");
-      return;
-    }
-    database.prepare("INSERT INTO protocol(singleton, protocol, version, scope_json) VALUES (1, ?, ?, ?)")
-      .run(PROTOCOL, VERSION, JSON.stringify(scope));
-    const defaults = createLifecycleStateDefaultDocuments(scope, sha256) as Readonly<Record<string, unknown>>;
-    writeGeneration(database, scope, 0, scope.kind === "user"
-      ? { hostConfig: defaults.config, installedUser: defaults.installed, trust: defaults.trust }
-      : { projectLocal: defaults.project }, sha256);
-    database.exec("COMMIT");
-  } catch (error) {
-    rollback(database);
-    throw error;
-  }
+  if (readProtocol(database) !== undefined) throw new LifecycleStateAdapterError("STATE_CORRUPT", "new lifecycle state database is not empty");
+  database.prepare("INSERT INTO protocol(singleton, protocol, version, scope_json) VALUES (1, ?, ?, ?)")
+    .run(PROTOCOL, VERSION, JSON.stringify(scope));
+  const defaults = createLifecycleStateDefaultDocuments(scope, sha256) as Readonly<Record<string, unknown>>;
+  writeGeneration(database, scope, 0, scope.kind === "user"
+    ? { hostConfig: defaults.config, installedUser: defaults.installed, trust: defaults.trust }
+    : { projectLocal: defaults.project }, sha256);
 }
 
 function decodeBlob(
@@ -308,7 +317,7 @@ class SqliteLifecycleStateAdapter implements LifecycleStateStore {
     private readonly sha256: Sha256,
   ) {}
 
-  open(scopeInput: ScopeContext): OpenScopeDatabase {
+  async open(scopeInput: ScopeContext, signal: AbortSignal): Promise<OpenScopeDatabase> {
     if (this.#closed) throw new LifecycleStateAdapterError("STATE_ADAPTER_FAILED", "lifecycle state adapter is closed");
     const scope = createScopeContext(ScopeContextSchema.parse(scopeInput), this.sha256);
     const path = this.paths.stateDatabase(toScopeReference(scope));
@@ -318,79 +327,101 @@ class SqliteLifecycleStateAdapter implements LifecycleStateStore {
       if (!sameJson(existing.scope, scope)) throw new LifecycleStateAdapterError("STATE_CORRUPT", "lifecycle state scope alias detected");
       return existing;
     }
-    // First-use schema/default initialization is process-shared. A bounded
-    // native busy handler lets the losing opener wait for the winner's short
-    // initialization transaction instead of failing on an expected lock.
-    const database = new DatabaseSync(path, { allowExtension: false, defensive: true, timeout: 5_000 });
-    try {
-      chmodSync(path, LOCAL_LOCK_DATABASE_MODE);
-      initializeSchema(database);
-      initializeScope(database, scope, this.sha256);
-      const stored = scopeFromProtocol(database, this.sha256);
-      if (!sameJson(stored, scope)) throw new LifecycleStateAdapterError("STATE_CORRUPT", "lifecycle state scope evidence does not match");
-      const stats = lstatSync(path);
-      const handle: OpenScopeDatabase = {
-        database,
-        path,
-        identity: { dev: stats.dev, ino: stats.ino },
-        scope,
-        closed: false,
-      };
-      this.#handles.set(path, handle);
-      return handle;
-    } catch (error) {
-      database.close();
-      throw error;
-    }
+    const bound = await openIdentityBoundSqliteDatabase({
+      root: this.paths.stateRoot,
+      path,
+      signal,
+      initialize: (database) => {
+        initializeSchema(database);
+        initializeScope(database, scope, this.sha256);
+      },
+      validate: (database) => {
+        validateSchema(database);
+        const stored = scopeFromProtocol(database, this.sha256);
+        if (!sameJson(stored, scope)) throw new LifecycleStateAdapterError("STATE_CORRUPT", "lifecycle state scope evidence does not match");
+      },
+    });
+    const handle: OpenScopeDatabase = {
+      database: bound.database,
+      handle: bound,
+      path,
+      scope,
+      closed: false,
+    };
+    this.#handles.set(path, handle);
+    return handle;
   }
 
   async read(scope: ScopeContext, signal: AbortSignal): Promise<StateLoadResult> {
     signal.throwIfAborted();
-    const handle = this.open(scope);
-    assertFileIdentity(handle);
-    signal.throwIfAborted();
-    return readSnapshot(handle.database, handle.scope, this.sha256);
+    const handle = await this.open(scope, signal);
+    for (let attempt = 0; ; attempt += 1) {
+      assertFileIdentity(handle);
+      try {
+        handle.database.exec("BEGIN");
+        signal.throwIfAborted();
+        const snapshot = readSnapshot(handle.database, handle.scope, this.sha256);
+        signal.throwIfAborted();
+        handle.database.exec("COMMIT");
+        return snapshot;
+      } catch (error) {
+        rollback(handle.database);
+        if (signal.aborted) throw signal.reason;
+        if (!isBusy(error) || attempt >= MAX_BUSY_RETRIES) throw error;
+        await waitForBusy(signal, attempt);
+      }
+    }
   }
 
   async commit(mutation: VerifiedStateMutation, signal: AbortSignal): Promise<StateCommitResult> {
     signal.throwIfAborted();
     if (!isVerifiedStateMutation(mutation)) throw new TypeError("lifecycle state commit requires a verified mutation");
-    const handle = this.open(mutation.scope);
-    assertFileIdentity(handle);
-    begin(handle.database);
-    try {
-      signal.throwIfAborted();
-      const before = readSnapshot(handle.database, handle.scope, this.sha256);
-      if (!before.ok) throw new LifecycleStateAdapterError("STATE_CORRUPT", "lifecycle state is corrupt");
-      if (before.snapshot.generation !== mutation.expectedGeneration) {
+    const handle = await this.open(mutation.scope, signal);
+    for (let attempt = 0; ; attempt += 1) {
+      assertFileIdentity(handle);
+      try {
+        begin(handle.database);
+        signal.throwIfAborted();
+        const before = readSnapshot(handle.database, handle.scope, this.sha256);
+        if (!before.ok) throw new LifecycleStateAdapterError("STATE_CORRUPT", "lifecycle state is corrupt");
+        if (before.snapshot.generation !== mutation.expectedGeneration) {
+          handle.database.exec("COMMIT");
+          return {
+            kind: "stale-generation",
+            expected: mutation.expectedGeneration,
+            actual: before.snapshot.generation,
+          };
+        }
+        const next = GenerationSchema.parse(mutation.expectedGeneration + 1);
+        let documents: Readonly<Record<string, unknown>>;
+        if (handle.scope.kind === "user" && "config" in before.snapshot && mutation.scope.kind === "user" && !("project" in mutation.replace)) {
+          documents = {
+            hostConfig: withGeneration(mutation.replace.config ?? before.snapshot.config, next),
+            installedUser: withGeneration(mutation.replace.installed ?? before.snapshot.installed, next),
+            trust: withGeneration(mutation.replace.trust ?? before.snapshot.trust, next),
+          };
+        } else if (handle.scope.kind === "project" && "project" in before.snapshot && mutation.scope.kind === "project" && "project" in mutation.replace) {
+          documents = { projectLocal: withGeneration(mutation.replace.project, next) };
+        } else {
+          throw new TypeError("lifecycle state mutation scope does not match its database");
+        }
+        writeGeneration(handle.database, handle.scope, next, documents, this.sha256, before.snapshot.generation);
+        // Read and validate the exact expected+1 generation while the writer
+        // still owns the transaction. A later writer can advance immediately
+        // after COMMIT without changing the snapshot acknowledged here.
+        const acknowledged = readSnapshot(handle.database, handle.scope, this.sha256);
+        if (!acknowledged.ok || acknowledged.snapshot.generation !== next || acknowledged.snapshot.pointers.previousGeneration !== mutation.expectedGeneration) {
+          throw new LifecycleStateAdapterError("STATE_CORRUPT", "written lifecycle generation could not be acknowledged");
+        }
+        signal.throwIfAborted();
         handle.database.exec("COMMIT");
-        return {
-          kind: "stale-generation",
-          expected: mutation.expectedGeneration,
-          actual: before.snapshot.generation,
-        };
+        return { kind: "committed", snapshot: acknowledged.snapshot };
+      } catch (error) {
+        rollback(handle.database);
+        if (signal.aborted) throw signal.reason;
+        if (!isBusy(error) || attempt >= MAX_BUSY_RETRIES) throw error;
+        await waitForBusy(signal, attempt);
       }
-      const next = GenerationSchema.parse(before.snapshot.generation + 1);
-      let documents: Readonly<Record<string, unknown>>;
-      if (handle.scope.kind === "user" && "config" in before.snapshot && mutation.scope.kind === "user" && !("project" in mutation.replace)) {
-        documents = {
-          hostConfig: withGeneration(mutation.replace.config ?? before.snapshot.config, next),
-          installedUser: withGeneration(mutation.replace.installed ?? before.snapshot.installed, next),
-          trust: withGeneration(mutation.replace.trust ?? before.snapshot.trust, next),
-        };
-      } else if (handle.scope.kind === "project" && "project" in before.snapshot && mutation.scope.kind === "project" && "project" in mutation.replace) {
-        documents = { projectLocal: withGeneration(mutation.replace.project, next) };
-      } else {
-        throw new TypeError("lifecycle state mutation scope does not match its database");
-      }
-      writeGeneration(handle.database, handle.scope, next, documents, this.sha256, before.snapshot.generation);
-      handle.database.exec("COMMIT");
-      const after = readSnapshot(handle.database, handle.scope, this.sha256);
-      if (!after.ok) throw new LifecycleStateAdapterError("STATE_CORRUPT", "committed lifecycle state could not be read");
-      return { kind: "committed", snapshot: after.snapshot };
-    } catch (error) {
-      rollback(handle.database);
-      throw error;
     }
   }
 
@@ -400,7 +431,7 @@ class SqliteLifecycleStateAdapter implements LifecycleStateStore {
     for (const handle of [...this.#handles.values()].reverse()) {
       if (handle.closed) continue;
       handle.closed = true;
-      handle.database.close();
+      handle.handle.close();
     }
     this.#handles.clear();
   }
@@ -426,7 +457,15 @@ class SqliteLifecycleStateAdapter implements LifecycleStateStore {
         if (name === "user.sqlite" ? scope.kind !== "user" : scope.kind !== "project" || basename(name) !== `project-${projectDigest(scope.projectKey)}.sqlite`) {
           throw new Error("scope filename mismatch");
         }
-        const loaded = readSnapshot(database, scope, this.sha256);
+        database.exec("BEGIN");
+        let loaded: StateLoadResult;
+        try {
+          loaded = readSnapshot(database, scope, this.sha256);
+          database.exec("COMMIT");
+        } catch (error) {
+          rollback(database);
+          throw error;
+        }
         if (!loaded.ok) throw new Error("scope is corrupt");
         scopes.push(scope);
       } catch {

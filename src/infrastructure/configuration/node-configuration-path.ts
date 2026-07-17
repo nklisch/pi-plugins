@@ -49,7 +49,11 @@ export function createNodeConfigurationPathPort(input: Readonly<{
         let base: string;
         if (scope.kind === "project") {
           const capability = request.context.trustedProjectRoot;
-          input.projectRoots.verify(capability, scope);
+          if (input.projectRoots.revalidate !== undefined) {
+            await input.projectRoots.revalidate(capability, scope, signal);
+          } else {
+            input.projectRoots.verify(capability, scope);
+          }
           base = fileURLToPath(capability!.canonicalRoot);
         } else {
           base = input.binding.current().cwd;
