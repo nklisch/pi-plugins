@@ -29,6 +29,7 @@ function selection(value: string): RuntimeSelection {
     scope: { kind: "user" },
     plugin: "direct@community" as never,
     revision: {} as never,
+    compatibility: {} as never,
     skillHook: {} as never,
     hooks: [],
     mcp: [{ binding, selection: { value } as never }],

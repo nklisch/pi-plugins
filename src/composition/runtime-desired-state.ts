@@ -220,6 +220,7 @@ export async function buildRuntimeDesiredState(input: Readonly<{
         scope: scopeReference,
         plugin: entry.record.plugin,
         revision,
+        compatibility,
         skillHook,
         hooks: Object.freeze(hooks),
         mcp: Object.freeze(mcp),

@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-packaged-host-composition-mcp-composition
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management-packaged-host-composition
 depends_on: [epic-native-plugin-management-packaged-host-composition-runtime-selection-capabilities]
@@ -47,3 +47,10 @@ Wire the hardened MCP projection, lifecycle, launch-context/value, environment, 
 ## Ordering constraint
 
 Consumes runtime selection/capabilities. It may proceed beside hook/subagent composition; canonical reload requires both participants.
+
+## Implementation notes
+
+- Added exact MCP state projection from complete runtime selections and the existing compatibility/projection authorities.
+- Composed the existing MCP lifecycle participant, trusted launch context/value provider, requested-only environment, active-selection pin, and per-execution revision lease provider. Construction performs no probe, connection, process launch, tool discovery, secret resolution, or registration.
+- Added deterministic multi-plugin reconciliation/observation and owned-source shutdown. No-runtime structural none/inactive evidence succeeds exactly; MCP-bearing sources remain unavailable, while cleanup ambiguity fails rather than claiming inactivity.
+- Verification: new composed-runtime/catalog suites and existing MCP lifecycle/launch/lease/recovery suites passed (62 tests); `npm run typecheck` and `npm run boundaries` passed.

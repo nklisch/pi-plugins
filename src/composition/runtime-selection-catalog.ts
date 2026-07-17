@@ -14,6 +14,7 @@ import {
   type CurrentProjectRuntimeContext,
 } from "../application/ports/project-trust.js";
 import type { PluginKey } from "../domain/identity.js";
+import type { CompatibilityReport } from "../domain/compatibility.js";
 import type { InstalledRevisionRecord } from "../domain/state/installed-state.js";
 import type { ScopeReference } from "../domain/state/scope.js";
 import type { RuntimeProjectionSelection } from "../runtime/skill-hook/runtime-snapshot.js";
@@ -22,6 +23,7 @@ export type RuntimeSelection = Readonly<{
   scope: ScopeReference;
   plugin: PluginKey;
   revision: InstalledRevisionRecord;
+  compatibility: CompatibilityReport;
   skillHook: RuntimeProjectionSelection;
   hooks: readonly HookExecutionActiveSelection[];
   mcp: readonly Readonly<{
