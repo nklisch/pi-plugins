@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-pi-extension-manager-state-controller
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, tui]
 parent: epic-native-plugin-management-pi-extension-manager
 depends_on: [epic-native-plugin-management-pi-extension-manager-command-bridge]
@@ -27,3 +27,9 @@ No manager data is persisted. No row text/index becomes mutation authority. Ever
 - Facade spies prove each view/search/page/detail request uses canonical control commands only.
 - Late async completion, aborted reads, same plugin across scopes, disappeared selection, stale cursor/snapshot, and external changes cannot overwrite current state or select by label.
 - Offline/degraded/blocked/empty states remain visible and exact; closing clears temporary state and controllers.
+
+## Implementation notes
+
+Implemented a pure immutable reducer, facade-registry-derived argv builder, and latest-intent-wins controller. Installed, update-notice, browse, and marketplace rows retain hidden exact IDs and safe completion values; labels and row positions never authorize actions. Reads use canonical `application.control` commands, opaque facade cursors, bounded five-page windows, independent page/detail abort controllers, semantic focus restoration, and explicit stale/error state. Update counts remain facade-owned and manager state is reset on close without session or disk persistence.
+
+Reducer/controller tests cover late completion rejection, selection disappearance, view/query resets, exact detail IDs, facade-only argv, opaque pagination, safe dynamic completion, update badges, abort, and disposal. Full repository verification passed before this checkpoint advanced directly to done.
