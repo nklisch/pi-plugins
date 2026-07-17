@@ -10,7 +10,7 @@ import {
   createInstalledUserStateDocument,
   createMarketplaceSnapshotRecord,
 } from "../../src/domain/state/installed-state.js";
-import { createProjectLocalStateDocument } from "../../src/domain/state/project-state.js";
+import { createProjectLocalStateDocumentV3 } from "../../src/domain/state/project-state.js";
 import { HostConfigDocumentSchemaV1, GenerationSchema, type Generation } from "../../src/domain/state/config-state.js";
 import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
 import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
@@ -24,6 +24,7 @@ import {
   type ScopeContext,
 } from "../../src/domain/state/scope.js";
 import { createProjectRootAuthorityPort } from "../../src/composition/create-project-root-authority.js";
+import { createPiReloadBroker } from "../../src/pi/pi-reload-broker.js";
 import { readClaudeMarketplace } from "../../src/formats/claude/marketplace-reader.js";
 import type { CompatibilityReport } from "../../src/domain/compatibility.js";
 import type { ContentManifest } from "../../src/domain/content-manifest.js";
@@ -34,6 +35,8 @@ import {
   type RuntimeProjectionPort,
 } from "../../src/application/ports/runtime-projection.js";
 import { createPluginLifecycleService, type PluginLifecycleServiceDependencies } from "../../src/application/plugin-lifecycle-service.js";
+import { createProjectSyncService } from "../../src/application/project-sync-service.js";
+import { encodeProjectIntentDeclaration } from "../../src/application/project-intent-codec.js";
 import type { GenerationMutationCoordinator } from "../../src/application/generation-mutation-coordinator.js";
 import type { LifecycleStateStore } from "../../src/application/ports/lifecycle-state-store.js";
 import { CurrentProjectRuntimeContextSchema } from "../../src/application/ports/project-trust.js";
@@ -103,6 +106,10 @@ const lifecycleMarketplace = createResolvedMarketplaceSource({
   declared: { kind: "github", repository: "example/community" },
   revision: "a".repeat(40),
 }, sha256);
+const adoptedMarketplace = createResolvedMarketplaceSource({
+  declared: { kind: "github", repository: "example/adopted" },
+  revision: "b".repeat(40),
+}, sha256);
 const lifecyclePluginV2 = NormalizedPluginSchema.parse({
   ...plugin,
   source: createResolvedPluginSource({
@@ -170,18 +177,23 @@ function lifecycleProjectSnapshot(
 ): Extract<GenerationSnapshot, { scope: { kind: "project" } }> {
   const value = GenerationSchema.parse(generation);
   const marketplace = createMarketplaceSnapshotRecord({ marketplace: "community", source: lifecycleMarketplace, content }, sha256);
+  const adopted = createMarketplaceSnapshotRecord({ marketplace: "adopted", source: adoptedMarketplace, content }, sha256);
   return {
     scope: lifecycleProject,
     generation: value,
     pointers: lifecyclePointers(lifecycleProject, value),
-    project: createProjectLocalStateDocument({
-      schemaVersion: 1,
+    project: createProjectLocalStateDocumentV3({
+      schemaVersion: 3,
       generation: value,
       projectKey: lifecycleProject.projectKey,
       identity: lifecycleProject.identity,
       declarationDigest: content.rootDigest,
-      marketplaces: [marketplace],
+      marketplaces: [marketplace, adopted],
       plugins: [],
+      marketplaceUpdates: [
+        { marketplace: "community", source: lifecycleMarketplace.declared, updateApplication: "manual", origin: { kind: "native" } },
+        { marketplace: "adopted", source: adoptedMarketplace.declared, updateApplication: "manual", origin: { kind: "adoption", candidateId: `adoption-v1:sha256:${"c".repeat(64)}`, documents: [{ host: "claude", document: "claude-known-marketplaces", pointer: "/adopted" }] } },
+      ],
     }, lifecycleProject, sha256),
     corruptions: [],
   };
@@ -294,6 +306,9 @@ describe("project-scoped lifecycle service wiring", () => {
     const trustCalls: string[] = [];
     const expectations: ProjectionExpectation[] = [];
     const reloads: string[] = [];
+    const broker = createPiReloadBroker();
+    const piBinding = { sessionId: "lifecycle-v3", cwd: "/workspace/project", mode: "interactive" as const, projectTrusted: true };
+    let rejectNextReload = false;
     const projections: RuntimeProjectionPort = {
       async prepare(expectation) {
         expectations.push(expectation);
@@ -301,8 +316,14 @@ describe("project-scoped lifecycle service wiring", () => {
       },
     };
     const reload: LifecycleReloadPort = {
-      async reload(request) {
+      async reload(request, signal) {
         reloads.push(request.scope.kind === "user" ? "user" : request.scope.projectKey);
+        if (rejectNextReload) { rejectNextReload = false; return { kind: "failed", code: "RELOAD_REJECTED" }; }
+        const ticket = broker.open(piBinding, request.scope, request.transition);
+        const successor = broker.claimSuccessor(piBinding);
+        if (successor === undefined) throw new Error("real reload broker did not admit the exact successor");
+        broker.publish(successor, []);
+        await broker.wait(ticket, signal);
         return { kind: "accepted" };
       },
       async observe(request) {
@@ -369,6 +390,18 @@ describe("project-scoped lifecycle service wiring", () => {
       sha256,
     } as unknown as PluginLifecycleServiceDependencies;
     const service = createPluginLifecycleService(dependencies);
+    const initialProject = state.get(lifecycleProject);
+    if (initialProject.scope.kind !== "project") throw new Error("project fixture scope changed");
+    const retainedProjectAuthority = JSON.stringify({
+      declarationDigest: initialProject.project.declarationDigest,
+      marketplaceUpdates: initialProject.project.marketplaceUpdates,
+    });
+    const assertProjectAuthorityRetained = () => {
+      const current = state.get(lifecycleProject);
+      if (current.scope.kind !== "project") throw new Error("project fixture scope changed");
+      expect(current.project.schemaVersion).toBe(3);
+      expect(JSON.stringify({ declarationDigest: current.project.declarationDigest, marketplaceUpdates: current.project.marketplaceUpdates })).toBe(retainedProjectAuthority);
+    };
     const userRequest = {
       scope: { kind: "user" as const },
       plugin: plugin.identity.key,
@@ -391,10 +424,69 @@ describe("project-scoped lifecycle service wiring", () => {
       configurationPathContext: { scope: lifecycleProject },
     };
     expect((await service.install(projectRequest, new AbortController().signal)).kind).toBe("changed");
+    assertProjectAuthorityRetained();
+    rejectNextReload = true;
+    expect((await service.disable({ scope: lifecycleProject, plugin: plugin.identity.key }, new AbortController().signal)).kind).toBe("rolled-back");
+    assertProjectAuthorityRetained();
     expect((await service.disable({ scope: lifecycleProject, plugin: plugin.identity.key }, new AbortController().signal)).kind).toBe("changed");
+    assertProjectAuthorityRetained();
     expect((await service.enable({ ...projectRequest, configurationPathContext: { scope: lifecycleProject } }, new AbortController().signal)).kind).toBe("changed");
+    assertProjectAuthorityRetained();
     expect((await service.update(projectRequest, new AbortController().signal)).kind).toBe("changed");
-    expect((await service.uninstall({ scope: lifecycleProject, plugin: plugin.identity.key, retainedData: "keep" }, new AbortController().signal)).kind).toBe("changed");
+    assertProjectAuthorityRetained();
+
+    const desired = {
+      schemaVersion: 1 as const,
+      marketplaces: [
+        { marketplace: "community", source: lifecycleMarketplace.declared },
+        { marketplace: "adopted", source: adoptedMarketplace.declared },
+      ],
+      plugins: [],
+    };
+    const encodedDesired = encodeProjectIntentDeclaration(desired, sha256);
+    const fileObservation = Object.freeze({ publicId: `project-intent-observation-v1:sha256:${"f".repeat(64)}` }) as never;
+    const sync = createProjectSyncService({
+      state,
+      mutations: dependencies.mutations,
+      projectRoots,
+      projectTrust: dependencies.projectTrust,
+      files: {
+        async read() { return { kind: "found" as const, observation: fileObservation, declaration: encodedDesired.declaration, digest: encodedDesired.digest }; },
+        async replace() { throw new Error("apply-intent must not write the project file"); },
+        async cleanup() {},
+      },
+      writeIds: { async create() { throw new Error("apply-intent must not request a write id"); } },
+      lifecycle: service,
+      registrations: { async remove() { throw new Error("retained registrations must not be removed"); } },
+      configurationPathContext(root) { return { scope: lifecycleProject, trustedProjectRoot: root }; },
+      async readiness(snapshot) {
+        return {
+          capabilityDigest: `sha256:${"1".repeat(64)}` as never,
+          projectTrustFingerprint: `sha256:${"2".repeat(64)}` as never,
+          plugins: snapshot.project.plugins.map((record) => ({
+            plugin: record.plugin,
+            trust: "ready" as const,
+            trustFingerprint: `sha256:${"3".repeat(64)}` as never,
+            configuration: "ready" as const,
+            configurationRevision: null,
+          })),
+        };
+      },
+      sha256,
+    });
+    const syncPreviewId = `native-operation-preview-v1:sha256:${"4".repeat(64)}` as never;
+    const firstSync = await sync.preview({ mode: "apply-intent", projectKey: lifecycleProject.projectKey, previewId: syncPreviewId }, new AbortController().signal);
+    if (firstSync.kind !== "ready") throw new Error("integrated project sync preview failed");
+    const partialSync = await sync.apply({ context: firstSync.context, resolutions: [] }, undefined, new AbortController().signal);
+    expect(partialSync).toMatchObject({ kind: "needs-action", actions: [{ kind: "repreview-sync" }], effects: { state: "partially-changed" } });
+    assertProjectAuthorityRetained();
+    const finalSync = await sync.preview({ mode: "apply-intent", projectKey: lifecycleProject.projectKey, previewId: syncPreviewId }, new AbortController().signal);
+    if (finalSync.kind !== "ready") throw new Error("integrated project sync convergence preview failed");
+    expect(await sync.apply({ context: finalSync.context, resolutions: [] }, undefined, new AbortController().signal)).toMatchObject({ kind: "succeeded", syncDigest: encodedDesired.digest });
+    const syncedProject = state.get(lifecycleProject);
+    if (syncedProject.scope.kind !== "project") throw new Error("project sync scope changed");
+    expect(syncedProject.project.marketplaceUpdates).toEqual(initialProject.project.marketplaceUpdates);
+    expect(syncedProject.project.declarationDigest).toBe(encodedDesired.digest);
 
     rootAuthorityAvailable = false;
     expect(await service.install(projectRequest, new AbortController().signal)).toMatchObject({ kind: "rejected", operation: "install", code: "UNCONFIGURED" });
@@ -404,10 +496,10 @@ describe("project-scoped lifecycle service wiring", () => {
     expect(user.scope.kind).toBe("user");
     if (user.scope.kind === "user") expect(user.installed.plugins[0]?.activation).toBe("enabled");
     if (project.scope.kind === "project") expect(project.project.plugins).toHaveLength(0);
-    expect(rootAcquireCalls).toBe(4);
-    expect(rootVerifyCalls).toBe(3);
-    expect(trustCalls).toHaveLength(3);
-    expect(reloads).toHaveLength(6);
+    expect(rootAcquireCalls).toBe(11);
+    expect(rootVerifyCalls).toBe(10);
+    expect(trustCalls).toHaveLength(10);
+    expect(reloads).toHaveLength(8);
     expect(expectations.filter((value) => value.kind === "active").every((value) => value.projection.components.skills.length === 1 && value.projection.components.hooks.length === 1 && value.projection.components.mcpServers.length === 1)).toBe(true);
     const userProjection = expectations.find((value) => value.kind === "active" && value.projection.scope.kind === "user");
     const projectProjection = expectations.find((value) => value.kind === "active" && value.projection.scope.kind === "project");

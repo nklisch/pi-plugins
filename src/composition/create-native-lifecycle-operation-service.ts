@@ -28,7 +28,7 @@ import type { GenerationMutationCoordinator } from "../application/generation-mu
 import type { PluginLifecycleComposition } from "../application/plugin-lifecycle-service.js";
 import type { NativeUninstallCleanupService } from "../application/native-uninstall-cleanup.js";
 import type { MarketplaceRegistrationService } from "../application/marketplace-registration-service.js";
-import type { ProjectPluginSyncReadiness } from "../application/project-sync-projection.js";
+import type { ProjectSyncReadinessSnapshot } from "../application/project-sync-projection.js";
 import type { ProjectGenerationSnapshot } from "../application/state-contract.js";
 import type { HostCapabilityStatus } from "../application/host-observation-contract.js";
 import type { ContentDigest } from "../domain/content-manifest.js";
@@ -40,7 +40,7 @@ export function createComposedNativeLifecycleOperationService(input: Readonly<{
   candidateContent: CandidateContentLeasePort;
   inspector: PluginInspectionService;
   readiness: InspectionReadinessPort;
-  syncReadiness(snapshot: ProjectGenerationSnapshot, signal: AbortSignal): Promise<readonly ProjectPluginSyncReadiness[]>;
+  syncReadiness(snapshot: ProjectGenerationSnapshot, signal: AbortSignal): Promise<ProjectSyncReadinessSnapshot>;
   evidence: NativeInspectionEvidencePort;
   configuration: BoundPluginConfigurationService;
   configurations: PluginConfigurationStore;
@@ -104,6 +104,6 @@ export function createComposedNativeLifecycleOperationService(input: Readonly<{
     readiness: input.syncReadiness,
     sha256: input.sha256,
   });
-  const service = createNativeLifecycleOperationService({ targets, updates, lifecycle: executor, sync, clock: input.clock, sessionIds: input.sessionIds, hostEpoch: input.hostEpoch, sha256: input.sha256 });
+  const service = createNativeLifecycleOperationService({ targets, updates, lifecycle: executor, configurationAuthority, sync, clock: input.clock, sessionIds: input.sessionIds, hostEpoch: input.hostEpoch, sha256: input.sha256 });
   return Object.freeze({ ...service, candidate });
 }

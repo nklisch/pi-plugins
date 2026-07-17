@@ -1,4 +1,5 @@
-import { compareUtf8 } from "../domain/canonical-json.js";
+import { canonicalJson, compareUtf8 } from "../domain/canonical-json.js";
+import { hashContent, type ContentDigest } from "../domain/content-manifest.js";
 import type { MarketplaceName } from "../domain/identity.js";
 import { deriveMarketplaceRegistrationId, type MarketplaceRegistrationId } from "../domain/marketplace-registration.js";
 import type { InstalledPluginRecord } from "../domain/state/installed-state.js";
@@ -10,8 +11,32 @@ import type { Sha256 } from "../domain/source.js";
 export type ProjectPluginSyncReadiness = Readonly<{
   plugin: InstalledPluginRecord["plugin"];
   trust: "ready" | "missing";
+  trustFingerprint: ContentDigest;
   configuration: "ready" | "missing";
+  configurationRevision: ContentDigest | null;
 }>;
+
+export type ProjectSyncReadinessSnapshot = Readonly<{
+  capabilityDigest: ContentDigest;
+  projectTrustFingerprint: ContentDigest;
+  plugins: readonly ProjectPluginSyncReadiness[];
+}>;
+
+/** Exact readiness is hashed once and carried publicly only as an opaque digest. */
+export function deriveProjectSyncReadinessDigest(
+  readiness: ProjectSyncReadinessSnapshot,
+  sha256: Sha256,
+  includedPlugins?: ReadonlySet<string>,
+): ContentDigest {
+  const plugins = readiness.plugins
+    .filter((entry) => includedPlugins === undefined || includedPlugins.has(entry.plugin))
+    .sort((left, right) => compareUtf8(left.plugin, right.plugin));
+  return hashContent(new TextEncoder().encode(`project-sync-readiness-v1\0${canonicalJson({
+    capabilityDigest: readiness.capabilityDigest,
+    projectTrustFingerprint: readiness.projectTrustFingerprint,
+    plugins,
+  })}`), sha256);
+}
 
 export type ProjectSyncMachineProjection = Readonly<{
   declaration: PortableProjectDeclaration;

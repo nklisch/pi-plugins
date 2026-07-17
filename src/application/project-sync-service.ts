@@ -11,6 +11,7 @@ import {
   type NativeLifecycleProgressSink,
 } from "./native-lifecycle-operation-contract.js";
 import { createNativeLifecycleProgressRecorder } from "./native-lifecycle-progress.js";
+import { deriveProjectSyncActionId } from "./native-lifecycle-operation-identifiers.js";
 import { deriveLifecycleTargetDigest } from "./native-lifecycle-target.js";
 import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
 import type { ProjectIntentFilePort, VerifiedProjectIntentObservation } from "./ports/project-intent-file.js";
@@ -26,9 +27,12 @@ import {
   ProjectSyncPlanningError,
   type ProjectSyncPlannerContext,
 } from "./project-sync-planner.js";
-import type { ProjectPluginSyncReadiness } from "./project-sync-projection.js";
-import { projectProjectSyncMachineState } from "./project-sync-projection.js";
-import type { ProjectSyncConflictResolution, ProjectSyncMode, ProjectSyncPlan } from "./project-sync-contract.js";
+import {
+  deriveProjectSyncReadinessDigest,
+  projectProjectSyncMachineState,
+  type ProjectSyncReadinessSnapshot,
+} from "./project-sync-projection.js";
+import { ProjectSyncRequiredActionSchema, type ProjectSyncConflictResolution, type ProjectSyncMode, type ProjectSyncPlan } from "./project-sync-contract.js";
 import type { ProjectGenerationSnapshot } from "./state-contract.js";
 import { commitProjectSyncDeclarationDigest } from "./project-sync-state.js";
 import { encodeProjectIntentDeclaration } from "./project-intent-codec.js";
@@ -63,12 +67,19 @@ export type ProjectSyncServiceDependencies = Readonly<{
   lifecycle: PluginLifecycleService;
   registrations: Pick<MarketplaceRegistrationService, "remove">;
   configurationPathContext(root: TrustedProjectRoot, snapshot: ProjectGenerationSnapshot): ConfigurationPathContext;
-  readiness(snapshot: ProjectGenerationSnapshot, signal: AbortSignal): Promise<readonly ProjectPluginSyncReadiness[]>;
+  readiness(snapshot: ProjectGenerationSnapshot, signal: AbortSignal): Promise<ProjectSyncReadinessSnapshot>;
   sha256: Sha256;
 }>;
 
 function same(left: unknown, right: unknown): boolean { return canonicalJson(left) === canonicalJson(right); }
 function effectState(completed: readonly string[], file: "unchanged" | "written" | "unknown") { return completed.length === 0 && file === "unchanged" ? "unchanged" as const : "partially-changed" as const; }
+function repreviewAction(sha256: Sha256) {
+  const evidence = { kind: "repreview-sync", action: "retry-read" } as const;
+  return ProjectSyncRequiredActionSchema.parse({
+    ...evidence,
+    id: deriveProjectSyncActionId(evidence, sha256),
+  });
+}
 
 export function createProjectSyncService(dependencies: ProjectSyncServiceDependencies): ProjectSyncService {
   if (dependencies === null || typeof dependencies !== "object" || typeof dependencies.sha256 !== "function") throw new TypeError("project sync dependencies are required");
@@ -94,7 +105,9 @@ export function createProjectSyncService(dependencies: ProjectSyncServiceDepende
     if (authority === undefined) return { kind: "rejected", code: "PROJECT_UNTRUSTED" };
     const read = await dependencies.files.read(authority.root, signal);
     if (read.kind === "unavailable") return { kind: "rejected", code: read.code === "FILE_UNSAFE" ? "FILE_UNSAFE" : read.code === "FILE_INVALID" || read.code === "FILE_INVALID_UTF8" || read.code === "FILE_TOO_LARGE" ? "FILE_INVALID" : "ADAPTER_FAILED" };
-    const readiness = await dependencies.readiness(authority.snapshot, signal);
+    let readiness: ProjectSyncReadinessSnapshot;
+    try { readiness = await dependencies.readiness(authority.snapshot, signal); }
+    catch (error) { if (signal.aborted) throw signal.reason ?? error; return { kind: "rejected", code: "ADAPTER_FAILED" }; }
     const file = read.kind === "missing"
       ? { status: "missing" as const, observationId: read.observation.publicId }
       : { status: "present" as const, observationId: read.observation.publicId, declaration: read.declaration, digest: read.digest };
@@ -136,6 +149,12 @@ export function createProjectSyncService(dependencies: ProjectSyncServiceDepende
     if (authority === undefined || authority.projectEpoch !== planning.plan.projectEpoch || authority.snapshot.generation !== planning.snapshot.generation || !same(authority.snapshot.project, planning.snapshot.project)) return result(context, progress, { kind: "conflict", reason: "state-generation-changed" }, [], planning.plan.actions.map((action) => action.id), "unchanged");
     const fileCurrent = await dependencies.files.read(context.root, signal);
     if (fileCurrent.kind === "unavailable" || fileCurrent.observation.publicId !== context.observation.publicId) return result(context, progress, { kind: "conflict", reason: "file-changed" }, [], planning.plan.actions.map((action) => action.id), "unchanged");
+    let currentReadiness: ProjectSyncReadinessSnapshot;
+    try { currentReadiness = await dependencies.readiness(authority.snapshot, signal); }
+    catch (error) { if (signal.aborted) return result(context, progress, { kind: "cancelled", phase: "authority-revalidation" }, [], planning.plan.actions.map((action) => action.id), "unchanged"); throw error; }
+    if (deriveProjectSyncReadinessDigest(currentReadiness, dependencies.sha256) !== planning.plan.readinessDigest) {
+      return result(context, progress, { kind: "stale", reason: "capability" }, [], planning.plan.actions.map((action) => action.id), "unchanged");
+    }
     await progress.emit({ phase: "authority-revalidation", state: "completed" });
 
     const completed: any[] = [];
@@ -153,6 +172,7 @@ export function createProjectSyncService(dependencies: ProjectSyncServiceDepende
           const writeId = await dependencies.writeIds.create(signal);
           const replaced = await dependencies.files.replace({ root: context.root, expected: context.observation, declaration: planning.desired, writeId }, signal);
           if (replaced.kind === "stale") return result(context, progress, { kind: "conflict", reason: "file-changed" }, completed, actions.slice(index).map((entry) => entry.id), projectFile, latest.generation);
+          if (replaced.kind === "unavailable") return result(context, progress, { kind: "rejected", code: replaced.code }, completed, actions.slice(index).map((entry) => entry.id), projectFile, latest.generation);
           if (replaced.kind === "ambiguous") return result(context, progress, { kind: "recovery-required", code: "PROJECT_INTENT_WRITE_FAILED", action: "run-recovery" }, completed, actions.slice(index).map((entry) => entry.id), "unknown", latest.generation);
           projectFile = replaced.kind === "written" ? "written" : projectFile;
           completed.push(action.id);
@@ -163,9 +183,42 @@ export function createProjectSyncService(dependencies: ProjectSyncServiceDepende
           await progress.emit({ phase: "finalization", state: "started", actionId: action.id });
           const finalFile = await dependencies.files.read(context.root, signal);
           if (finalFile.kind !== "found" || finalFile.digest !== planning.plan.desiredDigest) return result(context, progress, { kind: "conflict", reason: "file-changed" }, completed, actions.slice(index).map((entry) => entry.id), projectFile, latest.generation);
+          const finalAuthority = await projectAuthority(planning.snapshot.scope.projectKey, signal);
+          if (finalAuthority === undefined) return result(context, progress, { kind: "stale", reason: "project" }, completed, actions.slice(index).map((entry) => entry.id), projectFile, latest.generation);
+          latest = finalAuthority.snapshot;
           const readiness = await dependencies.readiness(latest, signal);
-          const machine = projectProjectSyncMachineState({ snapshot: latest, readiness, existingFile: planning.desired, sha256: dependencies.sha256 });
+          const finalReadinessDigest = deriveProjectSyncReadinessDigest(readiness, dependencies.sha256);
+          if (finalReadinessDigest !== planning.plan.convergenceReadinessDigest) {
+            const fresh = createProjectSyncPlanningContext({
+              mode: planning.plan.mode,
+              projectEpoch: finalAuthority.projectEpoch,
+              snapshot: latest,
+              file: { status: "present", observationId: finalFile.observation.publicId, declaration: finalFile.declaration, digest: finalFile.digest },
+              readiness,
+              sha256: dependencies.sha256,
+            });
+            if (fresh.plan.requiredActions.length > 0) {
+              return result(context, progress, { kind: "needs-action", actions: fresh.plan.requiredActions }, completed, actions.slice(index).map((entry) => entry.id), projectFile, latest.generation);
+            }
+            return result(context, progress, { kind: "stale", reason: "capability" }, completed, actions.slice(index).map((entry) => entry.id), projectFile, latest.generation);
+          }
+          const machine = projectProjectSyncMachineState({ snapshot: latest, readiness: readiness.plugins, existingFile: planning.desired, sha256: dependencies.sha256 });
           if (encodeProjectIntentDeclaration(machine.declaration, dependencies.sha256).digest !== planning.plan.desiredDigest) return result(context, progress, { kind: "conflict", reason: "concurrent-mutation" }, completed, actions.slice(index).map((entry) => entry.id), projectFile, latest.generation);
+          // Trust/configuration/capability authority is independent of project
+          // generation. Read it again at the declaration-CAS boundary.
+          const commitReadiness = await dependencies.readiness(latest, signal);
+          if (deriveProjectSyncReadinessDigest(commitReadiness, dependencies.sha256) !== finalReadinessDigest) {
+            const fresh = createProjectSyncPlanningContext({
+              mode: planning.plan.mode,
+              projectEpoch: finalAuthority.projectEpoch,
+              snapshot: latest,
+              file: { status: "present", observationId: finalFile.observation.publicId, declaration: finalFile.declaration, digest: finalFile.digest },
+              readiness: commitReadiness,
+              sha256: dependencies.sha256,
+            });
+            if (fresh.plan.requiredActions.length > 0) return result(context, progress, { kind: "needs-action", actions: fresh.plan.requiredActions }, completed, actions.slice(index).map((entry) => entry.id), projectFile, latest.generation);
+            return result(context, progress, { kind: "stale", reason: "capability" }, completed, actions.slice(index).map((entry) => entry.id), projectFile, latest.generation);
+          }
           const committed = await commitProjectSyncDeclarationDigest({ snapshot: latest, digest: planning.plan.desiredDigest!, mutations: dependencies.mutations, sha256: dependencies.sha256 }, signal);
           if (committed.kind === "stale") return result(context, progress, { kind: "conflict", reason: "state-generation-changed" }, completed, actions.slice(index).map((entry) => entry.id), projectFile, committed.actual);
           if (committed.kind === "recovery-required") return result(context, progress, { kind: "recovery-required", code: "ADAPTER_FAILED", ...(committed.committed === undefined ? {} : { committed: committed.committed }), action: "run-recovery" }, completed, actions.slice(index).map((entry) => entry.id), projectFile, committed.committed);
@@ -175,6 +228,7 @@ export function createProjectSyncService(dependencies: ProjectSyncServiceDepende
           continue;
         }
         await progress.emit({ phase: "project-reconciliation", state: "started", actionId: action.id, ...(action.plugin === undefined ? {} : { plugin: action.plugin }) });
+        let lifecycleChanged = false;
         if (action.kind === "remove-marketplace") {
           const removed = await dependencies.registrations.remove({ scope: "project", registrationId: action.registrationId! }, signal);
           if (removed.kind !== "removed" && removed.kind !== "unchanged") return result(context, progress, { kind: "conflict", reason: "concurrent-mutation" }, completed, actions.slice(index).map((entry) => entry.id), projectFile, latest.generation);
@@ -191,13 +245,26 @@ export function createProjectSyncService(dependencies: ProjectSyncServiceDepende
             : action.kind === "disable-plugin"
               ? await dependencies.lifecycle.disable({ scope: latest.scope, plugin: record.plugin, expectedTarget: expectation, origin: "sync" }, signal)
               : await dependencies.lifecycle.uninstall({ scope: latest.scope, plugin: record.plugin, expectedTarget: expectation, origin: "sync", retainedData: "keep" }, signal);
-          if (lifecycle.kind === "changed" || lifecycle.kind === "unchanged") latest = lifecycle.snapshot as ProjectGenerationSnapshot;
-          else if (lifecycle.kind === "recovery-required") return result(context, progress, { kind: "recovery-required", code: "PENDING_TRANSITION", transition: lifecycle.transition, ...(lifecycle.committed === undefined ? {} : { committed: lifecycle.committed }), action: "run-recovery" }, completed, actions.slice(index).map((entry) => entry.id), projectFile, lifecycle.committed);
+          if (lifecycle.kind === "changed" || lifecycle.kind === "unchanged") {
+            latest = lifecycle.snapshot as ProjectGenerationSnapshot;
+            lifecycleChanged = lifecycle.kind === "changed";
+          } else if (lifecycle.kind === "recovery-required") return result(context, progress, { kind: "recovery-required", code: "PENDING_TRANSITION", transition: lifecycle.transition, ...(lifecycle.committed === undefined ? {} : { committed: lifecycle.committed }), action: "run-recovery" }, completed, actions.slice(index).map((entry) => entry.id), projectFile, lifecycle.committed);
           else if (lifecycle.kind === "stale") return result(context, progress, { kind: "conflict", reason: "target-changed" }, completed, actions.slice(index).map((entry) => entry.id), projectFile, lifecycle.actual);
           else return result(context, progress, { kind: "failed", code: "ADAPTER_FAILED" }, completed, actions.slice(index).map((entry) => entry.id), projectFile, latest.generation);
         }
         completed.push(action.id);
         await progress.emit({ phase: "project-reconciliation", state: "completed", actionId: action.id, ...(action.plugin === undefined ? {} : { plugin: action.plugin }) });
+        if (lifecycleChanged && index + 1 < actions.length) {
+          return result(
+            context,
+            progress,
+            { kind: "needs-action", actions: [repreviewAction(dependencies.sha256)] },
+            completed,
+            actions.slice(index + 1).map((candidate) => candidate.id),
+            projectFile,
+            latest.generation,
+          );
+        }
       } catch (error) {
         if (signal.aborted) return result(context, progress, { kind: "cancelled", phase: "project-reconciliation" }, completed, actions.slice(index).map((entry) => entry.id), projectFile, latest.generation);
         return result(context, progress, { kind: "failed", code: "ADAPTER_FAILED" }, completed, actions.slice(index).map((entry) => entry.id), projectFile, latest.generation);

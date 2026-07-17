@@ -18,6 +18,7 @@ export type ProjectIntentReadResult =
 export type ProjectIntentReplaceResult =
   | Readonly<{ kind: "written" | "unchanged"; observation: VerifiedProjectIntentObservation; digest: ContentDigest }>
   | Readonly<{ kind: "stale" }>
+  | Readonly<{ kind: "unavailable"; code: "PROJECT_INTENT_WRITE_UNAVAILABLE" }>
   | Readonly<{ kind: "ambiguous"; expectedDigest: ContentDigest }>;
 
 export interface ProjectIntentFilePort {

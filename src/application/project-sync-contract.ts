@@ -50,6 +50,7 @@ export const ProjectSyncRequiredActionKindRegistry = Object.freeze({
   reviewTrust: { tag: "review-trust" },
   provideConfiguration: { tag: "provide-configuration" },
   runRecovery: { tag: "run-recovery" },
+  repreviewSync: { tag: "repreview-sync" },
 } as const);
 export const ProjectSyncRequiredActionKindSchema = z.enum(
   Object.values(ProjectSyncRequiredActionKindRegistry).map((entry) => entry.tag) as [
@@ -59,6 +60,7 @@ export const ProjectSyncRequiredActionKindSchema = z.enum(
     "review-trust",
     "provide-configuration",
     "run-recovery",
+    "repreview-sync",
   ],
 );
 
@@ -99,6 +101,9 @@ export const ProjectSyncRequiredActionSchema = z.object({
   }
   if (["install-plugin", "update-plugin", "review-trust", "provide-configuration", "run-recovery"].includes(action.kind) && action.plugin === undefined) {
     context.addIssue({ code: "custom", path: ["plugin"], message: "plugin action requires a plugin" });
+  }
+  if (action.kind === "repreview-sync" && (action.plugin !== undefined || action.marketplace !== undefined || action.action !== "retry-read")) {
+    context.addIssue({ code: "custom", message: "sync re-preview action has no plugin or marketplace owner" });
   }
 });
 
@@ -146,6 +151,8 @@ export const ProjectSyncPlanSchema = z.object({
     digest: ContentDigestSchema.optional(),
   }).strict().readonly(),
   machineDigest: ContentDigestSchema,
+  readinessDigest: ContentDigestSchema,
+  convergenceReadinessDigest: ContentDigestSchema.optional(),
   desiredDigest: ContentDigestSchema.optional(),
   planDigest: ContentDigestSchema,
   actions: z.array(ProjectSyncActionSchema).max(512).readonly(),
@@ -157,6 +164,9 @@ export const ProjectSyncPlanSchema = z.object({
   }
   if (plan.file.status === "missing" && plan.file.digest !== undefined) {
     context.addIssue({ code: "custom", path: ["file", "digest"], message: "missing file cannot carry a digest" });
+  }
+  if ((plan.desiredDigest !== undefined) !== (plan.convergenceReadinessDigest !== undefined)) {
+    context.addIssue({ code: "custom", path: ["convergenceReadinessDigest"], message: "resolved desired intent requires a convergence readiness digest" });
   }
   for (const [path, values] of [["actions", plan.actions], ["requiredActions", plan.requiredActions], ["conflicts", plan.conflicts]] as const) {
     const ids = values.map((value) => value.id);

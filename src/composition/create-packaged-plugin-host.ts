@@ -7,7 +7,11 @@ import { createLifecycleTransitionReconciler } from "../application/lifecycle-tr
 import { createMarketplaceInspectionService } from "../application/marketplace-inspection-service.js";
 import { createMarketplacePluginProbe } from "../application/marketplace-plugin-probe.js";
 import { createPluginLifecycleComposition } from "../application/plugin-lifecycle-service.js";
+import { canonicalJson } from "../domain/canonical-json.js";
 import { hashContent } from "../domain/content-manifest.js";
+import { verifyPluginConfigurationDocument } from "../domain/configured-values.js";
+import { createTrustCandidate } from "../domain/trust-policy.js";
+import { toScopeReference } from "../domain/state/scope.js";
 import { createRuntimeProjectionCache } from "../infrastructure/filesystem/runtime-projection-cache.js";
 import { createKeyedMutationScheduler } from "../infrastructure/state/keyed-mutation-scheduler.js";
 import { createSqliteScopeLockManager } from "../infrastructure/state/sqlite-scope-lock.js";
@@ -406,17 +410,49 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           async syncReadiness(snapshot, signal) {
             const captured = await nativeInspection.evidence.capture(signal);
             const state = captured.states.find((result) => result.ok && result.snapshot.scope.kind === "project" && result.snapshot.scope.projectKey === snapshot.scope.projectKey);
-            if (state === undefined || !state.ok || state.snapshot.generation !== snapshot.generation) throw new Error("project inspection evidence changed during sync preview");
+            const capabilityDigest = captured.binding.capability.digest;
+            if (state === undefined || !state.ok || state.snapshot.generation !== snapshot.generation || capabilityDigest === undefined) throw new Error("project inspection evidence changed during sync preview");
             const snapshotId = deriveInspectionEvidenceSnapshotId(captured.binding, sha256);
             const values = [];
             for (const record of snapshot.project.plugins) {
               const detailId = deriveInspectionDetailId({ version: 1, subject: "installed", scope: { kind: "project", projectKey: snapshot.scope.projectKey }, plugin: record.plugin, selectedRevision: record.selectedRevision }, sha256);
               const detail = await nativeInspection.application.detail({ snapshotId, detailId }, signal);
-              if (detail.kind !== "found") throw new Error("project plugin readiness is unavailable");
+              const selected = record.revisions.find((revision) => revision.revision === record.selectedRevision);
+              if (detail.kind !== "found" || selected === undefined) throw new Error("project plugin readiness is unavailable");
+              const loaded = await content.installed.load({ scope: snapshot.scope, revision: selected }, signal);
+              const trustCandidate = createTrustCandidate({
+                scope: toScopeReference(snapshot.scope),
+                marketplaceSource: loaded.marketplaceSource,
+                plugin: loaded.plugin,
+                compatibility: loaded.compatibility,
+                content: loaded.content,
+                materializationBinding: loaded.binding,
+              }, sha256);
+              const trustFingerprint = hashContent(new TextEncoder().encode(`project-sync-trust-v1\0${trustCandidate.subject}`), sha256);
+              let configurationRevision: import("../domain/content-manifest.js").ContentDigest | null = null;
+              if (selected.configurationRef !== undefined) {
+                const read = await configurations.read(selected.configurationRef, signal);
+                if (read.kind === "found") {
+                  try {
+                    const document = verifyPluginConfigurationDocument(read.document, loaded.plugin.configuration, sha256);
+                    if (document.plugin === record.plugin && document.configurationRef === selected.configurationRef) configurationRevision = document.revision;
+                  } catch { /* exact invalid configuration remains a missing readiness prerequisite */ }
+                }
+              }
               const configurationReady = !detail.detail.configuration.some((field) => field.state === "invalid" || field.required && (field.state === "missing" || field.state === "unavailable"));
-              values.push({ plugin: record.plugin, trust: detail.detail.trust === "authorized" ? "ready" as const : "missing" as const, configuration: configurationReady ? "ready" as const : "missing" as const });
+              values.push({
+                plugin: record.plugin,
+                trust: detail.detail.trust === "authorized" ? "ready" as const : "missing" as const,
+                trustFingerprint,
+                configuration: configurationReady && (selected.configurationRef === undefined || configurationRevision !== null) ? "ready" as const : "missing" as const,
+                configurationRevision,
+              });
             }
-            return values;
+            return Object.freeze({
+              capabilityDigest,
+              projectTrustFingerprint: hashContent(new TextEncoder().encode(`project-sync-project-trust-v1\0${canonicalJson(captured.binding.currentProject)}`), sha256),
+              plugins: Object.freeze(values),
+            });
           },
           evidence: nativeInspection.evidence,
           configuration: configuration.application,

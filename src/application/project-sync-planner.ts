@@ -18,7 +18,12 @@ import {
   type ProjectSyncPlan,
   type ProjectSyncRequiredAction,
 } from "./project-sync-contract.js";
-import { projectProjectSyncMachineState, type ProjectPluginSyncReadiness, type ProjectSyncMachineProjection } from "./project-sync-projection.js";
+import {
+  deriveProjectSyncReadinessDigest,
+  projectProjectSyncMachineState,
+  type ProjectSyncMachineProjection,
+  type ProjectSyncReadinessSnapshot,
+} from "./project-sync-projection.js";
 import { derivePluginSourceIdentity } from "../domain/update-policy.js";
 
 const encoder = new TextEncoder();
@@ -36,6 +41,7 @@ export type ProjectSyncPlannerContext = Readonly<{
   snapshot: ProjectGenerationSnapshot;
   machine: ProjectSyncMachineProjection;
   file: ProjectSyncPlannerFile;
+  readiness: ProjectSyncReadinessSnapshot;
   desired?: PortableProjectDeclaration;
 }>;
 
@@ -169,7 +175,8 @@ function executableActions(mode: ProjectSyncMode, desired: PortableProjectDeclar
     for (const record of context.snapshot.project.plugins) {
       const target = desiredPlugins.get(record.plugin);
       if (target === undefined) {
-        if (record.activation === "enabled") actions.push(action("disable-plugin", { plugin: record.plugin }, sha256));
+        // Uninstall already projects the complete plugin inactive before removing
+        // authority, so a preceding disable would spend a second Pi reload.
         actions.push(action("uninstall-plugin", { plugin: record.plugin }, sha256));
       } else if (target.enabled !== (record.activation === "enabled")) {
         actions.push(action(target.enabled ? "enable-plugin" : "disable-plugin", { plugin: record.plugin }, sha256));
@@ -189,12 +196,17 @@ function buildPlan(input: Readonly<{
   snapshot: ProjectGenerationSnapshot;
   machine: ProjectSyncMachineProjection;
   file: ProjectSyncPlannerFile;
+  readiness: ProjectSyncReadinessSnapshot;
   desired?: PortableProjectDeclaration;
   conflicts: readonly ProjectSyncConflict[];
   sha256: Sha256;
 }>): ProjectSyncPlan {
   const machineDigest = encodeProjectIntentDeclaration(input.machine.declaration, input.sha256).digest;
+  const readinessDigest = deriveProjectSyncReadinessDigest(input.readiness, input.sha256);
   const desiredDigest = input.desired === undefined ? undefined : encodeProjectIntentDeclaration(input.desired, input.sha256).digest;
+  const convergenceReadinessDigest = input.desired === undefined
+    ? undefined
+    : deriveProjectSyncReadinessDigest(input.readiness, input.sha256, new Set(input.desired.plugins.map((entry) => entry.plugin)));
   const requiredActions = input.desired === undefined ? [] : prerequisites(input.desired, input, input.sha256);
   const actions = input.desired === undefined || requiredActions.length > 0 ? [] : executableActions(input.mode, input.desired, input, input.sha256);
   const core = {
@@ -205,6 +217,8 @@ function buildPlan(input: Readonly<{
     baselineDigest: input.snapshot.project.declarationDigest,
     file: { status: input.file.status, observationId: input.file.observationId, ...(input.file.status === "present" ? { digest: input.file.digest } : {}) },
     machineDigest,
+    readinessDigest,
+    ...(convergenceReadinessDigest === undefined ? {} : { convergenceReadinessDigest }),
     ...(desiredDigest === undefined ? {} : { desiredDigest }),
     actions,
     requiredActions,
@@ -218,12 +232,12 @@ export function createProjectSyncPlanningContext(input: Readonly<{
   projectEpoch: ContentDigest;
   snapshot: ProjectGenerationSnapshot;
   file: ProjectSyncPlannerFile;
-  readiness?: readonly ProjectPluginSyncReadiness[];
+  readiness: ProjectSyncReadinessSnapshot;
   sha256: Sha256;
 }>): ProjectSyncPlannerContext {
   if (input.mode === "apply-intent" && input.file.status === "missing") throw new ProjectSyncPlanningError("PROJECT_INTENT_MISSING");
   const existingFile = input.file.status === "present" ? input.file.declaration : undefined;
-  const machine = projectProjectSyncMachineState({ snapshot: input.snapshot, ...(input.readiness === undefined ? {} : { readiness: input.readiness }), ...(existingFile === undefined ? {} : { existingFile }), sha256: input.sha256 });
+  const machine = projectProjectSyncMachineState({ snapshot: input.snapshot, readiness: input.readiness.plugins, ...(existingFile === undefined ? {} : { existingFile }), sha256: input.sha256 });
   let desired: PortableProjectDeclaration | undefined;
   let conflicts: readonly ProjectSyncConflict[] = [];
   if (input.mode === "apply-intent") desired = input.file.status === "present" ? input.file.declaration : undefined;
@@ -235,13 +249,13 @@ export function createProjectSyncPlanningContext(input: Readonly<{
     if (conflicts.length === 0) desired = merged.desired;
   }
   const plan = buildPlan({ ...input, machine, ...(desired === undefined ? {} : { desired }), conflicts });
-  return Object.freeze({ plan, snapshot: input.snapshot, machine, file: input.file, ...(desired === undefined ? {} : { desired }) });
+  return Object.freeze({ plan, snapshot: input.snapshot, machine, file: input.file, readiness: input.readiness, ...(desired === undefined ? {} : { desired }) });
 }
 
 export function resolveProjectSyncConflicts(context: ProjectSyncPlannerContext, resolutions: readonly ProjectSyncConflictResolution[], sha256: Sha256): ProjectSyncPlannerContext {
   if (context.plan.mode !== "merge" || context.file.status !== "present" || context.plan.conflicts.length === 0) throw new ProjectSyncPlanningError("UNRESOLVED_MERGE");
   const base = mergeDeclarations(context.file.declaration, context.machine.declaration, sha256).desired;
   const desired = applyResolutions(base, context.plan.conflicts, resolutions);
-  const plan = buildPlan({ mode: "merge", projectEpoch: context.plan.projectEpoch, snapshot: context.snapshot, machine: context.machine, file: context.file, desired, conflicts: [], sha256 });
+  const plan = buildPlan({ mode: "merge", projectEpoch: context.plan.projectEpoch, snapshot: context.snapshot, machine: context.machine, file: context.file, readiness: context.readiness, desired, conflicts: [], sha256 });
   return Object.freeze({ ...context, desired, plan });
 }

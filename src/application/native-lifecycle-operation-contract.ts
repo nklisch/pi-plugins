@@ -161,6 +161,10 @@ export const NativeLifecycleOperationPreviewSchema = z.object({
     updateCandidate: z.string().regex(/^update-candidate-v1:sha256:[0-9a-f]{64}$/),
     fields: z.array(TrustedInstallConfigurationFieldSchema).readonly(),
     consent: TrustedInstallConsentDisclosureSchema,
+    authority: z.object({
+      configurationRevision: ContentDigestSchema.nullable(),
+      trustFingerprint: ContentDigestSchema,
+    }).strict().readonly(),
   }).strict().readonly().optional(),
   sync: ProjectSyncPlanSchema.optional(),
   diagnostics: z.array(NativeDiagnosticSchema).readonly(),
@@ -222,12 +226,23 @@ const UninstallCleanupViewSchema = z.object({
   trust: z.literal("retained"),
   revisions: z.literal("collection-deferred"),
 }).strict().readonly();
+export const NativeLifecycleRetainedPreflightEvidenceSchema = z.object({
+  configuration: z.boolean(),
+  trust: z.boolean(),
+  configurationRevision: ContentDigestSchema.optional(),
+  trustFingerprint: ContentDigestSchema.optional(),
+}).strict().readonly().superRefine((value, context) => {
+  if (value.configuration !== (value.configurationRevision !== undefined)) context.addIssue({ code: "custom", path: ["configurationRevision"], message: "retained configuration requires its safe exact revision" });
+  if (value.trust !== (value.trustFingerprint !== undefined)) context.addIssue({ code: "custom", path: ["trustFingerprint"], message: "retained trust requires its safe exact fingerprint" });
+});
+
 const ResultBase = {
   operation: NativeLifecycleOperationKindSchema,
   previewId: NativeLifecyclePreviewIdSchema,
   progress: ProgressSchema,
   diagnostics: z.array(NativeDiagnosticSchema).readonly(),
   effects: NativeLifecycleEffectSchema,
+  retainedPreflight: NativeLifecycleRetainedPreflightEvidenceSchema.optional(),
 } as const;
 
 export const NativeLifecycleOperationResultSchema = z.discriminatedUnion("kind", [
@@ -273,7 +288,7 @@ export const NativeLifecycleOperationSessionViewSchema = z.object({
 export const NativeLifecycleOperationPreviewResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("opened"), session: NativeLifecycleOperationSessionViewSchema }).strict().readonly(),
   z.object({ kind: z.literal("current-state"), operation: NativeLifecycleOperationKindSchema, diagnostics: z.array(NativeDiagnosticSchema).readonly() }).strict().readonly(),
-  z.object({ kind: z.literal("stale"), reason: z.enum(["inspection", "target", "candidate", "project", "file", "capability"]) }).strict().readonly(),
+  z.object({ kind: z.literal("stale"), reason: z.enum(["inspection", "target", "candidate", "configuration", "project", "file", "capability"]) }).strict().readonly(),
   z.object({ kind: z.literal("unavailable"), code: NativeLifecycleStableCodeSchema, diagnostics: z.array(NativeDiagnosticSchema).readonly() }).strict().readonly(),
   z.object({ kind: z.literal("rejected"), code: NativeLifecycleStableCodeSchema, diagnostics: z.array(NativeDiagnosticSchema).readonly() }).strict().readonly(),
 ]);
@@ -283,6 +298,10 @@ export const NativeUpdateConfirmationInputSchema = z.object({
   nonSensitive: z.array(z.object({ key: ConfigurationKeySchema, value: z.unknown() }).strict().readonly()).readonly(),
   sensitive: z.array(z.object({ key: ConfigurationKeySchema, value: SensitiveInputSchema }).strict().readonly()).readonly(),
   consent: z.object({ kind: z.literal("grant"), consentId: TrustedInstallConsentIdSchema }).strict().readonly(),
+  authority: z.object({
+    configurationRevision: ContentDigestSchema.nullable(),
+    trustFingerprint: ContentDigestSchema,
+  }).strict().readonly(),
 }).strict().readonly();
 
 export const NativeLifecycleOperationConfirmationSchema = z.discriminatedUnion("kind", [
@@ -318,6 +337,7 @@ export type NativeLifecycleOperationPreview = z.infer<typeof NativeLifecycleOper
 export type NativeLifecycleProgressPhase = z.infer<typeof NativeLifecycleProgressPhaseSchema>;
 export type NativeLifecycleProgressEvent = z.infer<typeof NativeLifecycleProgressEventSchema>;
 export type NativeLifecycleEffect = z.infer<typeof NativeLifecycleEffectSchema>;
+export type NativeLifecycleRetainedPreflightEvidence = z.infer<typeof NativeLifecycleRetainedPreflightEvidenceSchema>;
 export type NativeLifecycleOperationResult = z.infer<typeof NativeLifecycleOperationResultSchema>;
 export type NativeLifecycleOperationSessionState = z.infer<typeof NativeLifecycleOperationSessionStateSchema>;
 export type NativeLifecycleOperationSessionView = z.infer<typeof NativeLifecycleOperationSessionViewSchema>;

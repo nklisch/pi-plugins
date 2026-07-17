@@ -1656,6 +1656,7 @@ export {
   NativeLifecycleOperationPreviewSchema,
   NativeLifecycleProgressEventSchema,
   NativeLifecycleEffectSchema,
+  NativeLifecycleRetainedPreflightEvidenceSchema,
   NativeLifecycleOperationResultSchema,
   NativeLifecycleOperationSessionStateSchema,
   NativeLifecycleOperationSessionViewSchema,
@@ -1679,6 +1680,7 @@ export type {
   NativeLifecycleProgressPhase,
   NativeLifecycleProgressEvent,
   NativeLifecycleEffect,
+  NativeLifecycleRetainedPreflightEvidence,
   NativeLifecycleOperationResult,
   NativeLifecycleOperationSessionState,
   NativeLifecycleOperationSessionView,
@@ -1733,8 +1735,8 @@ export type {
   ProjectSyncPlannerFile,
   ProjectSyncPlannerContext,
 } from "./application/project-sync-planner.js";
-export { projectProjectSyncMachineState } from "./application/project-sync-projection.js";
-export type { ProjectPluginSyncReadiness, ProjectSyncMachineProjection } from "./application/project-sync-projection.js";
+export { deriveProjectSyncReadinessDigest, projectProjectSyncMachineState } from "./application/project-sync-projection.js";
+export type { ProjectPluginSyncReadiness, ProjectSyncReadinessSnapshot, ProjectSyncMachineProjection } from "./application/project-sync-projection.js";
 
 export { ProjectIntentWriteIdSchema } from "./application/ports/project-intent-write-id.js";
 export type { ProjectIntentWriteId, ProjectIntentWriteIdPort } from "./application/ports/project-intent-write-id.js";

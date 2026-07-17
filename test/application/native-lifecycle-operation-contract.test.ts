@@ -28,6 +28,7 @@ describe("native lifecycle operation contract", () => {
         nonSensitive: [],
         sensitive: [{ key: "TOKEN", value: SensitiveValue.fromUnknown("CANARY_SECRET") }],
         consent: { kind: "grant", consentId: `trusted-install-consent-v1:sha256:${"4".repeat(64)}` },
+        authority: { configurationRevision: null, trustFingerprint: digest("7") },
       },
     }).success).toBe(true);
     expect(NativeLifecycleOperationConfirmationSchema.safeParse({

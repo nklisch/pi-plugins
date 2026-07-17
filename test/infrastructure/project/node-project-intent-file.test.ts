@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { writeFileSync } from "node:fs";
+import { mkdtemp, mkdir, readFile, rm, symlink, watch, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -40,8 +41,55 @@ describe("node project intent file", () => {
     expect(found).toMatchObject({ kind: "found" });
     if (found.kind !== "found") return;
     expect(await port.replace({ root, expected: found.observation, declaration, writeId: `project-intent-write-v1:${"B".repeat(32)}` as never }, signal)).toMatchObject({ kind: "unchanged" });
+    const editorBytes = await readFile(join(path, ".pi", "plugins.json"));
+    expect(await port.replace({ root, expected: found.observation, declaration: { ...declaration, plugins: [] }, writeId: `project-intent-write-v1:${"D".repeat(32)}` as never }, signal))
+      .toEqual({ kind: "unavailable", code: "PROJECT_INTENT_WRITE_UNAVAILABLE" });
+    expect(await readFile(join(path, ".pi", "plugins.json"))).toEqual(editorBytes);
     await writeFile(join(path, ".pi", "plugins.json"), JSON.stringify({ ...declaration, plugins: [] }));
     expect(await port.replace({ root, expected: found.observation, declaration, writeId: `project-intent-write-v1:${"C".repeat(32)}` as never }, signal)).toEqual({ kind: "stale" });
+  });
+
+  it("preserves editor-created bytes when a missing-file observation loses the conditional create race", async () => {
+    const { path, root, port } = await fixture();
+    const missing = await port.read(root, signal);
+    if (missing.kind !== "missing") throw new Error("missing fixture failed");
+    await mkdir(join(path, ".pi"));
+    const editor = Buffer.from("{\"editor\":true}\n");
+    await writeFile(join(path, ".pi", "plugins.json"), editor);
+    expect(await port.replace({ root, expected: missing.observation, declaration, writeId }, signal)).toEqual({ kind: "stale" });
+    expect(await readFile(join(path, ".pi", "plugins.json"))).toEqual(editor);
+  });
+
+  it("uses kernel create-if-absent so an editor save during temp-file preparation wins byte-for-byte", async () => {
+    const { path, root, port } = await fixture();
+    const parent = join(path, ".pi");
+    await mkdir(parent);
+    const missing = await port.read(root, signal);
+    if (missing.kind !== "missing") throw new Error("missing file fixture failed");
+    const largeDeclaration = {
+      ...declaration,
+      plugins: Array.from({ length: 400 }, (_, index) => ({
+        plugin: `plugin-${index.toString().padStart(3, "0")}@market`,
+        enabled: true,
+        constraint: { kind: "declared-version" as const, value: `1.0.${index}-${"x".repeat(1_000)}` },
+      })),
+    } as never;
+    const editor = Buffer.from("{\"editor\":\"wins\"}\n");
+    const events = watch(parent);
+    const save = (async () => {
+      for await (const event of events) {
+        if (event.filename?.startsWith(".plugins.json.project-intent-write-v1-") && event.filename.includes(".probe")) {
+          writeFileSync(join(parent, "plugins.json"), editor);
+          return;
+        }
+      }
+    })();
+    const [result] = await Promise.all([
+      port.replace({ root, expected: missing.observation, declaration: largeDeclaration, writeId: `project-intent-write-v1:${"E".repeat(32)}` as never }, signal),
+      save,
+    ]);
+    expect(result).toMatchObject({ kind: "ambiguous", expectedDigest: expect.stringMatching(/^sha256:/) });
+    expect(await readFile(join(parent, "plugins.json"))).toEqual(editor);
   });
 
   it("fails closed for symlink parents and leaves external targets untouched", async () => {

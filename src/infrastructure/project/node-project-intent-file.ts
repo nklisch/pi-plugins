@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readdir, realpath, rename, unlink } from "node:fs/promises";
+import { link, lstat, mkdir, open, readdir, realpath, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
 import { hashContent, type ContentDigest } from "../../domain/content-manifest.js";
 import type { Sha256 } from "../../domain/source.js";
@@ -160,16 +160,30 @@ export function createNodeProjectIntentFilePort(input: Readonly<{
     }
     if (!same(current.evidence, expected)) return { kind: "stale" };
     if (current.digest === encoded.digest) return { kind: "unchanged", observation: issue(current.evidence), digest: encoded.digest };
+    // Node exposes no conditional replacement primitive for an existing leaf.
+    // Check-then-rename would overwrite an editor save, so fail capability-closed.
+    if (current.evidence.leaf.kind === "found") return { kind: "unavailable", code: "PROJECT_INTENT_WRITE_UNAVAILABLE" };
 
-    let createdParent = false;
+    let parentIdentity: DirectoryIdentity;
     if (current.evidence.parent.kind === "missing") {
-      try { await mkdir(current.parentPath, { mode: 0o700 }); createdParent = true; }
-      catch { return { kind: "stale" }; }
+      try { await mkdir(current.parentPath, { mode: 0o700 }); }
+      catch (error) { return (error as NodeJS.ErrnoException).code === "EEXIST" ? { kind: "stale" } : { kind: "unavailable", code: "PROJECT_INTENT_WRITE_UNAVAILABLE" }; }
       try { await syncDirectory(current.rootPath); }
       catch { return { kind: "ambiguous", expectedDigest: encoded.digest }; }
+      const parent = await lstat(current.parentPath).catch(() => undefined);
+      if (parent === undefined || !parent.isDirectory() || parent.isSymbolicLink() || await realpath(current.parentPath).catch(() => undefined) !== current.parentPath) return { kind: "stale" };
+      parentIdentity = directoryIdentity(parent);
+    } else {
+      parentIdentity = current.evidence.parent.identity;
     }
+    const publicationEvidence: ObservationEvidence = Object.freeze({
+      root: current.evidence.root,
+      parent: { kind: "found", identity: parentIdentity },
+      leaf: { kind: "missing" },
+    });
     const safeId = writeId.slice("project-intent-write-v1:".length);
     const tempPath = resolve(current.parentPath, `${TEMP_PREFIX}${safeId}${TEMP_SUFFIX}`);
+    const probePath = resolve(current.parentPath, `${TEMP_PREFIX}${safeId}.probe${TEMP_SUFFIX}`);
     let temp;
     try {
       temp = await open(tempPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
@@ -178,19 +192,34 @@ export function createNodeProjectIntentFilePort(input: Readonly<{
       await temp.close();
       temp = undefined;
 
-      // Catch ordinary editor saves during temp-file preparation before the atomic replace.
-      const beforeRename = await inspect(request.root, signal);
-      if (!same(beforeRename.evidence, expected) && !(createdParent && expected.parent.kind === "missing" && beforeRename.evidence.leaf.kind === "missing")) {
-        return { kind: "stale" };
-      }
+      const beforePublish = await inspect(request.root, signal);
+      if (!same(beforePublish.evidence, publicationEvidence)) return { kind: "stale" };
+
+      // Hard-link creation is the available platform CAS: the kernel publishes
+      // only while the destination is absent. Probe the exact filesystem first;
+      // no advisory lock or check-then-rename is treated as authority.
       try {
-        await rename(tempPath, current.leafPath);
-        await syncDirectory(current.parentPath);
+        await link(tempPath, probePath);
+        const source = await lstat(tempPath);
+        const probe = await lstat(probePath);
+        if (!source.isFile() || !probe.isFile() || source.dev !== probe.dev || source.ino !== probe.ino) {
+          return { kind: "unavailable", code: "PROJECT_INTENT_WRITE_UNAVAILABLE" };
+        }
+        await unlink(probePath);
       } catch {
-        const reconciled = await inspect(request.root, new AbortController().signal).catch(() => undefined);
-        if (reconciled?.digest === encoded.digest) return { kind: "written", observation: issue(reconciled.evidence), digest: encoded.digest };
-        return { kind: "ambiguous", expectedDigest: encoded.digest };
+        return { kind: "unavailable", code: "PROJECT_INTENT_WRITE_UNAVAILABLE" };
       }
+
+      const afterProbe = await inspect(request.root, signal);
+      if (!same(afterProbe.evidence, publicationEvidence)) return { kind: "stale" };
+      try {
+        await link(tempPath, current.leafPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") return { kind: "stale" };
+        return { kind: "unavailable", code: "PROJECT_INTENT_WRITE_UNAVAILABLE" };
+      }
+      try { await syncDirectory(current.parentPath); }
+      catch { return { kind: "ambiguous", expectedDigest: encoded.digest }; }
       const reconciled = await inspect(request.root, new AbortController().signal).catch(() => undefined);
       if (reconciled?.digest !== encoded.digest) return { kind: "ambiguous", expectedDigest: encoded.digest };
       return { kind: "written", observation: issue(reconciled.evidence), digest: encoded.digest };
@@ -199,7 +228,8 @@ export function createNodeProjectIntentFilePort(input: Readonly<{
       return { kind: "ambiguous", expectedDigest: encoded.digest };
     } finally {
       try { await temp?.close(); } catch { /* retain primary result */ }
-      try { await unlink(tempPath); } catch { /* already renamed or inert */ }
+      try { await unlink(probePath); } catch { /* absent or already removed */ }
+      try { await unlink(tempPath); } catch { /* published hard link retains bytes */ }
     }
   }
 

@@ -15,6 +15,33 @@ const binding = {
   inspectionSnapshotId: request.target.inspectionSnapshotId, detailId: request.target.detailId, transition: "none" as const,
 };
 const target = { binding, expectation: { generation: 0, plugin: binding.plugin, selectedRevision: binding.selectedRevision, activation: binding.activation, targetDigest: binding.targetDigest, pendingTransition: "none" }, scope: { kind: "user" }, record: {}, snapshot: {}, capabilityDigest: digest("5") } as any;
+const safe = (text: string) => ({ text, escaped: false, truncated: false });
+function cancellableUpdate(release: () => Promise<void>) {
+  const candidateBinding = {
+    scope: { kind: "user" as const },
+    registrationId: `marketplace-registration-v1:sha256:${"1".repeat(64)}`,
+    candidateId: `marketplace-candidate-v1:sha256:${"2".repeat(64)}`,
+    catalogSnapshot: `marketplace-snapshot-v1:sha256:${"3".repeat(64)}`,
+    plugin: binding.plugin,
+    sourceIdentity: digest("4"), immutableRevision: digest("5"), contentDigest: digest("6"),
+    compatibilityFingerprint: digest("7"), configurationDescriptorDigest: digest("8"),
+    trustSubject: `trust-subject-v1:sha256:${"9".repeat(64)}`,
+    executableSurfaceDigest: digest("a"), capabilityDigest: digest("b"),
+  };
+  const components = { counts: { skills: 0, hooks: 0, mcpServers: 0, foreign: 0 }, skills: [], hooks: [], mcpServers: [], foreign: [] };
+  const consent = {
+    consentId: `trusted-install-consent-v1:sha256:${"c".repeat(64)}`,
+    source: { kind: "git" as const, identity: digest("4"), endpoint: { scheme: "https" as const, host: safe("example.invalid"), path: safe("/plugin.git"), queryPresent: false, fragmentPresent: false } },
+    immutableRevision: digest("5"), executableSurfaceDigest: digest("a"), components, requirements: [], persistentData: true as const,
+    configurationEnvironmentNames: [], subagentInterception: "not-declared" as const, remoteMcpDiscovery: "not-performed" as const,
+    statement: safe("Grant exact trust"),
+  };
+  return {
+    target,
+    candidate: { binding: candidateBinding, fields: [], consent, detail: { diagnostics: [] }, trust: {}, plugin: { configuration: { options: [] } }, lease: { release } },
+    binding: { updateCandidate: `update-candidate-v1:sha256:${"d".repeat(64)}`, target: binding, candidate: candidateBinding },
+  } as any;
+}
 
 function harness(execute?: any, updates?: any) {
   let monotonic = 0;
@@ -23,6 +50,7 @@ function harness(execute?: any, updates?: any) {
     targets: { async resolve() { return { kind: "ready" as const, target }; }, async validate() { return { kind: "ready" as const, target }; } },
     updates: updates ?? { async acquire() { return { kind: "rejected" as const, reason: "candidate" as const }; }, async validate() { return { kind: "rejected" as const, reason: "candidate" as const }; } },
     lifecycle: { execute: executor },
+    configurationAuthority: { async readCurrent() { return { kind: "missing" as const }; }, async readExact() { return { kind: "missing" as const }; } },
     sync: { async preview() { return { kind: "rejected" as const, code: "ADAPTER_FAILED" as const }; }, async apply() { throw new Error("not used"); } },
     clock: { nowEpochMilliseconds: () => 1_000 as never, monotonicMilliseconds: () => monotonic },
     sessionIds: { async create() { return randomUUID() as never; } },
@@ -110,6 +138,50 @@ describe("native lifecycle operation facade", () => {
     expect(retry).not.toHaveBeenCalled();
     await value.close();
     expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it("rejects update confirmation when its exact configuration/trust authority differs from preview", async () => {
+    const release = vi.fn(async () => undefined);
+    const update = cancellableUpdate(release);
+    const value = harness(undefined, {
+      async acquire() { return { kind: "ready" as const, update }; },
+      async validate() { return { kind: "ready" as const, update }; },
+    });
+    const opened = await value.application.preview({ operation: "update", target: request.target, candidate: request.target }, signal);
+    if (opened.kind !== "opened" || opened.session.preview.update === undefined) throw new Error("update authority preview failed");
+    const authority = opened.session.preview.update.authority;
+    const stale = await value.application.apply({
+      token: opened.session.token,
+      confirmation: {
+        kind: "confirm-update",
+        previewId: opened.session.preview.previewId,
+        expectedVersion: opened.session.version,
+        input: { nonSensitive: [], sensitive: [], consent: { kind: "grant", consentId: opened.session.preview.update.consent.consentId }, authority: { ...authority, trustFingerprint: digest("e") } },
+      },
+    }, {}, signal);
+    expect(stale).toMatchObject({ kind: "stale", reason: "session", effects: { state: "unchanged" } });
+    expect(value.execute).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
+    await value.application.cancel({ token: opened.session.token }, signal);
+    await value.close();
+  });
+
+  it("routes preview cancellation through owned release and retries cleanup from status", async () => {
+    let releases = 0;
+    const release = vi.fn(async () => { releases += 1; if (releases === 1) throw new Error("first cleanup failed"); });
+    const update = cancellableUpdate(release);
+    const value = harness(undefined, {
+      async acquire() { return { kind: "ready" as const, update }; },
+      async validate() { return { kind: "ready" as const, update }; },
+    });
+    const opened = await value.application.preview({ operation: "update", target: request.target, candidate: request.target }, signal);
+    if (opened.kind !== "opened") throw new Error("update cancellation preview failed");
+    expect(await value.application.cancel({ token: opened.session.token }, signal)).toEqual({ kind: "accepted", state: "failed" });
+    expect(release).toHaveBeenCalledOnce();
+    const status = await value.application.status({ token: opened.session.token }, signal);
+    expect(status).toMatchObject({ kind: "found", result: { kind: "failed", code: "CLEANUP_FAILED" } });
+    expect(release).toHaveBeenCalledTimes(2);
+    await value.close();
   });
 
   it("classifies typed lifecycle cleanup failures and retains their retry capability", async () => {

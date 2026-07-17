@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { createNativeLifecycleOperationExecutor } from "../../src/application/native-lifecycle-operation.js";
 import { createNativeLifecycleTargetService } from "../../src/application/native-lifecycle-target.js";
 import { deriveInspectionDetailId, deriveInspectionEvidenceSnapshotId } from "../../src/application/native-inspection-identifiers.js";
+import { canonicalJson } from "../../src/domain/canonical-json.js";
+import { hashContent } from "../../src/domain/content-manifest.js";
 import { createNativeInstalledHarness, nativeInspectionSha256 } from "../helpers/native-installed-inspection.js";
 
 const signal = new AbortController().signal;
@@ -87,6 +89,7 @@ describe("native lifecycle operation orchestration", () => {
       binding: {},
     } as any;
     const base = dependencies(fixture, {});
+    let trustCalls = 0;
     const executor = createNativeLifecycleOperationExecutor({
       ...base,
       updates: { async acquire() { throw new Error("not used"); }, async validate() { return { kind: "ready" as const, update }; } },
@@ -102,16 +105,25 @@ describe("native lifecycle operation orchestration", () => {
         },
       },
       configurationInput() { return { pathContext: { scope: { kind: "user" } }, paths: {}, secretCustody: { status: "available" } }; },
-      trust: { async grant() { return { kind: "granted" as const }; } },
+      trust: { async grant() { trustCalls += 1; if (trustCalls > 1) throw new Error("trust adapter failed"); return { kind: "granted" as const }; } },
     } as any);
+    const trustFingerprint = hashContent(new TextEncoder().encode(`native-lifecycle-trust-v1\0${canonicalJson(update.candidate.trust)}`), nativeInspectionSha256);
     const result = await executor.execute(
       { operation: "update", previewId, target: fixture.target, update },
-      { kind: "confirm-update", previewId, expectedVersion: 0, input: { nonSensitive: [], sensitive: [], consent: { kind: "grant", consentId } } },
+      { kind: "confirm-update", previewId, expectedVersion: 0, input: { nonSensitive: [], sensitive: [], consent: { kind: "grant", consentId }, authority: { configurationRevision, trustFingerprint } } },
       {},
       signal,
     );
-    expect(result).toMatchObject({ kind: "stale", reason: "configuration" });
+    expect(result).toMatchObject({ kind: "stale", reason: "configuration", retainedPreflight: { configuration: true, trust: true, configurationRevision, trustFingerprint } });
     expect(updatePrepared).toHaveBeenCalledWith(expect.objectContaining({ expectedConfigurationRevision: configurationRevision }), signal);
+    const failedAfterConfiguration = await executor.execute(
+      { operation: "update", previewId, target: fixture.target, update },
+      { kind: "confirm-update", previewId, expectedVersion: 0, input: { nonSensitive: [], sensitive: [], consent: { kind: "grant", consentId }, authority: { configurationRevision, trustFingerprint } } },
+      {},
+      signal,
+    );
+    expect(failedAfterConfiguration).toMatchObject({ kind: "failed", code: "ADAPTER_FAILED", retainedPreflight: { configuration: true, trust: false, configurationRevision } });
+    expect(JSON.stringify(failedAfterConfiguration)).not.toMatch(/locator|CANARY_SECRET/);
   });
 
   it("preserves rollback truth instead of reporting cancellation or success", async () => {

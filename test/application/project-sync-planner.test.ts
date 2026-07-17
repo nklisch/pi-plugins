@@ -32,12 +32,28 @@ function snapshot(plugins = [record("a@market", true), record("b@market", false)
   } as any;
 }
 function file(declaration: any) { return { status: "present" as const, observationId, declaration, digest: digest("5") }; }
+function readiness(plugins = snapshot().project.plugins, overrides: Record<string, Partial<any>> = {}) {
+  return {
+    capabilityDigest: digest("7"),
+    projectTrustFingerprint: digest("8"),
+    plugins: plugins.map((record: any) => ({
+      plugin: record.plugin,
+      trust: "ready" as const,
+      trustFingerprint: digest(record.plugin.startsWith("a") ? "9" : "a"),
+      configuration: "ready" as const,
+      configurationRevision: null,
+      ...(overrides[record.plugin] ?? {}),
+    })),
+  };
+}
 
 describe("project sync planner", () => {
   it("is deterministic across machine and file ordering", () => {
     const declaration = { schemaVersion: 1 as const, marketplaces: [{ marketplace: "market", source }], plugins: [{ plugin: "b@market", enabled: false }, { plugin: "a@market", enabled: true, constraint: { kind: "declared-version", value: "1.0.0" } }] };
-    const left = createProjectSyncPlanningContext({ mode: "publish-intent", projectEpoch: digest("6"), snapshot: snapshot(), file: file(declaration), sha256 });
-    const right = createProjectSyncPlanningContext({ mode: "publish-intent", projectEpoch: digest("6"), snapshot: snapshot([...snapshot().project.plugins].reverse()), file: file({ ...declaration, plugins: [...declaration.plugins].reverse() }), sha256 });
+    const leftSnapshot = snapshot();
+    const rightSnapshot = snapshot([...snapshot().project.plugins].reverse());
+    const left = createProjectSyncPlanningContext({ mode: "publish-intent", projectEpoch: digest("6"), snapshot: leftSnapshot, file: file(declaration), readiness: readiness(leftSnapshot.project.plugins), sha256 });
+    const right = createProjectSyncPlanningContext({ mode: "publish-intent", projectEpoch: digest("6"), snapshot: rightSnapshot, file: file({ ...declaration, plugins: [...declaration.plugins].reverse() }), readiness: readiness(rightSnapshot.project.plugins), sha256 });
     expect(right.plan).toEqual(left.plan);
     expect(right.machine.declaration).toEqual(left.machine.declaration);
   });
@@ -49,7 +65,7 @@ describe("project sync planner", () => {
     ] };
     const context = createProjectSyncPlanningContext({
       mode: "apply-intent", projectEpoch: digest("6"), snapshot: snapshot(), file: file(declaration),
-      readiness: [{ plugin: "a@market" as never, trust: "missing", configuration: "missing" }], sha256,
+      readiness: readiness(snapshot().project.plugins, { "a@market": { trust: "missing", configuration: "missing" } }), sha256,
     });
     expect(context.plan.actions).toEqual([]);
     expect(context.plan.requiredActions.map((action) => action.kind).sort()).toEqual(["provide-configuration", "install-plugin", "review-trust", "update-plugin"].sort());
@@ -58,7 +74,8 @@ describe("project sync planner", () => {
 
   it("merges by deterministic union and requires complete explicit resolutions", () => {
     const declaration = { schemaVersion: 1 as const, marketplaces: [{ marketplace: "market", source: { kind: "github" as const, repository: "other/market" } }], plugins: [{ plugin: "a@market", enabled: false, constraint: { kind: "declared-version" as const, value: "2.0.0" } }] };
-    const context = createProjectSyncPlanningContext({ mode: "merge", projectEpoch: digest("6"), snapshot: snapshot([record("a@market", true)]), file: file(declaration), sha256 });
+    const current = snapshot([record("a@market", true)]);
+    const context = createProjectSyncPlanningContext({ mode: "merge", projectEpoch: digest("6"), snapshot: current, file: file(declaration), readiness: readiness(current.project.plugins), sha256 });
     expect(context.plan.conflicts.map((conflict) => conflict.kind).sort()).toEqual(["marketplace-source", "plugin-constraint", "plugin-enabled"]);
     expect(() => resolveProjectSyncConflicts(context, [], sha256)).toThrow("INVALID_RESOLUTION");
     const resolved = resolveProjectSyncConflicts(context, context.plan.conflicts.map((conflict) => ({ conflictId: conflict.id, choose: conflict.kind === "marketplace-source" ? "machine" as const : "file" as const })), sha256);
@@ -68,9 +85,17 @@ describe("project sync planner", () => {
     expect(resolved.plan.actions).toEqual([]);
   });
 
+  it("collapses active-plugin removal into one uninstall reload", () => {
+    const declaration = { schemaVersion: 1 as const, marketplaces: [], plugins: [] };
+    const current = snapshot([record("a@market", true)]);
+    const context = createProjectSyncPlanningContext({ mode: "apply-intent", projectEpoch: digest("6"), snapshot: current, file: file(declaration), readiness: readiness(current.project.plugins), sha256 });
+    expect(context.plan.actions.map((action) => action.kind)).toEqual(["uninstall-plugin", "remove-marketplace", "record-intent-digest"]);
+  });
+
   it("plans directional local convergence without installation or refresh actions", () => {
     const declaration = { schemaVersion: 1 as const, marketplaces: [{ marketplace: "market", source }], plugins: [{ plugin: "a@market", enabled: false }] };
-    const context = createProjectSyncPlanningContext({ mode: "apply-intent", projectEpoch: digest("6"), snapshot: snapshot(), file: file(declaration), sha256 });
+    const current = snapshot();
+    const context = createProjectSyncPlanningContext({ mode: "apply-intent", projectEpoch: digest("6"), snapshot: current, file: file(declaration), readiness: readiness(current.project.plugins), sha256 });
     expect(context.plan.requiredActions).toEqual([]);
     expect(context.plan.actions.map((action) => action.kind)).toEqual(["disable-plugin", "uninstall-plugin", "record-intent-digest"]);
     expect(context.plan.requiredActions.some((action) => ["install-plugin", "update-plugin"].includes(action.kind))).toBe(false);
