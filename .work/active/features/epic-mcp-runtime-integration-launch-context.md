@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-launch-context
 kind: feature
-stage: review
+stage: done
 tags: [compatibility, infra, security]
 parent: epic-mcp-runtime-integration
 depends_on: [epic-mcp-runtime-integration-config-source-bridge]
@@ -502,4 +502,35 @@ The combined projection, launch, compatibility, and bridge focused run passed **
 
 ## Portable completion status
 
-The feature's portable completion boundary is satisfied and it is ready for feature-level review. Production launch/connect remains unavailable by design until `epic-mcp-runtime-integration-config-source-bridge-production-adapter` and later lifecycle composition qualify a real package against these contracts; that external production dependency does not block review of this portable feature.
+The feature's portable completion boundary is satisfied. Production launch/connect remains unavailable by design until `epic-mcp-runtime-integration-config-source-bridge-production-adapter` and later lifecycle composition qualify a real package against these contracts; that external production dependency does not block portable completion.
+
+## Review (2026-07-16)
+
+**Verdict**: Approve
+
+**Effective weight**: standard (project default and caller instruction)
+**Independent passes**: 1; the sole review was completed before this fix stride, and the accepted blockers were closed by verification without re-review.
+
+**Blockers**: six accepted findings, all resolved:
+
+1. Public source schemas now use canonical `McpCanonicalOptionsSchemaV1` options and enforce canonical, secret-free late-value templates directly at the schema boundary. Direct validation and replacement reject durable option/template canaries before storage without reflecting plaintext.
+2. The shared sensitive-field/query classifier now covers cookies, signatures (including `X-Amz-Signature` and `sig`), sessions, and JWT-style carriers. Equivalent late-bound template and structured-environment forms remain supported; static credentials are incompatible and non-serializing.
+3. `deriveMcpRuntimeServerKey` is the single component-id derivation authority. Source and launch-binding schemas enforce it before active selection, root, configuration, or environment dependencies can run.
+4. Top-level and nested header aliases resolve through the registry-owned field group. Only exact-equivalent duplicates collapse; conflicts fail independently of declaration object order, and compatibility/template construction consume the same resolution.
+5. Structured environment selectors use an explicit configured-option-or-ambient path. A structured `PLUGIN_ROOT` reads that ambient name while template `${PLUGIN_ROOT}` still resolves the trusted plugin root.
+6. Cancellation or timeout triggered inside environment facade `has`/`substitute` propagates the identical signal reason, issues no lease, disposes callback custody before rejection, and wins safe status classification even when cleanup also fails.
+
+**Important**: portable conformance cannot prove that a real production runtime does not copy plaintext before lease disposal. Parked for maintained-fork qualification as `idea-verify-mcp-runtime-plaintext-non-retention` (`e1da9ec`).
+
+**Nits**: none.
+**Rejected**: none.
+
+**Fix commit**: `d1dbf28` (`fix: harden trusted MCP launch boundaries`).
+
+**Verification**:
+
+- Focused projection, launch, compatibility, bridge, and structured-redaction suites: **24 files / 184 tests passed**, 0 failed, no type errors.
+- Full `npm test`: typecheck green; dependency boundaries **235 modules / 1,417 dependencies**, no violations; **173 files / 954 tests passed**, 0 failed, no type errors; compiled package import **508 exports**.
+- The first full run encountered one transient, unrelated multi-process recovery-journal failure; its isolated rerun passed **4/4**, and the complete rerun passed **954/954**. No unrelated production or test code was changed.
+
+**Notes**: All projection-review fixes, registry authority, canonical provenance, logical-only source evidence, and the no-production-support boundary remain intact. No production MCP package, process launch, HTTP connection, adapter composition, or capability claim was added. Standard review closes after accepted-blocker fixes and green verification; no second review was run, as explicitly required.
