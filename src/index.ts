@@ -1908,3 +1908,24 @@ export {
   deriveProjectSyncActionId,
   deriveProjectSyncConflictId,
 } from "./application/native-lifecycle-operation-identifiers.js";
+
+export {
+  HostCapabilityStatusSchema,
+  HostCapabilitiesSchema,
+  HostBlockedPluginSchema,
+  HostReadinessStatusSchema,
+  HostStartupResultSchema,
+  HostStatusSnapshotSchema,
+} from "./application/host-observation-contract.js";
+export type {
+  HostCapabilities,
+  HostBlockedPluginObservation,
+  HostReadinessStatus,
+  HostStatusSnapshot,
+} from "./application/host-observation-contract.js";
+export { createHostStatusService } from "./composition/host-status-service.js";
+export type { HostStatusService, MutableHostStatus } from "./composition/host-status-service.js";
+export { createBackgroundUpdateCoordinator } from "./composition/background-update-coordinator.js";
+export type { BackgroundUpdateCoordinator } from "./composition/background-update-coordinator.js";
+export { createPackagedHostStartup } from "./composition/packaged-host-startup.js";
+export type { PackagedHostStartup } from "./composition/packaged-host-startup.js";

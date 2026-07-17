@@ -64,6 +64,8 @@ import {
 import { createPluginHostPathPlan } from "./plugin-host-paths.js";
 import { qualifyRuntimeParticipants, type RuntimeQualificationStatus } from "./runtime-participant-qualification.js";
 import { disposeSequentially } from "./sequential-cleanup.js";
+import { createHostStatusService } from "./host-status-service.js";
+import { createBackgroundUpdateCoordinator } from "./background-update-coordinator.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(bytes).digest());
 
@@ -84,7 +86,7 @@ function startupResult(input: Readonly<{
     ? { status: "available" as const, explanation: "encrypted operating-system secret custody is available" }
     : { status: "unavailable" as const, explanation: "encrypted operating-system secret custody is unavailable" };
   return Object.freeze({
-    status: input.blocked.length === 0 ? "ready" : "blocked",
+    status: input.blocked.length === 0 ? "ready" : "degraded",
     blocked: Object.freeze(input.blocked.map((entry) => Object.freeze({ ...entry }))),
     capabilities: Object.freeze({
       mcp: Object.freeze({ status: input.mcp.status, explanation: input.mcp.explanation }),
@@ -130,6 +132,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
   let sessionEndPromise: Promise<void> | undefined;
   let quiesceTrustedInstallation: (() => void) | undefined;
   let quiesceOperations: (() => void) | undefined;
+  let stopBackground: (() => Promise<void>) | undefined;
 
   async function start(_event: SessionStartEvent, context: ExtensionContext): Promise<StartedPackagedPluginHost> {
     if (terminal) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.terminal, "packaged plugin host is terminal");
@@ -514,11 +517,25 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           status: requireOperationContext(operations.application.status),
           cancel: requireOperationContext(operations.application.cancel),
         });
+        const hostStatus = createHostStatusService({ startup });
+        const background = createBackgroundUpdateCoordinator({
+          scheduler: marketplaceComposition.updates.scheduler,
+          status: hostStatus,
+          async enabled(signal) {
+            const leases = marketplaceComposition.updates.schedulerLeases;
+            if (leases === undefined) return false;
+            const inventory = await leases.inventory(signal);
+            return inventory.plans.some((plan) => plan.enabled);
+          },
+        });
+        stopBackground = background.close;
+        own(() => background.close());
         const application: PackagedPluginHostApplication = Object.freeze({
           operations: operationApplication,
           trustedInstallation: trustedInstallation.application,
           compatibility,
           inspection: nativeInspection.application,
+          status: hostStatus,
           configuration: configuration.application,
           recovery,
           collection,
@@ -540,6 +557,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           close: () => dispose("quit"),
         });
         started = value;
+        await background.start();
         return value;
       } catch (error) {
         terminal = true;
@@ -591,6 +609,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
     operationAdmission = false;
     quiesceTrustedInstallation?.();
     quiesceOperations?.();
+    await stopBackground?.();
     started = undefined;
     if (event !== undefined && context !== undefined) {
       sessionEndPromise ??= delegates.dispatchSessionEnd(event, context);

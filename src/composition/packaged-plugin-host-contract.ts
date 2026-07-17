@@ -18,6 +18,7 @@ import type { MarketplaceDiscoveryServices } from "./create-marketplace-discover
 import type { RuntimeCapabilityProbe } from "../application/ports/runtime-capability-probe.js";
 import type { SkillResourceDiscoveryPort } from "../runtime/skills/resource-discovery.js";
 import type { HostCapabilityStatus, HostStartupResult } from "../application/host-observation-contract.js";
+import type { HostStatusService } from "./host-status-service.js";
 export type { HostCapabilityStatus, HostStartupResult } from "../application/host-observation-contract.js";
 
 export const PackagedPluginHostErrorCode = {
@@ -83,6 +84,7 @@ export type PackagedPluginHostApplication = Readonly<{
   trustedInstallation: TrustedInstallationService;
   compatibility: CompatibilityService;
   inspection: NativeInspectionService;
+  status: HostStatusService;
   configuration: BoundPluginConfigurationService;
   recovery: LifecycleRecoveryService;
   collection: ReturnType<typeof createRevisionCollectionService>;

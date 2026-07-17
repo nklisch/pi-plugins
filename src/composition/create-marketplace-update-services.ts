@@ -33,6 +33,7 @@ export type NodeMarketplaceUpdateServices = Readonly<{
   refresh: MarketplaceRefreshService;
   policy: MarketplaceUpdatePolicyService;
   scheduler: MarketplaceUpdateScheduler;
+  schedulerLeases?: UpdateSchedulerLeasePort;
 }>;
 
 /**
@@ -58,5 +59,10 @@ export function createNodeMarketplaceUpdateServices(
     ...(options.schedulerLeases === undefined ? {} : { leases: options.schedulerLeases }),
     ...(options.leaseIds === undefined ? {} : { leaseIds: options.leaseIds }),
   });
-  return Object.freeze({ refresh, policy, scheduler });
+  return Object.freeze({
+    refresh,
+    policy,
+    scheduler,
+    ...(options.schedulerLeases === undefined ? {} : { schedulerLeases: options.schedulerLeases }),
+  });
 }
