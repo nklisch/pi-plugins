@@ -4,7 +4,7 @@ import { ConfigurationKeySchema } from "../domain/configuration.js";
 import { PluginKeySchema } from "../domain/identity.js";
 import { GenerationSchema } from "../domain/state/config-state.js";
 import { PendingTransitionRefSchema } from "../domain/state/references.js";
-import { ScopeReferenceSchema } from "../domain/state/scope.js";
+import { ProjectKeySchema, ScopeReferenceSchema } from "../domain/state/scope.js";
 import { EpochMillisecondsSchema } from "./ports/lifecycle-clock.js";
 import { SensitiveValue } from "./sensitive-value.js";
 import {
@@ -125,7 +125,7 @@ export const NativeLifecycleOperationRequestSchema = z.discriminatedUnion("opera
   z.object({ operation: z.literal("disable"), target: NativeInstalledOperationTargetRequestSchema }).strict().readonly(),
   z.object({ operation: z.literal("uninstall"), target: NativeInstalledOperationTargetRequestSchema }).strict().readonly(),
   z.object({ operation: z.literal("update"), target: NativeInstalledOperationTargetRequestSchema, candidate: NativeInstalledOperationTargetRequestSchema }).strict().readonly(),
-  z.object({ operation: z.literal("project-sync"), mode: z.enum(["apply-intent", "publish-intent", "merge"]), projectKey: z.string().regex(/^project-v1:sha256:[0-9a-f]{64}$/) }).strict().readonly(),
+  z.object({ operation: z.literal("project-sync"), mode: z.enum(["apply-intent", "publish-intent", "merge"]), projectKey: ProjectKeySchema }).strict().readonly(),
 ]);
 
 export const LifecycleTargetExpectationSchema = z.object({

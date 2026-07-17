@@ -1747,6 +1747,9 @@ export type {
 export { encodeProjectIntentDeclaration, decodeProjectIntentBytes } from "./application/project-intent-codec.js";
 export type { ProjectIntentDecodeResult } from "./application/project-intent-codec.js";
 
+export { createNativeLifecycleOperationService } from "./application/native-lifecycle-operation-service.js";
+export type { NativeLifecycleOperationServiceDependencies } from "./application/native-lifecycle-operation-service.js";
+
 export {
   createNativeLifecycleOperationToken,
   verifyNativeLifecycleOperationToken,
