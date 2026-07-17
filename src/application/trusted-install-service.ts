@@ -2,7 +2,7 @@ import { compareUtf8 } from "../domain/canonical-json.js";
 import type { ContentDigest } from "../domain/content-manifest.js";
 import type { ScopeContext } from "../domain/state/scope.js";
 import type { Sha256 } from "../domain/source.js";
-import type { BoundPluginConfigurationService } from "../composition/create-host-configuration.js";
+import type { BoundPluginConfigurationService } from "./configuration-service.js";
 import type { ExactTrustGrantService } from "./exact-trust-grant-service.js";
 import type { LifecycleOperationIdPort } from "./ports/lifecycle-operation-id.js";
 import type { LifecycleClock } from "./ports/lifecycle-clock.js";

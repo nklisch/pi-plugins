@@ -11,7 +11,7 @@ import type { PluginLifecycleService } from "../application/plugin-lifecycle-ser
 import type { CompatibilityService } from "../application/compatibility-service.js";
 import type { NativeInspectionService } from "../application/native-inspection-contract.js";
 import type { TrustedInstallationService } from "../application/trusted-install-contract.js";
-import type { BoundPluginConfigurationService } from "./create-host-configuration.js";
+import type { BoundPluginConfigurationService } from "../application/configuration-service.js";
 import type { LifecycleRecoveryService } from "../application/recovery-service.js";
 import type { createRevisionCollectionService } from "../application/revision-collection-service.js";
 import type { MarketplaceDiscoveryServices } from "./create-marketplace-discovery-services.js";

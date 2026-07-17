@@ -1,10 +1,7 @@
 import {
   removePluginConfiguration,
   savePluginConfiguration,
-  type ConfigurationRemovalResult,
-  type ConfigurationSaveResult,
-  type RemovePluginConfigurationRequest,
-  type SavePluginConfigurationRequest,
+  type BoundPluginConfigurationService,
 } from "../application/configuration-service.js";
 import { withResolvedPluginConfiguration } from "../application/configuration-resolver.js";
 import type { ConfigurationPathPort } from "../application/ports/configuration-path.js";
@@ -14,11 +11,6 @@ import type { ProjectRootAuthorityPort } from "../application/ports/project-root
 import type { ProjectTrustPort } from "../application/ports/project-trust.js";
 import type { SecretStore } from "../application/ports/secret-store.js";
 import type { Sha256 } from "../domain/source.js";
-
-export type BoundPluginConfigurationService = Readonly<{
-  save(request: SavePluginConfigurationRequest, signal: AbortSignal): Promise<ConfigurationSaveResult>;
-  remove(request: RemovePluginConfigurationRequest, signal: AbortSignal): Promise<ConfigurationRemovalResult>;
-}>;
 
 export type HostConfigurationDependencies = Readonly<{
   withResolvedPluginConfiguration: typeof withResolvedPluginConfiguration;

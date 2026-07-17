@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-trusted-installation-integrated-acceptance
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, security, testing]
 parent: epic-native-plugin-management-trusted-installation
 depends_on: [epic-native-plugin-management-trusted-installation-packaged-composition-disposal]
@@ -39,3 +39,15 @@ Add packaged acceptance for the signed choose/inspect → configure/trust → ac
 - Missing input, current state, conflict, rejection, cancellation, rollback, recovery-required, and success retain exact safe evidence.
 - Secrets/locators, roots, native causes/output/callback errors, hostile control/bidi text, and MCP/header/query/auth values cannot leak.
 - Schema-valid fixture data covers all three signed mock steps without HTML, terminal, or renderer assertions; full `npm test` is green.
+
+## Implementation notes
+
+- Added schema-valid data-only evidence for the signed choose/inspect → configure/trust → activation-result hierarchy, including required/defaulted/path/sensitive field identities and complete skill/hook/MCP/subagent disclosure.
+- Fixture result vocabulary covers missing input, success, current state, candidate/project staleness, conflict, cancellation with retained preflight, verified rollback, recovery-required, and unavailable capability without plaintext secrets or UI markup.
+- Added integrated checks for single-acquisition offline lease transfer, same-scope/plugin mutation serialization, rollback/recovery distinction, retained cancellation evidence, and structural public-evidence redaction.
+- Full-suite boundary verification surfaced and removed an inward application import of a composition-owned configuration type; the narrow bound service contract now lives with the application configuration authority.
+
+## Verification
+
+- Focused integrated suite: `npx vitest run test/integration/trusted-installation-clean-environment.test.ts test/integration/trusted-installation-offline.test.ts test/integration/trusted-installation-concurrency.test.ts test/integration/trusted-installation-recovery.test.ts test/integration/trusted-installation-security.test.ts` — 8 passed.
+- Full `npm test` — typecheck green; dependency boundaries green (311 modules / 2,171 dependencies); 247 test files, 1,180 tests passed; package build/import green; 651 public root exports and 3 Pi exports; isolated packed Pi startup passed.

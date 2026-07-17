@@ -42,6 +42,12 @@ import type { Sha256 } from "../domain/source.js";
 
 export type SavePluginConfigurationRequest = Omit<ConfigurationSubmission, "existing">;
 
+/** Narrow application surface bound by composition; resolution/stores remain private. */
+export type BoundPluginConfigurationService = Readonly<{
+  save(request: SavePluginConfigurationRequest, signal: AbortSignal): Promise<ConfigurationSaveResult>;
+  remove(request: RemovePluginConfigurationRequest, signal: AbortSignal): Promise<ConfigurationRemovalResult>;
+}>;
+
 export type ConfigurationCleanup = Readonly<{
   code: "SECRET_CLEANUP_REQUIRED";
   locators: readonly SecretLocator[];

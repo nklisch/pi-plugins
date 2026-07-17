@@ -16,7 +16,7 @@ import type { PluginInspectionService } from "../application/inspection-service.
 import type { MarketplaceCatalogService } from "../application/marketplace-catalog-service.js";
 import type { GenerationMutationCoordinator } from "../application/generation-mutation-coordinator.js";
 import type { PluginLifecycleComposition } from "../application/plugin-lifecycle-service.js";
-import type { BoundPluginConfigurationService } from "./create-host-configuration.js";
+import type { BoundPluginConfigurationService } from "../application/configuration-service.js";
 import type { HostCapabilityStatus } from "../application/host-observation-contract.js";
 import type { ContentDigest } from "../domain/content-manifest.js";
 import type { Sha256 } from "../domain/source.js";
