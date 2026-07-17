@@ -42,6 +42,14 @@ describe("native diagnostic compiler", () => {
     expect(deriveNativeInspectionCondition(compileNativeDiagnostics({ findings: [{ key: "trustRequired", subjectId }, unavailableEvidenceFinding("runtime", subjectId)] }, sha256))).toBe("blocked");
   });
 
+  it("rejects forged unsafe facts at the compiler boundary", () => {
+    expect(() => compileNativeDiagnostics({ findings: [{
+      key: "catalogStale",
+      subjectId,
+      facts: [{ key: "owner", value: { text: "forged\u001b[2J", escaped: false, truncated: false } }],
+    }] }, sha256)).toThrow();
+  });
+
   it("maps unknown native failures to fixed subsystem facts without leakage", () => {
     const native = "SECRET_NATIVE_CAUSE /home/alice/private stderr";
     const result = compileNativeDiagnostics({ findings: [unavailableEvidenceFinding("source", subjectId)] }, sha256);

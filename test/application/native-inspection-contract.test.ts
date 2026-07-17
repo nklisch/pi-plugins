@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
+  NativeDiagnosticFactSchema,
   NativeInspectionDetailResultSchema,
   NativeInspectionListRequestSchema,
   NativeInspectionPageSchema,
@@ -21,6 +22,15 @@ describe("native inspection contracts", () => {
     expect(() => NativeInspectionListRequestSchema.parse({ limit: 101 })).toThrow();
     expect(() => SafeDisplayFieldSchema.parse({ text: "x".repeat(8193), escaped: false, truncated: false })).toThrow();
   });
+
+  it.each(["\u0000", "\u001b", "\u007f", "\u0085", "\u061c", "\u200b", "\u2028", "\u202e", "\u2066", "\ufeff", "e\u0301", "x\ufe0f", "\ud800", "\udc00"])(
+    "rejects raw unsafe display scalar %# through direct and nested schemas",
+    (text) => {
+      const forged = { text, escaped: false, truncated: false };
+      expect(() => SafeDisplayFieldSchema.parse(forged)).toThrow();
+      expect(() => NativeDiagnosticFactSchema.parse({ key: "owner", value: forged })).toThrow();
+    },
+  );
 
   it("keeps result variants strict and impossible combinations out", () => {
     expect(NativeInspectionDetailResultSchema.parse({ kind: "stale", action: "retry-read" })).toEqual({ kind: "stale", action: "retry-read" });

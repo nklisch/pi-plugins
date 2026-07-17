@@ -20,6 +20,8 @@ function fixture() {
   let trust: "trusted" | "untrusted" = "trusted";
   let now = 100;
   let quarantined = false;
+  let projectCatalog = false;
+  let failingCatalogScope: "user" | "project" | undefined;
   let catalogCache: MarketplaceCacheStatus;
   const currentProject = () => ({ identity: projectIdentity, projectKey, trust: { kind: trust } as const });
   const source = { kind: "github" as const, repository: "example/community" };
@@ -28,13 +30,17 @@ function fixture() {
   const marketplaceSnapshot = createMarketplaceSnapshotRecord({ marketplace: "community", source: resolved, content: contentManifest, binding: createMaterializationBinding(resolved.hash, contentManifest.rootDigest, sha256) }, sha256);
   const registration = createMarketplaceConfigurationRecord({ marketplace: "community", source, refresh: { nextScheduledAt: 1_000, consecutiveFailures: 0 } });
   const registrationId = deriveMarketplaceRegistrationId({ scope: { kind: "user" }, source }, sha256);
+  const projectRegistrationId = deriveMarketplaceRegistrationId({ scope: { kind: "project", projectKey }, source }, sha256);
   catalogCache = { kind: "ready", validator: { kind: "git-commit", revision: resolved.revision }, etag: { kind: "not-applicable" } };
   const corruption = { document: "installedUser", scope: { kind: "user" }, code: "RECORD_INVALID", recordIdentity: "broken@community", location: { kind: "pointer", value: "/plugins/0" }, summary: "state record was quarantined" } as const;
-  const catalogSearch = vi.fn(async () => ({ candidates: [], observations: [{ registrationId, marketplace: "community", status: catalogCache.kind === "ready" ? "ready" : catalogCache.kind, cache: catalogCache }] }));
+  const catalogSearch = vi.fn(async (request: { scope: "user" | "project" }) => {
+    if (request.scope === failingCatalogScope) throw new Error("native catalog adapter failure /private/path");
+    return { candidates: [], observations: [{ registrationId: request.scope === "user" ? registrationId : projectRegistrationId, marketplace: "community", status: catalogCache.kind === "ready" ? "ready" : catalogCache.kind, cache: catalogCache }] };
+  });
   const state = {
     read: vi.fn(async (scope: { kind: "user" | "project" }) => scope.kind === "user"
       ? { ok: true as const, snapshot: { scope: { kind: "user" as const }, generation, corruptions: quarantined ? [corruption] : [], installed: { plugins: [{ plugin: "demo@market", activation: "disabled", selectedRevision: digest, revisions: [] }], marketplaces: [marketplaceSnapshot] }, config: { records: [registration] }, trust: { records: [] } } }
-      : { ok: true as const, snapshot: { scope: { kind: "project" as const, identity: projectIdentity, projectKey }, generation, corruptions: [], project: { plugins: [], marketplaces: [], marketplaceUpdates: [] } } }),
+      : { ok: true as const, snapshot: { scope: { kind: "project" as const, identity: projectIdentity, projectKey }, generation, corruptions: [], project: { plugins: [], marketplaces: projectCatalog ? [marketplaceSnapshot] : [], marketplaceUpdates: projectCatalog ? [registration] : [] } } }),
     commit: vi.fn(() => { throw new Error("must not mutate"); }),
   };
   const selections = createRuntimeSelectionCatalog(currentProject() as never);
@@ -82,6 +88,8 @@ function fixture() {
     currentProject,
     setGeneration: (value: number) => { generation = value; },
     setQuarantined: (value: boolean) => { quarantined = value; },
+    setProjectCatalog: (value: boolean) => { projectCatalog = value; },
+    setCatalogFailure: (value: "user" | "project" | undefined) => { failingCatalogScope = value; },
     setCatalogCache: (value: MarketplaceCacheStatus) => { catalogCache = value; },
     setTrust: (value: "trusted" | "untrusted") => { trust = value; },
     setNow: (value: number) => { now = value; },
@@ -97,6 +105,7 @@ describe("native inspection evidence", () => {
     expect(binding).not.toContain("private");
     expect(snapshot.runtime).toHaveLength(1);
     expect(snapshot.runtime[0]?.skillsHooks.kind).toBe("ready");
+    expect(snapshot.binding.catalogs[0]?.scope).toEqual({ kind: "user" });
     expect(snapshot.runtime[0]?.mcp.status).toEqual({ kind: "ready", status: null });
     expect(value.state.commit).not.toHaveBeenCalled();
     expect(value.revalidateProject).toHaveBeenCalledOnce();
@@ -137,6 +146,31 @@ describe("native inspection evidence", () => {
     const snapshot = await value.port.capture(new AbortController().signal);
     expect(snapshot.binding.catalogs).toMatchObject([{ cache: { kind: "corrupt" } }]);
     expect(value.catalogSearch).toHaveBeenCalledOnce();
+  });
+
+  it("isolates publication capture per readable scope when one catalog adapter fails", async () => {
+    const value = fixture();
+    value.setProjectCatalog(true);
+    value.setCatalogFailure("user");
+    const snapshot = await value.port.capture(new AbortController().signal);
+    expect(snapshot.binding.catalogs).toMatchObject([
+      { scope: { kind: "user" }, cache: { kind: "unavailable" } },
+      { scope: { kind: "project" }, cache: { kind: "ready" } },
+    ]);
+    expect(value.catalogSearch.mock.calls.map(([request]) => request.scope)).toEqual(["user", "project"]);
+    expect(JSON.stringify(snapshot.binding)).not.toContain("adapter failure");
+    expect(JSON.stringify(snapshot.binding)).not.toContain("private/path");
+  });
+
+  it("turns thrown participant failures into fixed unavailable evidence without aborting capture", async () => {
+    const value = fixture();
+    value.skillHook.observe.mockRejectedValueOnce(new Error("skill native failure /private/skill"));
+    value.mcp.status.mockRejectedValueOnce(new Error("mcp native failure credential-value"));
+    const snapshot = await value.port.capture(new AbortController().signal);
+    expect(snapshot.runtime[0]?.skillsHooks).toEqual({ kind: "unavailable", code: "ADAPTER_FAILED" });
+    expect(snapshot.runtime[0]?.mcp.status).toEqual({ kind: "unavailable", code: "ADAPTER_FAILED" });
+    expect(JSON.stringify(snapshot)).not.toContain("native failure");
+    expect(JSON.stringify(snapshot)).not.toContain("credential-value");
   });
 
   it("does not make elapsed capture time stale by itself", async () => {

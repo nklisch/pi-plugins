@@ -39,7 +39,7 @@ function setup() {
       capturedAt: 1,
       scopes: [{ scope: { kind: "user" }, generation: 0, status: "ready", corruptionCodes: [] }],
       currentProject: { projectKey: `project-v1:sha256:${"44".repeat(32)}`, trust: { kind: "trusted" }, epoch: `sha256:${"55".repeat(32)}` },
-      catalogs: [{ registrationId, snapshot: catalogSnapshot, cache: { kind: "ready", validator: { kind: "git-commit", revision: "a".repeat(40) }, etag: { kind: "not-applicable" } } }],
+      catalogs: [{ scope: { kind: "user" }, registrationId, snapshot: catalogSnapshot, cache: { kind: "ready", validator: { kind: "git-commit", revision: "a".repeat(40) }, etag: { kind: "not-applicable" } } }],
       capability: { status: "ready", digest: `sha256:${"66".repeat(32)}`, capturedBy: "fixture" },
       runtimeEpoch: `sha256:${"77".repeat(32)}`,
       recoveryDigest: `sha256:${"88".repeat(32)}`,
