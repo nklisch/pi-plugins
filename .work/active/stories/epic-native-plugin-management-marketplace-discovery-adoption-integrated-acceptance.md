@@ -38,9 +38,10 @@ Exercise the composed packaged capability across clean environment, restart/offl
 ## Implementation notes
 
 - Added clean-environment, restart/offline, concurrency, and security acceptance files around the frozen packaged marketplace capability, plus direct integrated adoption no-mutation coverage.
-- The full accepted path is exercised whenever packaged immutable publication is available. On this branch the existing packaged content store deliberately reports `PROMOTION_FAILED` because production composition has no atomic-no-replace directory primitive; acceptance records that exact safe boundary rather than adding a weaker marketplace-owned workaround.
+- The full accepted path is exercised whenever packaged immutable publication is available. On this branch the existing packaged content store deliberately reports `PROMOTION_FAILED` because production composition has no atomic-no-replace directory primitive; acceptance records that exact safe boundary rather than adding a weaker marketplace-owned workaround. The exact owner is `.work/backlog/idea-packaged-atomic-no-replace-directory-publication.md`.
 - Registration/catalog application suites independently prove paired publication, deterministic offline browse/detail/internal resolve, stale cursors, unavailable content isolation, duplicate add, removal, and redacted project/local-source rejection over injected strict ports.
-- Git host-pivot/redirect, foreign/local symlink/escape, credential URL, path/secret redaction, adoption no mutation, and untrusted current-project cases are covered at their owning seams.
+- Git host-pivot/redirect, foreign/local symlink/escape, credential URL, path/secret redaction, adoption no mutation, untrusted current-project, and post-start project-identity change cases are covered at their owning seams.
+- Packaged acceptance invokes marketplace methods through `runWithPiOperationContext`; disposal proves admitted marketplace work drains before adapters close, and the isolated packed consumer verifies the marketplace capability plus fail-closed secret status.
 - No test invokes install, activation, trust collection, commands, terminal rendering, or foreign CLI/cache/auth state.
 
 ## Verification
@@ -50,4 +51,4 @@ Exercise the composed packaged capability across clean environment, restart/offl
 
 ## Packaged-host integration note
 
-The current packaged host has no production atomic-no-replace publication primitive (`content-store-durability.ts` fails closed by design). The new acceptance tests preserve and assert that safe failure, then automatically exercise add/restart/concurrency after the owning packaged-host review fix lands. This feature does not modify the packaged-host review item or weaken immutable-store guarantees.
+The current packaged host has no production atomic-no-replace publication primitive (`content-store-durability.ts` fails closed by design). The acceptance tests preserve and assert that safe failure, then automatically exercise add/restart/concurrency after `.work/backlog/idea-packaged-atomic-no-replace-directory-publication.md` lands. This feature does not modify the packaged-host feature or weaken immutable-store guarantees.

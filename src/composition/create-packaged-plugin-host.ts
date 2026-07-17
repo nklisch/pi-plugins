@@ -312,6 +312,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           content: content.content,
           currentProject: project.scope,
           projectTrust: project.trust,
+          revalidateCurrentProject: project.revalidate,
           sha256,
           probe: marketplaceProbe,
           lifecycle,

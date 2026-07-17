@@ -64,7 +64,7 @@ describe("packaged host disposal matrix", () => {
     const operationGate = new Promise<void>((resolve) => { continueOperation = resolve; });
     const operation = host.runWithPiOperationContext(bound as never, new AbortController().signal, async (application) => {
       await operationGate;
-      return await application.recovery.recover({ requiredScopes: [{ kind: "user" }] }, new AbortController().signal);
+      return await application.marketplace.registration.list({ scope: "user", limit: 50 }, new AbortController().signal);
     });
 
     const shutdown = fake.handlers.get("session_shutdown")?.[0];
@@ -72,7 +72,7 @@ describe("packaged host disposal matrix", () => {
     await expect(host.runWithPiOperationContext(bound as never, new AbortController().signal, async () => undefined))
       .rejects.toMatchObject({ code: PackagedPluginHostErrorCode.terminal });
     continueOperation();
-    await expect(operation).resolves.toMatchObject({ deferred: false });
+    await expect(operation).resolves.toEqual({ registrations: [] });
     await host.dispose("reload");
     await expect(started.application.recovery.recover({ requiredScopes: [{ kind: "user" }] }, new AbortController().signal)).rejects.toBeDefined();
     await rm(root, { recursive: true, force: true });

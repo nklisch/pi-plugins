@@ -3,6 +3,13 @@ import { createMarketplaceCatalogService } from "../application/marketplace-cata
 import { createNodeMarketplaceUpdateServices } from "./create-marketplace-update-services.js";
 import { createNodeAdoptionService } from "./create-adoption-service.js";
 import { createNodeMarketplaceLocalSourcePort } from "../infrastructure/filesystem/marketplace-local-source.js";
+import {
+  MarketplaceRefreshRequestSchema,
+  MarketplaceRefreshResultSchema,
+  type MarketplaceRefreshRequest,
+  type MarketplaceRefreshResult,
+} from "../application/update-contract.js";
+import { MarketplaceUpdatePreferenceResultSchema } from "../application/marketplace-update-policy-service.js";
 import type { GenerationMutationCoordinator } from "../application/generation-mutation-coordinator.js";
 import type { MarketplaceInspectionService } from "../application/marketplace-inspection-contract.js";
 import type { ContentStorePort } from "../application/ports/content-store.js";
@@ -17,12 +24,27 @@ import type { Sha256 } from "../domain/source.js";
 import type { MarketplacePluginProbePort } from "../application/marketplace-refresh-service.js";
 import type { PluginLifecycleService } from "../application/plugin-lifecycle-service.js";
 
+type RegistrationService = ReturnType<typeof createMarketplaceRegistrationService>;
+type UpdateServices = ReturnType<typeof createNodeMarketplaceUpdateServices>;
+type CatalogService = ReturnType<typeof createMarketplaceCatalogService>;
+type AdoptionService = ReturnType<typeof createNodeAdoptionService>;
+type UpdatePolicyRequest = Parameters<UpdateServices["policy"]["setApplicationPreference"]>[0];
+
+export type BoundMarketplaceUpdatePolicyRequest = Readonly<
+  Omit<UpdatePolicyRequest, "scope"> & { scope: "user" | "project" }
+>;
+
 export type MarketplaceDiscoveryServices = Readonly<{
-  registration: ReturnType<typeof createMarketplaceRegistrationService>;
-  refresh: ReturnType<typeof createNodeMarketplaceUpdateServices>["refresh"];
-  policy: ReturnType<typeof createNodeMarketplaceUpdateServices>["policy"];
-  catalog: Pick<ReturnType<typeof createMarketplaceCatalogService>, "search" | "detail">;
-  adoption: ReturnType<typeof createNodeAdoptionService>;
+  registration: Pick<RegistrationService, "add" | "remove" | "list">;
+  refresh: UpdateServices["refresh"];
+  policy: Readonly<{
+    setApplicationPreference(
+      request: BoundMarketplaceUpdatePolicyRequest,
+      signal: AbortSignal,
+    ): ReturnType<UpdateServices["policy"]["setApplicationPreference"]>;
+  }>;
+  catalog: Pick<CatalogService, "search" | "detail">;
+  adoption: Pick<AdoptionService, "preview" | "import">;
 }>;
 
 export type NodeMarketplaceDiscoveryServicesOptions = Readonly<{
@@ -36,6 +58,8 @@ export type NodeMarketplaceDiscoveryServicesOptions = Readonly<{
   content: ContentStorePort;
   currentProject: Extract<ScopeContext, { kind: "project" }>;
   projectTrust: ProjectTrustPort;
+  /** Packaged hosts re-resolve the bound project before every public operation. */
+  revalidateCurrentProject?: (signal: AbortSignal) => Promise<unknown>;
   sha256: Sha256;
   probe?: MarketplacePluginProbePort;
   lifecycle?: PluginLifecycleService;
@@ -89,11 +113,7 @@ export function createNodeMarketplaceDiscoveryServices(
     currentProject: options.currentProject,
     sha256: options.sha256,
   });
-  const catalog: MarketplaceDiscoveryServices["catalog"] = Object.freeze({
-    search: internalCatalog.search,
-    detail: internalCatalog.detail,
-  });
-  const adoption = createNodeAdoptionService({
+  const internalAdoption = createNodeAdoptionService({
     registrations: registration,
     registry: registration,
     ...(options.userHome === undefined ? {} : { userHome: options.userHome }),
@@ -101,5 +121,83 @@ export function createNodeMarketplaceDiscoveryServices(
     ...(options.codexHome === undefined ? {} : { codexHome: options.codexHome }),
     ...(options.maxDocumentBytes === undefined ? {} : { maxDocumentBytes: options.maxDocumentBytes }),
   });
-  return Object.freeze({ registration, refresh: updates.refresh, policy: updates.policy, catalog, adoption });
+
+  async function revalidate(signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    await options.revalidateCurrentProject?.(signal);
+    signal.throwIfAborted();
+  }
+
+  const publicRegistration: MarketplaceDiscoveryServices["registration"] = Object.freeze({
+    async add(request, signal) {
+      await revalidate(signal);
+      return registration.add(request, signal);
+    },
+    async remove(request, signal) {
+      await revalidate(signal);
+      return registration.remove(request, signal);
+    },
+    async list(request, signal) {
+      await revalidate(signal);
+      return registration.list(request, signal);
+    },
+  });
+  const refresh: MarketplaceDiscoveryServices["refresh"] = Object.freeze({
+    async refresh(request: MarketplaceRefreshRequest, signal: AbortSignal): Promise<MarketplaceRefreshResult> {
+      await revalidate(signal);
+      let bound = MarketplaceRefreshRequestSchema.parse(request);
+      if (bound.scope === "project" || bound.scope === "all-current") {
+        const trust = await options.projectTrust.assess(options.currentProject.projectKey, signal);
+        if (trust.kind !== "trusted") {
+          if (bound.scope === "project") {
+            return MarketplaceRefreshResultSchema.parse({ outcomes: [], notifications: [] });
+          }
+          bound = MarketplaceRefreshRequestSchema.parse({ ...bound, scope: "user" });
+        }
+      }
+      return updates.refresh.refresh(bound, signal);
+    },
+    async nextScheduledAt(signal: AbortSignal): Promise<number | undefined> {
+      await revalidate(signal);
+      return updates.refresh.nextScheduledAt(signal);
+    },
+  });
+  const policy: MarketplaceDiscoveryServices["policy"] = Object.freeze({
+    async setApplicationPreference(request, signal) {
+      await revalidate(signal);
+      if (request.scope !== "user" && request.scope !== "project") {
+        throw new TypeError("marketplace policy scope must be user or current project");
+      }
+      const scope = request.scope === "user" ? { kind: "user" as const } : options.currentProject;
+      if (scope.kind === "project") {
+        const trust = await options.projectTrust.assess(scope.projectKey, signal);
+        if (trust.kind !== "trusted") {
+          return MarketplaceUpdatePreferenceResultSchema.parse({ kind: "rejected", code: "STATE_STALE" });
+        }
+      }
+      return updates.policy.setApplicationPreference({ ...request, scope }, signal);
+    },
+  });
+  const catalog: MarketplaceDiscoveryServices["catalog"] = Object.freeze({
+    async search(request, signal) {
+      await revalidate(signal);
+      return internalCatalog.search(request, signal);
+    },
+    async detail(request, signal) {
+      await revalidate(signal);
+      return internalCatalog.detail(request, signal);
+    },
+  });
+  const adoption: MarketplaceDiscoveryServices["adoption"] = Object.freeze({
+    async preview(request, signal) {
+      await revalidate(signal);
+      return internalAdoption.preview(request, signal);
+    },
+    async import(request, signal) {
+      await revalidate(signal);
+      return internalAdoption.import(request, signal);
+    },
+  });
+
+  return Object.freeze({ registration: publicRegistration, refresh, policy, catalog, adoption });
 }

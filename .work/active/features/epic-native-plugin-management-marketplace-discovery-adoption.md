@@ -628,17 +628,23 @@ All eight child checkpoints were implemented in DAG order by one cohesive GPT-5.
 
 ## Verification
 
-- Focused contract/state suite: 29 passed, 0 failed.
-- Focused Git/foreign/materialization suite: 16 passed, 0 failed.
-- Focused application/composition/acceptance suite: 44 passed, 0 failed.
-- Full `npm test`: 210 test files, 1056 tests passed, 0 failed; type errors 0.
-- Dependency boundaries: 285 modules / 1857 dependencies, no violations.
-- Package checks: build passed; compiled root import passed (562 exports); compiled `./pi` import passed (3 exports); packed consumer discovery passed.
+- Post-rebase focused marketplace plus packaged state/recovery/process suite: 71 test files, 327 tests passed, 0 failed; type errors 0.
+- Full `npm test`: 213 test files, 1067 tests passed, 0 failed; type errors 0.
+- Dependency boundaries: 284 modules / 1852 dependencies, no violations.
+- Package checks: build passed; compiled root import passed (562 exports); compiled `./pi` import passed (3 exports); isolated packed startup exercised the marketplace capability through the host operation lease and passed.
 - `git diff --check` passed. No foundation assertion became false; no foundation edit was required.
+
+## Post-rebase integration audit
+
+- `git range-diff` proved eight of nine marketplace patches unchanged. The packaged-composition patch was the sole combined boundary; its rebased form retains the finalized startup signal, runtime participant qualification, startup recovery result, current-runtime reconciliation/successor acceptance, operation draining, and reverse-order close path.
+- The packaged marketplace facade now revalidates the bound project identity before every public operation, binds policy writes to `user` or the exact current project, refuses untrusted project refresh/policy mutation, and exposes only `add/remove/list`, `search/detail`, and `preview/import` rather than restoring compatibility or internal resolver seams.
+- Packaged marketplace acceptance now calls through `runWithPiOperationContext`; the disposal matrix proves a leased marketplace operation remains pinned while new work is refused and durable cleanup waits. The isolated packed consumer verifies the same capability and unavailable secret status from the published `./pi` boundary.
+- Lifecycle v3 migrations, paired registration/snapshot state mutation, identity-bound SQLite opening, in-transaction generation acknowledgement, bounded busy retry, process-shared CAS, startup recovery, and process lease/retention semantics remained intact and passed focused process evidence.
+- Secret custody remains unavailable without fallback: non-sensitive host startup and marketplace/config composition remain available, while sensitive writes fail with `SECRET_STORE_UNAVAILABLE`; startup and serialized results expose status only and no credential/path value.
 
 ## Known packaged-host seam
 
-The current packaged host deliberately has no production atomic-no-replace directory publication primitive, so real packaged add fails closed as `PROMOTION_FAILED`. Acceptance preserves that exact safe result and is written to exercise add/restart/concurrency automatically after the owning packaged-host review fix lands. This feature did not touch that review item or weaken immutable-store guarantees.
+The rebased packaged host still has no production atomic-no-replace directory publication primitive: `createNodeContentInfrastructure` composes `createNodeContentStorePlatform()` without a native `renameNoReplace`, and capability probing therefore fails closed. Real packaged add remains `PROMOTION_FAILED`; no stale check-then-rename seam was restored. The exact owning follow-up is `.work/backlog/idea-packaged-atomic-no-replace-directory-publication.md`, owned by packaged immutable-content infrastructure. Marketplace add/restart/concurrency acceptance will automatically exercise the successful path once that primitive is wired.
 
 ## Review handoff
 

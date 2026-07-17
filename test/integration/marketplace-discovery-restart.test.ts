@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { createPackagedPluginHost } from "../../src/composition/create-packaged-plugin-host.js";
-import { createLocalMarketplace, extensionContext, fakePi } from "../helpers/packaged-marketplace.js";
+import { createLocalMarketplace, extensionContext, fakePi, runMarketplaceOperation } from "../helpers/packaged-marketplace.js";
 
 describe("packaged marketplace discovery restart", () => {
   it("browses the selected immutable snapshot after the source disappears", async () => {
@@ -12,10 +12,12 @@ describe("packaged marketplace discovery restart", () => {
     const project = join(root, "project");
     await Promise.all([mkdir(agentDir), mkdir(project)]);
     const repository = await createLocalMarketplace(root);
+    const firstContext = extensionContext(project, true, "first");
     const first = createPackagedPluginHost({ pi: fakePi().api as never, agentDir });
     try {
-      const started = await first.start({ type: "session_start", reason: "startup" } as never, extensionContext(project, true, "first") as never);
-      const added = await started.application.marketplace.registration.add({ source: { kind: "local-git", path: repository }, scope: "user", origin: { kind: "native" } }, new AbortController().signal);
+      await first.start({ type: "session_start", reason: "startup" } as never, firstContext as never);
+      const added = await runMarketplaceOperation(first, firstContext, (marketplace, signal) =>
+        marketplace.registration.add({ source: { kind: "local-git", path: repository }, scope: "user", origin: { kind: "native" } }, signal));
       if (added.kind === "rejected" && added.code === "PROMOTION_FAILED") {
         expect(added).toEqual({ kind: "rejected", code: "PROMOTION_FAILED" });
         return;
@@ -25,10 +27,12 @@ describe("packaged marketplace discovery restart", () => {
       await first.dispose("quit");
       await rm(repository, { recursive: true, force: true });
 
+      const secondContext = extensionContext(project, true, "second");
       const second = createPackagedPluginHost({ pi: fakePi().api as never, agentDir });
       try {
-        const restarted = await second.start({ type: "session_start", reason: "startup" } as never, extensionContext(project, true, "second") as never);
-        const page = await restarted.application.marketplace.catalog.search({ scope: "user", query: "demo", limit: 50 }, new AbortController().signal);
+        await second.start({ type: "session_start", reason: "startup" } as never, secondContext as never);
+        const page = await runMarketplaceOperation(second, secondContext, (marketplace, signal) =>
+          marketplace.catalog.search({ scope: "user", query: "demo", limit: 50 }, signal));
         expect(page.candidates).toHaveLength(1);
         expect(page.candidates[0]!.snapshot).toBe(token);
         expect(page.observations).toMatchObject([{ status: "ready", cache: { kind: "unknown-local" } }]);

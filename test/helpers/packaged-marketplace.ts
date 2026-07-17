@@ -2,6 +2,10 @@ import { execFile as execFileCallback } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { join } from "node:path";
+import type {
+  PackagedPluginHost,
+  PackagedPluginHostApplication,
+} from "../../src/composition/packaged-plugin-host-contract.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -26,6 +30,19 @@ export function extensionContext(cwd: string, trusted = true, sessionId = "marke
     sessionManager: { getSessionId: () => sessionId, getSessionFile: () => undefined },
     isProjectTrusted: () => trusted,
   };
+}
+
+export function runMarketplaceOperation<T>(
+  host: Pick<PackagedPluginHost, "runWithPiOperationContext">,
+  context: ReturnType<typeof extensionContext>,
+  use: (marketplace: PackagedPluginHostApplication["marketplace"], signal: AbortSignal) => Promise<T>,
+  signal = new AbortController().signal,
+): Promise<T> {
+  return host.runWithPiOperationContext(
+    context as never,
+    signal,
+    (application) => use(application.marketplace, signal),
+  );
 }
 
 export async function createLocalMarketplace(root: string, name = "community"): Promise<string> {

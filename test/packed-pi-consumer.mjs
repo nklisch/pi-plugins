@@ -13,7 +13,8 @@ try {
   const consumer = join(root, "consumer");
   const home = join(root, "empty-home");
   const workspace = join(root, "workspace");
-  await Promise.all([mkdir(consumer), mkdir(home), mkdir(workspace)]);
+  const agentDir = join(root, "agent");
+  await Promise.all([mkdir(consumer), mkdir(home), mkdir(workspace), mkdir(agentDir)]);
   await writeFile(join(consumer, "package.json"), JSON.stringify({ private: true, type: "module" }));
   const install = spawnSync("npm", [
     "install",
@@ -55,13 +56,29 @@ try {
       sendMessage() {},
       setSessionName() {},
     };
-    extension(pi);
     const context = {
       cwd: ${JSON.stringify(workspace)},
       mode: "interactive",
       sessionManager: { getSessionId: () => "packed-consumer-session", getSessionFile: () => undefined },
       isProjectTrusted: () => true,
     };
+    const directPi = {
+      on() {},
+      sendMessage() {},
+      setSessionName() {},
+    };
+    const directHost = api.createPackagedPluginHost({ pi: directPi, agentDir: ${JSON.stringify(agentDir)} });
+    const started = await directHost.start({ type: "session_start", reason: "startup" }, context);
+    if (JSON.stringify(Object.keys(started.application.marketplace).sort()) !== JSON.stringify(["adoption", "catalog", "policy", "refresh", "registration"])) {
+      throw new Error("packed marketplace capability missing");
+    }
+    if (started.startup.capabilities.secrets.status !== "unavailable") throw new Error("packed secret custody did not fail closed");
+    const registrations = await directHost.runWithPiOperationContext(context, new AbortController().signal, (application) =>
+      application.marketplace.registration.list({ scope: "all-current", limit: 50 }, new AbortController().signal));
+    if (registrations.registrations.length !== 0) throw new Error("packed marketplace did not start from clean state");
+    await directHost.dispose("quit");
+
+    extension(pi);
     for (const handler of handlers.get("session_start") ?? []) await handler({ type: "session_start", reason: "startup" }, context);
     const resources = [];
     for (const handler of handlers.get("resources_discover") ?? []) resources.push(await handler({ type: "resources_discover", cwd: context.cwd, reason: "startup" }, context));
