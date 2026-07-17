@@ -476,8 +476,8 @@ The production adapter story unblocks only when **one** path satisfies all crite
 ## Priority and completion policy
 
 - Portable contract, capability probe, fake, and conformance suite: **high priority / implementable now**, because they unblock internal MCP feature work without overclaiming production support.
-- Production adapter/package: **critical for production and parent-epic closure / externally blocked now**.
-- The feature remains `stage: implementing` until every child story, including the production adapter, is done. Implementable stories advance directly to `done` on green verification; the blocked story remains `implementing` with this evidence until the objective gate is met.
+- Maintained fork and production adapter/package: **critical for production and parent-epic closure / operator-authorized on 2026-07-16**.
+- The feature remains `stage: implementing` until the maintained fork is published and qualified, the production wrapper is integrated, and the generic upstream PR is opened. Qualification remains fail-closed until published bytes pass unchanged conformance.
 
 ## UI alignment
 
@@ -491,3 +491,13 @@ No UI surface and no mockups. The bridge returns typed capability and status evi
 - Verification: full `npm test` passed — 127 test files, 675 tests, no type errors, no dependency-boundary violations, and compiled package allowlist import passed with 450 exports. The baseline was 122 files, 653 tests, and 438 exports.
 - Production boundary: no `pi-mcp-adapter` dependency, deep import, file/settings mutation, process-global secret workaround, SDK runtime, or production adapter was added. The feature remains `stage: implementing` because the production-adapter child is still externally blocked.
 - Review posture: no feature review or summary-to-review transition was performed; the parent and feature remain implementing as requested.
+
+## Plan amendment — maintained fork and upstream return
+
+The operator selected the maintained-fork fallback on 2026-07-16. The planned delivery chain is now:
+
+1. `epic-mcp-runtime-integration-config-source-bridge-maintained-fork` — publish and qualify `@nklisch/pi-mcp-adapter` from verified upstream history.
+2. `epic-mcp-runtime-integration-config-source-bridge-production-adapter` — integrate the published fork through the sole package wrapper and prove real Pi activation.
+3. `epic-mcp-runtime-integration-config-source-bridge-upstream-contribution` — rebase the proven generic seam onto current upstream, open a fresh PR referencing issue #85 and PR #56, and track return to an upstream release.
+
+This amendment supersedes earlier wait-only/external-blocker wording. It does not weaken the package gate: local or unpublished fork bytes, deep imports, and method-presence checks still cannot report production availability.

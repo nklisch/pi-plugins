@@ -4,7 +4,7 @@ kind: story
 stage: implementing
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-subagent-interception
-depends_on: [epic-skills-hook-runtime-subagent-interception-fake-conformance, epic-skills-hook-runtime-subagent-interception-composition-integration]
+depends_on: [epic-skills-hook-runtime-subagent-interception-fake-conformance, epic-skills-hook-runtime-subagent-interception-composition-integration, epic-skills-hook-runtime-subagent-interception-maintained-fork]
 release_binding: null
 gate_origin: null
 research_refs:
@@ -19,13 +19,13 @@ updated: 2026-07-16
 
 ## Priority
 
-Critical for production `SubagentStart`/`SubagentStop` activation and feature/epic closure; objectively externally blocked now.
+Critical for production `SubagentStart`/`SubagentStop` activation and feature/epic closure. The operator authorized the maintained-fork path on 2026-07-16; this story is now sequenced behind the fork-publication story instead of waiting indefinitely for upstream.
 
-## Blocker
+## Selected package path
 
-`@gotgenes/pi-subagents@18.0.3`, release tag `pi-subagents-v18.0.3`, commit `c76a294a777a990950da23fc06cb0caf51da7ac6`, has no supported ordered async pre-start/pre-completion interceptor. Its root service provides spawn/read/control and one workspace provider. Public/internal events are observational `void` emissions with incomplete prompt/result/identity/path coverage; foreground and resume completion differ. No qualifying maintained fork is declared or published.
+`@gotgenes/pi-subagents@18.0.3`, tag `pi-subagents-v18.0.3`, commit `c76a294a777a990950da23fc06cb0caf51da7ac6`, lacks the required interceptor. Implement and qualify the planned `@nklisch/pi-subagents` fork in `epic-skills-hook-runtime-subagent-interception-maintained-fork`, then integrate only its published, pinned, conformance-passing API here. After real integration passes, `epic-skills-hook-runtime-subagent-interception-upstream-contribution` opens a generic current-main upstream PR and tracks return to upstream.
 
-Do not add a dependency, deep import, monkeypatch, package patch, settings mutation, observational event bridge, post-completion steer/resume workaround, private manager/session access, or second subagent runtime while this blocker holds.
+Do not add a deep import, monkeypatch, package patch, settings mutation, observational event bridge, post-completion steer/resume workaround, unpublished fork dependency, private manager/session access, or second subagent runtime.
 
 ## Objective unblock criteria
 
@@ -90,7 +90,7 @@ The wrapper does not expose manager/session/record internals, choose models/tool
 
 ## Ordering
 
-Depends on fake/conformance and portable composition/integration. Those stories may complete while this one remains implementing. This story remains required for feature and parent-epic closure.
+Depends on fake/conformance, portable composition/integration, and the published maintained-fork story. This story remains required for feature and parent-epic closure; the upstream-contribution story follows it.
 
 ## Risk and rollback
 

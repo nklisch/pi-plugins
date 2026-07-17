@@ -4,7 +4,7 @@ kind: story
 stage: implementing
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-config-source-bridge
-depends_on: [epic-mcp-runtime-integration-config-source-bridge-capability-probe, epic-mcp-runtime-integration-config-source-bridge-conformance-suite]
+depends_on: [epic-mcp-runtime-integration-config-source-bridge-capability-probe, epic-mcp-runtime-integration-config-source-bridge-conformance-suite, epic-mcp-runtime-integration-config-source-bridge-maintained-fork]
 release_binding: null
 gate_origin: null
 research_refs:
@@ -19,13 +19,13 @@ updated: 2026-07-16
 
 ## Priority
 
-Critical for production activation and feature/epic closure; genuinely externally blocked now.
+Critical for production activation and feature/epic closure. The operator authorized the maintained-fork path on 2026-07-16; this story is now sequenced behind the fork-publication story rather than waiting indefinitely for upstream.
 
-## Blocker
+## Selected package path
 
-`pi-mcp-adapter@2.11.0`, release/main commit `82724dccc13a49310530898f922bafff12b7f3fe`, has no supported programmatic source registration, initial-source-before-tool-registration, isolated file-discovery, atomic replace, exact remove, redacted source status, complete capabilities, or source-scoped late callback API. Open issue #85 and open stale/dirty PR #56 do not satisfy the contract. No qualifying maintained fork is declared or published.
+`pi-mcp-adapter@2.11.0`, release/main commit `82724dccc13a49310530898f922bafff12b7f3fe`, lacks the required source lifecycle. Implement and qualify the planned `@nklisch/pi-mcp-adapter` fork in `epic-mcp-runtime-integration-config-source-bridge-maintained-fork`, then integrate only its published, pinned, conformance-passing API here. After real integration passes, `epic-mcp-runtime-integration-config-source-bridge-upstream-contribution` opens a generic current-main upstream PR and tracks return to upstream.
 
-Do not add a dependency, deep import, package patch, file/settings/process-global workaround, MCP SDK runtime, external PR claim, or fork-publication claim while this blocker holds.
+Do not add a deep import, package patch, file/settings/process-global workaround, MCP SDK runtime, unpublished fork dependency, or unverified production capability.
 
 ## Objective unblock criteria
 
@@ -99,6 +99,7 @@ Initial sources are supplied before invoking the returned Pi extension. The fact
 Depends on:
 - `epic-mcp-runtime-integration-config-source-bridge-capability-probe`
 - `epic-mcp-runtime-integration-config-source-bridge-conformance-suite`
+- `epic-mcp-runtime-integration-config-source-bridge-maintained-fork`
 
 Portable sibling features may design and implement against the contract/fake without this story. This story remains required for production lifecycle proof, this feature's completion, and parent-epic closure.
 

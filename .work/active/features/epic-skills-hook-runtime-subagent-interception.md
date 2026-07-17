@@ -542,8 +542,8 @@ The production adapter story unblocks only when one path satisfies every criteri
 ## Priority and completion policy
 
 - Lifecycle contract/probe, fake/conformance, coordinator, and package-neutral composition: **high priority and implementable now**.
-- Production adapter: **critical for feature/epic closure and objectively externally blocked**.
-- Implementable child stories advance directly to `done` on green verification. The production story remains `stage: implementing` with current blocker evidence. This feature remains `stage: implementing` until every child, including production qualification, is done.
+- Maintained fork and production adapter: **critical for feature/epic closure and operator-authorized on 2026-07-16**.
+- The feature remains `stage: implementing` until the maintained fork is published and qualified, the production wrapper is integrated, and the generic upstream PR is opened. Published-byte qualification remains mandatory.
 
 ## Pre-mortem
 
@@ -558,4 +558,14 @@ This design fails if a current event observer is mislabeled interception, a fake
 - Full verified total after corrections: 162 test files / 843 tests, dependency boundaries over 221 modules / 1,317 dependencies with zero violations, build/package import green, and 479 compiled exports. Exact portable additions are 8 test files, 45 tests, 5 source modules, 24 dependency edges, and 16 compiled exports.
 - The first full-suite attempt hit the already-recorded unrelated concurrent recovery-journal identity-marker flake (161 files and 842 tests passed; 1 file/test failed). No unrelated code changed; the immediate complete rerun passed at the exact totals above.
 - Stage verification: the lifecycle contract/probe, fake/conformance, hook coordinator, and composition/integration children are `stage: done`. The production-adapter child and this feature remain `stage: implementing`; neither moved to review, done, available, release-bound, or terminal storage.
-- Production blocker remains exact: `@gotgenes/pi-subagents@18.0.3` exposes no supported ordered async pre-start/pre-completion lifecycle interceptor, and no qualifying published maintained MIT fork exists. No dependency, package adapter, deep import, event approximation, patch, monkeypatch, settings mutation, or second subagent runtime was added.
+- Production blocker at verification time remained exact: `@gotgenes/pi-subagents@18.0.3` exposed no supported ordered async pre-start/pre-completion lifecycle interceptor, and no qualifying published maintained MIT fork existed. No dependency, package adapter, deep import, event approximation, patch, monkeypatch, settings mutation, or second subagent runtime was added.
+
+## Plan amendment — maintained fork and upstream return
+
+The operator selected the maintained-fork fallback on 2026-07-16. The planned delivery chain is now:
+
+1. `epic-skills-hook-runtime-subagent-interception-maintained-fork` — publish and qualify `@nklisch/pi-subagents` from verified upstream history.
+2. `epic-skills-hook-runtime-subagent-interception-production-adapter` — integrate the published fork through the sole package wrapper and prove every real execution path.
+3. `epic-skills-hook-runtime-subagent-interception-upstream-contribution` — rebase the proven generic provider seam onto current `gotgenes/pi-packages`, open a focused PR, and track return to a qualifying upstream release.
+
+This amendment supersedes earlier wait-only/external-blocker wording. It does not permit observational events, unpublished fork bytes, internal imports, or method-presence checks to claim production capability.

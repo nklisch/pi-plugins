@@ -125,9 +125,23 @@ custody.
    authentication, discovery, elicitation, sampling, and process lifecycle stay
    in the dedicated runtime.
 
-Production integration is blocked until option 1 or 2 exists. Package-independent
-Plugin Host ports, schemas, capability mapping, fakes, and conformance tests may
-land without claiming production MCP availability.
+## Current project decision
+
+On 2026-07-16 the operator authorized option 2 rather than waiting indefinitely:
+
+1. establish `nklisch/pi-mcp-adapter` and publish the planned
+   `@nklisch/pi-mcp-adapter` package from verified upstream history;
+2. keep the patch limited to the generic source lifecycle and unchanged
+   conformance, preserving standalone extension/CLI behavior;
+3. integrate only published, pinned, qualifying bytes through the existing host
+   wrapper;
+4. then rebase the proven generic commits onto current upstream, open a fresh PR
+   referencing issue #85 and PR #56, and track return to an upstream release.
+
+This authorization removes the wait-only blocker, not the qualification gate.
+Unpublished fork bytes cannot make production MCP availability truthful.
+Package-independent Plugin Host ports, schemas, capability mapping, fakes, and
+conformance remain package-neutral.
 
 ## Minimum contract invariants
 

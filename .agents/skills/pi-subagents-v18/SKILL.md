@@ -150,9 +150,22 @@ steering/resume. Their timing, payload, coverage, and void event semantics diffe
 4. **Reject:** reimplementing subagent execution; config, models, sessions,
    concurrency, turns, steering, resume, persistence, and disposal stay upstream.
 
-Production capability `pi.subagents.lifecycle-interception` remains unavailable
-until a real package passes behavioral conformance. Portable Plugin Host ports,
-schemas, probes, fakes, hook aggregation, and conformance tests may proceed.
+## Current project decision
+
+On 2026-07-16 the operator authorized the maintained-fork fallback:
+
+1. establish `nklisch/pi-packages` and publish the planned
+   `@nklisch/pi-subagents` package from verified upstream history;
+2. keep changes limited to the generic lifecycle provider/interceptor seam and
+   tests, preserving every no-interceptor execution behavior;
+3. integrate only published, pinned bytes that pass unchanged portable and real
+   Pi conformance;
+4. then rebase the proven generic commits onto current `gotgenes/pi-packages`,
+   open a focused upstream PR, and track return to an upstream release.
+
+Production capability remains unavailable until the published fork passes
+behavioral qualification. Authorization does not make a local/unpublished fork,
+event observer, or method-presence check sufficient.
 
 ## Minimum qualifying semantics
 
