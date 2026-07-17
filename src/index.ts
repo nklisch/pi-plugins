@@ -1717,6 +1717,17 @@ export type {
   ProjectSyncPlan,
   VerifiedProjectSyncContext,
 } from "./application/project-sync-contract.js";
+export { ProjectIntentWriteIdSchema } from "./application/ports/project-intent-write-id.js";
+export type { ProjectIntentWriteId, ProjectIntentWriteIdPort } from "./application/ports/project-intent-write-id.js";
+export type {
+  VerifiedProjectIntentObservation,
+  ProjectIntentReadResult,
+  ProjectIntentReplaceResult,
+  ProjectIntentFilePort,
+} from "./application/ports/project-intent-file.js";
+export { encodeProjectIntentDeclaration, decodeProjectIntentBytes } from "./application/project-intent-codec.js";
+export type { ProjectIntentDecodeResult } from "./application/project-intent-codec.js";
+
 export {
   createNativeLifecycleOperationToken,
   verifyNativeLifecycleOperationToken,

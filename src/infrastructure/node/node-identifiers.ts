@@ -7,11 +7,13 @@ import {
 } from "../../application/ports/lifecycle-operation-id.js";
 import type { ConfigurationWriteIdPort } from "../../application/ports/configuration-write-id.js";
 import type { RefreshClaimIdPort } from "../../application/ports/refresh-claim-id.js";
+import { ProjectIntentWriteIdSchema, type ProjectIntentWriteIdPort } from "../../application/ports/project-intent-write-id.js";
 
 export type NodeHostIdentifiers = Readonly<{
   operationIds: LifecycleOperationIdPort;
   configurationWriteIds: ConfigurationWriteIdPort;
   refreshClaimIds: RefreshClaimIdPort;
+  projectIntentWriteIds: ProjectIntentWriteIdPort;
 }>;
 
 /** One stateless cryptographic identifier authority for the composed host. */
@@ -32,6 +34,12 @@ export function createNodeHostIdentifiers(): NodeHostIdentifiers {
     refreshClaimIds: Object.freeze({
       create() {
         return RefreshClaimIdSchema.parse(`refresh-claim-v1:uuid:${randomUUID()}`);
+      },
+    }),
+    projectIntentWriteIds: Object.freeze({
+      async create(signal: AbortSignal) {
+        signal.throwIfAborted();
+        return ProjectIntentWriteIdSchema.parse(`project-intent-write-v1:${randomBytes(24).toString("base64url")}`);
       },
     }),
   });
