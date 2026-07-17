@@ -1,0 +1,85 @@
+import type { MarketplaceCacheStatus } from "../marketplace-management-contract.js";
+import type { StateLoadResult } from "../state-contract.js";
+import type { HostStartupResult } from "../../composition/packaged-plugin-host-contract.js";
+import type { RuntimeCapabilitySnapshot } from "../../domain/compatibility-policy.js";
+import type { ContentDigest } from "../../domain/content-manifest.js";
+import type { ComponentId } from "../../domain/components.js";
+import type { MarketplaceRegistrationId, MarketplaceSnapshotToken } from "../../domain/marketplace-registration.js";
+import type { PluginKey } from "../../domain/identity.js";
+import type { ScopeReference } from "../../domain/state/scope.js";
+import type { CurrentProjectRuntimeContext } from "./project-trust.js";
+import type { RuntimeContributionObservation } from "./lifecycle-reload.js";
+import type { McpBridgeTransport, McpRuntimeServerKey, McpSourceStatus } from "./mcp-runtime.js";
+import type { LifecycleRecoveryResult } from "../recovery-contract.js";
+import type { EpochMilliseconds } from "./lifecycle-clock.js";
+
+export type InspectionSnapshotBinding = Readonly<{
+  capturedAt: EpochMilliseconds;
+  scopes: readonly Readonly<{
+    scope: ScopeReference;
+    generation?: number;
+    status: "ready" | "corrupt" | "unavailable";
+    corruptionCodes: readonly string[];
+  }>[];
+  currentProject: Readonly<{
+    projectKey: CurrentProjectRuntimeContext["projectKey"];
+    trust: CurrentProjectRuntimeContext["trust"];
+    epoch: ContentDigest;
+  }>;
+  catalogs: readonly Readonly<{
+    registrationId: MarketplaceRegistrationId;
+    snapshot?: MarketplaceSnapshotToken;
+    cache: MarketplaceCacheStatus;
+  }>[];
+  capability: Readonly<{
+    status: "ready" | "unavailable";
+    digest?: ContentDigest;
+    capturedBy?: string;
+  }>;
+  runtimeEpoch: ContentDigest;
+  recoveryDigest: ContentDigest;
+  updateDigest: ContentDigest;
+}>;
+
+export type InspectionMcpExpectation = Readonly<{
+  kind: "source" | "none" | "inactive";
+  registrationDigest?: ContentDigest;
+  servers: readonly Readonly<{
+    componentId: ComponentId;
+    serverKey: McpRuntimeServerKey;
+    transport: McpBridgeTransport;
+  }>[];
+}>;
+
+export type InstalledRuntimeEvidence = Readonly<{
+  scope: ScopeReference;
+  plugin: PluginKey;
+  selectedRevision: ContentDigest;
+  projectionDigest?: ContentDigest;
+  skillsHooks: Readonly<
+    | { kind: "ready"; observation: RuntimeContributionObservation & Readonly<{ skillComponentIds: readonly ComponentId[]; hookComponentIds: readonly ComponentId[] }> }
+    | { kind: "unavailable"; code: string }
+  >;
+  mcp: Readonly<{
+    expected: InspectionMcpExpectation;
+    status: Readonly<
+      | { kind: "ready"; status: McpSourceStatus | null }
+      | { kind: "unavailable"; code: string }
+    >;
+  }>;
+}>;
+
+export type InspectionEvidenceSnapshot = Readonly<{
+  binding: InspectionSnapshotBinding;
+  states: readonly StateLoadResult[];
+  currentProject: CurrentProjectRuntimeContext;
+  capabilities?: RuntimeCapabilitySnapshot;
+  runtime: readonly InstalledRuntimeEvidence[];
+  recovery: LifecycleRecoveryResult;
+  startup: HostStartupResult;
+}>;
+
+export interface NativeInspectionEvidencePort {
+  capture(signal: AbortSignal): Promise<InspectionEvidenceSnapshot>;
+  validate(binding: InspectionSnapshotBinding, signal: AbortSignal): Promise<"current" | "stale">;
+}

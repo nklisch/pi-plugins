@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   HookExecutionActiveSelection,
   HookExecutionActiveSelectionPort,
@@ -35,9 +36,10 @@ export type RuntimeSelection = Readonly<{
 export interface RuntimeSelectionCatalog
   extends HookExecutionActiveSelectionPort, McpLaunchActiveSelectionPort {
   snapshot(): Readonly<{
+    epoch: import("../domain/content-manifest.js").ContentDigest;
     currentProject: CurrentProjectRuntimeContext;
     selections: readonly RuntimeSelection[];
-  }>;
+  }>; 
   replace(next: readonly RuntimeSelection[], currentProject: CurrentProjectRuntimeContext): Promise<void>;
   beginCandidate(next: readonly RuntimeSelection[], currentProject?: CurrentProjectRuntimeContext): Readonly<{
     commit(): void;
@@ -66,6 +68,26 @@ function canonical(value: unknown): string {
 
 function same(left: unknown, right: unknown): boolean {
   return canonical(left) === canonical(right);
+}
+
+function epochDigest(epoch: Epoch): import("../domain/content-manifest.js").ContentDigest {
+  const evidence = {
+    epoch: epoch.id,
+    currentProject: {
+      projectKey: epoch.currentProject.projectKey,
+      trust: epoch.currentProject.trust,
+    },
+    selections: epoch.selections.map((selection) => ({
+      scope: selection.scope,
+      plugin: selection.plugin,
+      revision: selection.revision.revision,
+      compatibility: selection.revision.evidence.compatibility.fingerprint,
+      projection: selection.skillHook.prepared.expectation.projection.digest,
+      hooks: selection.hooks.map((hook) => hook.binding),
+      mcp: selection.mcp.map((entry) => entry.binding),
+    })),
+  };
+  return `sha256:${createHash("sha256").update(`runtime-selection-epoch-v1\0${canonical(evidence)}`).digest("hex")}` as import("../domain/content-manifest.js").ContentDigest;
 }
 
 function hookSelection(epoch: Epoch, binding: HookExecutionBinding): HookExecutionActiveSelection | undefined {
@@ -160,6 +182,7 @@ export function createRuntimeSelectionCatalog(
     },
     snapshot() {
       return Object.freeze({
+        epoch: epochDigest(current),
         currentProject: current.currentProject,
         selections: current.selections,
       });

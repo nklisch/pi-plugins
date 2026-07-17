@@ -28,15 +28,28 @@ function selection(value: string): RuntimeSelection {
   return {
     scope: { kind: "user" },
     plugin: "direct@community" as never,
-    revision: {} as never,
+    revision: { revision: `sha256:${"1".repeat(64)}`, evidence: { compatibility: { fingerprint: `sha256:${"3".repeat(64)}` } } } as never,
     compatibility: {} as never,
-    skillHook: {} as never,
+    skillHook: { prepared: { expectation: { projection: { digest: `sha256:${"2".repeat(64)}` } } } } as never,
     hooks: [],
     mcp: [{ binding, selection: { value } as never }],
   };
 }
 
 describe("runtime selection catalog", () => {
+  it("exposes a monotonic content-bound read epoch", async () => {
+    const catalog = createRuntimeSelectionCatalog(currentProject);
+    const initial = catalog.snapshot().epoch;
+    await catalog.replace([selection("first")], currentProject);
+    const first = catalog.snapshot().epoch;
+    await catalog.replace([selection("first")], currentProject);
+    const second = catalog.snapshot().epoch;
+    expect(first).not.toBe(initial);
+    expect(second).not.toBe(first);
+    expect(first).toMatch(/^sha256:[0-9a-f]{64}$/);
+    await catalog.close();
+  });
+
   it("atomically replaces epochs while admitted MCP callbacks retain the old immutable selection", async () => {
     const catalog = createRuntimeSelectionCatalog(currentProject);
     await catalog.replace([selection("old")], currentProject);
