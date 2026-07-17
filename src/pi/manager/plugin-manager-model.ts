@@ -94,6 +94,7 @@ export type PluginManagerIntent =
   | Readonly<{ type: "resized"; columns: number; rows: number }>
   | Readonly<{ type: "action"; action: string }>
   | Readonly<{ type: "cancel-operation" }>
+  | Readonly<{ type: "return-manager" }>
   | Readonly<{ type: "close" }>;
 
 export type PluginManagerEvent =
@@ -214,6 +215,7 @@ function reduceIntent(state: PluginManagerState, intent: PluginManagerIntent): P
   if (intent.type === "cancel-operation" && state.operation.state === "running") {
     return Object.freeze({ ...state, operation: Object.freeze({ ...state.operation, state: "cancelling" }) });
   }
+  if (intent.type === "return-manager") return Object.freeze({ ...state, screen: "manager", operation: EMPTY_OPERATION, focus: Object.freeze({ pane: "list", ...(state.focus.row === undefined ? {} : { row: state.focus.row }) }) });
   if (intent.type === "close") return Object.freeze({ ...state, closed: true });
   return state;
 }

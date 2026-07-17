@@ -92,6 +92,10 @@ export class PluginManagerComponent implements Component, Focusable {
       this.controller.dispatch({ type: "cancel-operation" });
       return;
     }
+    if (state.screen !== "manager") {
+      this.controller.dispatch({ type: "return-manager" });
+      return;
+    }
     if (state.focus.pane === "query") {
       this.controller.dispatch({ type: "detail-back" });
       return;

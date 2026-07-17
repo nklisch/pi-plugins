@@ -65,6 +65,10 @@ describe("plugin manager reducer", () => {
     expect(state.updateCounts).toEqual({ unread: 2, unresolved: 3 });
     expect(state.disclosure.has("diagnostics")).toBe(true);
     expect(state.operation).toMatchObject({ state: "running", action: "update" });
+    state = pluginManagerReducer(state, { type: "operation-finished", envelope: {} as never });
+    state = pluginManagerReducer(state, { type: "intent", intent: { type: "return-manager" } });
+    expect(state.screen).toBe("manager");
+    expect(state.operation.state).toBe("idle");
     expect(state.viewport).toEqual({ columns: 54, rows: 18 });
   });
 });
