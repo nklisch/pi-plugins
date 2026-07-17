@@ -1,7 +1,7 @@
 ---
 id: centralize-packaged-operation-context-admission
 kind: story
-stage: review
+stage: done
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -105,3 +105,15 @@ Risk is low: this is a one-file, private composition refactor with no schema, st
 - `npx vitest run test/integration/packaged-host-startup-recovery.test.ts` — passed (1 test).
 - `npx vitest run test/integration/generation-locking.test.ts` — passed (4 tests) after one unrelated full-suite run timed out in that test under concurrent load.
 - `npm test` — passed on the full rerun: typecheck, dependency boundaries, 260 test files / 1,287 tests, package build, compiled package imports, and isolated packed Pi extension startup.
+- Implementation commit: `2c56180` (`implement: centralize-packaged-operation-context-admission`).
+
+## Review (2026-07-17)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+**Rejected**: none
+
+**Notes**: Bounded inline standalone-story review at standard project weight; no independent, fresh-context, or cross-model reviewer ran, per standalone-story policy and the caller's no-nested-agents constraint. The review confirmed synchronous admission remains immediately before delegation; the exact error class, code, and message remain unchanged; all five operation members remain explicit with inferred signatures; the delegated service methods are closure-based; and AsyncLocalStorage/session binding, quiesce/disposal, lifecycle/update semantics, and public exports are untouched. The unchanged focused integration test, typecheck, boundaries check, full unit suite, build, package-import checks, and packed-extension startup all passed. No material issue or lower-priority finding was found.
