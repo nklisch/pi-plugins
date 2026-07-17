@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-plugin-projections
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration
 depends_on: [epic-mcp-runtime-integration-config-source-bridge]
@@ -487,3 +487,22 @@ The caller prohibited `.work/bin/work-view`, so the new sibling chain was checke
 ## UI alignment
 
 No UI surface and no mockups. Safe MCP source/server/provenance/alias evidence is data for the native manager owned by `epic-native-plugin-management`.
+
+## Implementation summary
+
+- **Ownership and waves**: one cohesive high-effort feature owner implemented the four dependency-ordered checkpoints sequentially: policy plan → alias contract → source projection → portable conformance. Shared domain/application/test write sets made one owner safer than story fan-out; no nested agent, peer, worktree split, or launch-context edit was used.
+- **Single policy authority**: compatibility reporting and projection now consume one registry-driven MCP analysis. Existing non-MCP evaluator paths remain unchanged, while ambiguous aliases/selectors, unsupported shapes, credential-bearing URLs, and capability/report drift fail closed with redacted evidence.
+- **Projection architecture**: a pure schema-derived `none | source` projection binds source authority to scope/plugin/revision/complete-projection digest and local server authority to opaque component-derived keys. Canonical structural options and logical refs are deterministic; native names, aliases, and provenance are non-authoritative views.
+- **Alias architecture**: strict package-neutral templates preserve native discovery. The internal complete-snapshot resolver gives native names precedence, collapses exact duplicates, omits every contested claimant, and never normalizes, rewrites, suffixes, or grants authority to aliases.
+- **Portable boundary**: fake/conformance/public tests remain package-neutral. No `pi-mcp-adapter` dependency or production claim, runtime adapter, launch/connect/provider invocation, lifecycle mutation, reload, projection persistence, generated settings/file source, or launch-context change was introduced.
+- **Dispatch/review posture**: caller-required direct cohesive ownership was used at high effort. Effective review weight is project-default `standard`, but the caller explicitly set the lifecycle boundary at feature `review`; no feature review or transition to `done` was performed in this run.
+
+## Verification
+
+Full `npm test` passed after focused risky-seam suites:
+
+- TypeScript typecheck: passed with no errors.
+- Dependency boundaries: 219 modules and 1,326 dependencies cruised; zero violations.
+- Vitest: 158 test files, 819 tests passed; no type errors.
+- Build/package/public exports: ESM build passed and compiled package import passed with 478 exports.
+- One unrelated concurrent recovery-process test failed once with an existing journal race symptom, then passed immediately in the focused rerun; the required final full pipeline passed cleanly without code or test changes in that area.
