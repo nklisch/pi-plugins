@@ -2087,3 +2087,9 @@ export { createNativeControlResultProjector } from "./application/native-control
 export type { NativeControlResultProjector } from "./application/native-control-result.js";
 export { createNodeJsonLinesSink } from "./infrastructure/control/node-json-lines-sink.js";
 export type { NodeJsonLinesSinkOptions } from "./infrastructure/control/node-json-lines-sink.js";
+export { createNativeControlService } from "./composition/create-native-control-service.js";
+export type {
+  NativeControlExecutionOptions,
+  NativePluginControlService,
+} from "./application/native-control-service.js";
+export { createNodeControlTimeoutPort } from "./infrastructure/node/node-control-timeout.js";

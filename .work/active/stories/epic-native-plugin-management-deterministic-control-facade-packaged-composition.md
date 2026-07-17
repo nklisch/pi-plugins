@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-deterministic-control-facade-packaged-composition
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, architecture]
 parent: epic-native-plugin-management-deterministic-control-facade
 depends_on: [epic-native-plugin-management-deterministic-control-facade-selection-read-dispatch, epic-native-plugin-management-deterministic-control-facade-mutation-workflow-dispatch, epic-native-plugin-management-deterministic-control-facade-result-output-exit]
@@ -37,3 +37,18 @@ Expose typed/text/argv execute, help, completion, poll, and cancel through one `
 - `runWithPiOperationContext` remains packaged command admission; construction/startup cause no parser/input/output/timer/network/operation effect.
 - Concurrent commands, reload predecessor/successor, stale tokens, failed startup, repeated close, and admitted cancellation preserve host operation/reload/drain guarantees.
 - Source/compiled/packed allowlists expose intended facade contracts and exclude mutable registries, handlers, raw services, sinks, input bytes, session bindings, roots, and causes.
+
+## Implementation notes
+
+- Added one `NativePluginControlService` that converges strict typed, argv, and text commands on the same read/mutation/result/execution path, with pure parse/help/completion before admission.
+- Added injected Node UUID/timeout adapters and a construction-inert composition factory; invalid parse returns a deterministic pre-execution usage envelope without issuing IDs, timers, sinks, inputs, or service calls.
+- Replaced the packaged application graph with `{ control }` only. Raw marketplace, inspection, trusted-install, lifecycle, update, status, configuration, recovery, collection, capability, and resource joins remain private.
+- Wrapped packaged execution/poll/cancel in existing Pi operation-context admission, retained pure grammar methods outside admission, and integrated control quiesce/drain ahead of dependent cleanup.
+- Kept skill resource discovery as a private runtime participant and migrated source, compiled, process, restart, concurrency, and packed-consumer tests to the admitted control surface.
+
+## Verification
+
+- `npm run typecheck`
+- `npm run boundaries`
+- `npx vitest run test/public-api.test.ts test/composition/packaged-plugin-host-contract.test.ts test/application/native-control-service.test.ts test/composition/create-native-control-service.test.ts test/integration/packaged-host-disposal.test.ts`
+- `npm run test:package`

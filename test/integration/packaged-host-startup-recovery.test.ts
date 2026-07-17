@@ -47,10 +47,10 @@ describe("packaged host startup and recovery", () => {
     expect(networkCalls).toBe(0);
     expect(started.startup.capabilities.mcp.status).toBe("unavailable");
     expect(started.startup.capabilities.subagents.status).toBe("unavailable");
-    expect(started.application.operations).toBeDefined();
+    expect(Object.keys(started.application)).toEqual(["control"]);
     expect(started.application).not.toHaveProperty("lifecycle");
-    expect(() => started.application.operations.preview({} as never, new AbortController().signal)).toThrow(expect.objectContaining({ code: PackagedPluginHostErrorCode.reloadContextUnavailable }));
-    expect(started.application.recovery).toBeDefined();
+    expect(started.application).not.toHaveProperty("recovery");
+    expect(() => started.application.control.runArgv(["status"], { mode: "direct", output: "json" }, new AbortController().signal)).toThrow(expect.objectContaining({ code: PackagedPluginHostErrorCode.reloadContextUnavailable }));
     await expect(host.start({ type: "session_start", reason: "startup" } as never, context(project, "other-session") as never))
       .rejects.toMatchObject({ code: PackagedPluginHostErrorCode.sessionMismatch });
     await expect(host.runWithPiOperationContext(context(project, "other-session") as never, new AbortController().signal, async () => undefined))

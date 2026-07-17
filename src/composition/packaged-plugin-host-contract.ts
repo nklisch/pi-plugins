@@ -5,22 +5,11 @@ import type {
   SessionShutdownEvent,
   SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
+import type { NativePluginControlService } from "../application/native-control-service.js";
 import type { McpRuntimePort } from "../application/ports/mcp-runtime.js";
 import type { SubagentLifecyclePort } from "../application/ports/subagent-lifecycle.js";
-import type { NativeLifecycleOperationService } from "../application/native-lifecycle-operation-contract.js";
-import type { NativeUpdateManagementService } from "../application/native-update-management-service.js";
-import type { CompatibilityService } from "../application/compatibility-service.js";
-import type { NativeInspectionService } from "../application/native-inspection-contract.js";
-import type { TrustedInstallationService } from "../application/trusted-install-contract.js";
-import type { BoundPluginConfigurationService } from "../application/configuration-service.js";
-import type { LifecycleRecoveryService } from "../application/recovery-service.js";
-import type { createRevisionCollectionService } from "../application/revision-collection-service.js";
-import type { MarketplaceDiscoveryServices } from "./create-marketplace-discovery-services.js";
-import type { RuntimeCapabilityProbe } from "../application/ports/runtime-capability-probe.js";
-import type { SkillResourceDiscoveryPort } from "../runtime/skills/resource-discovery.js";
 import type { UpdateNotificationPublisherPort } from "../application/ports/update-notification-publisher.js";
 import type { HostCapabilityStatus, HostStartupResult } from "../application/host-observation-contract.js";
-import type { HostStatusService } from "./host-status-service.js";
 export type { HostCapabilityStatus, HostStartupResult } from "../application/host-observation-contract.js";
 
 export const PackagedPluginHostErrorCode = {
@@ -81,20 +70,9 @@ export interface PiSessionBindingPort {
   isProjectTrusted(): boolean;
 }
 
-/** Safe application services; raw stores, handles, codecs, catalogs, and brokers stay private. */
+/** The packaged command boundary exposes one management facade only. */
 export type PackagedPluginHostApplication = Readonly<{
-  operations: NativeLifecycleOperationService;
-  trustedInstallation: TrustedInstallationService;
-  updates: NativeUpdateManagementService;
-  compatibility: CompatibilityService;
-  inspection: NativeInspectionService;
-  status: HostStatusService;
-  configuration: BoundPluginConfigurationService;
-  recovery: LifecycleRecoveryService;
-  collection: ReturnType<typeof createRevisionCollectionService>;
-  marketplace: Omit<MarketplaceDiscoveryServices, "policy">;
-  capabilities: RuntimeCapabilityProbe;
-  resources: SkillResourceDiscoveryPort;
+  control: NativePluginControlService;
 }>;
 
 export type StartedPackagedPluginHost = Readonly<{

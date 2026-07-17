@@ -3,6 +3,7 @@ import { toSafeDisplayField } from "./native-inspection-display.js";
 import type { SafeDisplayField } from "./native-inspection-contract.js";
 import type {
   NativeControlDiagnostic,
+  NativeControlExit,
   NativeControlOperationHandle,
   NativeControlStatus,
 } from "./native-control-contract.js";
@@ -14,6 +15,7 @@ export type NativeControlDispatchResult = Readonly<{
   data?: JsonValue;
   operation?: NativeControlOperationHandle;
   page?: Readonly<{ next?: string }>;
+  exitOverride?: NativeControlExit;
   diagnostics: readonly NativeControlDiagnostic[];
   human: readonly SafeDisplayField[];
 }>;

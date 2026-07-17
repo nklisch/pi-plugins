@@ -1,6 +1,6 @@
 import type { NativeControlEnvelope, NativeControlExecutionId } from "../native-control-contract.js";
 import type { NativeControlCommandId } from "../native-control-registry.js";
-import type { NativeControlFrame } from "../native-control-progress.js";
+import type { NativeControlFrame, NativeControlProgressSink } from "../native-control-progress.js";
 
 export interface NativeControlFrameSink {
   write(frame: NativeControlFrame, signal: AbortSignal): Promise<void>;
@@ -26,16 +26,7 @@ export type NativeControlExecutionCoreOptions = Readonly<{
   timeoutMs?: number;
 }>;
 
-export type NativeControlProgressSink = Readonly<{
-  trusted(event: unknown): Promise<void>;
-  lifecycle(event: unknown): Promise<void>;
-  emit(input: Readonly<{
-    phase: string;
-    state: "started" | "completed" | "skipped" | "retained" | "failed";
-    code?: string;
-    operationSequence?: number;
-  }>): Promise<void>;
-}>;
+export type { NativeControlProgressSink } from "../native-control-progress.js";
 
 export type NativeControlDispatchExecutionContext = Readonly<{
   executionId: NativeControlExecutionId;

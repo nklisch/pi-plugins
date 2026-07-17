@@ -15,16 +15,18 @@ describe("packaged native inspection in a clean environment", () => {
     const host = createPackagedPluginHost({ pi: fakePi().api as never, agentDir });
     try {
       const started = await host.start({ type: "session_start", reason: "startup" } as never, context as never);
-      expect(Object.keys(started.application.inspection).sort()).toEqual(["detail", "diagnose", "list"]);
-      expect(started.application.inspection).not.toHaveProperty("inspect");
+      expect(Object.keys(started.application)).toEqual(["control"]);
+      expect(started.application).not.toHaveProperty("inspection");
       const signal = new AbortController().signal;
-      const page = await host.runWithPiOperationContext(context as never, signal, (application) =>
-        application.inspection.list({ subjects: ["installed", "marketplace-candidate"], scope: "all-current", query: "", limit: 50 }, signal));
+      const pageEnvelope = await host.runWithPiOperationContext(context as never, signal, (application) =>
+        application.control.runArgv(["list", "--scope", "all-current"], { mode: "direct", output: "json" }, signal));
+      const page = pageEnvelope.envelope.data as any;
       expect(page.items).toEqual([]);
       expect(page.condition).toBe("ready");
-      expect(page.observations.every((observation) => observation.status === "ready")).toBe(true);
-      const report = await host.runWithPiOperationContext(context as never, signal, (application) =>
-        application.inspection.diagnose({ target: { kind: "host" }, includeAdoption: false }, signal));
+      expect(page.observations.every((observation: any) => observation.status === "ready")).toBe(true);
+      const reportEnvelope = await host.runWithPiOperationContext(context as never, signal, (application) =>
+        application.control.runArgv(["diagnose"], { mode: "direct", output: "json" }, signal));
+      const report = reportEnvelope.envelope.data as any;
       expect(report.condition).toBe("ready");
       expect(report.diagnostics).toEqual([]);
     } finally {

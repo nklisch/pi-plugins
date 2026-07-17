@@ -51,7 +51,7 @@ describe("packaged host disposal matrix", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("exposes updates only through admitted operation context", async () => {
+  it("exposes control execution only through admitted operation context", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-host-update-admission-"));
     const agentDir = join(root, "agent");
     const project = join(root, "project");
@@ -60,12 +60,12 @@ describe("packaged host disposal matrix", () => {
     const bound = context(project);
     const host = createPackagedPluginHost({ pi: fake.api as never, agentDir });
     const started = await host.start({ type: "session_start", reason: "startup" } as never, bound as never);
-    expect(() => started.application.updates.status({ scope: "all-current" }, new AbortController().signal))
+    expect(() => started.application.control.runArgv(["updates", "status"], { mode: "direct", output: "json" }, new AbortController().signal))
       .toThrowError(expect.objectContaining({ code: PackagedPluginHostErrorCode.reloadContextUnavailable }));
     await expect(host.runWithPiOperationContext(bound as never, new AbortController().signal, (application) =>
-      application.updates.status({ scope: "all-current" }, new AbortController().signal)))
-      .resolves.toMatchObject({ unreadCount: 0, unresolvedCount: 0 });
-    expect("policy" in started.application.marketplace).toBe(false);
+      application.control.runArgv(["updates", "status"], { mode: "direct", output: "json" }, new AbortController().signal)))
+      .resolves.toMatchObject({ envelope: { data: { unreadCount: 0, unresolvedCount: 0 } } });
+    expect(Object.keys(started.application)).toEqual(["control"]);
     await host.dispose("quit");
     await rm(root, { recursive: true, force: true });
   }, 30_000);
@@ -82,8 +82,9 @@ describe("packaged host disposal matrix", () => {
     let continueOperation!: () => void;
     const operationGate = new Promise<void>((resolve) => { continueOperation = resolve; });
     const operation = host.runWithPiOperationContext(bound as never, new AbortController().signal, async (application) => {
+      const report = await application.control.runArgv(["marketplace", "list", "--scope", "user"], { mode: "direct", output: "json" }, new AbortController().signal);
       await operationGate;
-      return application.marketplace.registration.list({ scope: "user", limit: 50 }, new AbortController().signal);
+      return report.envelope.data;
     });
 
     const disposal = host.dispose("quit");
@@ -107,8 +108,9 @@ describe("packaged host disposal matrix", () => {
     let continueOperation!: () => void;
     const operationGate = new Promise<void>((resolve) => { continueOperation = resolve; });
     const operation = host.runWithPiOperationContext(bound as never, new AbortController().signal, async (application) => {
+      const report = await application.control.runArgv(["marketplace", "list", "--scope", "user"], { mode: "direct", output: "json" }, new AbortController().signal);
       await operationGate;
-      return await application.marketplace.registration.list({ scope: "user", limit: 50 }, new AbortController().signal);
+      return report.envelope.data;
     });
 
     const shutdown = fake.handlers.get("session_shutdown")?.[0];
@@ -118,7 +120,7 @@ describe("packaged host disposal matrix", () => {
     continueOperation();
     await expect(operation).resolves.toEqual({ registrations: [] });
     await host.dispose("reload");
-    await expect(started.application.recovery.recover({ requiredScopes: [{ kind: "user" }] }, new AbortController().signal)).rejects.toBeDefined();
+    expect(() => started.application.control.runArgv(["status"], { mode: "direct", output: "json" }, new AbortController().signal)).toThrowError(expect.objectContaining({ code: PackagedPluginHostErrorCode.reloadContextUnavailable }));
     await rm(root, { recursive: true, force: true });
   }, 30_000);
 });

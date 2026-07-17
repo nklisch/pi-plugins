@@ -2,10 +2,8 @@ import { execFile as execFileCallback } from "node:child_process";
 import { chmod, lstat, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { join } from "node:path";
-import type {
-  PackagedPluginHost,
-  PackagedPluginHostApplication,
-} from "../../src/composition/packaged-plugin-host-contract.js";
+import type { PackagedPluginHost } from "../../src/composition/packaged-plugin-host-contract.js";
+import { NativeControlCommandSchema } from "../../src/application/native-control-registry.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -32,16 +30,48 @@ export function extensionContext(cwd: string, trusted = true, sessionId = "marke
   };
 }
 
+const invocation = { grammarVersion: "plugin-control/v1" as const, output: "json" as const, nonInteractive: true, input: { kind: "none" as const } };
+type TestMarketplace = ReturnType<typeof marketplaceAdapter>;
+
+function marketplaceAdapter(control: import("../../src/application/native-control-service.js").NativePluginControlService, signal: AbortSignal) {
+  async function execute(command: string, request: unknown) {
+    const report = await control.execute(NativeControlCommandSchema.parse({ command, request, invocation }), { mode: "direct", output: "json" }, signal);
+    return report.envelope.data as any;
+  }
+  return {
+    registration: {
+      add: (request: any) => execute("marketplace.add", { source: request.source, scope: request.scope }),
+      remove: (request: any) => execute("marketplace.remove", { registrationId: request.registrationId, scope: request.scope, confirmed: true }),
+      list: (request: any) => execute("marketplace.list", request),
+    },
+    refresh: {
+      refresh: (request: any) => execute("marketplace.refresh", { scope: request.scope, ...(request.registrationIds === undefined ? {} : { registrationIds: request.registrationIds }) }),
+    },
+    catalog: {
+      search: (request: any) => execute("browse", { query: request.query ?? "", scope: request.scope ?? "all-current", ...(request.marketplaceIds === undefined ? {} : { marketplaceIds: request.marketplaceIds }), ...(request.availability === undefined ? {} : { availability: request.availability }), ...(request.cursor === undefined ? {} : { cursor: request.cursor }), limit: request.limit ?? 50 }),
+      async detail(request: any) {
+        const page = await execute("browse", { query: "", scope: "all-current", limit: 100 });
+        const candidate = page.candidates.find((entry: any) => entry.id === request.candidateId && entry.snapshot === request.snapshot);
+        return candidate === undefined ? { kind: "candidate-missing" } : { kind: "found", candidate: { ...candidate, marketplaceRevision: candidate.available?.marketplaceRevision } };
+      },
+    },
+    adoption: {
+      preview: (request: any) => execute("marketplace.adopt.preview", { scope: request.compareScope ?? "all-current" }),
+      import: (request: any) => execute("marketplace.adopt.import", { candidateIds: request.candidateIds, scope: request.scope, confirmed: true }),
+    },
+  };
+}
+
 export function runMarketplaceOperation<T>(
   host: Pick<PackagedPluginHost, "runWithPiOperationContext">,
   context: ReturnType<typeof extensionContext>,
-  use: (marketplace: PackagedPluginHostApplication["marketplace"], signal: AbortSignal) => Promise<T>,
+  use: (marketplace: TestMarketplace, signal: AbortSignal) => Promise<T>,
   signal = new AbortController().signal,
 ): Promise<T> {
   return host.runWithPiOperationContext(
     context as never,
     signal,
-    (application) => use(application.marketplace, signal),
+    (application) => use(marketplaceAdapter(application.control, signal), signal),
   );
 }
 

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { NativeControlAdmissionError } from "./native-control-execution.js";
 import type { NativeControlStatus } from "./native-control-contract.js";
 
 export type NativeControlErrorClassification = Readonly<{
@@ -15,7 +14,7 @@ function stableCode(error: unknown): string | undefined {
 }
 
 export function classifyNativeControlError(error: unknown): NativeControlErrorClassification {
-  if (error instanceof NativeControlAdmissionError) return { status: "rejected", code: "CONTROL_QUIESCED", action: "retry" };
+  if (error !== null && typeof error === "object" && "code" in error && (error as { code?: unknown }).code === "CONTROL_QUIESCED") return { status: "rejected", code: "CONTROL_QUIESCED", action: "retry" };
   if (error instanceof z.ZodError) return { status: "failed", code: "CONTROL_CONTRACT_INVALID", action: "none" };
   if (error !== null && typeof error === "object" && "name" in error && (error as { name?: unknown }).name === "AbortError") {
     return { status: "cancelled", code: "CONTROL_CANCELLED", action: "retry" };

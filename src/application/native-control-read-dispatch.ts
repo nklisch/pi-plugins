@@ -5,7 +5,7 @@ import type { NativeInspectionService } from "./native-inspection-contract.js";
 import type { NativeLifecycleOperationService } from "./native-lifecycle-operation-contract.js";
 import type { NativeUpdateManagementService } from "./native-update-management-service.js";
 import type { TrustedInstallationService } from "./trusted-install-contract.js";
-import type { HostStatusService } from "../composition/host-status-service.js";
+import type { NativeControlHostStatusPort } from "./ports/native-control-applications.js";
 import { createNativeControlHelp, nativeControlGrammarMetadata } from "./native-control-help.js";
 import type { NativeControlCommand } from "./native-control-registry.js";
 import type { NativeControlSelectionFailure, NativeControlSelectionService } from "./native-control-selection.js";
@@ -25,7 +25,7 @@ export type NativeControlReadDependencies = Readonly<{
   trustedInstallation: Pick<TrustedInstallationService, "status" | "cancel">;
   operations: Pick<NativeLifecycleOperationService, "status" | "cancel">;
   updates: Pick<NativeUpdateManagementService, "previewPolicy" | "status" | "notifications">;
-  status: HostStatusService;
+  status: NativeControlHostStatusPort;
   selection: NativeControlSelectionService;
 }>;
 

@@ -3,7 +3,6 @@ import { NativeControlEnvelopeSchema, NativeControlExecutionIdSchema, type Nativ
 import { NativeControlCommandIdSchema, type NativeControlCommandId } from "./native-control-registry.js";
 import { NativeLifecycleProgressEventSchema, type NativeLifecycleProgressEvent } from "./native-lifecycle-operation-contract.js";
 import { TrustedInstallProgressEventSchema, type TrustedInstallProgressEvent } from "./trusted-install-contract.js";
-import type { NativeControlFrameSink, NativeControlProgressSink } from "./ports/native-control-execution.js";
 
 export const NativeControlFrameSchema = z.discriminatedUnion("type", [
   z.object({
@@ -33,6 +32,21 @@ export const NativeControlFrameSchema = z.discriminatedUnion("type", [
   }).strict().readonly(),
 ]);
 export type NativeControlFrame = z.infer<typeof NativeControlFrameSchema>;
+export type NativeControlProgressSink = Readonly<{
+  trusted(event: unknown): Promise<void>;
+  lifecycle(event: unknown): Promise<void>;
+  emit(input: Readonly<{
+    phase: string;
+    state: "started" | "completed" | "skipped" | "retained" | "failed";
+    code?: string;
+    operationSequence?: number;
+  }>): Promise<void>;
+}>;
+
+type NativeControlFrameWriter = Readonly<{
+  write(frame: NativeControlFrame, signal: AbortSignal): Promise<void>;
+  close(): Promise<void>;
+}>;
 
 export class NativeControlDeliveryClosedError extends Error {
   constructor() {
@@ -59,7 +73,7 @@ function deliveryKind(error: unknown): "closed" | "failed" {
 export function createNativeControlProgressController(input: Readonly<{
   executionId: NativeControlExecutionId;
   command: NativeControlCommandId;
-  sink?: NativeControlFrameSink;
+  sink?: NativeControlFrameWriter;
   signal: AbortSignal;
   abortDelivery(): void;
 }>): NativeControlProgressController {

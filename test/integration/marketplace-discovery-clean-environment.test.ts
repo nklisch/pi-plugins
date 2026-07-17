@@ -17,7 +17,7 @@ describe("packaged marketplace discovery in a clean environment", () => {
     const host = createPackagedPluginHost({ pi: fake.api as never, agentDir });
     try {
       const started = await host.start({ type: "session_start", reason: "startup" } as never, context as never);
-      expect(Object.keys(started.application.marketplace).sort()).toEqual(["adoption", "catalog", "refresh", "registration"]);
+      expect(Object.keys(started.application)).toEqual(["control"]);
       const added = await runMarketplaceOperation(host, context, (marketplace, signal) =>
         marketplace.registration.add({ source: { kind: "local-git", path: repository }, scope: "user", origin: { kind: "native" } }, signal));
       if (added.kind !== "added") throw new Error(`fixture registration failed: ${JSON.stringify(added)}`);
@@ -32,7 +32,7 @@ describe("packaged marketplace discovery in a clean environment", () => {
       await expect(runMarketplaceOperation(host, context, (marketplace, signal) =>
         marketplace.catalog.detail({ candidateId: candidate.id, snapshot: candidate.snapshot }, signal)))
         .resolves.toMatchObject({ kind: "found", candidate: { id: candidate.id, marketplaceRevision: added.kind === "added" ? added.registration.selected?.revision : undefined } });
-      expect(started.application.marketplace.catalog).not.toHaveProperty("resolve");
+      expect(started.application).not.toHaveProperty("marketplace");
     } finally {
       await host.dispose("quit");
       await removePackagedMarketplaceFixture(root);

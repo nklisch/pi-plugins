@@ -31,12 +31,9 @@ describe("packaged marketplace discovery security", () => {
       }, signal));
       expect(untrusted).toEqual({ kind: "rejected", code: "PROJECT_UNTRUSTED" });
 
-      const credential = await runMarketplaceOperation(host, context, (marketplace, signal) => marketplace.registration.add({
-        source: { kind: "git", url: "https://secret:marker@example.test/catalog.git" } as never,
-        scope: "user",
-        origin: { kind: "native" },
-      }, signal));
-      expect(credential).toEqual({ kind: "rejected", code: "INVALID_SOURCE" });
+      const credential = await host.runWithPiOperationContext(context as never, new AbortController().signal, (application) =>
+        application.control.runArgv(["marketplace", "add", "https://secret:marker@example.test/catalog.git", "--source-kind", "git", "--scope", "user"], { mode: "headless", output: "json" }, new AbortController().signal));
+      expect(credential.envelope).toMatchObject({ status: "failed", exit: { code: 2 }, diagnostics: [{ code: "CONTROL_REQUEST_INVALID" }] });
       expect(JSON.stringify(credential)).not.toContain("secret");
 
       const symlinked = await runMarketplaceOperation(host, context, (marketplace, signal) => marketplace.registration.add({
@@ -63,13 +60,10 @@ describe("packaged marketplace discovery security", () => {
       await host.start({ type: "session_start", reason: "startup" } as never, context as never);
       await execFile("git", ["init", "--quiet", "-b", "main"], { cwd: project });
 
-      const failure = await runMarketplaceOperation(host, context, (marketplace, signal) => marketplace.registration.add({
-        source: { kind: "github", repository: "example/community" },
-        scope: "project",
-        origin: { kind: "native" },
-      }, signal)).catch((error: unknown) => error);
+      const failure = await host.runWithPiOperationContext(context as never, new AbortController().signal, (application) =>
+        application.control.runArgv(["marketplace", "add", "example/community", "--source-kind", "github", "--scope", "project"], { mode: "headless", output: "json" }, new AbortController().signal));
 
-      expect(failure).toMatchObject({ code: "ADAPTER_FAILED" });
+      expect(failure.envelope).toMatchObject({ status: "unavailable", diagnostics: [{ code: "ADAPTER_FAILED" }] });
       expect(JSON.stringify(failure)).not.toContain(root);
     } finally {
       await host.dispose("quit");

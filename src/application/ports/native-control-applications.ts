@@ -7,11 +7,14 @@ import type { NativeInspectionService } from "../native-inspection-contract.js";
 import type { NativeLifecycleOperationService } from "../native-lifecycle-operation-contract.js";
 import type { NativeUpdateManagementService } from "../native-update-management-service.js";
 import type { TrustedInstallationService } from "../trusted-install-contract.js";
-import type { HostStatusService } from "../../composition/host-status-service.js";
 import type { NativeControlExecutionId } from "../native-control-contract.js";
 import type { NativeControlInputPort } from "./native-control-input.js";
 import type { NativeControlProgressSink } from "./native-control-execution.js";
 import type { NativeControlCurrentProjectPort } from "../native-control-selection.js";
+
+export interface NativeControlHostStatusPort {
+  snapshot(): HostStatusSnapshot;
+}
 
 export interface NativeControlMarketplacePort {
   readonly registration: Pick<MarketplaceRegistrationService, "add" | "remove" | "list">;
@@ -26,7 +29,7 @@ export type NativeControlApplicationDependencies = Readonly<{
   trustedInstallation: TrustedInstallationService;
   operations: NativeLifecycleOperationService;
   updates: NativeUpdateManagementService;
-  status: HostStatusService;
+  status: NativeControlHostStatusPort;
   currentProject: NativeControlCurrentProjectPort;
 }>;
 

@@ -14,16 +14,12 @@ try {
   await host.start({ type: "session_start", reason: "startup" }, context);
   const result = await host.runWithPiOperationContext(context, new AbortController().signal, async (application) => {
     const signal = new AbortController().signal;
-    if (mode === "add") {
-      return application.marketplace.registration.add({ source: { kind: "local-git", path: repository }, scope: "user", origin: { kind: "native" } }, signal);
-    }
-    if (mode === "refresh") {
-      return application.marketplace.refresh.refresh({ trigger: "explicit", scope: "user", registrationIds: [registrationId] }, signal);
-    }
-    if (mode === "remove") {
-      return application.marketplace.registration.remove({ scope: "user", registrationId }, signal);
-    }
-    if (mode === "list") return application.marketplace.registration.list({ scope: "user", limit: 50 }, signal);
+    let argv;
+    if (mode === "add") argv = ["marketplace", "add", repository, "--source-kind", "local-git", "--scope", "user"];
+    else if (mode === "refresh") argv = ["marketplace", "refresh", registrationId, "--scope", "user"];
+    else if (mode === "remove") argv = ["marketplace", "remove", registrationId, "--scope", "user", "--yes"];
+    else if (mode === "list") argv = ["marketplace", "list", "--scope", "user"];
+    if (argv !== undefined) return (await application.control.runArgv(argv, { mode: "headless", output: "json" }, signal)).envelope.data;
     throw new Error(`unknown marketplace child mode: ${mode}`);
   });
   process.stdout.write(`${JSON.stringify(result)}\n`);

@@ -100,8 +100,10 @@ export const NativeControlEnvelopeSchema = z.object({
   }
   const expected = NativeControlExitRegistry[statusExit[envelope.status]];
   if (envelope.status === "failed" && envelope.exit.classification === "usage") {
-    // Parse/usage failures deliberately use failed + usage. This exception is
-    // the only status whose transport-neutral classification depends on phase.
+    // Parse/usage failures deliberately use failed + usage.
+  } else if (envelope.status === "presentation-required" && envelope.exit.classification === "input-required") {
+    // A headless no-arg invocation retains presentation intent while reporting
+    // that a UI/input provider is required.
   } else if (envelope.exit.classification !== expected.classification || envelope.exit.code !== expected.code) {
     context.addIssue({ code: "custom", path: ["exit"], message: "status and exit classification disagree" });
   }
@@ -135,6 +137,7 @@ export function createNativeControlEnvelope(input: Readonly<{
   diagnostics?: readonly NativeControlDiagnostic[];
   human?: readonly z.infer<typeof SafeDisplayFieldSchema>[];
   usageFailure?: boolean;
+  exitOverride?: NativeControlExit;
 }>): NativeControlEnvelope {
   const definition = NativeControlCommandRegistry[input.command];
   return NativeControlEnvelopeSchema.parse({
@@ -143,7 +146,7 @@ export function createNativeControlEnvelope(input: Readonly<{
     executionId: input.executionId,
     command: { id: input.command, path: definition.path },
     status: input.status,
-    exit: input.usageFailure ? NativeControlExitRegistry.usage : nativeControlStatusExit(input.status),
+    exit: input.exitOverride ?? (input.usageFailure ? NativeControlExitRegistry.usage : nativeControlStatusExit(input.status)),
     ...(input.data === undefined ? {} : { data: input.data }),
     ...(input.operation === undefined ? {} : { operation: input.operation }),
     ...(input.page === undefined ? {} : { page: input.page }),

@@ -9,6 +9,8 @@ import type { ConfigurationWriteIdPort } from "../../application/ports/configura
 import type { RefreshClaimIdPort } from "../../application/ports/refresh-claim-id.js";
 import { ProjectIntentWriteIdSchema, type ProjectIntentWriteIdPort } from "../../application/ports/project-intent-write-id.js";
 import type { UpdateSchedulerLeaseIdPort } from "../../application/ports/update-scheduler-lease-id.js";
+import { NativeControlExecutionIdSchema } from "../../application/native-control-contract.js";
+import type { NativeControlExecutionIdPort } from "../../application/ports/native-control-execution.js";
 
 export type NodeHostIdentifiers = Readonly<{
   operationIds: LifecycleOperationIdPort;
@@ -16,6 +18,7 @@ export type NodeHostIdentifiers = Readonly<{
   refreshClaimIds: RefreshClaimIdPort;
   updateSchedulerLeaseIds: UpdateSchedulerLeaseIdPort;
   projectIntentWriteIds: ProjectIntentWriteIdPort;
+  controlExecutionIds: NativeControlExecutionIdPort;
 }>;
 
 /** One stateless cryptographic identifier authority for the composed host. */
@@ -48,6 +51,12 @@ export function createNodeHostIdentifiers(): NodeHostIdentifiers {
       async create(signal: AbortSignal) {
         signal.throwIfAborted();
         return ProjectIntentWriteIdSchema.parse(`project-intent-write-v1:${randomBytes(24).toString("base64url")}`);
+      },
+    }),
+    controlExecutionIds: Object.freeze({
+      async issue(signal: AbortSignal) {
+        signal.throwIfAborted();
+        return NativeControlExecutionIdSchema.parse(`native-control-execution-v1:${randomUUID()}`);
       },
     }),
   });

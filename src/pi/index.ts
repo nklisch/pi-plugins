@@ -5,6 +5,7 @@ export {
   PackagedPluginHostError,
   PackagedPluginHostErrorCode,
 } from "../composition/packaged-plugin-host-contract.js";
+export type { NativePluginControlService } from "../application/native-control-service.js";
 export type {
   HostCapabilityStatus,
   HostStartupResult,

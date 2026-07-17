@@ -68,6 +68,10 @@ import { createHostStatusService } from "./host-status-service.js";
 import { createBackgroundUpdateCoordinator } from "./background-update-coordinator.js";
 import { createNativeUpdateManagementComposition } from "./create-native-update-management-service.js";
 import { createAutomaticUpdateLifecycleAdapter } from "./automatic-update-lifecycle-adapter.js";
+import { createNativeControlService } from "./create-native-control-service.js";
+import { createNodeControlTimeoutPort } from "../infrastructure/node/node-control-timeout.js";
+import type { NativePluginControlService } from "../application/native-control-service.js";
+import type { SkillResourceDiscoveryPort } from "../runtime/skills/resource-discovery.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(bytes).digest());
 
@@ -134,6 +138,8 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
   let sessionEndPromise: Promise<void> | undefined;
   let quiesceTrustedInstallation: (() => void) | undefined;
   let quiesceOperations: (() => void) | undefined;
+  let quiesceControl: (() => void) | undefined;
+  let activeResources: SkillResourceDiscoveryPort | undefined;
   let stopBackground: (() => Promise<void>) | undefined;
   let wakeBackground: (() => void) | undefined;
 
@@ -601,20 +607,50 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           catalog: marketplace.catalog,
           adoption: Object.freeze({ ...marketplace.adoption, import: importMarketplaceAndWake }),
         });
-        const application: PackagedPluginHostApplication = Object.freeze({
-          operations: operationApplication,
-          trustedInstallation: trustedInstallation.application,
-          updates: updateApplication,
-          compatibility,
-          inspection: nativeInspection.application,
-          status: hostStatus,
-          configuration: configuration.application,
-          recovery,
-          collection,
-          marketplace: publicMarketplace,
-          capabilities,
-          resources: skillHook.resources,
+        const controlLifetime = createNativeControlService({
+          applications: {
+            marketplace: publicMarketplace,
+            inspection: nativeInspection.application,
+            trustedInstallation: trustedInstallation.application,
+            operations: operationApplication,
+            updates: updateApplication,
+            status: hostStatus,
+            currentProject: {
+              async current(signal) {
+                try {
+                  await project.revalidate(signal);
+                  const assessment = await project.trust.assess(project.scope.projectKey, signal);
+                  if (assessment.kind !== "trusted") return { kind: "untrusted" as const };
+                  return { kind: "found" as const, projectKey: project.scope.projectKey, scope: toScopeReference(project.scope) as Extract<ReturnType<typeof toScopeReference>, { kind: "project" }> };
+                } catch {
+                  return { kind: "stale" as const };
+                }
+              },
+            },
+          },
+          ids: identifiers.controlExecutionIds,
+          timeouts: createNodeControlTimeoutPort(),
         });
+        quiesceControl = controlLifetime.quiesce;
+        own(() => controlLifetime.close());
+        const requireControlContext = <Args extends unknown[], Result>(operation: (...args: Args) => Result) => (...args: Args): Result => {
+          if (operationContexts.getStore() === undefined) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.reloadContextUnavailable, "native control execution requires a Pi operation context");
+          return operation(...args);
+        };
+        const control: NativePluginControlService = Object.freeze({
+          grammarVersion: controlLifetime.grammarVersion,
+          parseArgv: controlLifetime.parseArgv,
+          parseText: controlLifetime.parseText,
+          help: controlLifetime.help,
+          complete: controlLifetime.complete,
+          execute: requireControlContext(controlLifetime.execute),
+          runArgv: requireControlContext(controlLifetime.runArgv),
+          runText: requireControlContext(controlLifetime.runText),
+          poll: requireControlContext(controlLifetime.poll),
+          cancel: requireControlContext(controlLifetime.cancel),
+        });
+        activeResources = skillHook.resources;
+        const application: PackagedPluginHostApplication = Object.freeze({ control });
         let applicationClosePromise: Promise<void> | undefined;
         closeApplication = () => {
           applicationClosePromise ??= (async () => {
@@ -663,6 +699,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         else if (startPromise !== undefined) await startPromise.then(() => closeApplication?.(), () => undefined);
       } finally {
         activeBinding = undefined;
+        activeResources = undefined;
         if (reloadSuccessor !== undefined) {
           try { reloadSuccessor.reload.failSuccessor(reloadSuccessor.ticket); } catch { /* ticket may already be settled */ }
           reloadSuccessor = undefined;
@@ -682,6 +719,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
   ): Promise<void> {
     terminal = true;
     operationAdmission = false;
+    quiesceControl?.();
     quiesceTrustedInstallation?.();
     quiesceOperations?.();
     await stopBackground?.();
@@ -750,7 +788,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
       const current = started;
       if (current === undefined) return;
       activeBinding?.assertContext(context);
-      const resources = current.application.resources as { discover(request: Readonly<{ reason: "startup" | "reload"; projectTrusted: boolean }>, signal: AbortSignal): Promise<Readonly<{ kind: string; skillPaths?: readonly string[] }>> };
+      const resources = activeResources as { discover(request: Readonly<{ reason: "startup" | "reload"; projectTrusted: boolean }>, signal: AbortSignal): Promise<Readonly<{ kind: string; skillPaths?: readonly string[] }>> };
       const result = await resources.discover({ reason: _event.reason, projectTrusted: activeBinding?.isProjectTrusted() === true }, new AbortController().signal);
       if (result.kind === "ready" && reloadSuccessor !== undefined) {
         reloadSuccessor.reload.publishSuccessor(reloadSuccessor.ticket);

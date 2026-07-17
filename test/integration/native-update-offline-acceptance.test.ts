@@ -33,21 +33,16 @@ describe("native update offline packaged acceptance", () => {
     expect(started.startup).toMatchObject({ status: "ready", capabilities: { mcp: { status: "unavailable" }, subagents: { status: "unavailable" } } });
 
     await first.runWithPiOperationContext(firstContext as never, new AbortController().signal, async (application) => {
-      const change = { kind: "application" as const, target: { kind: "global" as const }, mode: "automatic" as const };
-      const preview = await application.updates.previewPolicy(change, new AbortController().signal);
+      const invoke = (argv: string[]) => application.control.runArgv(argv, { mode: "direct", output: "json" }, new AbortController().signal);
+      const previewReport = await invoke(["updates", "policy", "preview", "--kind", "application", "--target", "global", "--mode", "automatic"]);
+      const preview = previewReport.envelope.data as any;
       expect(preview.kind).toBe("previewed");
-      if (preview.kind !== "previewed") return;
-      await expect(application.updates.applyPolicy({
-        change,
-        expectedPreviewId: preview.preview.previewId,
-        consent: { kind: "grant", consentId: preview.preview.consent.consentId! },
-      }, new AbortController().signal)).resolves.toMatchObject({ kind: "changed" });
-      await expect(application.updates.status({ scope: "all-current" }, new AbortController().signal)).resolves.toMatchObject({
-        policy: { global: { application: "automatic" } },
-        unreadCount: 0,
-        unresolvedCount: 0,
-      });
-      await expect(application.updates.runAutomatic({ limit: 10 }, new AbortController().signal)).resolves.toEqual({ outcomes: [] });
+      const apply = await invoke(["updates", "policy", "apply", "--kind", "application", "--target", "global", "--mode", "automatic", "--preview-id", preview.preview.previewId, "--consent-id", preview.preview.consent.consentId]);
+      expect(apply.envelope.data).toMatchObject({ kind: "changed" });
+      const status = await invoke(["updates", "status", "--scope", "all-current"]);
+      expect(status.envelope.data).toMatchObject({ policy: { global: { application: "automatic" } }, unreadCount: 0, unresolvedCount: 0 });
+      const automatic = await invoke(["updates", "automatic", "run", "--limit", "10"]);
+      expect(automatic.envelope.data).toEqual({ outcomes: [] });
     });
     await first.dispose("reload");
 
@@ -56,11 +51,8 @@ describe("native update offline packaged acceptance", () => {
     const restarted = await second.start({ type: "session_start", reason: "startup" } as never, secondContext as never);
     expect(restarted.startup.status).toBe("ready");
     await second.runWithPiOperationContext(secondContext as never, new AbortController().signal, async (application) => {
-      await expect(application.updates.status({ scope: "all-current" }, new AbortController().signal)).resolves.toMatchObject({
-        policy: { global: { application: "automatic" } },
-        unreadCount: 0,
-        unresolvedCount: 0,
-      });
+      const report = await application.control.runArgv(["updates", "status", "--scope", "all-current"], { mode: "direct", output: "json" }, new AbortController().signal);
+      expect(report.envelope.data).toMatchObject({ policy: { global: { application: "automatic" } }, unreadCount: 0, unresolvedCount: 0 });
     });
     await second.dispose("quit");
     await rm(root, { recursive: true, force: true });

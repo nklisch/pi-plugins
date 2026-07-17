@@ -2,9 +2,7 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { deriveProjectKey, type ProjectIdentity } from "../../src/domain/state/scope.js";
 import { createPluginHostPathPlan } from "../../src/composition/plugin-host-paths.js";
-import type { NativeInspectionService } from "../../src/application/native-inspection-contract.js";
-import type { TrustedInstallationService } from "../../src/application/trusted-install-contract.js";
-import type { NativeUpdateManagementService } from "../../src/application/native-update-management-service.js";
+import type { NativePluginControlService } from "../../src/application/native-control-service.js";
 import type { PackagedPluginHostApplication } from "../../src/composition/packaged-plugin-host-contract.js";
 import {
   claimPackagedPluginHostComposition,
@@ -24,12 +22,12 @@ function fakePi() {
 }
 
 describe("packaged host construct-only contract", () => {
-  it("exposes only the unified native inspection read surface", () => {
-    expectTypeOf<PackagedPluginHostApplication["inspection"]>().toEqualTypeOf<NativeInspectionService>();
-    expectTypeOf<PackagedPluginHostApplication["inspection"]>().not.toHaveProperty("inspect");
-    expectTypeOf<PackagedPluginHostApplication["trustedInstallation"]>().toEqualTypeOf<TrustedInstallationService>();
-    expectTypeOf<PackagedPluginHostApplication["updates"]>().toEqualTypeOf<NativeUpdateManagementService>();
-    expectTypeOf<PackagedPluginHostApplication["marketplace"]>().not.toHaveProperty("policy");
+  it("exposes only the unified native control surface", () => {
+    expectTypeOf<PackagedPluginHostApplication["control"]>().toEqualTypeOf<NativePluginControlService>();
+    expectTypeOf<PackagedPluginHostApplication>().not.toHaveProperty("inspection");
+    expectTypeOf<PackagedPluginHostApplication>().not.toHaveProperty("trustedInstallation");
+    expectTypeOf<PackagedPluginHostApplication>().not.toHaveProperty("updates");
+    expectTypeOf<PackagedPluginHostApplication>().not.toHaveProperty("marketplace");
   });
 
   it("plans collision-free paths using only the verified project digest", () => {

@@ -22,6 +22,7 @@ export function createNativeControlResultProjector(): NativeControlResultProject
         ...(result.data === undefined ? {} : { data: result.data }),
         ...(result.operation === undefined ? {} : { operation: result.operation }),
         ...(result.page === undefined ? {} : { page: result.page }),
+        ...(result.exitOverride === undefined ? {} : { exitOverride: result.exitOverride }),
         diagnostics: result.diagnostics,
         human: result.human,
       });
