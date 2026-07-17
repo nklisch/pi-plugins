@@ -16,7 +16,10 @@ function command(argv: string[]) {
 function fixture() {
   const inspection = {
     list: vi.fn(async () => SplitInspectorPageFixture),
-    detail: vi.fn(async (request: any) => request.detailId === SplitInspectorDetailFixtures.disabled.summary.detailId ? { kind: "found", detail: SplitInspectorDetailFixtures.disabled } : { kind: "missing" }),
+    detail: vi.fn(async (request: any) => {
+      const detail = Object.values(SplitInspectorDetailFixtures).find((entry) => entry.summary.detailId === request.detailId);
+      return detail === undefined ? { kind: "missing" } : { kind: "found", detail };
+    }),
     diagnose: vi.fn(async () => ({ snapshotId: SplitInspectorPageFixture.snapshotId, condition: "ready", observations: [], diagnostics: [] })),
   };
   const currentProject = { current: vi.fn(async () => ({ kind: "unavailable" })) };
@@ -50,6 +53,12 @@ describe("native control read dispatch", () => {
     const result = await dispatcher.dispatch(command(["show", "disabled@market", "--scope", "user"]), signal);
     expect(result).toMatchObject({ status: "ok", data: { kind: "found", detail: { summary: { plugin: "disabled@market" } } } });
     expect(dependencies.inspection.detail).toHaveBeenCalledOnce();
+  });
+
+  it("uses the same show command for exact marketplace candidates", async () => {
+    const { dispatcher } = fixture();
+    const result = await dispatcher.dispatch(command(["show", "candidate@market", "--scope", "user"]), signal);
+    expect(result).toMatchObject({ status: "ok", data: { kind: "found", detail: { summary: { subject: "marketplace-candidate", plugin: "candidate@market" } } } });
   });
 
   it("routes operation tokens only to their owning service", async () => {

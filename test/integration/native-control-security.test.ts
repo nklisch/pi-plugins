@@ -26,7 +26,7 @@ describe("native control adversarial contract", () => {
 
   it("treats partial quotes as completion metadata, never executable input", async () => {
     const { service, ids } = createControlFixture();
-    expect(service.parseText("browse 'partial", "complete")).toMatchObject({ kind: "parsed", command: { command: "browse", request: { query: "partial" } } });
+    expect(service.parseText("browse 'partial", "complete")).toMatchObject({ kind: "incomplete", diagnostics: [{ code: "CONTROL_PARTIAL_INPUT" }] });
     const executed = await service.runText("browse 'partial", { mode: "headless", output: "json" }, new AbortController().signal);
     expect(executed.envelope.exit.code).toBe(2);
     expect(ids.issue).not.toHaveBeenCalled();

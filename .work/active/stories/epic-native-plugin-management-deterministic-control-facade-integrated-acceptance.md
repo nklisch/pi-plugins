@@ -48,4 +48,4 @@ Exercise every canonical command and facade contract through direct API, headles
 ## Verification
 
 - Focused control integration: 24 tests passed.
-- Full `npm test`: 305 files, 1,437 tests, no type errors; dependency boundaries, build, 846 root runtime exports, 3 Pi runtime exports, compiled imports, and isolated packed Pi startup all passed.
+- Full `npm test`: 305 files, 1,440 tests, no type errors; dependency boundaries, build, 846 root runtime exports, 3 Pi runtime exports, compiled imports, and isolated packed Pi startup all passed.

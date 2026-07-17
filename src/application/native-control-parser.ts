@@ -271,7 +271,12 @@ function parseArgv(argvInput: readonly string[]): NativeControlParseResult {
   if (!parsed.success) return { kind: "invalid", diagnostics: [diagnostic("CONTROL_REQUEST_INVALID")] };
   const warnings = [...local.warnings];
   if (match.alias?.deprecatedSince !== undefined) warnings.push(diagnostic("CONTROL_SYNTAX_DEPRECATED", "reparse", "warning"));
-  if (match.id === "help") return { kind: "help", help: createNativeControlHelp((parsed.data.request as { path: readonly string[] }).path) };
+  if (match.id === "help") {
+    const help = createNativeControlHelp((parsed.data.request as { path: readonly string[] }).path);
+    return help.commands.length === 0
+      ? { kind: "invalid", diagnostics: [diagnostic("CONTROL_HELP_PATH_UNKNOWN")] }
+      : { kind: "help", help };
+  }
   return { kind: "parsed", command: parsed.data, warnings: Object.freeze(warnings) };
 }
 
@@ -318,6 +323,9 @@ export function createNativeControlParser(): NativeControlParser {
       if (lexed.kind === "invalid") return mode === "complete"
         ? { kind: "incomplete" as const, expected: [{ kind: "end" as const, value: "complete token" }], diagnostics: [diagnostic(lexed.code)] }
         : { kind: "invalid" as const, diagnostics: [diagnostic(lexed.code)] };
+      if (mode === "complete" && lexed.tokens.some((token) => !token.complete)) {
+        return { kind: "incomplete" as const, expected: [{ kind: "end" as const, value: "complete token" }], diagnostics: [diagnostic("CONTROL_PARTIAL_INPUT")] };
+      }
       return parseArgv(lexed.tokens.map((token) => token.value));
     },
     help: createNativeControlHelp,

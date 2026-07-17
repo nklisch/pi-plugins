@@ -75,16 +75,22 @@ export function createNativeControlReadDispatcher(dependencies: NativeControlRea
           return projectNativeControlResponse(command.command, result, { ...(result.nextCursor === undefined ? {} : { next: result.nextCursor }) });
         }
         case "inspection.show": {
-          const selected = await dependencies.selection.installed(pluginSelector(request), signal);
-          if (selected.kind !== "selected") return selectionFailure(selected);
-          return projectNativeControlResponse(command.command, { kind: "found", detail: selected.detail });
+          const installed = await dependencies.selection.installed(pluginSelector(request), signal);
+          if (installed.kind === "selected") return projectNativeControlResponse(command.command, { kind: "found", detail: installed.detail });
+          if (installed.kind !== "not-found" && installed.kind !== "wrong-subject") return selectionFailure(installed);
+          const candidate = await dependencies.selection.candidate(pluginSelector(request), signal);
+          if (candidate.kind !== "selected") return selectionFailure(candidate);
+          return projectNativeControlResponse(command.command, { kind: "found", detail: candidate.detail });
         }
         case "inspection.diagnose": {
           if (request.plugin === undefined) {
             const result = await dependencies.inspection.diagnose({ target: { kind: "host" }, includeAdoption: request.includeAdoption }, signal);
             return projectNativeControlResponse(command.command, result);
           }
-          const selected = await dependencies.selection.installed(pluginSelector(request), signal);
+          const installed = await dependencies.selection.installed(pluginSelector(request), signal);
+          const selected = installed.kind === "selected" ? installed : installed.kind === "not-found" || installed.kind === "wrong-subject"
+            ? await dependencies.selection.candidate(pluginSelector(request), signal)
+            : installed;
           if (selected.kind !== "selected") return selectionFailure(selected);
           const result = await dependencies.inspection.diagnose({ target: { kind: "detail", snapshotId: selected.detail.snapshotId, detailId: selected.detail.summary.detailId }, includeAdoption: request.includeAdoption }, signal);
           return projectNativeControlResponse(command.command, result);

@@ -89,7 +89,10 @@ export function createNativePluginControlService(dependencies: Readonly<{
   async function execute(commandInput: NativeControlCommand, options: NativeControlExecutionOptions, signal: AbortSignal): Promise<NativeControlExecutionReport> {
     // Direct callers receive the same strict boundary as parsed callers before
     // ID/timer/input/output/service effects are admitted.
-    const command = NativeControlCommandSchema.parse(commandInput);
+    const parsedCommand = NativeControlCommandSchema.parse(commandInput);
+    const command = options.input !== undefined && parsedCommand.invocation.input.kind === "none"
+      ? NativeControlCommandSchema.parse({ ...parsedCommand, invocation: { ...parsedCommand.invocation, input: { kind: "provided" } } })
+      : parsedCommand;
     return executions.execute(command, {
       ...(options.sink === undefined ? {} : { sink: options.sink }),
       ...(options.timeoutMs === undefined ? command.invocation.timeoutMs === undefined ? {} : { timeoutMs: command.invocation.timeoutMs } : { timeoutMs: options.timeoutMs }),

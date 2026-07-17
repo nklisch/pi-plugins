@@ -24,6 +24,10 @@ describe("native control parser", () => {
     expect(parser.parseArgv(["browse", "x\u202e"])).toMatchObject({ kind: "invalid", diagnostics: [{ code: "CONTROL_ARGV_UNSAFE" }] });
   });
 
+  it("rejects unknown help paths explicitly", () => {
+    expect(parser.parseArgv(["help", "does-not-exist"])).toMatchObject({ kind: "invalid", diagnostics: [{ code: "CONTROL_HELP_PATH_UNKNOWN" }] });
+  });
+
   it("keeps input channels global, exclusive, and out of requests", () => {
     const parsed = parser.parseArgv(["--non-interactive", "--input-file", "/private/input", "install", "demo@market", "--scope", "user"]);
     expect(parsed).toMatchObject({ kind: "parsed", command: { request: { plugin: "demo@market" }, invocation: { nonInteractive: true, input: { kind: "file-json", locator: "/private/input" } } } });

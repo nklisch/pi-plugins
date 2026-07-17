@@ -44,6 +44,17 @@ describe("native plugin control service", () => {
     expect(ids.issue).toHaveBeenCalledTimes(3);
   });
 
+  it("marks an explicit caller input port as the provided safe channel", async () => {
+    const { service, applications } = fixture();
+    const token = `trusted-install-session-v1:123e4567-e89b-42d3-a456-426614174000.${"a".repeat(64)}`;
+    applications.trustedInstallation.status.mockResolvedValue({ kind: "found", session: { token, version: 0, fields: [], consent: { consentId: `trusted-install-consent-v1:sha256:${"b".repeat(64)}` }, binding: { plugin: "demo@market", scope: { kind: "user" }, immutableRevision: `sha256:${"c".repeat(64)}`, executableSurfaceDigest: `sha256:${"d".repeat(64)}` } } } as never);
+    let channel: unknown;
+    const input = { collect: async (request: any) => { channel = request.channel; return { kind: "unavailable" as const, code: "NO_INPUT_CHANNEL" as const }; } };
+    const report = await service.runArgv(["install", "apply", token], { ...options, input }, new AbortController().signal);
+    expect(channel).toEqual({ kind: "provided" });
+    expect(report.envelope.status).toBe("input-required");
+  });
+
   it("keeps no-arg presentation intent and reports headless input required", async () => {
     const { service } = fixture();
     await expect(service.runArgv([], { mode: "headless", output: "json" }, new AbortController().signal)).resolves.toMatchObject({ envelope: { status: "presentation-required", exit: { code: 3 } } });
