@@ -27,7 +27,9 @@ import { readClaudeMarketplace } from "../formats/claude/marketplace-reader.js";
 import { readCodexMarketplace } from "../formats/codex/marketplace-reader.js";
 import { mergeMarketplaces } from "../formats/marketplace-merger.js";
 import { createNodePluginInspector } from "./create-plugin-inspector.js";
-import { createNodeMarketplaceDiscoveryServices } from "./create-marketplace-discovery-services.js";
+import { createNodeMarketplaceDiscoveryComposition } from "./create-marketplace-discovery-services.js";
+import { createInspectionCandidateContent } from "./inspection-candidate-content.js";
+import { createComposedNativeInspectionService } from "./create-native-inspection-service.js";
 import { createHostConfigurationServices } from "./create-host-configuration.js";
 import { createNodePiRuntimeCapabilityProbe } from "./node-pi-runtime-capability-probe.js";
 import { buildRuntimeDesiredState, type HostBlockedPlugin, type RuntimeDesiredState } from "./runtime-desired-state.js";
@@ -172,9 +174,19 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           sha256,
         });
         const executableResolver = createNodeHookExecutableResolver();
-        const capabilities = createNodePiRuntimeCapabilityProbe({
+        const capabilityProbe = createNodePiRuntimeCapabilityProbe({
           executables: executableResolver,
           qualification,
+        });
+        // One immutable host-epoch capture is shared by compatibility,
+        // desired-state reconstruction, and inspection. Inspection never
+        // probes independently or observes a capability set unlike runtime.
+        const capabilitySnapshot = await capabilityProbe.snapshot(startupSignal);
+        const capabilities = Object.freeze({
+          async snapshot(signal: AbortSignal) {
+            signal.throwIfAborted();
+            return capabilitySnapshot;
+          },
         });
         const compatibility = createCompatibilityService(capabilities);
         const inspection = createNodePluginInspector();
@@ -298,7 +310,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           compatibility,
           sha256,
         });
-        const marketplace = createNodeMarketplaceDiscoveryServices({
+        const marketplaceComposition = createNodeMarketplaceDiscoveryComposition({
           inventory: state.inventory,
           state: state.state,
           mutations,
@@ -314,22 +326,25 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           probe: marketplaceProbe,
           lifecycle,
         });
+        const marketplace = marketplaceComposition.application;
 
         const recoveryResult = await recovery.recover({ requiredScopes: [{ kind: "user" }, project.scope] }, startupSignal);
-        if (successor === undefined) await reload.reconcileCurrent(startupSignal);
-        else await reload.acceptSuccessor(successor, startupSignal);
+        const runtimeStartupBlocked: HostBlockedPlugin[] = [];
+        if (successor === undefined) {
+          try {
+            await reload.reconcileCurrent(startupSignal);
+          } catch (error) {
+            if (startupSignal.aborted) throw error;
+            runtimeStartupBlocked.push({
+              plugin: "host-runtime",
+              code: "RUNTIME_RECONSTRUCTION_FAILED",
+              explanation: "local runtime reconstruction failed; read-only inspection remains available",
+            });
+          }
+        } else {
+          await reload.acceptSuccessor(successor, startupSignal);
+        }
         if (successor !== undefined) reloadSuccessor = Object.freeze({ ticket: successor, reload });
-        const application: PackagedPluginHostApplication = Object.freeze({
-          lifecycle,
-          compatibility,
-          inspection,
-          configuration: configuration.application,
-          recovery,
-          collection,
-          marketplace,
-          capabilities,
-          resources: skillHook.resources,
-        });
         const unresolvedRecovery: HostBlockedPlugin[] = successor === undefined
           ? recoveryResult.results
               .filter((result) => result.kind === "blocked" || result.kind === "deferred")
@@ -340,11 +355,43 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
               }))
           : [];
         const startup = startupResult({
-          blocked: [...(latestDesired?.blocked ?? []), ...unresolvedRecovery],
+          blocked: [...(latestDesired?.blocked ?? []), ...unresolvedRecovery, ...runtimeStartupBlocked],
           mcp: qualification.mcp,
           subagents: qualification.subagents,
           piReload: qualification.hostApi,
           secrets: secrets.availability.status,
+        });
+        const nativeInspection = createComposedNativeInspectionService({
+          state: state.state,
+          scopes: [{ kind: "user" }, project.scope],
+          revalidateProject: project.revalidate,
+          selections,
+          desired: () => latestDesired,
+          skillHook: skillHook.participant,
+          mcp: mcp.participant,
+          capabilities: capabilitySnapshot,
+          recovery: recoveryResult,
+          startup,
+          configurations,
+          projectTrust: project.trust,
+          secretCustody: startup.capabilities.secrets,
+          installed: content.installed,
+          candidateContent: createInspectionCandidateContent({ content: content.content, materializer: materializers.plugins }),
+          bundleInspector: inspection,
+          marketplace: marketplaceComposition.inspection,
+          clock,
+          sha256,
+        });
+        const application: PackagedPluginHostApplication = Object.freeze({
+          lifecycle,
+          compatibility,
+          inspection: nativeInspection,
+          configuration: configuration.application,
+          recovery,
+          collection,
+          marketplace,
+          capabilities,
+          resources: skillHook.resources,
         });
         let applicationClosePromise: Promise<void> | undefined;
         closeApplication = () => {

@@ -1,7 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { deriveProjectKey, type ProjectIdentity } from "../../src/domain/state/scope.js";
 import { createPluginHostPathPlan } from "../../src/composition/plugin-host-paths.js";
+import type { NativeInspectionService } from "../../src/application/native-inspection-contract.js";
+import type { PackagedPluginHostApplication } from "../../src/composition/packaged-plugin-host-contract.js";
 import {
   claimPackagedPluginHostComposition,
   createPluginHostBootstrap,
@@ -20,6 +22,11 @@ function fakePi() {
 }
 
 describe("packaged host construct-only contract", () => {
+  it("exposes only the unified native inspection read surface", () => {
+    expectTypeOf<PackagedPluginHostApplication["inspection"]>().toEqualTypeOf<NativeInspectionService>();
+    expectTypeOf<PackagedPluginHostApplication["inspection"]>().not.toHaveProperty("inspect");
+  });
+
   it("plans collision-free paths using only the verified project digest", () => {
     const plan = createPluginHostPathPlan("/agent");
     const identity: ProjectIdentity = {

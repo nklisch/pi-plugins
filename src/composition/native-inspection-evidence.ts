@@ -16,7 +16,7 @@ import { createMarketplaceRegistrationView } from "../application/marketplace-st
 import type { StateLoadResult } from "../application/state-contract.js";
 import type { RuntimeDesiredState } from "./runtime-desired-state.js";
 import type { RuntimeSelectionCatalog } from "./runtime-selection-catalog.js";
-import type { HostStartupResult } from "./packaged-plugin-host-contract.js";
+import type { HostStartupResult } from "../application/host-observation-contract.js";
 import type {
   InspectionEvidenceSnapshot,
   InspectionMcpExpectation,

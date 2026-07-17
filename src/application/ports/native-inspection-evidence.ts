@@ -1,6 +1,6 @@
 import type { MarketplaceCacheStatus } from "../marketplace-management-contract.js";
 import type { StateLoadResult } from "../state-contract.js";
-import type { HostStartupResult } from "../../composition/packaged-plugin-host-contract.js";
+import type { HostStartupResult } from "../host-observation-contract.js";
 import type { RuntimeCapabilitySnapshot } from "../../domain/compatibility-policy.js";
 import type { ContentDigest } from "../../domain/content-manifest.js";
 import type { ComponentId } from "../../domain/components.js";

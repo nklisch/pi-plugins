@@ -830,6 +830,11 @@ export type {
   NativeDiagnosticRegistryKey,
 } from "./application/native-diagnostic-registry.js";
 export {
+  createNativeInspectionService,
+  NativeInspectionError,
+} from "./application/native-inspection-service.js";
+
+export {
   compileNativeDiagnostics,
   deriveNativeInspectionCondition,
   countNativeDiagnostics,

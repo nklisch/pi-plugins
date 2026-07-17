@@ -47,6 +47,16 @@ export type MarketplaceDiscoveryServices = Readonly<{
   adoption: Pick<AdoptionService, "preview" | "import">;
 }>;
 
+export type NativeInspectionMarketplaceServices = Readonly<{
+  catalog: CatalogService;
+  adoption: Pick<AdoptionService, "preview">;
+}>;
+
+export type NodeMarketplaceDiscoveryComposition = Readonly<{
+  application: MarketplaceDiscoveryServices;
+  inspection: NativeInspectionMarketplaceServices;
+}>;
+
 export type NodeMarketplaceDiscoveryServicesOptions = Readonly<{
   state: LifecycleStateStore;
   inventory: LifecycleStateInventoryPort;
@@ -74,9 +84,9 @@ export type NodeMarketplaceDiscoveryServicesOptions = Readonly<{
  * and trust graph. Construction performs no I/O; every read/acquisition remains
  * behind an explicit application method.
  */
-export function createNodeMarketplaceDiscoveryServices(
+export function createNodeMarketplaceDiscoveryComposition(
   options: NodeMarketplaceDiscoveryServicesOptions,
-): MarketplaceDiscoveryServices {
+): NodeMarketplaceDiscoveryComposition {
   const registration = createMarketplaceRegistrationService({
     state: options.state,
     mutations: options.mutations,
@@ -201,5 +211,15 @@ export function createNodeMarketplaceDiscoveryServices(
     },
   });
 
-  return Object.freeze({ registration: publicRegistration, refresh, policy, catalog, adoption });
+  const application = Object.freeze({ registration: publicRegistration, refresh, policy, catalog, adoption });
+  return Object.freeze({
+    application,
+    inspection: Object.freeze({ catalog: internalCatalog, adoption: Object.freeze({ preview: internalAdoption.preview.bind(internalAdoption) }) }),
+  });
+}
+
+export function createNodeMarketplaceDiscoveryServices(
+  options: NodeMarketplaceDiscoveryServicesOptions,
+): MarketplaceDiscoveryServices {
+  return createNodeMarketplaceDiscoveryComposition(options).application;
 }

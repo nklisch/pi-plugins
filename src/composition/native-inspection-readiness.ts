@@ -7,7 +7,7 @@ import type { LifecycleStateStore } from "../application/ports/lifecycle-state-s
 import type { PluginConfigurationStore } from "../application/ports/plugin-configuration-store.js";
 import type { ProjectTrustPort } from "../application/ports/project-trust.js";
 import type { Sha256 } from "../domain/source.js";
-import type { HostCapabilityStatus } from "./packaged-plugin-host-contract.js";
+import type { HostCapabilityStatus } from "../application/host-observation-contract.js";
 import { NativeConfigurationOptionViewSchema, type NativeConfigurationOptionView } from "../application/native-inspection-contract.js";
 import { NativeDisplayLimits, toSafeDisplayField } from "../application/native-inspection-display.js";
 import type { InspectionReadinessPort } from "../application/ports/inspection-readiness.js";

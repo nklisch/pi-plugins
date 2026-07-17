@@ -3,7 +3,7 @@ import type { PluginConfigurationRef } from "../../domain/state/references.js";
 import type { PluginKey } from "../../domain/identity.js";
 import type { ScopeReference } from "../../domain/state/scope.js";
 import type { TrustCandidate } from "../../domain/trust-policy.js";
-import type { HostCapabilityStatus } from "../../composition/packaged-plugin-host-contract.js";
+import type { HostCapabilityStatus } from "../host-observation-contract.js";
 import type {
   NativeConfigurationOptionView,
   NativeTrustReadiness,

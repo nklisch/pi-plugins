@@ -9,13 +9,15 @@ import type { McpRuntimePort } from "../application/ports/mcp-runtime.js";
 import type { SubagentLifecyclePort } from "../application/ports/subagent-lifecycle.js";
 import type { PluginLifecycleService } from "../application/plugin-lifecycle-service.js";
 import type { CompatibilityService } from "../application/compatibility-service.js";
-import type { PluginInspectionService } from "../application/inspection-service.js";
+import type { NativeInspectionService } from "../application/native-inspection-contract.js";
 import type { BoundPluginConfigurationService } from "./create-host-configuration.js";
 import type { LifecycleRecoveryService } from "../application/recovery-service.js";
 import type { createRevisionCollectionService } from "../application/revision-collection-service.js";
 import type { MarketplaceDiscoveryServices } from "./create-marketplace-discovery-services.js";
 import type { RuntimeCapabilityProbe } from "../application/ports/runtime-capability-probe.js";
 import type { SkillResourceDiscoveryPort } from "../runtime/skills/resource-discovery.js";
+import type { HostCapabilityStatus, HostStartupResult } from "../application/host-observation-contract.js";
+export type { HostCapabilityStatus, HostStartupResult } from "../application/host-observation-contract.js";
 
 export const PackagedPluginHostErrorCode = {
   invalidOptions: "HOST_INVALID_OPTIONS",
@@ -74,27 +76,11 @@ export interface PiSessionBindingPort {
   isProjectTrusted(): boolean;
 }
 
-export type HostCapabilityStatus = Readonly<{
-  status: "available" | "unavailable";
-  explanation: string;
-}>;
-
-export type HostStartupResult = Readonly<{
-  status: "ready" | "blocked";
-  blocked: readonly Readonly<{ plugin: string; code: string; explanation: string }>[];
-  capabilities: Readonly<{
-    mcp: HostCapabilityStatus;
-    subagents: HostCapabilityStatus;
-    piReload: HostCapabilityStatus;
-    secrets: HostCapabilityStatus;
-  }>;
-}>;
-
 /** Safe application services; raw stores, handles, codecs, catalogs, and brokers stay private. */
 export type PackagedPluginHostApplication = Readonly<{
   lifecycle: PluginLifecycleService;
   compatibility: CompatibilityService;
-  inspection: PluginInspectionService;
+  inspection: NativeInspectionService;
   configuration: BoundPluginConfigurationService;
   recovery: LifecycleRecoveryService;
   collection: ReturnType<typeof createRevisionCollectionService>;
