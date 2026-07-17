@@ -150,7 +150,7 @@ export function createNodeProjectIntentFilePort(input: Readonly<{
     if (expected === undefined) return { kind: "stale" };
     let encoded;
     try { encoded = encodeProjectIntentDeclaration(request.declaration, input.sha256); }
-    catch { return { kind: "ambiguous", expectedDigest: hashContent(new Uint8Array(), input.sha256) }; }
+    catch { return { kind: "stale" }; }
     const writeId = ProjectIntentWriteIdSchema.parse(request.writeId);
     let current;
     try { current = await inspect(request.root, signal); }

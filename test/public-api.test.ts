@@ -841,6 +841,9 @@ describe("explicit package API", () => {
     expect(sourceApi.NativeInspectionDetailResultSchema).toBeDefined();
     expect(sourceApi.NativeDiagnosticRegistry).toBeDefined();
     expect(sourceApi.toSafeDisplayField).toBeDefined();
+    expect(sourceApi.createNativeLifecycleOperationService).toBeDefined();
+    expect(sourceApi.NativeLifecycleOperationRequestSchema).toBeDefined();
+    expect(sourceApi.NativeLifecycleOperationResultSchema).toBeDefined();
     expect(sourceApi.createPluginLifecycleService).toBeDefined();
     expect(sourceApi.createLifecycleRecoveryService).toBe(createLifecycleRecoveryService);
     expect(sourceApi.createLifecycleTransitionReconciler).toBe(createLifecycleTransitionReconciler);

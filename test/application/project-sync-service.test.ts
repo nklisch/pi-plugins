@@ -34,10 +34,12 @@ function fixture() {
     async cleanup() {},
   };
   const state = { async read() { return { ok: true as const, snapshot }; }, async commit() { throw new Error("coordinator owns commit"); } };
+  let ambiguousCommit = false;
   const mutations = {
     async runPreparedMutation(request: any, callback: any) {
       if (request.expectedGeneration !== snapshot.generation) return { kind: "stale-generation" as const, expected: request.expectedGeneration, actual: snapshot.generation };
       const prepared = await callback({ snapshot, assertOwned: async () => undefined });
+      if (ambiguousCommit) { ambiguousCommit = false; return { kind: "commit-ambiguous" as const, expected: request.expectedGeneration }; }
       const generation = snapshot.generation + 1;
       snapshot = { ...snapshot, generation, project: { ...prepared.mutation.replace.project, generation } };
       return { kind: "committed" as const, value: prepared.value, snapshot };
@@ -59,7 +61,7 @@ function fixture() {
     async readiness() { return []; },
     sha256,
   });
-  return { scope, service, replace, lifecycle, registrations, get snapshot() { return snapshot; }, advance() { snapshot = { ...snapshot, generation: snapshot.generation + 1, project: { ...snapshot.project, generation: snapshot.generation + 1 } }; } };
+  return { scope, service, replace, lifecycle, registrations, get snapshot() { return snapshot; }, failNextCommit() { ambiguousCommit = true; }, advance() { snapshot = { ...snapshot, generation: snapshot.generation + 1, project: { ...snapshot.project, generation: snapshot.generation + 1 } }; } };
 }
 
 describe("project sync service", () => {
@@ -92,6 +94,20 @@ describe("project sync service", () => {
     const result = await value.service.apply({ context: preview.context, resolutions: [] }, undefined, signal);
     expect(result).toMatchObject({ kind: "conflict", reason: "state-generation-changed", effects: { state: "unchanged" } });
     expect(value.replace).not.toHaveBeenCalled();
+  });
+
+  it("retries a crash after file publication as digest-only convergence", async () => {
+    const value = fixture();
+    const first = await value.service.preview({ mode: "publish-intent", projectKey: value.scope.projectKey, previewId }, signal);
+    if (first.kind !== "ready") throw new Error("preview fixture failed");
+    value.failNextCommit();
+    expect(await value.service.apply({ context: first.context, resolutions: [] }, undefined, signal)).toMatchObject({ kind: "recovery-required", effects: { projectFile: "written" } });
+    expect(value.snapshot.project.declarationDigest).toBe(`sha256:${"0".repeat(64)}`);
+    const retry = await value.service.preview({ mode: "publish-intent", projectKey: value.scope.projectKey, previewId }, signal);
+    if (retry.kind !== "ready") throw new Error("retry preview fixture failed");
+    expect(retry.plan.actions.map((action) => action.kind)).toEqual(["record-intent-digest"]);
+    expect(await value.service.apply({ context: retry.context, resolutions: [] }, undefined, signal)).toMatchObject({ kind: "succeeded" });
+    expect(value.replace).toHaveBeenCalledTimes(1);
   });
 
   it("rejects replay of an already-consumed execution context", async () => {

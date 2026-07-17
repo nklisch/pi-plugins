@@ -76,7 +76,7 @@ export function createComposedNativeLifecycleOperationService(input: Readonly<{
     lifecycle: input.lifecycle,
     configuration: input.configuration,
     configurationAuthority,
-    configurationInput: configurationInput as never,
+    configurationInput,
     configurationPathContext(target, projectRoot) {
       return target.scope.kind === "project"
         ? { scope: target.scope, trustedProjectRoot: projectRoot! }
