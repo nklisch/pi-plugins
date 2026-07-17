@@ -167,7 +167,14 @@ export async function openIdentityBoundSqliteDatabase(input: Readonly<{
           assertIdentity() { if (closed) throw new Error("SQLite database is closed"); validateMarker(input.path, rootId, databaseName, currentMarker!); },
           close() { if (closed) return; closed = true; database.close(); },
         });
-      } catch (error) { database.close(); throw error; }
+      } catch (error) {
+        database.close();
+        if (isBusy(error) && attempt < MAX_RETRIES) {
+          await wait(input.signal, attempt);
+          continue;
+        }
+        throw error;
+      }
     }
 
     const currentClaim = claim(input.path);
