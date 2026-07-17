@@ -2009,3 +2009,25 @@ export {
   createNativeControlParser,
 } from "./application/native-control-parser.js";
 export type { NativeControlParseResult, NativeControlParser } from "./application/native-control-parser.js";
+export type {
+  NativeControlInputPurpose,
+  NativeControlInputRequest,
+  NativeControlExactDecision,
+  NativeControlInputIssue,
+  NativeControlInputResult,
+  NativeControlInputPort,
+} from "./application/ports/native-control-input.js";
+export {
+  unavailableNativeControlInput,
+  validateNativeControlInput,
+  collectNativeControlInput,
+  toTrustedInstallSubmission,
+  inputRequiredIssues,
+} from "./application/native-control-input.js";
+export {
+  projectNativeControlJson,
+  assertNativeControlJsonSafe,
+  nativeControlContainsForbiddenValue,
+} from "./application/native-control-redaction.js";
+export { createNodeControlInput } from "./infrastructure/control/node-control-input.js";
+export type { NodeControlInputOptions } from "./infrastructure/control/node-control-input.js";
