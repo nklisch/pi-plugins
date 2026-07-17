@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-marketplace-discovery-adoption
 kind: feature
-stage: review
+stage: done
 tags: [compatibility]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-packaged-host-composition]
@@ -628,9 +628,9 @@ All eight child checkpoints were implemented in DAG order by one cohesive GPT-5.
 
 ## Verification
 
-- Post-rebase focused marketplace plus packaged state/recovery/process suite: 71 test files, 327 tests passed, 0 failed; type errors 0.
-- Full `npm test`: 213 test files, 1067 tests passed, 0 failed; type errors 0.
-- Dependency boundaries: 284 modules / 1852 dependencies, no violations.
+- Review-fix focused marketplace/state/content/packaged suite: 198 tests passed, 0 failed.
+- Full `npm test`: 214 test files, 1078 tests passed, 0 failed; type errors 0.
+- Dependency boundaries: 284 modules / 1855 dependencies, no violations.
 - Package checks: build passed; compiled root import passed (562 exports); compiled `./pi` import passed (3 exports); isolated packed startup exercised the marketplace capability through the host operation lease and passed.
 - `git diff --check` passed. No foundation assertion became false; no foundation edit was required.
 
@@ -642,10 +642,36 @@ All eight child checkpoints were implemented in DAG order by one cohesive GPT-5.
 - Lifecycle v3 migrations, paired registration/snapshot state mutation, identity-bound SQLite opening, in-transaction generation acknowledgement, bounded busy retry, process-shared CAS, startup recovery, and process lease/retention semantics remained intact and passed focused process evidence.
 - Secret custody remains unavailable without fallback: non-sensitive host startup and marketplace/config composition remain available, while sensitive writes fail with `SECRET_STORE_UNAVAILABLE`; startup and serialized results expose status only and no credential/path value.
 
-## Known packaged-host seam
+## Review blocker remediation
 
-The rebased packaged host still has no production atomic-no-replace directory publication primitive: `createNodeContentInfrastructure` composes `createNodeContentStorePlatform()` without a native `renameNoReplace`, and capability probing therefore fails closed. Real packaged add remains `PROMOTION_FAILED`; no stale check-then-rename seam was restored. The exact owning follow-up is `.work/backlog/idea-packaged-atomic-no-replace-directory-publication.md`, owned by packaged immutable-content infrastructure. Marketplace add/restart/concurrency acceptance will automatically exercise the successful path once that primitive is wired.
+The sole independent `standard` review produced five receiver-accepted blockers. All were fixed and verified without a repeat review, as required by the caller and the standard single-pass closure policy.
 
-## Review handoff
+1. **B1 — production immutable directory publication**: replaced the unavailable production rename seam with a capability-probed hard-link visibility protocol. A complete, sealed hidden payload becomes visible through one atomic no-replace metadata link; readers verify marker/payload inode identity before reading. Crashes expose either no marker or a complete payload, concurrent losers verify the exact winner, and durability retains file/directory sync, no-follow root checks, digest verification, and read-only sealing. Packaged local add, offline restart, same-process races, two-process add/refresh/remove, and killed-publisher retry now exercise production composition without `PROMOTION_FAILED` escape branches. Fixed in `4af99dc`.
+2. **B2 — authoritative refresh finalization**: final refresh derives from the locked latest record and overlays only refresh memory plus newly discovered notification facts. Policy/origin changes survive, automatic application uses the committed policy, and active persisted claims schedule no earlier than lease expiry. Fixed in `13e08fc`.
+3. **B3 — current project and long-operation authority**: absent current-project context now yields user-only scope. Project add/refresh revalidate exact live trust before promotion and through a lease-owned pre-commit guard; revocation or identity replacement cannot commit final state. Fixed in `13e08fc`; the coordinator guard is independently proven in `7e9a235`.
+4. **B4 — granular project registration corruption**: project marketplace registrations decode independently, quarantine malformed and duplicate-name/source records, and preserve valid registration, snapshot, and plugin siblings. Canonical `CONTENT_VERIFICATION_FAILED` now projects as `corrupt` with no network fallback. Fixed in `de98fa1`.
+5. **B5 — committed add cancellation semantics**: post-commit add projection uses an uncancelled cleanup signal, so the committed candidate reports `added`; adoption cancellation applies only to remaining candidates. Fixed in `13e08fc`.
 
-Effective review weight is the project default `standard`. The feature is advanced to `review` after green integrated verification. The caller prohibited nested agents, so this owner did not manufacture an inline self-approval or invoke a peer; the independent feature review remains the next lifecycle action.
+The focused/full runs exposed an unrelated process-throughput-sensitive repetition count in the generation-locking integration test. The test still runs eight fresh process pairs while avoiding host-load-dependent timeout failures (`90bb957`).
+
+## Review (2026-07-17)
+
+**Verdict**: Approve
+
+**Blockers**: 5 accepted, 5 fixed — B1 atomic publication; B2 authoritative refresh rebase/scheduling; B3 project authority revalidation; B4 granular registration quarantine/corrupt mapping; B5 committed add cancellation.
+**Important**: 3 accepted and parked unbound — `idea-page-complete-marketplace-registration-list` (`03a8364`), `idea-detect-same-size-foreign-state-rewrites` (`bb49568`), and `idea-admit-direct-packaged-application-operations` (`a67c25c`).
+**Nits**: none.
+**Rejected**: none.
+
+**Notes**: Substrate feature review, effective weight `standard`, source project policy, one independent pass total. The receiving owner fixed every accepted blocker, ran focused and full verification, and closed without re-review per explicit caller instruction and the standard single-pass closure policy. Direct-read implementation only; no nested agent or peer mechanism was used.
+
+## Review-fix commits
+
+- `4af99dc` — production atomic immutable publication, crash/retry and multiprocess packaged acceptance; retires the resolved publication backlog item.
+- `13e08fc` — latest-authority refresh finalization, project trust/identity guards, user-only no-project scope, and post-commit cancellation semantics.
+- `de98fa1` — record-granular project registration quarantine and canonical corruption projection.
+- `7e9a235` — final authority guard verification at the coordinator commit boundary.
+- `03a8364`, `bb49568`, `a67c25c` — three accepted lower-priority review findings parked without implementation.
+- `90bb957` — preserve useful repeated process-lock coverage while removing full-suite throughput flakiness.
+
+**Review totals**: blockers 5 fixed / 0 open; important 3 parked; nits 0; rejected 0; focused tests 198 passed; full tests 1078 passed; type errors 0; dependency violations 0; unresolved material blockers 0.
