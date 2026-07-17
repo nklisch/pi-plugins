@@ -22,15 +22,32 @@ import {
   diagnosticFromZodError,
   type ErrorCode,
 } from "../../../src/domain/errors.js";
+import {
+  classifyMcpLaunchFailure,
+  McpLaunchErrorCodes,
+} from "../../../src/runtime/mcp/launch-error.js";
 
 export type FakeMcpRuntimeOptions = Readonly<{
   capabilities?: McpRuntimeCapabilities;
 }>;
 
+type StoredServerRuntimeStatus = {
+  state: "registered" | "idle" | "connecting" | "connected" | "needs-auth" | "failed";
+  errorCode?: ErrorCode;
+};
+
 type StoredSource = Readonly<{
   source: McpConfigSource;
   launchValues: McpSourceReplaceRequest["launchValues"];
+  serverStatus: Map<string, StoredServerRuntimeStatus>;
 }>;
+
+class FakeMcpLaunchError extends Error {
+  constructor(readonly code: ErrorCode) {
+    super("MCP launch failed");
+    this.name = "FakeMcpLaunchError";
+  }
+}
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -110,13 +127,17 @@ function copyIdentity(identity: McpSourceIdentity): McpSourceIdentity {
 function statusFor(record: StoredSource, state: "registered" | "replacing" | "removing" | "failed" = "registered"): McpSourceStatus {
   const servers = Object.entries(record.source.servers)
     .sort(([left], [right]) => compareText(left, right))
-    .map(([key, server]) => ({
-      key,
-      componentId: server.componentId,
-      nativeKey: server.nativeKey,
-      provenance: clone(server.provenance),
-      state: "registered" as const,
-    }));
+    .map(([key, server]) => {
+      const runtime = record.serverStatus.get(key) ?? { state: "registered" as const };
+      return {
+        key,
+        componentId: server.componentId,
+        nativeKey: server.nativeKey,
+        provenance: clone(server.provenance),
+        state: runtime.state,
+        ...(runtime.errorCode === undefined ? {} : { errorCode: runtime.errorCode }),
+      };
+    });
   return McpSourceStatusSchema.parse({
     identity: clone(record.source.identity),
     state,
@@ -227,6 +248,7 @@ export class FakeMcpRuntime implements McpRuntimePort {
     const replacement: StoredSource = {
       source,
       launchValues: request.launchValues,
+      serverStatus: new Map(Object.keys(source.servers).map((key) => [key, { state: "registered" as const }])),
     };
     this.records.set(key, replacement);
     const status = statusFor(replacement);
@@ -284,6 +306,7 @@ export class FakeMcpRuntime implements McpRuntimePort {
     identity: McpSourceIdentity,
     serverKey: string,
     signal: AbortSignal,
+    consume: (values: McpLaunchValues) => void | Promise<void> = () => undefined,
   ): Promise<void> {
     signal.throwIfAborted();
     const requested = McpSourceIdentitySchemaV1.parse(clone(identity));
@@ -301,33 +324,36 @@ export class FakeMcpRuntime implements McpRuntimePort {
     });
     let values: McpLaunchValues | undefined;
     let failure: unknown;
+    record.serverStatus.set(serverKey, { state: "connecting" });
     try {
       values = await record.launchValues.resolve(request, signal);
       signal.throwIfAborted();
       if (values.transport !== server.transport) {
-        throw new Error("late MCP launch values use the wrong transport");
+        throw new FakeMcpLaunchError(McpLaunchErrorCodes.valueInvalid);
       }
-      // The fake proves callback timing and custody, not remote health.
+      await consume(values);
+      signal.throwIfAborted();
     } catch (error) {
-      // Abort reasons are caller-owned evidence and must propagate unchanged.
-      // Other provider failures are wrapped so a native error message cannot
-      // become a secret-bearing fake error surface.
-      failure = signal.aborted
-        ? signal.reason
-        : new Error(
-            error instanceof Error && error.message === "late MCP launch values use the wrong transport"
-              ? "MCP launch values use the wrong transport"
-              : "MCP launch failed",
-            { cause: error },
-          );
-    }
-    if (values !== undefined) {
-      try {
-        await record.launchValues.dispose(values);
-      } catch (error) {
-        if (failure === undefined) failure = new Error("MCP launch cleanup failed", { cause: error });
+      const code = classifyMcpLaunchFailure(error, signal);
+      record.serverStatus.set(serverKey, { state: "failed", errorCode: code });
+      // Caller-owned cancellation/timeout identity propagates unchanged. Every
+      // other failure becomes a static code-only fake error with no native
+      // cause, message, template, or consumed value retained.
+      failure = signal.aborted ? signal.reason : new FakeMcpLaunchError(code);
+    } finally {
+      if (values !== undefined) {
+        try {
+          await record.launchValues.dispose(values);
+        } catch {
+          record.serverStatus.set(serverKey, {
+            state: "failed",
+            errorCode: McpLaunchErrorCodes.cleanupFailed,
+          });
+          if (failure === undefined) failure = new FakeMcpLaunchError(McpLaunchErrorCodes.cleanupFailed);
+        }
       }
     }
     if (failure !== undefined) throw failure;
+    record.serverStatus.set(serverKey, { state: "connected" });
   }
 }

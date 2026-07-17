@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-launch-context-conformance
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra, security]
 parent: epic-mcp-runtime-integration-launch-context
 depends_on: [epic-mcp-runtime-integration-launch-context-transport-delivery]
@@ -94,3 +94,22 @@ A fake can overstate a future adapter. Keep package-specific timing, source repl
 ## Production boundary
 
 Completion proves the largest faithful portable increment against the completed bridge seam. It does not satisfy `epic-mcp-runtime-integration-config-source-bridge-production-adapter`, does not make MCP capability facts available in production, and does not close the parent MCP epic.
+
+## Implementation notes
+
+- Extended `FakeMcpRuntime.launch` into an immediate-consumption callback boundary with status-code-only failure observation and `finally` disposal on success, transport mismatch, consumer failure, cancellation, timeout, and cleanup failure. Native causes/messages and launch values are never retained.
+- Strengthened the reusable bridge contract with fresh-value identity, two-launch non-reuse, consumer-failure disposal, cancellation/timeout identity, safe status codes, and pre-abort launch checks. Deliberately broken eager, skipped-disposal, shared-value, double-disposal, unsafe-status, and imprecise lifecycle harnesses are rejected.
+- Added conformance tests for the active-selection fake's pin-or-wait replacement and the ambient fake's requested-name-only, callback-discarding, dispose-in-finally behavior.
+- Added end-to-end fake-port integration for both transports using the real trust candidate/records, installed revision/projection verification, opaque project-root authority, content/data refs, real `withResolvedPluginConfiguration`, sensitive-value custody, launch provider, and fake runtime.
+- Race evidence covers independent concurrent launches straddling a secret revision change, source replacement ownership already enforced by the bridge contract, trust revocation on the next invocation, final ownership transfer, exact abort/timeout reasons, and provider-local versus runtime-owned disposal.
+- Public/package exports expose only portable contracts/factories and stable schemas; no fake or production runtime capability is exported. Canary scans cover source, projection, configuration document, status, typed failures, callback facades, and compiled exports.
+
+## Verification
+
+- Focused conformance/integration/public check: `npx vitest run test/support/fakes/mcp-runtime.test.ts test/support/fakes/mcp-launch-context.test.ts test/contract/mcp-runtime.contract.test.ts test/integration/mcp-runtime-port.test.ts test/integration/mcp-launch-context.test.ts test/public-api.test.ts` — **27 passed, 0 failed**.
+- Full `npm test` pipeline — **green**:
+  - typecheck: no errors;
+  - dependency boundaries: **223 modules / 1,342 dependencies**, no violations;
+  - unit/integration/contracts: **161 files / 860 tests passed**, 0 failed, no type errors;
+  - compiled package import: **476 exports**.
+- This evidence qualifies only portable fake/conformance semantics. It does not qualify `pi-mcp-adapter`, launch a process, connect HTTP, register production tools, or satisfy the blocked production-adapter story.

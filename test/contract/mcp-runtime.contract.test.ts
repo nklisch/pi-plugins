@@ -28,7 +28,7 @@ function delegated(
 function baseHarness(runtime: McpRuntimePort, fake: FakeMcpRuntime): Harness {
   return {
     runtime,
-    launch: (identity, serverKey, signal) => fake.launch(identity, serverKey, signal),
+    launch: (identity, serverKey, signal, consume) => fake.launch(identity, serverKey, signal, consume),
     failNextReplacement: () => fake.failNextReplacement(),
   };
 }
@@ -74,6 +74,57 @@ describe("MCP runtime conformance suite negative evidence", () => {
         await request.launchValues.dispose(values);
         return fake.replaceSource(request, signal);
       },
+    });
+    await expect(assertMcpRuntimeContract(baseHarness(runtime, fake))).rejects.toThrow();
+  });
+
+  it("catches a runtime that skips launch-value disposal", async () => {
+    const fake = new FakeMcpRuntime();
+    const runtime = delegated(fake, {
+      replaceSource: (request, signal) => fake.replaceSource({
+        ...request,
+        launchValues: {
+          resolve: (valueRequest, valueSignal) => request.launchValues.resolve(valueRequest, valueSignal),
+          dispose: () => undefined,
+        },
+      }, signal),
+    });
+    await expect(assertMcpRuntimeContract(baseHarness(runtime, fake))).rejects.toThrow();
+  });
+
+  it("catches a runtime that caches and reuses one resolved values object", async () => {
+    const fake = new FakeMcpRuntime();
+    const runtime = delegated(fake, {
+      replaceSource: (request, signal) => {
+        let retained: Awaited<ReturnType<typeof request.launchValues.resolve>> | undefined;
+        return fake.replaceSource({
+          ...request,
+          launchValues: {
+            async resolve(valueRequest, valueSignal) {
+              retained ??= await request.launchValues.resolve(valueRequest, valueSignal);
+              return retained;
+            },
+            dispose: () => undefined,
+          },
+        }, signal);
+      },
+    });
+    await expect(assertMcpRuntimeContract(baseHarness(runtime, fake))).rejects.toThrow();
+  });
+
+  it("catches a runtime that runs provider disposal effects twice", async () => {
+    const fake = new FakeMcpRuntime();
+    const runtime = delegated(fake, {
+      replaceSource: (request, signal) => fake.replaceSource({
+        ...request,
+        launchValues: {
+          resolve: (valueRequest, valueSignal) => request.launchValues.resolve(valueRequest, valueSignal),
+          async dispose(values) {
+            await request.launchValues.dispose(values);
+            await request.launchValues.dispose(values);
+          },
+        },
+      }, signal),
     });
     await expect(assertMcpRuntimeContract(baseHarness(runtime, fake))).rejects.toThrow();
   });

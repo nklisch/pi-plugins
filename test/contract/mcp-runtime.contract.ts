@@ -16,7 +16,12 @@ import { SourceLocationSchema } from "../../src/domain/provenance-location.js";
 
 export interface McpRuntimeContractHarness {
   readonly runtime: McpRuntimePort;
-  launch(identity: McpSourceIdentity, serverKey: string, signal: AbortSignal): Promise<void>;
+  launch(
+    identity: McpSourceIdentity,
+    serverKey: string,
+    signal: AbortSignal,
+    consume?: (values: McpLaunchValues) => void | Promise<void>,
+  ): Promise<void>;
   failNextReplacement(): void | Promise<void>;
 }
 
@@ -31,6 +36,10 @@ const runtimeKey = (hex: string) => `mcp-server-v1:${hex.repeat(64).slice(0, 64)
 const sharedKey = runtimeKey("a");
 const alphaKey = runtimeKey("1");
 const zuluKey = runtimeKey("f");
+
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
 
 function identity(
   token: string,
@@ -59,7 +68,20 @@ function source(
       nativeKey: `native-${index}`,
       transport,
       options: { timeoutMs: 500 },
-      launchTemplate: { commandRef: "safe-command-template" },
+      launchTemplate: transport === "stdio"
+        ? {
+            schemaVersion: 1,
+            transport: "stdio",
+            command: "safe-command-template",
+            args: [],
+            env: [],
+          }
+        : {
+            schemaVersion: 1,
+            transport: "streamable-http",
+            url: "https://safe.invalid/mcp",
+            headers: [],
+          },
       toolAliases: [],
       provenance: [location],
     }])),
@@ -71,12 +93,21 @@ function launchProvider(
   values: McpLaunchValues = { transport: "stdio", command: "safe-command", args: [] },
   resolve?: McpLaunchValueProvider["resolve"],
 ): McpLaunchValueProvider {
+  const issued = new WeakSet<object>();
+  const disposed = new WeakSet<object>();
   return {
     async resolve(request, signal) {
       counters.resolved += 1;
-      return resolve === undefined ? values : resolve(request, signal);
+      const resolved = resolve === undefined ? clone(values) : await resolve(request, signal);
+      if (issued.has(resolved as object)) throw new Error("provider retained a shared values object");
+      issued.add(resolved as object);
+      return resolved;
     },
-    async dispose() {
+    async dispose(candidate) {
+      if (!issued.has(candidate as object) || disposed.has(candidate as object)) {
+        throw new Error("provider disposal ownership was violated");
+      }
+      disposed.add(candidate as object);
       counters.disposed += 1;
     },
   };
@@ -132,7 +163,8 @@ export async function assertMcpRuntimeContract(
   expect(JSON.stringify(firstStatus)).not.toContain("CANARY");
 
   await harness.launch(firstIdentity, alphaKey, signal);
-  expect(firstCounters).toEqual({ resolved: 1, disposed: 1 });
+  await harness.launch(firstIdentity, alphaKey, signal);
+  expect(firstCounters).toEqual({ resolved: 2, disposed: 2 });
 
   const secondIdentity = identity("2", {
     plugin: firstIdentity.plugin,
@@ -226,6 +258,45 @@ export async function assertMcpRuntimeContract(
   await runtime.replaceSource({ source: source(cancelIdentity), launchValues: cancelProvider }, signal);
   await expect(harness.launch(cancelIdentity, sharedKey, cancelController.signal)).rejects.toThrow("launch cancelled");
   expect(cancelCounters).toEqual({ resolved: 1, disposed: 1 });
+  expect((await runtime.inspectSource(cancelIdentity, signal))?.servers[0]?.errorCode)
+    .toBe("MCP_LAUNCH_CANCELLED");
+
+  const timeoutController = new AbortController();
+  const timeoutReason = { name: "TimeoutError", code: "TIMEOUT", message: "CANARY_TIMEOUT_REASON" };
+  const timeoutCounters = { resolved: 0, disposed: 0 };
+  const timeoutIdentity = identity("c", { plugin: PluginKeySchema.parse("timeout@community") });
+  await runtime.replaceSource({
+    source: source(timeoutIdentity),
+    launchValues: launchProvider(timeoutCounters, undefined, async () => {
+      timeoutController.abort(timeoutReason);
+      return { transport: "stdio", command: "safe-command", args: [] };
+    }),
+  }, signal);
+  const timeoutFailure = await harness.launch(timeoutIdentity, sharedKey, timeoutController.signal)
+    .catch((error: unknown) => error);
+  expect(timeoutFailure).toBe(timeoutReason);
+  expect(timeoutCounters).toEqual({ resolved: 1, disposed: 1 });
+  expect((await runtime.inspectSource(timeoutIdentity, signal))?.servers[0]?.errorCode)
+    .toBe("MCP_LAUNCH_TIMEOUT");
+  expect(JSON.stringify(await runtime.inspectSource(timeoutIdentity, signal)))
+    .not.toContain("CANARY_TIMEOUT_REASON");
+
+  const consumerCounters = { resolved: 0, disposed: 0 };
+  const consumerIdentity = identity("d", { plugin: PluginKeySchema.parse("consumer@community") });
+  await runtime.replaceSource({
+    source: source(consumerIdentity),
+    launchValues: launchProvider(consumerCounters),
+  }, signal);
+  const consumerFailure = await harness.launch(
+    consumerIdentity,
+    sharedKey,
+    signal,
+    async () => { throw new Error("CANARY_CONSUMER_FAILURE"); },
+  ).catch((error: unknown) => error);
+  expect(consumerCounters).toEqual({ resolved: 1, disposed: 1 });
+  expect(JSON.stringify(consumerFailure)).not.toContain("CANARY_CONSUMER_FAILURE");
+  expect((await runtime.inspectSource(consumerIdentity, signal))?.servers[0]?.errorCode)
+    .toBe("MCP_LAUNCH_VALUE_INVALID");
 
   const preAbortMethods: readonly [string, (signal: AbortSignal) => Promise<unknown>][] = [
     ["capabilities", (abortSignal) => runtime.capabilities(abortSignal)],
@@ -234,6 +305,7 @@ export async function assertMcpRuntimeContract(
     ["remove", (abortSignal) => runtime.removeSource(collidingOwner, abortSignal)],
     ["inspect", (abortSignal) => runtime.inspectSource(collidingOwner, abortSignal)],
     ["inspectSources", (abortSignal) => runtime.inspectSources(abortSignal)],
+    ["launch", (abortSignal) => harness.launch(consumerIdentity, sharedKey, abortSignal)],
   ];
   for (const [name, operation] of preAbortMethods) {
     const controller = new AbortController();

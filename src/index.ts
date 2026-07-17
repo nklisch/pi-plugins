@@ -344,6 +344,17 @@ export { createMcpRuntimeCapabilityProbe } from "./application/mcp-runtime-capab
 export { createSubagentLifecycleCapabilityProbe } from "./application/subagent-lifecycle-capability-probe.js";
 export { registerSubagentHookRuntime } from "./application/subagent-hook-runtime.js";
 export type { RegisteredSubagentHookRuntime } from "./application/subagent-hook-runtime.js";
+export {
+  McpEnvironmentNameSchema,
+  McpHeaderNameSchema,
+  McpLaunchTemplateSchemaV1,
+  McpLaunchTemplateError,
+  createMcpLaunchTemplate,
+} from "./domain/mcp-launch-template.js";
+export type {
+  McpLateValue,
+  McpLaunchTemplate,
+} from "./domain/mcp-launch-template.js";
 export type {
   CompatibilityAssessmentRequest,
   CompatibilityService,
@@ -437,6 +448,33 @@ export type {
   PluginMcpAliasOmission,
   PluginMcpProjection,
 } from "./application/mcp-plugin-projection.js";
+export {
+  McpLaunchBindingSchemaV1,
+  McpLaunchErrorCodes,
+  McpLaunchContextError,
+} from "./application/ports/mcp-launch-context.js";
+export type {
+  McpLaunchBinding,
+  McpLaunchActiveSelection,
+  McpLaunchActiveSelectionPort,
+  ResolvedMcpLaunchContext,
+  McpLaunchContextPort,
+  McpLaunchConfigurationDependencies,
+  McpLaunchContextPortDependencies,
+} from "./application/ports/mcp-launch-context.js";
+export type {
+  ResolvedMcpLaunchEnvironment,
+  McpLaunchEnvironmentPort,
+} from "./application/ports/mcp-launch-environment.js";
+export { createMcpLaunchContextPort } from "./application/mcp-launch-context.js";
+export {
+  McpProcessEnvironmentPlatformSchema,
+  createTrustedMcpLaunchValueProvider,
+} from "./runtime/mcp/launch-value-provider.js";
+export type { McpProcessEnvironmentPlatform } from "./runtime/mcp/launch-value-provider.js";
+export { classifyMcpLaunchFailure } from "./runtime/mcp/launch-error.js";
+export { PluginLaunchRootRegistry } from "./runtime/plugin-launch-roots.js";
+export type { PluginLaunchRootName, PluginLaunchRootValues } from "./runtime/plugin-launch-roots.js";
 
 export { authorizeTrustCandidate } from "./application/trust-service.js";
 export type { TrustAuthorizationResult } from "./application/trust-service.js";

@@ -43,7 +43,13 @@ function source(sourceIdentity: McpSourceIdentity, keys: readonly string[] = [sh
       nativeKey: `native-${index}`,
       transport: "stdio",
       options: { secret: "CANARY_SOURCE_DEFINITION" },
-      launchTemplate: { commandRef: "CANARY_TEMPLATE" },
+      launchTemplate: {
+        schemaVersion: 1,
+        transport: "stdio",
+        command: "CANARY_TEMPLATE",
+        args: [],
+        env: [],
+      },
       toolAliases: [],
       provenance: [location],
     }])),
@@ -181,7 +187,9 @@ describe("FakeMcpRuntime", () => {
       source: source(mismatchIdentity),
       launchValues: mismatchProvider,
     }, signal);
-    await expect(runtime.launch(mismatchIdentity, sharedKey, signal)).rejects.toThrow("wrong transport");
+    await expect(runtime.launch(mismatchIdentity, sharedKey, signal)).rejects.toMatchObject({
+      code: "MCP_LAUNCH_VALUE_INVALID",
+    });
     expect(mismatchCounters).toEqual({ resolved: 1, disposed: 1 });
 
     const failedCounters = { resolved: 0, disposed: 0 };

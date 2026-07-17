@@ -864,6 +864,18 @@ describe("explicit package API", () => {
     expect(sourceApi).not.toHaveProperty("createPiSubagentsLifecyclePort");
   });
 
+  it("exports portable trusted MCP launch contracts without a production capability claim", () => {
+    expect(sourceApi.McpLaunchTemplateSchemaV1).toBeDefined();
+    expect(sourceApi.McpLaunchBindingSchemaV1).toBeDefined();
+    expect(sourceApi.createMcpLaunchTemplate).toBeDefined();
+    expect(sourceApi.createMcpLaunchContextPort).toBeDefined();
+    expect(sourceApi.createTrustedMcpLaunchValueProvider).toBeDefined();
+    expect(sourceApi.classifyMcpLaunchFailure).toBeDefined();
+    expect(sourceApi).not.toHaveProperty("createProductionMcpRuntime");
+    expect(sourceApi).not.toHaveProperty("FakeMcpRuntime");
+    expect(sourceApi).not.toHaveProperty("FakeMcpLaunchEnvironment");
+  });
+
   it("keeps secret custody and policy boundaries out of the public surface", () => {
     expect(sourceApi.SensitiveValue).toBeDefined();
     expect(sourceApi.withResolvedPluginConfiguration).toBeDefined();

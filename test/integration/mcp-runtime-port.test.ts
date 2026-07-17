@@ -5,7 +5,7 @@ defineMcpRuntimeContract("FakeMcpRuntime", () => {
   const runtime = new FakeMcpRuntime();
   return {
     runtime,
-    launch: (identity, serverKey, signal) => runtime.launch(identity, serverKey, signal),
+    launch: (identity, serverKey, signal, consume) => runtime.launch(identity, serverKey, signal, consume),
     failNextReplacement: () => runtime.failNextReplacement(),
   };
 });
