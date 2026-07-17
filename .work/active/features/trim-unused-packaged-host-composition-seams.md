@@ -1,7 +1,7 @@
 ---
 id: trim-unused-packaged-host-composition-seams
 kind: feature
-stage: implementing
+stage: review
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -198,3 +198,18 @@ else await reload.acceptSuccessor(successor, signal);
 2. Run focused composition tests for MCP runtime, packaged host contract, runtime desired state, complete reload, and packaged startup/recovery.
 3. Run `npm run typecheck` and `npm run boundaries`.
 4. Run the full suite only after focused verification is green; any correctness failure is not folded into this refactor.
+
+## Implementation Notes
+
+- Execution capability: direct inline implementation; both ordered child checkpoints were small, cohesive elimination changes with fully mapped call sites.
+- Review weight: standard (project default); independent feature review is the next stage boundary.
+- Files changed: `src/composition/create-mcp-runtime.ts`, deleted `src/composition/mcp-runtime-state.ts`, `src/composition/plugin-host-paths.ts`, `src/composition/runtime-desired-state.ts`, `src/composition/create-packaged-plugin-host.ts`, `test/composition/create-mcp-runtime.test.ts`, and `test/composition/packaged-plugin-host-contract.test.ts`.
+- Tests updated: retained the no-runtime MCP behavior check through the lifecycle participant and removed only the assertion for an eliminated unused path-plan field; no new test machinery was needed.
+- Simplification payoff: removed the alternate MCP projection/observation authority, its helper module, nine unused path outputs, one ignored desired-state input and type import, and one discarded startup binding. Production/test code changed by 17 insertions and 95 deletions, net 78 lines deleted.
+- Verification: step-1 focused MCP coverage passed 60 tests; step-2 focused packaged-host coverage passed 15 tests; full `npm test` passed 201 files / 1,037 tests with no type errors or dependency violations. Package verification passed with 522 root exports, 3 `./pi` exports, and packed-consumer discovery.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+
+## Implementation Completion
+
+Both child stories are `stage: done`. Focused and full verification are green, so the integrated feature is ready for feature-level review.
