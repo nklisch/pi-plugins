@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-marketplace-discovery-adoption
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-packaged-host-composition]
@@ -615,3 +615,31 @@ The feature remains one cohesive implementation and review bundle. Stories are d
 - **Least certainty — inheriting user Git/SSH configuration while proving the approved host**: `remote get-url` and redirect disable cover Git URL rewriting/HTTP redirects, but SSH config can intentionally route a host through another endpoint or command. That is user-owned authentication/transport configuration, not marketplace-controlled state. The adapter must still keep it noninteractive and redact all output; if that boundary cannot be demonstrated, reject the source rather than inspect configuration or log it.
 
 This design fails if native/foreign aliases become identity, user/project collisions silently shadow, refresh can select content apart from registration state, browse contacts the network, an ETag or parsed catalog becomes a second authority, a foreign file or credential is mutated/imported, raw executable declarations become trusted display data, or candidate resolution accepts caller-supplied roots/entries. The source-derived IDs, paired state mutation, immutable selected snapshots, request-local projection, normal-path adoption, and branded internal resolver directly prevent those outcomes.
+
+## Implementation summary
+
+All eight child checkpoints were implemented in DAG order by one cohesive GPT-5.6 Sol xhigh owner, as explicitly requested. Direct repository reads were used throughout; no nested agent, peer mechanism, second database/cache, network engine, or production fork path was introduced.
+
+- Lifecycle state v3 remains the sole registration/refresh authority; immutable content remains the sole catalog cache. Registration and selected snapshots publish together, while claims/policy memory remain narrow state-only mutations.
+- Git and local/foreign filesystem boundaries now enforce approved-source, no-redirect, canonical/no-follow, containment, bounded-read, identity-stability, cleanup, and redaction guarantees.
+- Registration, removal, refresh, stale/offline status, deterministic query/cursors, exact detail/internal resolution, and read-only adoption all compose over existing state/content/materialization/inspection/trust custody.
+- Packaged application composition exposes one frozen marketplace capability with safe registration, refresh/policy, catalog search/detail, and adoption. Internal candidate brands/entries are not exposed by the packaged or root boundary.
+- Project registration is current-project/trust bound and machine-local. `.pi/plugins.json`, install/activation, command grammar, TUI rendering, and later feature ownership were untouched.
+
+## Verification
+
+- Focused contract/state suite: 29 passed, 0 failed.
+- Focused Git/foreign/materialization suite: 16 passed, 0 failed.
+- Focused application/composition/acceptance suite: 44 passed, 0 failed.
+- Full `npm test`: 210 test files, 1056 tests passed, 0 failed; type errors 0.
+- Dependency boundaries: 285 modules / 1857 dependencies, no violations.
+- Package checks: build passed; compiled root import passed (562 exports); compiled `./pi` import passed (3 exports); packed consumer discovery passed.
+- `git diff --check` passed. No foundation assertion became false; no foundation edit was required.
+
+## Known packaged-host seam
+
+The current packaged host deliberately has no production atomic-no-replace directory publication primitive, so real packaged add fails closed as `PROMOTION_FAILED`. Acceptance preserves that exact safe result and is written to exercise add/restart/concurrency automatically after the owning packaged-host review fix lands. This feature did not touch that review item or weaken immutable-store guarantees.
+
+## Review handoff
+
+Effective review weight is the project default `standard`. The feature is advanced to `review` after green integrated verification. The caller prohibited nested agents, so this owner did not manufacture an inline self-approval or invoke a peer; the independent feature review remains the next lifecycle action.
