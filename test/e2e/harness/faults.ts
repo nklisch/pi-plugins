@@ -24,6 +24,35 @@ export async function closeNextGitConnection(controlFile: string): Promise<void>
   await writeFile(controlFile, "close-next\n", "utf8");
 }
 
+export async function pauseNextGitBackend(controlFile: string): Promise<void> {
+  await writeFile(controlFile, "pause-next\n", "utf8");
+}
+
+export type PtyCapabilityDiagnosis = Readonly<{
+  available: boolean;
+  required: boolean;
+  platform: NodeJS.Platform;
+  script?: string;
+  stty?: string;
+  reason?: string;
+}>;
+
+export async function diagnosePtyCapability(sandbox: CleanE2ESandbox): Promise<PtyCapabilityDiagnosis> {
+  const required = process.env.PI_PLUGIN_HOST_E2E_REQUIRE_PTY === "1";
+  const available = sandbox.capabilities.script !== undefined && sandbox.capabilities.stty !== undefined;
+  const diagnosis: PtyCapabilityDiagnosis = available
+    ? Object.freeze({ available: true, required, platform: process.platform, script: sandbox.capabilities.script!, stty: sandbox.capabilities.stty! })
+    : Object.freeze({
+        available: false,
+        required,
+        platform: process.platform,
+        reason: `util-linux PTY capability missing: script=${String(sandbox.capabilities.script)} stty=${String(sandbox.capabilities.stty)}; required Linux CI installs util-linux`,
+      });
+  await writeFile(`${sandbox.logs}/pty-capability.json`, `${JSON.stringify(diagnosis, null, 2)}\n`);
+  if (required && !available) throw new Error(diagnosis.reason);
+  return diagnosis;
+}
+
 export type ClockCapabilityDiagnosis = Readonly<{
   available: boolean;
   required: boolean;
@@ -36,6 +65,7 @@ export type ClockCapabilityDiagnosis = Readonly<{
 export async function diagnoseClockFault(sandbox: CleanE2ESandbox): Promise<ClockCapabilityDiagnosis> {
   const required = process.env.PI_PLUGIN_HOST_E2E_REQUIRE_LIBFAKETIME === "1";
   const capability = sandbox.capabilities.libfaketime;
+  const versionAccepted = capability !== undefined && (capability.version === "unmanaged" || capability.version.startsWith("0.9.10-2.1"));
   const diagnosis: ClockCapabilityDiagnosis = capability === undefined
     ? Object.freeze({
         available: false,
@@ -43,12 +73,18 @@ export async function diagnoseClockFault(sandbox: CleanE2ESandbox): Promise<Cloc
         platform: process.platform,
         reason: "libfaketime was not found in the configured or Debian multiarch paths; Linux CI installs pinned 0.9.10-2.1",
       })
-    : Object.freeze({ available: true, required, platform: process.platform, library: capability.library, version: capability.version });
+    : !versionAccepted
+      ? Object.freeze({
+          available: false,
+          required,
+          platform: process.platform,
+          library: capability.library,
+          version: capability.version,
+          reason: `libfaketime ${capability.version} is not the pinned Debian bookworm 0.9.10-2.1 capability`,
+        })
+      : Object.freeze({ available: true, required, platform: process.platform, library: capability.library, version: capability.version });
   await writeFile(`${sandbox.logs}/clock-capability.json`, `${JSON.stringify(diagnosis, null, 2)}\n`);
   if (required && !diagnosis.available) throw new Error(diagnosis.reason);
-  if (diagnosis.available && diagnosis.version !== "unmanaged" && !diagnosis.version!.startsWith("0.9.10-2.1")) {
-    throw new Error(`libfaketime version must be Debian bookworm 0.9.10-2.1, got ${diagnosis.version}`);
-  }
   return diagnosis;
 }
 

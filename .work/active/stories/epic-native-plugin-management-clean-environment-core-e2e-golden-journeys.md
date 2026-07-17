@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-clean-environment-core-e2e-golden-journeys
 kind: story
-stage: implementing
+stage: done
 tags: [e2e-test, testing]
 parent: epic-native-plugin-management-clean-environment-core-e2e
 depends_on: [epic-native-plugin-management-clean-environment-core-e2e-infrastructure]
@@ -54,3 +54,14 @@ Core golden fixtures may declare skills and ordinary command hooks. Do not injec
 ## Test integrity
 
 Park genuine product failures with `/agile-workflow:park`; retain the failing invariant and a backlog-linked narrow skip/xfail. In particular, do not weaken the signed three-step TUI assertion to one-shot install if production wiring is missing. Fix fixture, PTY/RPC, and drifted assertion defects immediately. Never infer success from progress, service traffic, a callback, an internal row, or an arbitrary nonempty output.
+
+## Implementation notes
+
+- Execution capability: GPT-5.6 Sol xhigh, caller-selected; one feature owner reused the packed harness directly with no nested agents.
+- Review weight: standard from `.work/CONVENTIONS.md`; child-story checkpoint does not receive review.
+- Files changed: `test/e2e/harness/journey.ts`, PTY/capability diagnostics, and all four `test/e2e/golden/*.e2e.test.ts` files.
+- Tests added: clean capability/status; HTTPS marketplace registration and stable browse identities; exact inspection/unavailable paths; open/configure/consent/install; skill/hook observation; lifecycle V1/V2 removal; portable project sync; V2/V3 notices/policy; offline restart; RPC/print parity; wide/narrow PTY and signed three-step topology.
+- Simplification: shared packed/remote setup is one journey helper; ordinary local/cache/project/offline paths remain passing tests while only the exact blocked production paths are xfailed.
+- Discrepancies from design: this host lacks util-linux `script`, so the PTY test writes and asserts an explicit capability receipt; `PI_PLUGIN_HOST_E2E_REQUIRE_PTY=1` keeps the required Linux CI path fail-closed. Exact candidate inspection currently returns `CONTROL_INTERNAL`, and production projection publication cannot activate skills/hooks, so affected assertions are linked expected failures rather than weakened checks.
+- Adjacent issues parked: `idea-fix-packed-candidate-inspection`, `idea-production-projection-publication`.
+- Verification: all golden files passed (12 tests including the linked executable expected failures); offline restart and zero-request assertions passed.
