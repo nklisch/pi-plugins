@@ -203,6 +203,7 @@ export const TrustedInstallCancellationResultSchema = z.discriminatedUnion("kind
   z.object({ kind: z.enum(["missing", "expired", "disposed"]) }).strict().readonly(),
 ]);
 
+export type TrustedInstallSessionState = z.infer<typeof TrustedInstallSessionStateSchema>;
 export type TrustedInstallSessionToken = z.infer<typeof TrustedInstallSessionTokenSchema>;
 export type TrustedInstallConsentId = z.infer<typeof TrustedInstallConsentIdSchema>;
 export type TrustedInstallCandidateBinding = z.infer<typeof TrustedInstallCandidateBindingSchema>;
