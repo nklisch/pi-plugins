@@ -30,6 +30,7 @@ try {
   const dependencies = [
     ...Object.keys(metadata.dependencies ?? {}),
     "@earendil-works/pi-coding-agent",
+    "@earendil-works/pi-tui",
   ];
   for (const dependency of dependencies) {
     const installedPath = await realpath(join(consumer, "node_modules", ...dependency.split("/")));
@@ -112,16 +113,63 @@ try {
     if (JSON.stringify(metadata.pi?.extensions) !== JSON.stringify(["./dist/pi/extension.js"])) throw new Error("Pi extension metadata missing");
     const extension = (await import(pathToFileURL(packageRoot + "/" + metadata.pi.extensions[0]).href)).default;
     const handlers = new Map();
+    const commands = [];
+    const entries = [];
+    let customOpened = 0;
+    const theme = {
+      fg(_token, text) { return text; },
+      bg(_token, text) { return text; },
+      bold(text) { return text; },
+    };
+    const keybindings = { matches() { return false; }, getKeys() { return ["enter"]; } };
+    const tui = { terminal: { rows: 24, columns: 100 }, requestRender() {}, setFocus() {} };
     const pi = {
       on(name, handler) { handlers.set(name, [...(handlers.get(name) ?? []), handler]); },
+      registerCommand(name, options) { commands.push({ name, options }); },
+      getCommands() {
+        return commands.map((command) => ({
+          name: command.name,
+          source: "extension",
+          sourceInfo: { path: packageRoot + "/dist/pi/extension.js", source: "package", scope: "user", origin: "package" },
+        }));
+      },
+      appendEntry(type, data) { entries.push({ type, data }); },
       sendMessage() {},
       setSessionName() {},
     };
     const context = {
       cwd: ${JSON.stringify(workspace)},
-      mode: "interactive",
-      sessionManager: { getSessionId: () => "packed-consumer-session", getSessionFile: () => undefined },
+      mode: "tui",
+      hasUI: true,
+      signal: undefined,
+      sessionManager: {
+        getSessionId: () => "packed-consumer-session",
+        getSessionFile: () => undefined,
+        getEntries: () => entries,
+      },
       isProjectTrusted: () => true,
+      isIdle: () => true,
+      waitForIdle: async () => {},
+      ui: {
+        theme,
+        notify() {},
+        input: async () => undefined,
+        confirm: async () => false,
+        select: async () => undefined,
+        async custom(factory) {
+          customOpened += 1;
+          return await new Promise((resolve, reject) => {
+            let settled = false;
+            const done = (value) => { if (!settled) { settled = true; resolve(value); } };
+            Promise.resolve(factory(tui, theme, keybindings, done)).then((component) => {
+              component.focused = true;
+              component.render(100);
+              done({ kind: "closed" });
+              component.dispose?.();
+            }, reject);
+          });
+        },
+      },
     };
     const directPi = {
       on() {},
@@ -155,7 +203,10 @@ try {
     await restartedHost.dispose("quit");
 
     extension(pi);
+    if (commands.length !== 1 || commands[0].name !== "plugin") throw new Error("packed extension did not register exactly /plugin");
     for (const handler of handlers.get("session_start") ?? []) await handler({ type: "session_start", reason: "startup" }, context);
+    await commands[0].options.handler("", context);
+    if (customOpened !== 1) throw new Error("empty packed /plugin did not open the native TUI manager");
     const resources = [];
     for (const handler of handlers.get("resources_discover") ?? []) resources.push(await handler({ type: "resources_discover", cwd: context.cwd, reason: "startup" }, context));
     for (const handler of handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, context);
