@@ -32,9 +32,11 @@ describe("runtime desired state", () => {
         },
       };
     });
+    const currentProject = { identity, projectKey, trust: { kind: "untrusted" as const } };
     const project = {
       scope: projectScope,
-      current: () => ({ identity, projectKey, trust: { kind: "untrusted" as const } }),
+      current: () => currentProject,
+      revalidate: async () => currentProject,
     } as never;
     const result = await buildRuntimeDesiredState({
       installed: { load: vi.fn() },
@@ -47,5 +49,42 @@ describe("runtime desired state", () => {
     expect(read).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({ selections: [], mcp: [], blocked: [] });
     expect(result.skillHook.currentProject.trust.kind).toBe("untrusted");
+  });
+
+  it("excludes unresolved pending records from startup publication", async () => {
+    const pending = {
+      plugin: "bundle@community",
+      activation: "enabled",
+      selectedRevision: `sha256:${"a".repeat(64)}`,
+      revisions: [],
+      pendingTransition: `pending-transition-v1:sha256:${"b".repeat(64)}`,
+    };
+    const state = {
+      async read() {
+        return {
+          ok: true as const,
+          snapshot: {
+            scope: { kind: "user" as const }, generation: 1 as never, pointers: pointers(),
+            config: { schemaVersion: 2 as const, generation: 1 as never, records: [] },
+            installed: { schemaVersion: 2 as const, generation: 1 as never, marketplaces: [], plugins: [pending] },
+            trust: { schemaVersion: 1 as const, generation: 1 as never, records: [] },
+            corruptions: [],
+          },
+        };
+      },
+    };
+    const installed = { load: vi.fn() };
+    const currentProject = { identity, projectKey, trust: { kind: "untrusted" as const } };
+    const result = await buildRuntimeDesiredState({
+      installed: installed as never,
+      compatibility: { assess: vi.fn() } as never,
+      projections: { prepare: vi.fn(), read: vi.fn() } as never,
+      project: { scope: projectScope, current: () => currentProject, revalidate: async () => currentProject } as never,
+      state: state as never,
+      sha256,
+    }, new AbortController().signal);
+    expect(installed.load).not.toHaveBeenCalled();
+    expect(result.selections).toEqual([]);
+    expect(result.blocked).toEqual([{ plugin: "bundle@community", code: "RECOVERY_REQUIRED", explanation: "pending lifecycle state is excluded until recovery settles" }]);
   });
 });

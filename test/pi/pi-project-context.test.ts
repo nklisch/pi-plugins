@@ -45,6 +45,27 @@ describe("Pi project context adapters", () => {
     expect(await project.trust.assess(`project-v1:sha256:${"f".repeat(64)}` as never, new AbortController().signal)).toEqual({ kind: "untrusted" });
   });
 
+  it("invalidates old root capabilities when the Git common-directory identity is replaced", async () => {
+    const root = await mkdtemp(join(tmpdir(), "plugin-host-project-replaced-"));
+    roots.push(root);
+    await run("git", ["init", "-q", root]);
+    const binding = createPiSessionBinding(context(root, () => true));
+    const project = await createPiProjectContextAdapters({ binding, sha256, git: createNodeCommandRunner() });
+    const capability = await project.authority.acquire(new AbortController().signal);
+    await rm(join(root, ".git"), { recursive: true, force: true });
+    await run("git", ["init", "-q", root]);
+
+    await expect(project.trust.assess(project.scope.projectKey, new AbortController().signal)).resolves.toEqual({ kind: "untrusted" });
+    expect(() => project.authority.verify(capability, project.scope)).toThrow(/capability/);
+    const paths = createNodeConfigurationPathPort({ binding, projectRoots: project.authority });
+    await expect(paths.normalizeAndInspect({
+      value: "config.json",
+      expected: "file",
+      mustExist: false,
+      context: { scope: project.scope, trustedProjectRoot: capability },
+    }, new AbortController().signal)).resolves.toEqual({ kind: "invalid" });
+  });
+
   it("denies lexical and symlink escape through the trusted-root capability", async () => {
     const root = await mkdtemp(join(tmpdir(), "plugin-host-project-path-"));
     const outside = await mkdtemp(join(tmpdir(), "plugin-host-project-outside-"));

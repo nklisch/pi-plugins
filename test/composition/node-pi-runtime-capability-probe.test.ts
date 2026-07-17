@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createNodePiRuntimeCapabilityProbe } from "../../src/composition/node-pi-runtime-capability-probe.js";
+import { qualifyRuntimeParticipants } from "../../src/composition/runtime-participant-qualification.js";
 import { RuntimeCapabilityRegistry } from "../../src/domain/compatibility-policy.js";
 
 const executables = {
@@ -8,16 +9,21 @@ const executables = {
     return { executable: "/bin/bash", resolution: "path" as const, identity: "bash" as never };
   },
 };
+const pi = { on() {}, sendMessage() {}, setSessionName() {} };
+
+async function qualification(runtime: { mcp?: never } = {}) {
+  return await qualifyRuntimeParticipants({
+    pi: pi as never,
+    nodeVersion: "24.0.0",
+    piVersion: "0.80.8",
+    ...runtime,
+    signal: new AbortController().signal,
+  });
+}
 
 describe("Node/Pi runtime capability probe", () => {
   it("returns every registry fact exactly once and preserves optional adapter absence", async () => {
-    const probe = createNodePiRuntimeCapabilityProbe({
-      commandHooks: true,
-      skillToolRestrictions: true,
-      executables,
-      nodeVersion: "24.0.0",
-      piVersion: "0.80.8",
-    });
+    const probe = createNodePiRuntimeCapabilityProbe({ executables, qualification: await qualification() });
     const snapshot = await probe.snapshot(new AbortController().signal);
     expect(Object.keys(snapshot.capabilities).sort()).toEqual(
       Object.values(RuntimeCapabilityRegistry).map((entry) => entry.id).sort(),
@@ -29,15 +35,11 @@ describe("Node/Pi runtime capability probe", () => {
     expect(snapshot.capabilities[RuntimeCapabilityRegistry.subagentInterception.id].status).toBe("unavailable");
   });
 
-  it("treats malformed present runtime evidence as failure rather than absence", async () => {
-    const probe = createNodePiRuntimeCapabilityProbe({
-      commandHooks: true,
-      skillToolRestrictions: true,
-      executables,
-      mcp: { capabilities: async () => ({}) } as never,
-      nodeVersion: "24.0.0",
-      piVersion: "0.80.8",
-    });
-    await expect(probe.snapshot(new AbortController().signal)).rejects.toMatchObject({ code: "ADAPTER_FAILED" });
+  it("makes contradictory present evidence consistently unavailable", async () => {
+    const decision = await qualification({ mcp: { capabilities: async () => ({}) } as never });
+    expect(decision.mcp.status).toBe("unavailable");
+    const probe = createNodePiRuntimeCapabilityProbe({ executables, qualification: decision });
+    const snapshot = await probe.snapshot(new AbortController().signal);
+    expect(snapshot.capabilities[RuntimeCapabilityRegistry.mcpRuntime.id].status).toBe("unavailable");
   });
 });

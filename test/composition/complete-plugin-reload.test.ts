@@ -10,7 +10,7 @@ const project = {
 };
 const desired = { currentProject: project, selections: [], skillHook: { active: [], currentProject: project }, mcp: [], blocked: [] };
 
-function fixture(fail = false) {
+function fixture(fail = false, commandContext?: { reload(): Promise<void> }) {
   const events: string[] = [];
   const catalog = createRuntimeSelectionCatalog(project);
   let reconciles = 0;
@@ -29,10 +29,12 @@ function fixture(fail = false) {
     resume: vi.fn(() => events.push("resume")),
   };
   const mcp = { reconcileAll: vi.fn(async () => { events.push("mcp"); return []; }), participant: { observe: vi.fn() } };
+  const broker = createPiReloadBroker();
+  let availableContext = commandContext;
   const reload = createCompletePluginReloadPort({
     binding: { current: () => ({ sessionId: "s", cwd: "/workspace", mode: "interactive", projectTrusted: true }), assertContext: vi.fn(), isProjectTrusted: () => true },
-    operationContext: { current: () => undefined },
-    broker: createPiReloadBroker(),
+    operationContext: { takeReloadContext: () => { const current = availableContext; availableContext = undefined; return current as never; } },
+    broker,
     desired: { load: async () => { events.push("desired"); return desired; } },
     selections: catalog,
     skillHook: skill as never,
@@ -40,7 +42,7 @@ function fixture(fail = false) {
     transitions: () => ({} as never),
     sha256: () => new Uint8Array(32),
   });
-  return { events, reload, catalog, skill, mcp };
+  return { events, reload, catalog, skill, mcp, broker };
 }
 
 describe("complete plugin reload", () => {
@@ -57,6 +59,25 @@ describe("complete plugin reload", () => {
     expect(test.catalog.snapshot().selections).toEqual([]);
     expect(test.skill.resume).not.toHaveBeenCalled();
     expect(test.events).toEqual(["desired", "quiesce", "skill", "quiesce", "skill", "mcp"]);
+  });
+
+  it("consumes one old Pi reload context and settles only through successor broker evidence", async () => {
+    let test!: ReturnType<typeof fixture>;
+    const context = { reload: vi.fn(async () => {
+      test.events.push("shutdown");
+      const ticket = test.broker.claimSuccessor({ sessionId: "s", cwd: "/workspace", mode: "interactive", projectTrusted: true });
+      if (ticket === undefined) throw new Error("successor did not claim ticket");
+      test.events.push("successor-start");
+      test.events.push("successor-discover");
+      test.broker.publish(ticket, []);
+    }) };
+    test = fixture(false, context);
+    const request = { scope: { kind: "user" as const }, transition: `pending:${"c".repeat(64)}` as never };
+    await expect(test.reload.reload(request, new AbortController().signal)).resolves.toEqual({ kind: "accepted" });
+    expect(context.reload).toHaveBeenCalledOnce();
+    expect(test.events).toEqual(["shutdown", "successor-start", "successor-discover"]);
+    await expect(test.reload.reload(request, new AbortController().signal)).resolves.toEqual({ kind: "failed", code: "PI_RELOAD_CONTEXT_UNAVAILABLE" });
+    expect(context.reload).toHaveBeenCalledOnce();
   });
 
   it("fails closed when lifecycle reload has no exact Pi command context", async () => {

@@ -332,6 +332,24 @@ class Reload implements LifecycleReloadPort {
     });
   }
 
+  async reconcileLocal(
+    request: Parameters<NonNullable<LifecycleReloadPort["reconcileLocal"]>>[0],
+    signal: AbortSignal,
+  ): Promise<ActivationObservation> {
+    const plan = this.currentPlan();
+    const targetIsPlanned = JSON.stringify(plan.to.expectation) === JSON.stringify(request.expectation);
+    const transition = targetIsPlanned ? plan : { from: plan.to, to: plan.from, expectation: request.expectation };
+    const result = await this.participant.reconcile({ from: transition.from, to: transition.to, currentProject }, signal);
+    if (result.kind !== "applied" && result.kind !== "unchanged") throw new Error("local reconcile failed");
+    const mcp = await this.participant.observe({ from: transition.to, to: transition.to, currentProject }, signal);
+    if (mcp.kind !== "ready") throw new Error("local observation failed");
+    return composeActivationObservation({
+      expectation: request.expectation,
+      skillsHooks: this.skillsHooks(request.expectation),
+      mcp: mcp.observation,
+    });
+  }
+
   async reload(_request: Parameters<LifecycleReloadPort["reload"]>[0], signal: AbortSignal) {
     const plan = this.currentPlan();
     const result = await this.participant.reconcile({
