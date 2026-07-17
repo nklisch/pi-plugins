@@ -6,12 +6,14 @@ import {
 } from "../application/adoption-service.js";
 import type { AdoptionReaderRegistry } from "../application/adoption-contract.js";
 import type { MarketplaceRegistrationPort } from "../application/ports/marketplace-registration.js";
+import type { MarketplaceAdoptionRegistryPort } from "../application/adoption-service.js";
 import { readClaudeKnownMarketplacesJson, readClaudeUserSettingsJson } from "../formats/claude/state-reader.js";
 import { readCodexUserConfigToml } from "../formats/codex/state-reader.js";
 import { createNodeForeignStateFiles } from "../infrastructure/adoption/node-foreign-state-files.js";
 
 export type NodeAdoptionServiceOptions = Readonly<{
   registrations: MarketplaceRegistrationPort;
+  registry?: MarketplaceAdoptionRegistryPort;
   userHome?: string;
   claudeRoot?: string;
   codexHome?: string;
@@ -43,6 +45,7 @@ export function createNodeAdoptionService(
     }),
     readers,
     registrations: options.registrations,
+    ...(options.registry === undefined ? {} : { registry: options.registry }),
     sha256: nodeSha256,
   });
 }

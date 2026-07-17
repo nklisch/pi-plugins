@@ -156,4 +156,38 @@ describe("adoption service", () => {
     const result = await service.adopt({ candidateIds: [candidate.id] }, new AbortController().signal);
     expect(result.outcomes[0]!.outcome).toEqual({ kind: "rejected", code: "PROJECT_UNTRUSTED" });
   });
+
+  it("previews without native writes and imports through normal registration with provenance", async () => {
+    const readAll = vi.fn(async () => observations({ "claude-known-marketplaces": githubDocument }));
+    const add = vi.fn(async () => ({
+      kind: "rejected" as const,
+      code: "SOURCE_UNAVAILABLE" as const,
+    }));
+    const service = createAdoptionService({
+      files: { readAll },
+      readers,
+      registrations: { register: async () => ({ kind: "rejected", code: "ADAPTER_FAILED" }) },
+      registry: {
+        add,
+        list: async () => ({ registrations: [] }),
+      },
+      sha256,
+    });
+    const preview = await service.preview({ compareScope: "all-current" }, new AbortController().signal);
+    expect(preview.candidates[0]!.comparison).toEqual({ kind: "not-registered" });
+    expect(add).not.toHaveBeenCalled();
+    expect(readAll).toHaveBeenCalledTimes(1);
+
+    const result = await service.import({ candidateIds: [preview.candidates[0]!.candidate.id], scope: "user" }, new AbortController().signal);
+    expect(result.outcomes[0]!.outcome).toEqual({ kind: "rejected", code: "SOURCE_UNAVAILABLE" });
+    expect(readAll).toHaveBeenCalledTimes(2);
+    expect(add).toHaveBeenCalledWith(expect.objectContaining({
+      scope: "user",
+      origin: expect.objectContaining({
+        kind: "adoption",
+        candidateId: preview.candidates[0]!.candidate.id,
+        documents: [expect.objectContaining({ host: "claude", document: "claude-known-marketplaces" })],
+      }),
+    }), expect.any(AbortSignal));
+  });
 });

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -58,6 +58,38 @@ describe("read-only adoption integration", () => {
         scope: { kind: "user" },
         origin: "adoption",
       }]);
+    } finally {
+      await clean(root);
+    }
+  });
+
+  it("previews and imports through the native registry without mutating foreign state", async () => {
+    const root = await setup();
+    const registrations: MarketplaceRegistrationPort = { register: async () => ({ kind: "rejected", code: "ADAPTER_FAILED" }) };
+    const adds: unknown[] = [];
+    try {
+      const path = join(root, ".claude", "plugins", "known_marketplaces.json");
+      const source = known({ source: "github", repo: "owner/catalog" });
+      await writeFile(path, source, "utf8");
+      const service = createNodeAdoptionService({
+        userHome: root,
+        registrations,
+        registry: {
+          list: async () => ({ registrations: [] }),
+          add: async (request) => {
+            adds.push(request);
+            return { kind: "rejected", code: "SOURCE_UNAVAILABLE" };
+          },
+        },
+      });
+      const preview = await service.preview({ compareScope: "all-current" }, new AbortController().signal);
+      expect(preview.candidates).toMatchObject([{ comparison: { kind: "not-registered" } }]);
+      expect(adds).toEqual([]);
+      const candidate = preview.candidates[0]!.candidate;
+      const imported = await service.import({ candidateIds: [candidate.id], scope: "user" }, new AbortController().signal);
+      expect(imported.outcomes).toEqual([{ candidateId: candidate.id, outcome: { kind: "rejected", code: "SOURCE_UNAVAILABLE" } }]);
+      expect(adds).toEqual([expect.objectContaining({ origin: expect.objectContaining({ kind: "adoption", candidateId: candidate.id }) })]);
+      expect(await readFile(path, "utf8")).toBe(source);
     } finally {
       await clean(root);
     }

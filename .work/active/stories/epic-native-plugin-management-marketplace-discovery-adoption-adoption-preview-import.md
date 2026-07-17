@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-marketplace-discovery-adoption-adoption-preview-import
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility]
 parent: epic-native-plugin-management-marketplace-discovery-adoption
 depends_on: [epic-native-plugin-management-marketplace-discovery-adoption-registration-service, epic-native-plugin-management-marketplace-discovery-adoption-source-foreign-boundaries]
@@ -35,3 +35,15 @@ Evolve existing adoption discovery into explicit preview against native current-
 - Repeated import is unchanged; authoritative root-name conflict remains registrar-owned; partial outcomes are sorted and exact.
 - Cancellation reports only proven commits, marks unstarted candidates, and never writes any foreign path.
 - Clean operation requires neither Claude nor Codex CLI and reads no foreign cache/auth/trust/install path.
+
+## Implementation notes
+
+- Added explicit preview and import contracts while retaining compatibility aliases for existing discovery/adopt callers.
+- Preview reads only the three fixed documents, reconciles canonical source identities, compares against current native user/project registration views, and performs no acquisition or write.
+- Import re-reads foreign state, binds source provenance into adoption origin, applies portability/current-project trust through the normal registrar, preserves partial sorted outcomes, and marks uncstarted work on cancellation.
+- Foreign aliases, caches, installations, trust, and credentials never enter native identity or registration requests; integration tests verify foreign documents remain byte-identical.
+
+## Verification
+
+- Adoption application/integration coverage is included in the 44-test focused application bundle, all green.
+- Clean, stale, non-portable, conflicting, preview-only, provenance import, cancellation, and no-mutation paths are covered.
