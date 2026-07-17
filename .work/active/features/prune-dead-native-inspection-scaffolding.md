@@ -1,7 +1,7 @@
 ---
 id: prune-dead-native-inspection-scaffolding
 kind: feature
-stage: implementing
+stage: review
 tags: [refactor, compatibility]
 parent: null
 depends_on: []
@@ -135,3 +135,22 @@ import { MarketplaceScopeSelectionSchema } from "../domain/marketplace-registrat
 ## Implementation Order
 
 1. `prune-dead-native-inspection-scaffolding-step-1`
+
+## Implementation notes
+
+- Execution capability: direct-read inline implementation; exact source, test, barrel-export, and dynamic-import searches fully bounded the two-file deletion. No nested agent was used.
+- Review weight: standard by project default; caller requested the feature stop at `stage: review`.
+- Child checkpoint: `prune-dead-native-inspection-scaffolding-step-1` advanced directly to `stage: done` in commit `9dff9a6`.
+- Files changed: `src/application/native-inspection-contract.ts`, `src/application/native-inspection-disclosure.ts`, the child story record, and this feature record.
+- Tests added/removed: none; all inspection behavior, redaction, snapshots, contracts, and package checks remain unchanged.
+- Simplification: production source is 15 net lines smaller (2 insertions, 17 deletions from import reformatting and helper removal), with no replacement abstraction, alias, source move, or test change.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+
+## Integrated verification
+
+- Exact searches found no `componentBase` in source/tests and none of the four removed schema bindings in `native-inspection-contract.ts`.
+- Runtime/type/public/export/dynamic inspection found no consumer: `componentBase` was private and definition-only; the four schemas remain owned and publicly exported from their existing domain modules/root barrel.
+- `projectSafeComponents` still creates one assessment map and uses its unchanged local `base` closure for all four component variants.
+- Focused unchanged suites passed: 2 files, 7 tests, no type errors.
+- Full `npm test` passed: typecheck; dependency boundaries (302 modules, 2,044 dependencies); 233 test files and 1,145 tests; package checks with 623 root exports, 3 Pi exports, and isolated packed extension startup.
