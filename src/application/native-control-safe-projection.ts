@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { AdoptionCandidateIdSchema, AdoptionDocumentKindSchema } from "../domain/adoption.js";
 import { ErrorCodeSchema } from "../domain/error-contract.js";
-import { MarketplaceNameSchema, PluginKeySchema } from "../domain/identity.js";
+import { MarketplaceNameSchema, PluginKeySchema, PluginNameSchema } from "../domain/identity.js";
 import {
   MarketplaceCandidateIdSchema,
   MarketplaceCursorSchema,
@@ -22,7 +22,7 @@ import {
   MarketplaceSelectedSnapshotViewSchema,
   type MarketplaceRegistrationView,
 } from "./marketplace-management-contract.js";
-import { MarketplaceCatalogObservationSchema } from "./marketplace-catalog-contract.js";
+import { CatalogAvailableRevisionSchema, MarketplaceCatalogObservationSchema } from "./marketplace-catalog-contract.js";
 import { NotificationIntentSchema, PluginUpdateOutcomeSchema } from "./update-contract.js";
 import {
   NativeRedactedUrlSchema,
@@ -257,8 +257,9 @@ const SafeCatalogCandidateSchema = z.object({
   registrationId: MarketplaceRegistrationIdSchema,
   plugin: PluginKeySchema,
   marketplace: MarketplaceNameSchema,
-  name: SafeDisplayFieldSchema,
+  name: PluginNameSchema,
   description: SafeDisplayFieldSchema.optional(),
+  available: CatalogAvailableRevisionSchema,
   availability: MarketplaceAvailabilitySchema,
   source: NativeSourceViewSchema,
   sourceIdentity: SourceHashSchema,
@@ -280,8 +281,9 @@ export function projectMarketplaceCatalogResponse(input: any): unknown {
       registrationId: candidate.registrationId,
       plugin: candidate.plugin,
       marketplace: candidate.marketplace,
-      name: toSafeDisplayField(candidate.name, { maxScalars: 256 }),
+      name: candidate.name,
       ...(candidate.description === undefined ? {} : { description: toSafeDisplayField(candidate.description, { maxScalars: 2048 }) }),
+      available: candidate.available,
       availability: candidate.availability,
       source: projectNativeControlSource(candidate.source),
       sourceIdentity: candidate.sourceIdentity,
