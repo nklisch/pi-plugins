@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { PluginKeySchema, type MarketplaceName, type PluginKey } from "../domain/identity.js";
-import { MarketplaceReadResultSchema as DomainMarketplaceReadResultSchema, type MarketplaceReadResult, type NormalizedMarketplaceEntry } from "../domain/marketplace.js";
+import { MarketplaceReadResultSchema as DomainMarketplaceReadResultSchema, type MarketplaceReadResult } from "../domain/marketplace.js";
 import { type ContentDigest } from "../domain/content-manifest.js";
 import { ScopeReferenceSchema, type ScopeContext, type ScopeReference } from "../domain/state/scope.js";
 import { type MarketplaceSnapshotRecord } from "../domain/state/installed-state.js";
@@ -13,7 +13,6 @@ import {
   MarketplaceUpdateRecordSchema,
   UpdateCandidateKeySchema,
   type AvailableRevision,
-  type MarketplaceUpdateRecord,
   type UpdateCandidateKey,
 } from "../domain/update-policy.js";
 import { EpochMillisecondsSchema, type EpochMilliseconds } from "../domain/time.js";
@@ -85,20 +84,6 @@ export const MarketplaceRefreshResultSchema = z.object({
   notifications: z.array(NotificationIntentSchema).readonly(),
 }).strict().readonly();
 export type MarketplaceRefreshResult = z.infer<typeof MarketplaceRefreshResultSchema>;
-
-export type MarketplacePluginProbe = Readonly<{
-  plugin: PluginKey;
-  entry: NormalizedMarketplaceEntry;
-  available: AvailableRevision;
-  candidate: UpdateCandidateKey;
-  display: Readonly<{ installed: string; available: string }>;
-}>;
-
-export type MarketplaceSnapshotRead = Readonly<{
-  snapshot: MarketplaceSnapshotRecord;
-  catalog: MarketplaceReadResult;
-  record: MarketplaceUpdateRecord;
-}>;
 
 export { AvailableRevisionSchema, MarketplaceUpdateRecordSchema, DomainMarketplaceReadResultSchema, MarketplaceRefreshRequestSchema as RefreshRequestSchema };
 export type { AvailableRevision, ContentDigest, EpochMilliseconds, MarketplaceName, MarketplaceReadResult, MarketplaceSnapshotRecord, PluginKey, ScopeContext, ScopeReference, UpdateCandidateKey };

@@ -102,11 +102,6 @@ export const MarketplaceCandidateDetailResultSchema = z.discriminatedUnion("kind
 ]);
 export type MarketplaceCandidateDetailResult = z.infer<typeof MarketplaceCandidateDetailResultSchema>;
 
-export const ResolvedMarketplaceCandidateResultSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("resolved") }).passthrough().readonly(),
-  z.object({ kind: z.enum(["candidate-stale", "candidate-missing", "catalog-unavailable"]) }).strict().readonly(),
-]);
-
 export class MarketplaceCatalogError extends Error {
   readonly code: "CURSOR_INVALID" | "CURSOR_STALE" | "QUERY_INVALID";
 

@@ -1,7 +1,7 @@
 ---
 id: prune-dead-marketplace-contract-seams-step-1
 kind: story
-stage: implementing
+stage: done
 tags: [refactor]
 parent: prune-dead-marketplace-contract-seams
 depends_on: []
@@ -69,13 +69,26 @@ The declarations are absent. `update-contract.ts` retains only live refresh/upda
 
 ## Acceptance Criteria
 
-- [ ] The three dead symbols are absent repository-wide.
-- [ ] Their exclusively used type imports are removed and no live import/export changes.
-- [ ] The live refresh probe and branded catalog resolver contracts are unchanged.
-- [ ] Root/Pi barrels and compiled/public export allowlists are unchanged.
-- [ ] The source diff is deletion-only apart from import-list contraction.
-- [ ] Focused refresh/catalog tests, typecheck, boundaries, public API checks, build, and package verification pass.
+- [x] The three dead symbols are absent from source, tests, and compiled output.
+- [x] Their exclusively used type imports are removed and no live import/export changes.
+- [x] The live refresh probe and branded catalog resolver contracts are unchanged.
+- [x] Root/Pi barrels and compiled/public export allowlists are unchanged.
+- [x] The source diff is deletion-only apart from import-list contraction.
+- [x] Focused refresh/catalog tests, typecheck, boundaries, public API checks, build, and package verification pass.
 
 ## Risk and Rollback
 
 Risk is low because all three identifiers are unreferenced and not reachable through supported package exports. The only plausible hazard is an undocumented deep source-file consumer, which the package `exports` map does not support. Revert the implementation commit to restore the declarations; no migration or compatibility path is required.
+
+## Implementation notes
+
+- Execution capability: direct inline implementation; the change was a bounded two-file deletion with no unresolved integration questions, and the caller prohibited nested agents.
+- Review weight: standard by project default; not applicable to this child-story checkpoint, which advances directly to done after green verification.
+- Files changed: `src/application/update-contract.ts`, `src/application/marketplace-catalog-contract.ts`.
+- Tests added/removed: none; the removed declarations had no consumers, and existing contract, behavior, public API, and compiled-package tests cover the retained seams.
+- Simplification: removed exactly the three designed dead declarations and their two exclusively supporting type imports. Source delta: 1 insertion, 21 deletions, net 20 lines deleted across 2 files; the sole insertion is the contracted import line.
+- Consumer verification: exact-symbol searches found no remaining source, test, emitted declaration, root/Pi barrel, public allowlist, compiled allowlist, dynamic loader, package export-map, or active inspection consumer. The live `MarketplacePluginProbeResult`/`MarketplacePluginProbePort` and branded `ResolvedMarketplaceCandidate`/`ResolvedMarketplaceCandidateResult` declarations remain emitted unchanged.
+- Verification: focused Vitest passed 5 files / 18 tests with no type errors. Full `npm test` passed typecheck; dependency boundaries (285 modules / 1,855 dependencies, zero violations); 214 files / 1,068 tests with no type errors; build; compiled root package (562 exports); compiled Pi package (3 exports); and isolated packed Pi startup.
+- Commit: implementation and story completion are recorded by this story's `implement: prune-dead-marketplace-contract-seams-step-1` commit.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
