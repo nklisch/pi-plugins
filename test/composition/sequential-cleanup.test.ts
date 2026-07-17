@@ -2,6 +2,46 @@ import { describe, expect, it } from "vitest";
 import { disposeSequentially } from "../../src/composition/sequential-cleanup.js";
 
 describe("sequential cleanup", () => {
+  it("captures a direct synchronous throw and continues cleanup", async () => {
+    const events: string[] = [];
+    const failure = new Error("synchronous failure");
+
+    const cleanup = disposeSequentially([
+      () => {
+        events.push("first");
+        throw failure;
+      },
+      () => { events.push("second"); },
+    ], "cleanup failed");
+
+    const rejection = await cleanup.catch((error: unknown) => error);
+
+    expect(rejection).toBeInstanceOf(AggregateError);
+    expect((rejection as AggregateError).message).toBe("cleanup failed");
+    expect((rejection as AggregateError).errors[0]).toBe(failure);
+    expect(events).toEqual(["first", "second"]);
+  });
+
+  it("captures an asynchronous rejection and continues cleanup", async () => {
+    const events: string[] = [];
+    const failure = new Error("asynchronous failure");
+
+    const cleanup = disposeSequentially([
+      () => {
+        events.push("first");
+        return Promise.reject(failure);
+      },
+      () => { events.push("second"); },
+    ], "cleanup failed");
+
+    const rejection = await cleanup.catch((error: unknown) => error);
+
+    expect(rejection).toBeInstanceOf(AggregateError);
+    expect((rejection as AggregateError).message).toBe("cleanup failed");
+    expect((rejection as AggregateError).errors[0]).toBe(failure);
+    expect(events).toEqual(["first", "second"]);
+  });
+
   it("attempts every disposer serially and preserves ordered failures", async () => {
     const events: string[] = [];
     const firstError = new Error("first failure");

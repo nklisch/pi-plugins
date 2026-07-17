@@ -115,17 +115,18 @@ export function createComposedMcpRuntime(input: Readonly<{
       function* cleanupDisposers() {
         for (const state of [...owned.values()].reverse()) {
           if (state.kind !== "source") continue;
+          const inactive: McpLifecycleState = {
+            kind: "inactive",
+            expectation: createInactiveProjectionExpectation({
+              scope: state.expectation.projection.scope,
+              plugin: state.expectation.projection.plugin,
+              sha256: input.sha256,
+            }),
+          };
           yield async () => {
             const result = await participant.reconcile({
               from: state,
-              to: {
-                kind: "inactive",
-                expectation: createInactiveProjectionExpectation({
-                  scope: state.expectation.projection.scope,
-                  plugin: state.expectation.projection.plugin,
-                  sha256: input.sha256,
-                }),
-              },
+              to: inactive,
               currentProject: input.project.current(),
             }, new AbortController().signal);
             if (result.kind !== "applied" && result.kind !== "unchanged") throw new Error("MCP source cleanup remains ambiguous");
