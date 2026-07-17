@@ -28,6 +28,12 @@ function activeExpectation(): Extract<ProjectionExpectation, { kind: "active" }>
       schemaVersion: 1,
       scope: { kind: "user" },
       plugin: "demo@community",
+      pluginIdentity: {
+        key: "demo@community",
+        marketplaceName: "community",
+        marketplaceEntryName: "demo",
+      },
+      compatibilityDigest: digest("5"),
       revision: digest("a"),
       contentRef: `plugin-content-v1:sha256:${"2".repeat(64)}`,
       dataRef: `plugin-data-v1:sha256:${"3".repeat(64)}`,

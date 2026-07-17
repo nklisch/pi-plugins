@@ -398,6 +398,55 @@ describe("pure compatibility evaluator", () => {
 
   });
 
+  it("retains transport- and feature-specific MCP requirement rules and provenance", () => {
+    const mcpSource = (pointer: string): Provenance => ({
+      location: {
+        host: "claude",
+        documentKind: "mcp",
+        path: "plugin.mcp.json",
+        pointer,
+      },
+    });
+    const stdioId = componentId("mcp-server", "c");
+    const httpId = componentId("mcp-server", "d");
+    const report = evaluateCompatibility({
+      plugin: plugin({
+        components: {
+          skills: [],
+          hooks: [],
+          foreign: [],
+          mcpServers: [{
+            kind: "mcp-server",
+            id: stdioId,
+            nativeKey: claim("stdio", mcpSource("/native/stdio")),
+            declaration: claim({ transport: "stdio", command: "server", sampling: true }, mcpSource("/mcp/stdio")),
+            metadata: [],
+          }, {
+            kind: "mcp-server",
+            id: httpId,
+            nativeKey: claim("http", mcpSource("/native/http")),
+            declaration: claim({ transport: "streamable-http", url: "https://example.invalid/mcp" }, mcpSource("/mcp/http")),
+            metadata: [],
+          }],
+        },
+      }),
+      capabilities: capabilities({ "pi.mcp.runtime": "unavailable" }),
+    });
+
+    const requirement = (id: string, capability: string) => report.requirements.find((entry) =>
+      entry.requirement.id.endsWith(`:${id}`) && entry.requirement.capability === capability);
+    expect(requirement(stdioId, "pi.mcp.runtime")?.requirement.provenance.map((entry) => entry.location.pointer)).toEqual(["/mcp/stdio"]);
+    expect(requirement(stdioId, "pi.mcp.sampling")?.requirement.provenance.map((entry) => entry.location.pointer)).toEqual(["/mcp/stdio/sampling"]);
+    expect(requirement(httpId, "pi.mcp.runtime")?.requirement.provenance.map((entry) => entry.location.pointer)).toEqual(["/mcp/http"]);
+
+    const unavailableRule = (id: string) => (report.diagnostics.find((diagnostic) =>
+      diagnostic.code === "REQUIREMENT_UNAVAILABLE" &&
+      (diagnostic.details as { componentId?: string } | undefined)?.componentId === id)?.details as
+        { policyRuleId?: string } | undefined)?.policyRuleId;
+    expect(unavailableRule(stdioId)).toBe("mcp.transport.stdio");
+    expect(unavailableRule(httpId)).toBe("mcp.transport.streamable-http");
+  });
+
   it("is deterministic across component and claim insertion order", () => {
     const first = plugin();
     const second = plugin({

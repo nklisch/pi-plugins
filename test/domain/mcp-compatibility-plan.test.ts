@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { analyzeMcpCompatibility } from "../../src/domain/mcp-compatibility-plan.js";
 import { McpServerComponentSchema } from "../../src/domain/components.js";
 import { claim } from "../../src/domain/provenance.js";
+import { mcpPreExtractionDifferentialVectors } from "../fixtures/compatibility/mcp.js";
 
 const provenance = {
   location: {
@@ -68,6 +69,27 @@ describe("MCP compatibility plan", () => {
     expect(JSON.stringify(result.plan)).not.toMatch(/CANARY_/u);
     expect(result.plan.provenance).toEqual([provenance.location]);
   });
+
+  it.each(mcpPreExtractionDifferentialVectors)(
+    "matches the pre-extraction $id verdict and canonical plan",
+    (vector) => {
+      const result = analyzeMcpCompatibility({
+        plugin: "demo@community",
+        component: component(vector.declaration),
+      });
+      expect(result.kind).toBe(vector.kind);
+      if (result.kind === "supported" && vector.kind === "supported") {
+        expect(result.plan.options).toMatchObject(vector.options);
+        for (const capability of "capabilities" in vector ? vector.capabilities : []) {
+          expect(result.plan.requirementCapabilityIds).toContain(capability);
+        }
+      } else if (result.kind === "incompatible" && vector.kind === "incompatible") {
+        expect(result.diagnostics.map((diagnostic) =>
+          (diagnostic.details as { field?: string } | undefined)?.field,
+        )).toEqual(expect.arrayContaining([...vector.diagnosticFields]));
+      }
+    },
+  );
 
   it.each([
     { startupTimeout: 1000, timeoutMs: 2000 },

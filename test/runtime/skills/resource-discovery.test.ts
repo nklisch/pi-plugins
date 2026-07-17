@@ -61,8 +61,20 @@ function expectation(value: SkillHookRuntimeSnapshot): Extract<ReturnType<typeof
   return ProjectionExpectationSchema.parse({
     kind: "active",
     projection: {
-      schemaVersion: 1, scope: value.scope, plugin: value.plugin, revision: value.revision,
-      contentRef: value.content.contentRef, dataRef: value.data.dataRef, components: { skills: value.skills, hooks: [], mcpServers: [] }, digest: value.projectionDigest,
+      schemaVersion: 1,
+      scope: value.scope,
+      plugin: value.plugin,
+      pluginIdentity: {
+        key: value.plugin,
+        marketplaceName: "community",
+        marketplaceEntryName: value.plugin.split("@")[0]!,
+      },
+      compatibilityDigest: digest("e"),
+      revision: value.revision,
+      contentRef: value.content.contentRef,
+      dataRef: value.data.dataRef,
+      components: { skills: value.skills, hooks: [], mcpServers: [] },
+      digest: value.projectionDigest,
     },
     projectionRef: value.projectionRef,
   }) as Extract<ReturnType<typeof ProjectionExpectationSchema.parse>, { kind: "active" }>;

@@ -532,34 +532,19 @@ const mcpOAuthFlowDefinitions = {
 
 const mcpFeaturePayloadDefinitions = {
   toolApproval: {
-    aliases: ["toolApproval", "tool_approval"] as const,
+    fieldGroup: "toolApproval",
     shape: "boolean-flags" as const,
     ruleId: mcpRules.featureToolApproval.id,
-    topLevel: true,
   },
   sampling: {
-    aliases: ["sampling"] as const,
+    fieldGroup: "sampling",
     shape: "boolean-flags" as const,
     ruleId: mcpRules.featureSampling.id,
-    topLevel: true,
   },
   elicitation: {
-    aliases: ["elicitation"] as const,
+    fieldGroup: "elicitation",
     shape: "elicitation-flags" as const,
     ruleId: mcpRules.featureElicitationForm.id,
-    topLevel: true,
-  },
-  oauth: {
-    aliases: ["oauth"] as const,
-    shape: "oauth" as const,
-    ruleId: mcpRules.oauthAuthorizationCode.id,
-    topLevel: false,
-  },
-  headers: {
-    aliases: ["headers"] as const,
-    shape: "headers" as const,
-    ruleId: mcpRules.featuresCore.id,
-    topLevel: false,
   },
 } as const;
 
@@ -600,144 +585,163 @@ const mcpAuthKeys = [
   ...mcpAuthSelectorDefinitions.oauthBooleanFlowKeys,
 ] as const;
 
-const mcpCommonTransportFields = [
-  "timeout",
-  "startupTimeout",
-  "toolTimeout",
-  "timeoutMs",
-  "allowTools",
-  "allowedTools",
-  "denyTools",
-  "disabledTools",
-  "tools",
-  "instructions",
-  "resources",
-  "toolApproval",
-  "tool_approval",
-  "sampling",
-  "elicitation",
-  "features",
-] as const;
+const allMcpTransports = ["stdio", "streamable-http", "sse", "websocket"] as const;
+const remoteMcpTransports = ["streamable-http", "sse", "websocket"] as const;
 
 /**
- * Transport coherence is part of the policy contract, not an inference from
- * whichever fields happen to be present.  In particular, a command-shaped
- * declaration must not inherit HTTP semantics merely because the opaque JSON
- * contains a recognized header or authentication key.
+ * This is the sole MCP field vocabulary. Recognition, transport coherence,
+ * aliases, output targets, and collision behavior all derive from these rows.
  */
-const mcpTransportAllowedFields = {
-  stdio: [
-    "transport",
-    "type",
-    "command",
-    "args",
-    "env",
-    "cwd",
-    "workingDirectory",
-    ...mcpCommonTransportFields,
-  ],
-  "streamable-http": [
-    "transport",
-    "type",
-    "url",
-    "headers",
-    "bearerTokenEnv",
-    "auth",
-    "oauth",
-    "authentication",
-    "headersHelper",
-    "channels",
-    ...mcpCommonTransportFields,
-  ],
-  sse: [
-    "transport",
-    "type",
-    "url",
-    "headers",
-    "bearerTokenEnv",
-    "auth",
-    "oauth",
-    "authentication",
-    "headersHelper",
-    "channels",
-    ...mcpCommonTransportFields,
-  ],
-  websocket: [
-    "transport",
-    "type",
-    "url",
-    "headers",
-    "bearerTokenEnv",
-    "auth",
-    "oauth",
-    "authentication",
-    "headersHelper",
-    "channels",
-    ...mcpCommonTransportFields,
-  ],
+const mcpFieldGroups = {
+  transport: {
+    target: "transport",
+    aliases: ["transport", "type"],
+    unit: "transport",
+    collision: "canonical-equality",
+    transports: allMcpTransports,
+  },
+  command: {
+    target: "launch.command",
+    aliases: ["command"],
+    unit: "non-empty-string",
+    collision: "exact-equality",
+    transports: ["stdio"] as const,
+  },
+  arguments: {
+    target: "launch.arguments",
+    aliases: ["args"],
+    unit: "string-array",
+    collision: "exact-equality",
+    transports: ["stdio"] as const,
+  },
+  environment: {
+    target: "launch.environment",
+    aliases: ["env"],
+    unit: "string-record",
+    collision: "exact-equality",
+    transports: ["stdio"] as const,
+  },
+  workingDirectory: {
+    target: "launch.workingDirectory",
+    aliases: ["cwd", "workingDirectory"],
+    unit: "string",
+    collision: "exact-equality",
+    transports: ["stdio"] as const,
+  },
+  url: {
+    target: "launch.url",
+    aliases: ["url"],
+    unit: "transport-url",
+    collision: "exact-equality",
+    transports: remoteMcpTransports,
+  },
+  headers: {
+    target: "launch.headers",
+    aliases: ["headers", "features.headers"],
+    unit: "headers",
+    collision: "reject-duplicates",
+    transports: remoteMcpTransports,
+  },
+  authentication: {
+    target: "options.auth",
+    aliases: ["auth", "oauth", "authentication", "bearerTokenEnv", "features.oauth"],
+    externalBearerAlias: "bearerTokenEnv",
+    unit: "authentication-mode",
+    collision: "coherent-single-mode",
+    transports: remoteMcpTransports,
+  },
+  startupTimeout: {
+    target: "options.startupTimeoutMs",
+    aliases: ["startupTimeout", "timeoutMs"],
+    unit: "milliseconds",
+    collision: "exact-equality",
+    transports: allMcpTransports,
+  },
+  toolTimeout: {
+    target: "options.toolTimeoutMs",
+    aliases: ["toolTimeout", "timeout"],
+    unit: "milliseconds",
+    collision: "exact-equality",
+    transports: allMcpTransports,
+  },
+  tools: {
+    target: "options.tools",
+    aliases: ["tools"],
+    unit: "direct-tools-or-map",
+    collision: "exact-equality",
+    transports: allMcpTransports,
+  },
+  allowedTools: {
+    target: "options.allowedTools",
+    aliases: ["allowTools", "allowedTools", "tools.allow"],
+    unit: "exact-string-set",
+    collision: "set-equality",
+    transports: allMcpTransports,
+  },
+  deniedTools: {
+    target: "options.deniedTools",
+    aliases: ["denyTools", "disabledTools", "tools.deny"],
+    unit: "exact-string-set",
+    collision: "set-equality",
+    transports: allMcpTransports,
+  },
+  instructions: {
+    target: "options.instructions",
+    aliases: ["instructions"],
+    unit: "string",
+    collision: "exact-equality",
+    transports: allMcpTransports,
+  },
+  resources: {
+    target: "options.resources",
+    aliases: ["resources"],
+    unit: "resources",
+    collision: "exact-equality",
+    transports: allMcpTransports,
+  },
+  toolApproval: {
+    target: "options.toolApproval",
+    aliases: ["toolApproval", "tool_approval", "features.toolApproval", "features.tool_approval"],
+    unit: "boolean-flags",
+    collision: "reject-duplicates",
+    transports: allMcpTransports,
+  },
+  sampling: {
+    target: "options.sampling",
+    aliases: ["sampling", "features.sampling"],
+    unit: "boolean-flags",
+    collision: "reject-duplicates",
+    transports: allMcpTransports,
+  },
+  elicitation: {
+    target: "options.elicitation",
+    aliases: ["elicitation", "features.elicitation"],
+    unit: "elicitation-flags",
+    collision: "reject-duplicates",
+    transports: allMcpTransports,
+  },
+  headersHelper: {
+    target: "unsupported.headersHelper",
+    aliases: ["headersHelper"],
+    unit: "unsupported",
+    collision: "reject-duplicates",
+    transports: remoteMcpTransports,
+  },
+  channels: {
+    target: "unsupported.channels",
+    aliases: ["channels"],
+    unit: "unsupported",
+    collision: "reject-duplicates",
+    transports: remoteMcpTransports,
+  },
 } as const;
 
 const mcpKeyDefinitions = {
   transport: "transport",
-  transportValues: ["stdio", "streamable-http", "sse", "websocket"] as const,
+  transportValues: allMcpTransports,
   typeValues: ["stdio", "streamable-http", "http", "sse", "websocket"] as const,
   transportAliases: { http: "streamable-http" } as const,
-  /**
-   * Canonical MCP field groups are the shared acceptance vocabulary for
-   * compatibility reporting and runtime projection. Each group declares its
-   * exact aliases, output target, unit, and fail-closed collision policy.
-   */
-  fieldGroups: {
-    transport: {
-      target: "transport",
-      aliases: ["transport", "type"],
-      unit: "transport",
-      collision: "canonical-equality",
-    },
-    workingDirectory: {
-      target: "launch.workingDirectory",
-      aliases: ["cwd", "workingDirectory"],
-      unit: "string",
-      collision: "exact-equality",
-    },
-    startupTimeout: {
-      target: "options.startupTimeoutMs",
-      aliases: ["startupTimeout", "timeoutMs"],
-      unit: "milliseconds",
-      collision: "exact-equality",
-    },
-    toolTimeout: {
-      target: "options.toolTimeoutMs",
-      aliases: ["toolTimeout", "timeout"],
-      unit: "milliseconds",
-      collision: "exact-equality",
-    },
-    allowedTools: {
-      target: "options.allowedTools",
-      aliases: ["allowTools", "allowedTools", "tools.allow"],
-      unit: "exact-string-set",
-      collision: "set-equality",
-    },
-    deniedTools: {
-      target: "options.deniedTools",
-      aliases: ["denyTools", "disabledTools", "tools.deny"],
-      unit: "exact-string-set",
-      collision: "set-equality",
-    },
-    authentication: {
-      target: "options.auth",
-      aliases: ["auth", "oauth", "authentication", "bearerTokenEnv"],
-      unit: "authentication-mode",
-      collision: "coherent-single-mode",
-    },
-    features: {
-      target: "options.features",
-      aliases: ["toolApproval", "tool_approval", "sampling", "elicitation", "features.*"],
-      unit: "semantic-slot",
-      collision: "reject-duplicates",
-    },
-  } as const,
-  transportAllowedFields: mcpTransportAllowedFields,
+  fieldGroups: mcpFieldGroups,
   type: "type",
   command: "command",
   args: "args",
@@ -766,7 +770,6 @@ const mcpKeyDefinitions = {
   sampling: "sampling",
   elicitation: "elicitation",
   features: "features",
-  featureKeys: Object.values(mcpFeaturePayloadDefinitions).flatMap((definition) => definition.aliases),
   featureValues: ["tool-approval", "sampling", "elicitation-form", "elicitation-url"] as const,
   featurePayloadDefinitions: mcpFeaturePayloadDefinitions,
   oauthGrantTypes: Object.values(mcpOAuthFlowDefinitions).flatMap((definition) => definition.aliases),

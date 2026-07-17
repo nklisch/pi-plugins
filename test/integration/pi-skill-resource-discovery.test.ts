@@ -77,8 +77,20 @@ async function publishSkill(root: string, plugin: string, componentToken: string
 
 function expectation(value: SkillHookRuntimeSnapshot) {
   return ProjectionExpectationSchema.parse({ kind: "active", projection: {
-    schemaVersion: 1, scope: value.scope, plugin: value.plugin, revision: value.revision,
-    contentRef: value.content.contentRef, dataRef: value.data.dataRef, components: { skills: value.skills, hooks: [], mcpServers: [] }, digest: value.projectionDigest,
+    schemaVersion: 1,
+    scope: value.scope,
+    plugin: value.plugin,
+    pluginIdentity: {
+      key: value.plugin,
+      marketplaceName: "community",
+      marketplaceEntryName: value.plugin.split("@")[0]!,
+    },
+    compatibilityDigest: digest("d"),
+    revision: value.revision,
+    contentRef: value.content.contentRef,
+    dataRef: value.data.dataRef,
+    components: { skills: value.skills, hooks: [], mcpServers: [] },
+    digest: value.projectionDigest,
   }, projectionRef: value.projectionRef });
 }
 

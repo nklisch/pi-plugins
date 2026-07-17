@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { canonicalJson } from "../../domain/canonical-json.js";
+import { canonicalJson, compareUtf8 } from "../../domain/canonical-json.js";
+import {
+  canonicalProvenance,
+  canonicalizeJsonValue,
+  compareProvenanceUtf8,
+} from "../../domain/canonical-order.js";
 import {
   ContentDigestSchema,
   hashContent,
@@ -8,19 +13,25 @@ import {
 import {
   HookComponentSchema,
   McpServerComponentSchema,
+  RetainedMetadataSchema,
   SkillComponentSchema,
+  flattenComponents,
   type HookComponent,
   type McpServerComponent,
+  type RetainedMetadata,
   type SkillComponent,
 } from "../../domain/components.js";
 import {
   CompatibilityReportSchema,
   type CompatibilityReport,
 } from "../../domain/compatibility.js";
+import { PluginIdentitySchema, PluginKeySchema, type PluginKey } from "../../domain/identity.js";
 import {
   NormalizedPluginSchema,
   type NormalizedPlugin,
 } from "../../domain/plugin.js";
+import type { Provenance } from "../../domain/provenance.js";
+import type { JsonValue } from "../../domain/schema.js";
 import {
   InstalledRevisionRecordSchema,
   type InstalledRevisionRecord,
@@ -34,10 +45,6 @@ import {
   type PluginConfigurationRef,
   type ProjectionRootRef,
 } from "../../domain/state/references.js";
-import {
-  PluginKeySchema,
-  type PluginKey,
-} from "../../domain/identity.js";
 import {
   ScopeReferenceSchema,
   type ScopeReference,
@@ -55,13 +62,23 @@ export const PluginRuntimeProjectionSchemaV1 = z.object({
   schemaVersion: z.literal(1),
   scope: ScopeReferenceSchema,
   plugin: PluginKeySchema,
+  pluginIdentity: PluginIdentitySchema,
+  compatibilityDigest: ContentDigestSchema,
   revision: ContentDigestSchema,
   contentRef: PluginContentRefSchema,
   dataRef: PluginDataRefSchema,
   configurationRef: PluginConfigurationRefSchema.optional(),
   components: RuntimePluginComponentsSchema,
   digest: ContentDigestSchema,
-}).strict().readonly();
+}).strict().readonly().superRefine((projection, context) => {
+  if (projection.plugin !== projection.pluginIdentity.key) {
+    context.addIssue({
+      code: "custom",
+      path: ["pluginIdentity", "key"],
+      message: "projection plugin identity must match its source plugin key",
+    });
+  }
+});
 export type PluginRuntimeProjection = z.infer<typeof PluginRuntimeProjectionSchemaV1>;
 
 const ActiveProjectionExpectationSchema = z.object({
@@ -86,30 +103,151 @@ export interface RuntimeProjectionPort {
   prepare(expectation: ProjectionExpectation, signal: AbortSignal): Promise<ProjectionExpectation>;
 }
 
+const encoder = new TextEncoder();
+
 function digestProjection(value: Omit<PluginRuntimeProjection, "digest">, sha256: Sha256): ContentDigest {
   return hashContent(
-    new TextEncoder().encode(`plugin-runtime-projection-v1\0${canonicalJson(value)}`),
+    encoder.encode(`plugin-runtime-projection-v1\0${canonicalJson(value)}`),
     sha256,
   );
 }
 
 function digestInactive(scope: ScopeReference, plugin: PluginKey, sha256: Sha256): ContentDigest {
   return hashContent(
-    new TextEncoder().encode(`plugin-runtime-inactive-v1\0${canonicalJson({ scope, plugin })}`),
+    encoder.encode(`plugin-runtime-inactive-v1\0${canonicalJson({ scope, plugin })}`),
     sha256,
   );
 }
 
-function supportedComponentIds(report: CompatibilityReport): Map<string, "supported" | "metadata-only" | "incompatible"> {
-  const result = new Map<string, "supported" | "metadata-only" | "incompatible">();
-  for (const assessment of report.components) {
-    result.set(assessment.componentId, assessment.verdict.kind);
+function canonicalProvenanceOrEmpty(values: readonly Provenance[]): readonly Provenance[] {
+  return values.length === 0 ? [] : canonicalProvenance(values);
+}
+
+function canonicalMetadata(metadata: RetainedMetadata): RetainedMetadata {
+  const valid = RetainedMetadataSchema.parse(metadata);
+  return RetainedMetadataSchema.parse({
+    key: valid.key,
+    claimed: {
+      value: canonicalizeJsonValue(valid.claimed.value),
+      provenance: canonicalProvenance(valid.claimed.provenance),
+    },
+  });
+}
+
+function compareMetadata(left: RetainedMetadata, right: RetainedMetadata): number {
+  const firstProvenance = compareProvenanceUtf8(
+    left.claimed.provenance[0]!,
+    right.claimed.provenance[0]!,
+  );
+  return compareUtf8(left.key, right.key) ||
+    compareUtf8(canonicalJson(left.claimed.value), canonicalJson(right.claimed.value)) ||
+    firstProvenance ||
+    compareUtf8(canonicalJson(left.claimed.provenance), canonicalJson(right.claimed.provenance));
+}
+
+function canonicalSkill(component: SkillComponent): SkillComponent {
+  const valid = SkillComponentSchema.parse(component);
+  return SkillComponentSchema.parse({
+    kind: valid.kind,
+    id: valid.id,
+    name: { value: valid.name.value, provenance: canonicalProvenance(valid.name.provenance) },
+    root: { value: valid.root.value, provenance: canonicalProvenance(valid.root.provenance) },
+    metadata: valid.metadata.map(canonicalMetadata).sort(compareMetadata),
+  });
+}
+
+function canonicalHook(component: HookComponent): HookComponent {
+  const valid = HookComponentSchema.parse(component);
+  return HookComponentSchema.parse({
+    kind: valid.kind,
+    id: valid.id,
+    event: { value: valid.event.value, provenance: canonicalProvenance(valid.event.provenance) },
+    ...(valid.matcher === undefined ? {} : {
+      matcher: { value: valid.matcher.value, provenance: canonicalProvenance(valid.matcher.provenance) },
+    }),
+    handler: {
+      value: canonicalizeJsonValue(valid.handler.value as JsonValue),
+      provenance: canonicalProvenance(valid.handler.provenance),
+    },
+    metadata: valid.metadata.map(canonicalMetadata).sort(compareMetadata),
+  });
+}
+
+function canonicalMcpServer(component: McpServerComponent): McpServerComponent {
+  const valid = McpServerComponentSchema.parse(component);
+  return McpServerComponentSchema.parse({
+    kind: valid.kind,
+    id: valid.id,
+    nativeKey: {
+      value: valid.nativeKey.value,
+      provenance: canonicalProvenance(valid.nativeKey.provenance),
+    },
+    declaration: {
+      value: canonicalizeJsonValue(valid.declaration.value),
+      provenance: canonicalProvenance(valid.declaration.provenance),
+    },
+    metadata: valid.metadata.map(canonicalMetadata).sort(compareMetadata),
+  });
+}
+
+function canonicalRuntimeComponents(components: RuntimePluginComponents): RuntimePluginComponents {
+  const valid = RuntimePluginComponentsSchema.parse(components);
+  return RuntimePluginComponentsSchema.parse({
+    skills: valid.skills.map(canonicalSkill).sort((left, right) => compareUtf8(left.id, right.id)),
+    hooks: valid.hooks.map(canonicalHook).sort((left, right) => compareUtf8(left.id, right.id)),
+    mcpServers: valid.mcpServers.map(canonicalMcpServer).sort((left, right) => compareUtf8(left.id, right.id)),
+  });
+}
+
+function sortedCanonicalDiagnostics<T>(values: readonly T[]): readonly T[] {
+  return [...values].sort((left, right) => compareUtf8(canonicalJson(left), canonicalJson(right)));
+}
+
+function canonicalCompatibilityEvidence(report: CompatibilityReport): unknown {
+  const valid = CompatibilityReportSchema.parse(report);
+  return {
+    plugin: valid.plugin,
+    activatable: valid.activatable,
+    components: valid.components.map((component) => ({
+      ...component,
+      requirementIds: [...component.requirementIds].sort(compareUtf8),
+      diagnostics: sortedCanonicalDiagnostics(component.diagnostics),
+    })).sort((left, right) => compareUtf8(left.componentId, right.componentId)),
+    requirements: valid.requirements.map((assessment) => ({
+      ...assessment,
+      requirement: {
+        ...assessment.requirement,
+        provenance: canonicalProvenanceOrEmpty(assessment.requirement.provenance),
+      },
+    })).sort((left, right) =>
+      compareUtf8(left.requirement.id, right.requirement.id) ||
+      compareUtf8(canonicalJson(left), canonicalJson(right))),
+    diagnostics: sortedCanonicalDiagnostics(valid.diagnostics),
+  };
+}
+
+/** Digest the complete report after canonical ordering of its set-like evidence. */
+export function digestCompatibilityReport(
+  report: CompatibilityReport,
+  sha256: Sha256,
+): ContentDigest {
+  return hashContent(
+    encoder.encode(`compatibility-report-evidence-v1\0${canonicalJson(canonicalCompatibilityEvidence(report))}`),
+    sha256,
+  );
+}
+
+function exactComponentInventory(plugin: NormalizedPlugin, report: CompatibilityReport): void {
+  const expected = flattenComponents(plugin.components).map((component) => component.id).sort(compareUtf8);
+  const actual = report.components.map((component) => component.componentId).sort(compareUtf8);
+  if (expected.length !== actual.length || expected.some((id, index) => id !== actual[index])) {
+    throw new Error("runtime projection component inventory differs from compatibility evidence");
   }
-  return result;
 }
 
 function runtimeComponents(plugin: NormalizedPlugin, report: CompatibilityReport): RuntimePluginComponents {
-  const verdicts = supportedComponentIds(report);
+  exactComponentInventory(plugin, report);
+  const verdicts = new Map(report.components.map((assessment) => [assessment.componentId, assessment.verdict.kind]));
   const skills: SkillComponent[] = [];
   const hooks: HookComponent[] = [];
   const mcpServers: McpServerComponent[] = [];
@@ -127,11 +265,7 @@ function runtimeComponents(plugin: NormalizedPlugin, report: CompatibilityReport
     else if (component.kind === "hook") hooks.push(component);
     else mcpServers.push(component);
   }
-  return RuntimePluginComponentsSchema.parse({
-    skills: skills.sort((left, right) => left.id.localeCompare(right.id)),
-    hooks: hooks.sort((left, right) => left.id.localeCompare(right.id)),
-    mcpServers: mcpServers.sort((left, right) => left.id.localeCompare(right.id)),
-  });
+  return canonicalRuntimeComponents({ skills, hooks, mcpServers });
 }
 
 function samePluginIdentity(plugin: NormalizedPlugin, report: CompatibilityReport): boolean {
@@ -168,6 +302,8 @@ export function createPluginRuntimeProjection(
     schemaVersion: 1 as const,
     scope,
     plugin: plugin.identity.key,
+    pluginIdentity: plugin.identity,
+    compatibilityDigest: digestCompatibilityReport(compatibility, input.sha256),
     revision: revision.revision,
     contentRef: revision.contentRef,
     dataRef: revision.dataRef,
@@ -186,6 +322,10 @@ export function createActiveProjectionExpectation(
   sha256: Sha256,
 ): Extract<ProjectionExpectation, { kind: "active" }> {
   const value = PluginRuntimeProjectionSchemaV1.parse(projection);
+  const canonicalComponents = canonicalRuntimeComponents(value.components);
+  if (canonicalJson(value.components) !== canonicalJson(canonicalComponents)) {
+    throw new Error("runtime projection components are not canonical");
+  }
   const { digest: claimedDigest, ...withoutDigest } = value;
   const digest = digestProjection(withoutDigest, sha256);
   if (digest !== claimedDigest) throw new Error("runtime projection digest does not match its contents");

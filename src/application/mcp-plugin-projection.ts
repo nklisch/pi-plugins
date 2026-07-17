@@ -9,6 +9,7 @@ import {
 } from "../domain/compatibility.js";
 import { analyzeMcpCompatibility, compareMcpSourceLocations } from "../domain/mcp-compatibility-plan.js";
 import { createMcpLaunchTemplate } from "../domain/mcp-launch-template.js";
+import type { PluginIdentity } from "../domain/identity.js";
 import { RuntimeCapabilityRegistry, type RuntimeCapabilityId } from "../domain/compatibility-policy.js";
 import { ContentDigestSchema, hashContent, type ContentDigest } from "../domain/content-manifest.js";
 import { DomainContractError, ErrorCodeRegistry } from "../domain/errors.js";
@@ -30,6 +31,7 @@ import {
 import {
   PluginRuntimeProjectionSchemaV1,
   createActiveProjectionExpectation,
+  digestCompatibilityReport,
   type PluginRuntimeProjection,
 } from "./ports/runtime-projection.js";
 
@@ -198,7 +200,7 @@ function verifyReportPlan(
 }
 
 function aliasFor(
-  report: CompatibilityReport,
+  pluginIdentity: PluginIdentity,
   componentId: ComponentId,
   serverKey: McpRuntimeServerKey,
   nativeKey: string,
@@ -219,7 +221,7 @@ function aliasFor(
       }),
     };
   }
-  const pluginName = report.plugin.manifestName ?? report.plugin.marketplaceEntryName;
+  const pluginName = pluginIdentity.manifestName ?? pluginIdentity.marketplaceEntryName;
   const validPlugin = McpToolAliasSegmentSchema.safeParse(pluginName);
   const validNativeKey = McpToolAliasSegmentSchema.safeParse(nativeKey);
   if (!validPlugin.success || !validNativeKey.success) {
@@ -269,7 +271,13 @@ export function createPluginMcpProjection(input: Readonly<{
   } catch {
     fail("INVALID_MCP_PROJECTION_INPUT");
   }
-  if (compatibility.plugin.key !== projection.plugin) fail("PLUGIN_IDENTITY_MISMATCH");
+  if (projection.pluginIdentity.key !== projection.plugin ||
+      canonicalJson(compatibility.plugin) !== canonicalJson(projection.pluginIdentity)) {
+    fail("PLUGIN_IDENTITY_MISMATCH");
+  }
+  if (digestCompatibilityReport(compatibility, input.sha256) !== projection.compatibilityDigest) {
+    fail("COMPATIBILITY_EVIDENCE_MISMATCH");
+  }
   if (!compatibility.activatable) fail("REPORT_NOT_ACTIVATABLE");
 
   const inventoryIds = projection.components.mcpServers.map((component) => component.id);
@@ -316,7 +324,7 @@ export function createPluginMcpProjection(input: Readonly<{
     const serverKey = deriveMcpRuntimeServerKey(component.id);
     const provenance = canonicalLocations(analysis.plan.provenance);
     const alias = aliasFor(
-      compatibility,
+      projection.pluginIdentity,
       component.id,
       serverKey,
       component.nativeKey.value,

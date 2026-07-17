@@ -360,6 +360,52 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
   },
 ];
 
+/** Verdicts captured from the evaluator immediately before MCP plan extraction. */
+export const mcpPreExtractionDifferentialVectors = [
+  {
+    id: "positive-fractional-timeouts",
+    declaration: {
+      transport: "stdio",
+      command: "server",
+      startupTimeout: 12.5,
+      timeout: 0.25,
+    },
+    kind: "supported",
+    options: { startupTimeoutMs: 12.5, toolTimeoutMs: 0.25 },
+  },
+  {
+    id: "direct-tools-array",
+    declaration: { transport: "stdio", command: "server", tools: ["read", "write"] },
+    kind: "supported",
+    options: {},
+  },
+  {
+    id: "independent-oauth-and-headers-features",
+    declaration: {
+      transport: "streamable-http",
+      url: "https://example.invalid/mcp",
+      features: {
+        oauth: { grantType: "authorization-code", clientId: "client" },
+        headers: { Authorization: "${MCP_TOKEN}" },
+      },
+    },
+    kind: "supported",
+    options: { auth: { kind: "oauth", flow: "authorization-code" } },
+    capabilities: ["pi.mcp.oauth.authorization-code"],
+  },
+  {
+    id: "duplicate-header-claims",
+    declaration: {
+      transport: "streamable-http",
+      url: "https://example.invalid/mcp",
+      headers: { X_Plugin: "one" },
+      features: { headers: { X_Plugin: "one" } },
+    },
+    kind: "incompatible",
+    diagnosticFields: ["features.headers"],
+  },
+] as const;
+
 export const mcpProjectionConformanceVectors = {
   stdio: {
     transport: "stdio",

@@ -25,27 +25,26 @@ describe("compatibility policy registry", () => {
     expect(CompatibilityPolicyRegistry.mcp.keys.transport).toBe("transport");
   });
 
-  it("keeps transport-specific MCP field sets explicit", () => {
-    const fields = CompatibilityPolicyRegistry.mcp.keys.transportAllowedFields;
-    expect(fields.stdio).toEqual(expect.arrayContaining(["command", "args", "env", "cwd"]));
-    expect(fields.stdio).not.toEqual(expect.arrayContaining([
-      "url",
-      "headers",
-      "bearerTokenEnv",
-      "auth",
-      "oauth",
-      "authentication",
+  it("keeps transport-specific MCP fields, targets, and collisions in one registry", () => {
+    const groups = CompatibilityPolicyRegistry.mcp.keys.fieldGroups;
+    const allowedRoots = (transport: "stdio" | "streamable-http" | "sse" | "websocket") =>
+      Object.values(groups).flatMap((group) => group.transports.includes(transport as never)
+        ? group.aliases.map((alias) => alias.split(".")[0]!)
+        : []);
+    expect(allowedRoots("stdio")).toEqual(expect.arrayContaining(["command", "args", "env", "cwd"]));
+    expect(allowedRoots("stdio")).not.toEqual(expect.arrayContaining([
+      "url", "headers", "bearerTokenEnv", "auth", "oauth", "authentication",
     ]));
-    expect(fields["streamable-http"]).toEqual(expect.arrayContaining([
-      "url",
-      "headers",
-      "bearerTokenEnv",
-      "auth",
-      "oauth",
-      "authentication",
+    expect(allowedRoots("streamable-http")).toEqual(expect.arrayContaining([
+      "url", "headers", "bearerTokenEnv", "auth", "oauth", "authentication",
     ]));
-    expect(fields.sse).not.toEqual(expect.arrayContaining(["command", "args", "env", "cwd"]));
-    expect(fields.websocket).not.toEqual(expect.arrayContaining(["command", "args", "env", "cwd"]));
+    expect(allowedRoots("sse")).not.toEqual(expect.arrayContaining(["command", "args", "env", "cwd"]));
+    expect(allowedRoots("websocket")).not.toEqual(expect.arrayContaining(["command", "args", "env", "cwd"]));
+    expect(groups.startupTimeout).toMatchObject({
+      target: "options.startupTimeoutMs",
+      aliases: ["startupTimeout", "timeoutMs"],
+      collision: "exact-equality",
+    });
   });
 
   it("derives capability status validation from the requirement status registry", () => {

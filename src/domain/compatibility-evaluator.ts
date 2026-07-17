@@ -523,14 +523,6 @@ function evaluateHook(
   return decision(incompatible ? "incompatible" : "supported", requirements, diagnostics);
 }
 
-function mcpPolicyRuleForCapability(capability: RuntimeCapabilityId): string {
-  const rule = Object.values(CompatibilityPolicyRuleRegistry)
-    .filter((candidate) => candidate.surface === "mcp-server" &&
-      candidate.requirementCapabilityIds.includes(capability))
-    .sort((left, right) => left.rank - right.rank || compareText(left.id, right.id))[0];
-  return rule?.id ?? CompatibilityPolicyRegistry.mcp.defaultDeny.id;
-}
-
 function evaluateMcp(
   pluginKey: string,
   component: McpServerComponent,
@@ -542,14 +534,10 @@ function evaluateMcp(
   if (analysis.kind === "incompatible") {
     return decision("incompatible", [], analysis.diagnostics);
   }
-  const provenance = sortedProvenance([
-    ...component.nativeKey.provenance,
-    ...component.declaration.provenance,
-  ]);
-  return decision("supported", analysis.plan.requirementCapabilityIds.map((capability) => ({
-    capability,
-    provenance,
-    ruleId: mcpPolicyRuleForCapability(capability),
+  return decision("supported", analysis.requirementUses.map((use) => ({
+    capability: use.capability,
+    provenance: use.provenance.map((location) => ProvenanceSchema.parse({ location })),
+    ruleId: use.ruleId,
   })), []);
 }
 

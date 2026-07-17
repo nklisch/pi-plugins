@@ -8,7 +8,11 @@ import {
 import { McpRuntimeCapabilitiesSchemaV1 } from "../../src/application/ports/mcp-runtime.js";
 import { createPluginRuntimeProjection } from "../../src/application/ports/runtime-projection.js";
 import { evaluateCompatibility } from "../../src/domain/compatibility-evaluator.js";
-import { RuntimeCapabilityRegistry, RuntimeCapabilitySnapshotSchema } from "../../src/domain/compatibility-policy.js";
+import {
+  CompatibilityPolicyRegistry,
+  RuntimeCapabilityRegistry,
+  RuntimeCapabilitySnapshotSchema,
+} from "../../src/domain/compatibility-policy.js";
 import { deriveComponentId } from "../../src/domain/component-identity.js";
 import { createContentManifest } from "../../src/domain/content-manifest.js";
 import { DomainContractError } from "../../src/domain/errors.js";
@@ -71,6 +75,9 @@ type ServerInput = Readonly<{
   nativeKey: string;
   declaration: Record<string, unknown>;
   hosts?: readonly ("claude" | "codex")[];
+  pointer?: string;
+  reverseProvenance?: boolean;
+  duplicateProvenance?: boolean;
   forgedId?: string;
 }>;
 
@@ -80,6 +87,7 @@ function fixture(input: Readonly<{
   scope?: { kind: "user" } | { kind: "project"; projectKey: string };
   servers?: readonly ServerInput[];
   capabilityOverrides?: Record<string, "available" | "unavailable">;
+  includeSkill?: boolean;
 }> = {}) {
   const pluginKey = (input.plugin ?? "demo@community") as never;
   const [entryName, marketplaceName] = (input.plugin ?? "demo@community").split("@");
@@ -98,7 +106,10 @@ function fixture(input: Readonly<{
     hosts: ["codex", "claude"],
   }]).map((server, index) => {
     const hosts = server.hosts ?? ["claude"];
-    const provenances = hosts.map((host) => location(host, `/servers/${index}`));
+    const sourceProvenance = hosts.map((host) =>
+      location(host, server.pointer ?? `/servers/${index}`));
+    const ordered = server.reverseProvenance ? [...sourceProvenance].reverse() : sourceProvenance;
+    const provenances = server.duplicateProvenance ? [...ordered, ordered[0]!] : ordered;
     const id = server.forgedId ?? deriveComponentId(pluginKey, {
       kind: "mcp-server",
       nativeKey: server.nativeKey,
@@ -111,6 +122,21 @@ function fixture(input: Readonly<{
       metadata: [],
     };
   });
+  const skillProvenance = {
+    location: {
+      host: "claude" as const,
+      documentKind: "skill" as const,
+      path: "skills/bound/SKILL.md",
+      pointer: "/frontmatter",
+    },
+  };
+  const skills = input.includeSkill ? [{
+    kind: "skill" as const,
+    id: deriveComponentId(pluginKey, { kind: "skill", root: "skills/bound" }, sha256),
+    name: claim("bound", skillProvenance),
+    root: claim("skills/bound", skillProvenance),
+    metadata: [],
+  }] : [];
   const plugin = NormalizedPluginSchema.parse({
     identity: {
       key: pluginKey,
@@ -124,7 +150,7 @@ function fixture(input: Readonly<{
       revision: "a".repeat(40),
     }, sha256),
     configuration: { options: [] },
-    components: { skills: [], hooks: [], mcpServers: servers, foreign: [] },
+    components: { skills, hooks: [], mcpServers: servers, foreign: [] },
     metadata: [],
   });
   const compatibility = evaluateCompatibility({
@@ -218,6 +244,76 @@ describe("plugin MCP projection", () => {
     })).toEqual(first);
   });
 
+  it("uses registry field aliases as the shared evaluator/projector authority", () => {
+    const aliases = CompatibilityPolicyRegistry.mcp.keys.fieldGroups.startupTimeout.aliases as unknown as string[];
+    const original = [...aliases];
+    try {
+      aliases.push("runtimeStartupTimeout");
+      const added = fixture({ servers: [{
+        nativeKey: "registry-alias",
+        declaration: { transport: "stdio", command: "server", runtimeStartupTimeout: 37.5 },
+      }] });
+      expect(added.compatibility.components[0]?.verdict.kind).toBe("supported");
+      const projected = create(added);
+      if (projected.kind !== "source") throw new Error("expected source");
+      expect(Object.values(projected.source.servers)[0]?.options).toMatchObject({ startupTimeoutMs: 37.5 });
+
+      aliases.splice(aliases.indexOf("runtimeStartupTimeout"), 1);
+      const removed = evaluateCompatibility({ plugin: added.plugin, capabilities: capabilities() });
+      expect(removed.components[0]?.verdict.kind).toBe("incompatible");
+      expect(() => create(added)).toThrow(DomainContractError);
+    } finally {
+      aliases.splice(0, aliases.length, ...original);
+    }
+  });
+
+  it("canonicalizes complete projection evidence before every derived digest", () => {
+    const firstServers: readonly ServerInput[] = [{
+      nativeKey: "alpha-é",
+      pointer: "/servers/alpha",
+      hosts: ["claude", "codex"],
+      declaration: { transport: "stdio", command: "server", startupTimeout: 12.5 },
+    }, {
+      nativeKey: "beta-é",
+      pointer: "/servers/beta",
+      hosts: ["claude", "codex"],
+      declaration: { transport: "streamable-http", url: "https://example.invalid/mcp", resources: ["docs"] },
+    }];
+    const secondServers: readonly ServerInput[] = [...firstServers].reverse().map((server) => ({
+      ...server,
+      reverseProvenance: true,
+      duplicateProvenance: true,
+      declaration: Object.fromEntries(Object.entries(server.declaration).reverse()),
+    }));
+    const first = fixture({ servers: firstServers });
+    const second = fixture({ servers: secondServers });
+    expect(JSON.stringify(second.projection)).toBe(JSON.stringify(first.projection));
+
+    const firstMcp = create(first);
+    const secondMcp = create(second);
+    expect(JSON.stringify(secondMcp)).toBe(JSON.stringify(firstMcp));
+    expect(secondMcp.digest).toBe(firstMcp.digest);
+    if (firstMcp.kind !== "source" || secondMcp.kind !== "source") throw new Error("expected sources");
+    expect(secondMcp.source.identity).toEqual(firstMcp.source.identity);
+  });
+
+  it("keeps composed and decomposed Unicode distinct in complete and MCP identities", () => {
+    const composed = fixture({ servers: [{
+      nativeKey: "é",
+      declaration: { transport: "stdio", command: "server" },
+    }] });
+    const decomposed = fixture({ servers: [{
+      nativeKey: "é",
+      declaration: { transport: "stdio", command: "server" },
+    }] });
+    expect(composed.projection.digest).not.toBe(decomposed.projection.digest);
+    const composedMcp = create(composed);
+    const decomposedMcp = create(decomposed);
+    expect(composedMcp.digest).not.toBe(decomposedMcp.digest);
+    if (composedMcp.kind !== "source" || decomposedMcp.kind !== "source") throw new Error("expected sources");
+    expect(Object.keys(composedMcp.source.servers)).not.toEqual(Object.keys(decomposedMcp.source.servers));
+  });
+
   it("returns an explicit deterministic none projection without an empty source", () => {
     const f = fixture({ servers: [] });
     const result = create(f);
@@ -271,6 +367,37 @@ describe("plugin MCP projection", () => {
     if (aliasDisabled.kind !== "source") throw new Error("expected source");
     expect(Object.values(aliasDisabled.source.servers)[0]!.toolAliases).toEqual([]);
     expect(aliasDisabled.aliasOmissions[0]?.code).toBe("RUNTIME_ALIAS_UNAVAILABLE");
+  });
+
+  it("binds aliases to the exact manifest identity and complete non-MCP report inventory", () => {
+    const named = fixture({ manifestName: "bound-manifest" });
+    const namedProjection = create(named);
+    if (namedProjection.kind !== "source") throw new Error("expected source");
+    expect(Object.values(namedProjection.source.servers)[0]?.toolAliases[0]?.pluginName).toBe("bound-manifest");
+
+    const manifestOnlyMismatch = {
+      ...named.compatibility,
+      plugin: { ...named.compatibility.plugin, manifestName: "forged-manifest" },
+    };
+    expect(() => createPluginMcpProjection({
+      projection: named.projection,
+      compatibility: manifestOnlyMismatch,
+      runtimeCapabilities: runtime(),
+      sha256,
+    })).toThrow(DomainContractError);
+
+    const complete = fixture({ includeSkill: true });
+    const skillId = complete.projection.components.skills[0]!.id;
+    const nonMcpInventoryMismatch = {
+      ...complete.compatibility,
+      components: complete.compatibility.components.filter((component) => component.componentId !== skillId),
+    };
+    expect(() => createPluginMcpProjection({
+      projection: complete.projection,
+      compatibility: nonMcpInventoryMismatch,
+      runtimeCapabilities: runtime(),
+      sha256,
+    })).toThrow(DomainContractError);
   });
 
   it("fails closed with redacted domain errors for mismatched report, capability, component, and digest evidence", () => {

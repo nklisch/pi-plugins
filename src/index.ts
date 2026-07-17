@@ -330,6 +330,7 @@ export type {
   McpCanonicalAuth,
   McpCanonicalOptions,
   McpCompatibilityPlan,
+  McpCompatibilityRequirementUse,
   McpCompatibilityAnalysis,
 } from "./domain/mcp-compatibility-plan.js";
 
