@@ -1,5 +1,6 @@
+import { randomBytes } from "node:crypto";
 import { open as openFile } from "node:fs/promises";
-import { chmod, lstat, rename as renamePath } from "node:fs/promises";
+import { chmod, link, lstat, mkdir, rename as renamePath, rm, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DomainContractError, ErrorCodeRegistry } from "../../domain/errors.js";
 import type { ContentManifest } from "../../domain/content-manifest.js";
@@ -53,27 +54,85 @@ async function sealEntry(root: string, entry: ContentManifest["entries"][number]
   // link text is immutable by publication and is intentionally left untouched.
 }
 
+const PUBLICATION_ENTRY = "metadata.json";
+
 /**
- * Node's public fs API does not expose renameat2/rename-with-no-replace. The
- * production adapter therefore refuses to claim atomic publication unless a
- * platform-specific implementation is supplied. Sync and mode operations are
- * still implemented here because they have stable Node primitives.
+ * Publish one already-durable hidden payload by hard-linking its immutable
+ * metadata into the canonical digest path. `link(2)` is the Node primitive we
+ * need here: creation is atomic and fails with EEXIST instead of replacing a
+ * concurrent winner. Readers resolve the payload only through that complete
+ * marker, so a crash exposes either no revision or the whole sealed revision.
+ */
+async function linkPublication(source: string, destination: string): Promise<"published" | "exists"> {
+  try {
+    await link(join(source, PUBLICATION_ENTRY), destination);
+    return "published";
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return "exists";
+    throw error;
+  }
+}
+
+async function probePublication(root: string): Promise<void> {
+  if (process.platform === "win32") throw unavailable("probe");
+  const nonce = randomBytes(16).toString("hex");
+  const first = join(root, `.publication-probe-${nonce}-first`);
+  const second = join(root, `.publication-probe-${nonce}-second`);
+  const target = join(root, `.publication-probe-${nonce}-target`);
+  try {
+    await mkdir(first, { mode: 0o700 });
+    await mkdir(second, { mode: 0o700 });
+    await writeFile(join(first, PUBLICATION_ENTRY), "first", { flag: "wx", mode: 0o600 });
+    await writeFile(join(second, PUBLICATION_ENTRY), "second", { flag: "wx", mode: 0o600 });
+    await syncHandle(join(first, PUBLICATION_ENTRY), "probe");
+    await syncHandle(join(second, PUBLICATION_ENTRY), "probe");
+    await syncHandle(first, "probe");
+    await syncHandle(second, "probe");
+    if (await linkPublication(first, target) !== "published") throw new Error("publication probe did not publish");
+    if (await linkPublication(second, target) !== "exists") throw new Error("publication probe replaced its winner");
+    const [sourceStat, targetStat] = await Promise.all([lstat(join(first, PUBLICATION_ENTRY)), lstat(target)]);
+    if (!targetStat.isFile() || targetStat.isSymbolicLink() || sourceStat.dev !== targetStat.dev || sourceStat.ino !== targetStat.ino) {
+      throw new Error("publication probe did not create an exact hard-link marker");
+    }
+    await syncHandle(target, "probe");
+    await syncHandle(root, "probe");
+  } catch (error) {
+    throw unavailable("probe", error);
+  } finally {
+    await unlink(target).catch(() => undefined);
+    await rm(first, { recursive: true, force: true }).catch(() => undefined);
+    await rm(second, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+/**
+ * Node does not expose renameat2(RENAME_NOREPLACE) for direct directory moves.
+ * Immutable revisions therefore use the hard-link visibility protocol above.
+ * An injected direct rename remains available only for the legacy projection
+ * adapter and for focused platform tests; it is never the production content
+ * publication path.
  */
 export function createNodeContentStorePlatform(
   options: NodeContentStorePlatformOptions = {},
 ): ContentStorePlatform {
   const renameNoReplace = options.renameNoReplace;
   return Object.freeze({
-    async probe(_root: string): Promise<ContentStoreCapabilities> {
-      if (process.platform === "win32" || renameNoReplace === undefined) {
-        throw unavailable("probe");
-      }
+    async probe(root: string): Promise<ContentStoreCapabilities> {
+      if (renameNoReplace === undefined) await probePublication(root);
+      else if (process.platform === "win32") throw unavailable("probe");
       return {
         atomicNoReplaceDirectory: true,
         fileSync: true,
         directorySync: true,
         readOnlyModeEnforcement: "posix-mode",
       };
+    },
+    async publishDirectoryNoReplace(source: string, destination: string): Promise<"published" | "exists"> {
+      // Injected test/platform adapters retain the old direct-directory shape;
+      // production always takes the atomic marker path.
+      return renameNoReplace === undefined
+        ? linkPublication(source, destination)
+        : renameNoReplace(source, destination);
     },
     async renameNoReplace(source: string, destination: string): Promise<"published" | "exists"> {
       if (renameNoReplace === undefined) throw unavailable("renameNoReplace");

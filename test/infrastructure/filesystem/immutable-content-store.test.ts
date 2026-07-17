@@ -132,7 +132,7 @@ describe("immutable content promotion", () => {
     const foreign = await mkdtemp(join(root, "foreign-prepared-"));
     await writeFile(join(foreign, "foreign.txt"), "untouched");
     const displaced = `${layout.pluginStoreRoot}.displaced`;
-    const prepared = `${layout.pluginStoreRoot}/.pending-1f1e1d1c1b1a19181716151413121110`;
+    const prepared = `${layout.pluginStoreRoot}/.payload-1f1e1d1c1b1a19181716151413121110`;
     let swapped = false;
     try {
       const base = createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe });
@@ -156,16 +156,16 @@ describe("immutable content promotion", () => {
       await rename(displaced, layout.pluginStoreRoot);
       await allocator.discardStaging(plan.allocation, signal);
     } finally {
-      await chmod(join(layout.pluginStoreRoot, ".pending-1f1e1d1c1b1a19181716151413121110", "READY"), 0o644).catch(() => undefined);
-      await chmod(join(displaced, ".pending-1f1e1d1c1b1a19181716151413121110", "READY"), 0o644).catch(() => undefined);
-      await chmod(join(layout.pluginStoreRoot, ".pending-1f1e1d1c1b1a19181716151413121110", "metadata.json"), 0o644).catch(() => undefined);
-      await chmod(join(displaced, ".pending-1f1e1d1c1b1a19181716151413121110", "metadata.json"), 0o644).catch(() => undefined);
-      await chmod(join(layout.pluginStoreRoot, ".pending-1f1e1d1c1b1a19181716151413121110", "content", "plugin.txt"), 0o644).catch(() => undefined);
-      await chmod(join(displaced, ".pending-1f1e1d1c1b1a19181716151413121110", "content", "plugin.txt"), 0o644).catch(() => undefined);
-      await chmod(join(layout.pluginStoreRoot, ".pending-1f1e1d1c1b1a19181716151413121110", "content"), 0o755).catch(() => undefined);
-      await chmod(join(displaced, ".pending-1f1e1d1c1b1a19181716151413121110", "content"), 0o755).catch(() => undefined);
-      await chmod(join(layout.pluginStoreRoot, ".pending-1f1e1d1c1b1a19181716151413121110"), 0o755).catch(() => undefined);
-      await chmod(join(displaced, ".pending-1f1e1d1c1b1a19181716151413121110"), 0o755).catch(() => undefined);
+      await chmod(join(layout.pluginStoreRoot, ".payload-1f1e1d1c1b1a19181716151413121110", "READY"), 0o644).catch(() => undefined);
+      await chmod(join(displaced, ".payload-1f1e1d1c1b1a19181716151413121110", "READY"), 0o644).catch(() => undefined);
+      await chmod(join(layout.pluginStoreRoot, ".payload-1f1e1d1c1b1a19181716151413121110", "metadata.json"), 0o644).catch(() => undefined);
+      await chmod(join(displaced, ".payload-1f1e1d1c1b1a19181716151413121110", "metadata.json"), 0o644).catch(() => undefined);
+      await chmod(join(layout.pluginStoreRoot, ".payload-1f1e1d1c1b1a19181716151413121110", "content", "plugin.txt"), 0o644).catch(() => undefined);
+      await chmod(join(displaced, ".payload-1f1e1d1c1b1a19181716151413121110", "content", "plugin.txt"), 0o644).catch(() => undefined);
+      await chmod(join(layout.pluginStoreRoot, ".payload-1f1e1d1c1b1a19181716151413121110", "content"), 0o755).catch(() => undefined);
+      await chmod(join(displaced, ".payload-1f1e1d1c1b1a19181716151413121110", "content"), 0o755).catch(() => undefined);
+      await chmod(join(layout.pluginStoreRoot, ".payload-1f1e1d1c1b1a19181716151413121110"), 0o755).catch(() => undefined);
+      await chmod(join(displaced, ".payload-1f1e1d1c1b1a19181716151413121110"), 0o755).catch(() => undefined);
       await chmod(layout.pluginStoreRoot, 0o755).catch(() => undefined);
       await chmod(displaced, 0o755).catch(() => undefined);
       await rm(root, { recursive: true, force: true });
@@ -202,7 +202,7 @@ describe("immutable content promotion", () => {
       const base = createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe });
       const platform = {
         ...base,
-        async renameNoReplace(source: string, destination: string): Promise<"published" | "exists"> {
+        async publishDirectoryNoReplace(source: string, destination: string): Promise<"published" | "exists"> {
           const winner = `${destination}.winner`;
           await cp(source, winner, { recursive: true });
           await rename(winner, destination);
@@ -214,7 +214,7 @@ describe("immutable content promotion", () => {
       const result = await store.promote(plan, signal);
       publishedRoot = result.root.replace(/[/\\\\]content$/, "");
       expect(result.kind).toBe("already-present");
-      expect((await readdir(layout.pluginStoreRoot)).filter((entry) => entry.startsWith(".pending-")).length).toBe(0);
+      expect((await readdir(layout.pluginStoreRoot)).filter((entry) => entry.startsWith(".payload-")).length).toBe(0);
     } finally {
       if (publishedRoot !== undefined) {
         await chmod(join(publishedRoot, "content", "plugin.txt"), 0o644).catch(() => undefined);
@@ -243,9 +243,9 @@ describe("immutable content promotion", () => {
       const store = createImmutableContentStore({ layout, allocator, platform, sha256, randomBytes: () => Uint8Array.from({ length: 16 }, (_, i) => 31 - i) });
       const plan = await makePlan(allocator, root, "cancel");
       // The allocator uses a fixed id and the store uses a fixed prepared id.
-      preparedPath = `${layout.pluginStoreRoot}/.pending-1f1e1d1c1b1a19181716151413121110`;
+      preparedPath = `${layout.pluginStoreRoot}/.payload-1f1e1d1c1b1a19181716151413121110`;
       await expect(store.promote(plan, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
-      expect((await readdir(layout.pluginStoreRoot)).filter((entry) => entry.startsWith(".pending-")).length).toBe(0);
+      expect((await readdir(layout.pluginStoreRoot)).filter((entry) => entry.startsWith(".payload-")).length).toBe(0);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

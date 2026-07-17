@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { createPackagedPluginHost } from "../../src/composition/create-packaged-plugin-host.js";
-import { createLocalMarketplace, extensionContext, fakePi, runMarketplaceOperation } from "../helpers/packaged-marketplace.js";
+import { createLocalMarketplace, extensionContext, fakePi, removePackagedMarketplaceFixture, runMarketplaceOperation } from "../helpers/packaged-marketplace.js";
 
 describe("packaged marketplace discovery restart", () => {
   it("browses the selected immutable snapshot after the source disappears", async () => {
@@ -18,10 +18,6 @@ describe("packaged marketplace discovery restart", () => {
       await first.start({ type: "session_start", reason: "startup" } as never, firstContext as never);
       const added = await runMarketplaceOperation(first, firstContext, (marketplace, signal) =>
         marketplace.registration.add({ source: { kind: "local-git", path: repository }, scope: "user", origin: { kind: "native" } }, signal));
-      if (added.kind === "rejected" && added.code === "PROMOTION_FAILED") {
-        expect(added).toEqual({ kind: "rejected", code: "PROMOTION_FAILED" });
-        return;
-      }
       if (added.kind !== "added") throw new Error("fixture registration failed");
       const token = added.registration.selected!.token;
       await first.dispose("quit");
@@ -41,7 +37,7 @@ describe("packaged marketplace discovery restart", () => {
       }
     } finally {
       await first.dispose("quit").catch(() => undefined);
-      await rm(root, { recursive: true, force: true });
+      await removePackagedMarketplaceFixture(root);
     }
   }, 30_000);
 });

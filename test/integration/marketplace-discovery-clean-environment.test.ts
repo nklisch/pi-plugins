@@ -1,9 +1,9 @@
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { createPackagedPluginHost } from "../../src/composition/create-packaged-plugin-host.js";
-import { createLocalMarketplace, extensionContext, fakePi, runMarketplaceOperation } from "../helpers/packaged-marketplace.js";
+import { createLocalMarketplace, extensionContext, fakePi, removePackagedMarketplaceFixture, runMarketplaceOperation } from "../helpers/packaged-marketplace.js";
 
 describe("packaged marketplace discovery in a clean environment", () => {
   it("adds, lists, searches, and details a local marketplace without foreign CLIs", async () => {
@@ -20,13 +20,6 @@ describe("packaged marketplace discovery in a clean environment", () => {
       expect(Object.keys(started.application.marketplace).sort()).toEqual(["adoption", "catalog", "policy", "refresh", "registration"]);
       const added = await runMarketplaceOperation(host, context, (marketplace, signal) =>
         marketplace.registration.add({ source: { kind: "local-git", path: repository }, scope: "user", origin: { kind: "native" } }, signal));
-      if (added.kind === "rejected" && added.code === "PROMOTION_FAILED") {
-        // The current packaged host deliberately has no production
-        // atomic-no-replace primitive. Keep this seam explicit; do not weaken
-        // immutable publication in a marketplace feature workaround.
-        expect(added).toEqual({ kind: "rejected", code: "PROMOTION_FAILED" });
-        return;
-      }
       if (added.kind !== "added") throw new Error(`fixture registration failed: ${JSON.stringify(added)}`);
       expect(added).toMatchObject({ kind: "added", registration: { marketplace: "community", cache: { kind: "unknown-local" }, selected: { revision: expect.stringMatching(/^[0-9a-f]{40}$/) } } });
       const listed = await runMarketplaceOperation(host, context, (marketplace, signal) =>
@@ -42,7 +35,7 @@ describe("packaged marketplace discovery in a clean environment", () => {
       expect(started.application.marketplace.catalog).not.toHaveProperty("resolve");
     } finally {
       await host.dispose("quit");
-      await rm(root, { recursive: true, force: true });
+      await removePackagedMarketplaceFixture(root);
     }
   }, 30_000);
 });

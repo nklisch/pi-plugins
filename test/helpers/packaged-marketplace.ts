@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import type {
@@ -43,6 +43,19 @@ export function runMarketplaceOperation<T>(
     signal,
     (application) => use(application.marketplace, signal),
   );
+}
+
+async function makeDirectoriesWritable(root: string): Promise<void> {
+  const stat = await lstat(root).catch(() => undefined);
+  if (stat === undefined || !stat.isDirectory() || stat.isSymbolicLink()) return;
+  await chmod(root, 0o700).catch(() => undefined);
+  for (const name of await readdir(root).catch(() => [])) await makeDirectoriesWritable(join(root, name));
+}
+
+/** Tests own their temporary root and may remove sealed immutable payloads. */
+export async function removePackagedMarketplaceFixture(root: string): Promise<void> {
+  await makeDirectoriesWritable(root);
+  await rm(root, { recursive: true, force: true });
 }
 
 export async function createLocalMarketplace(root: string, name = "community"): Promise<string> {

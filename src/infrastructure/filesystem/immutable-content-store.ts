@@ -12,10 +12,11 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import {
   ContentStoreIdentitySchema,
+  contentStoreKeyDigest,
   createMarketplaceStoreIdentity,
   createPluginStoreIdentity,
   type ContentStoreIdentity,
@@ -65,9 +66,18 @@ const PublishedMetadataSchemaV2 = z.object({
   binding: ContentDigestSchema,
   descriptor: InstalledRevisionDescriptorSchemaV1,
 }).strict().readonly();
+const PublishedMetadataSchemaV3 = z.object({
+  version: z.literal(3),
+  identity: ContentStoreIdentitySchema,
+  manifest: z.unknown(),
+  binding: ContentDigestSchema,
+  payload: z.string().regex(/^\.payload-[0-9a-f]{32}$/u),
+  descriptor: InstalledRevisionDescriptorSchemaV1.optional(),
+}).strict().readonly();
 const PublishedMetadataSchema = z.discriminatedUnion("version", [
   PublishedMetadataSchemaV1,
   PublishedMetadataSchemaV2,
+  PublishedMetadataSchemaV3,
 ]);
 type PublishedMetadata = z.infer<typeof PublishedMetadataSchema>;
 
@@ -286,9 +296,43 @@ async function readMetadataWithHash(root: string, sha256: Sha256): Promise<Reado
   return { metadata, manifest };
 }
 
-export async function inspectPublishedRevision(root: string, sha256: Sha256): Promise<PublishedRevision> {
-  const stat = await lstat(root).catch((cause) => { throw storeError("contentVerificationFailed", "resolveContent", "published revision is unavailable", cause); });
-  if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(root) !== root) throw storeError("contentVerificationFailed", "resolveContent", "published revision is not a real directory");
+async function resolvePublishedPayload(publication: string): Promise<string> {
+  const publicationStat = await lstat(publication).catch((cause) => {
+    throw storeError("contentVerificationFailed", "resolveContent", "published revision is unavailable", cause);
+  });
+  if (publicationStat.isDirectory() && !publicationStat.isSymbolicLink()) {
+    if (await realpath(publication) !== publication) throw storeError("contentVerificationFailed", "resolveContent", "published revision resolves through a symlink");
+    return publication;
+  }
+  if (!publicationStat.isFile() || publicationStat.isSymbolicLink() || (publicationStat.mode & 0o777) !== 0o444) {
+    throw storeError("contentVerificationFailed", "resolveContent", "published revision marker is invalid");
+  }
+  let marker: PublishedMetadata;
+  try {
+    marker = PublishedMetadataSchema.parse(JSON.parse(await readFile(publication, "utf8")));
+  } catch (cause) {
+    throw storeError("contentVerificationFailed", "resolveContent", "published revision marker is invalid", cause);
+  }
+  if (marker.version !== 3 || basename(publication) !== contentStoreKeyDigest(marker.identity)) {
+    throw storeError("contentVerificationFailed", "resolveContent", "published revision marker identity is invalid");
+  }
+  const payload = join(dirname(publication), marker.payload);
+  const [payloadStat, metadataStat, markerAfter] = await Promise.all([
+    lstat(payload),
+    lstat(join(payload, METADATA)),
+    lstat(publication),
+  ]).catch((cause) => { throw storeError("contentVerificationFailed", "resolveContent", "published revision payload is unavailable", cause); });
+  if (!payloadStat.isDirectory() || payloadStat.isSymbolicLink() || await realpath(payload) !== payload ||
+      !metadataStat.isFile() || metadataStat.isSymbolicLink() ||
+      publicationStat.dev !== markerAfter.dev || publicationStat.ino !== markerAfter.ino ||
+      publicationStat.dev !== metadataStat.dev || publicationStat.ino !== metadataStat.ino) {
+    throw storeError("contentVerificationFailed", "resolveContent", "published revision marker changed identity");
+  }
+  return payload;
+}
+
+export async function inspectPublishedRevision(publication: string, sha256: Sha256): Promise<PublishedRevision> {
+  const root = await resolvePublishedPayload(publication);
   const { metadata, manifest } = await readMetadataWithHash(root, sha256);
   const actual = await verifyMaterializedContent(join(root, "content"), manifest).catch((cause) => {
     throw storeError("contentVerificationFailed", "resolveContent", "published revision content verification failed", cause);
@@ -302,7 +346,7 @@ export async function inspectPublishedRevision(root: string, sha256: Sha256): Pr
     identity: metadata.identity,
     manifest: actual,
     binding: metadata.binding,
-    ...(metadata.version === 1 ? {} : { descriptor: metadata.descriptor }),
+    ...(metadata.version !== 1 && metadata.descriptor !== undefined ? { descriptor: metadata.descriptor } : {}),
   };
 }
 
@@ -334,7 +378,7 @@ export function createImmutableContentStore(options: ImmutableContentStoreOption
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
       throw storeError("adapterFailed", "promoteContent", "content store target could not be inspected", error);
     }
-    if (!stat.isDirectory() || stat.isSymbolicLink()) return "collision";
+    if ((!stat.isDirectory() && !stat.isFile()) || stat.isSymbolicLink()) return "collision";
     try {
       await assertLayoutRoot(options.layout, root, "promoteContent");
       const inspected = await inspectPublishedRevision(target, options.sha256);
@@ -393,12 +437,13 @@ export function createImmutableContentStore(options: ImmutableContentStoreOption
     };
     const initialTarget = await inspectTarget(target, plan, targetRoot);
     if (initialTarget === "ready-match") {
+      const existing = await inspectPublishedRevision(target, options.sha256);
       await options.allocator.discardStaging(plan.allocation, signal);
-      return { kind: "already-present" as const, identity: plan.identity, root: join(target, "content"), manifest: plan.manifest };
+      return { kind: "already-present" as const, identity: plan.identity, root: join(existing.root, "content"), manifest: plan.manifest };
     }
     if (initialTarget === "collision") throw storeError("storeIdentityCollision", "promoteContent", "content store identity is already occupied by different content");
 
-    const prepared = join(storeRoot, `.pending-${preparedId(await randomBytes(16))}`);
+    const prepared = join(storeRoot, `.payload-${preparedId(await randomBytes(16))}`);
     await assertLayoutRoot(options.layout, targetRoot, "promoteContent");
     let published = false;
     let preparedCreated = false;
@@ -456,9 +501,14 @@ export function createImmutableContentStore(options: ImmutableContentStoreOption
         throw storeError("contentVerificationFailed", "promoteContent", "prepared content failed verification", cause);
       });
       if (!sameJson(preparedManifest, plan.manifest)) throw storeError("contentVerificationFailed", "promoteContent", "prepared content differs from the handoff");
-      const metadata = JSON.stringify(plan.kind === "plugin" && plan.descriptor !== undefined
-        ? { version: 2, identity: plan.identity, manifest: plan.manifest, binding: plan.binding, descriptor: plan.descriptor }
-        : { version: 1, identity: plan.identity, manifest: plan.manifest, binding: plan.binding });
+      const metadata = JSON.stringify({
+        version: 3,
+        identity: plan.identity,
+        manifest: plan.manifest,
+        binding: plan.binding,
+        payload: basename(prepared),
+        ...(plan.kind === "plugin" && plan.descriptor !== undefined ? { descriptor: plan.descriptor } : {}),
+      });
       await writeSyncedFile(join(prepared, METADATA), metadata, options.platform, assertPreparedBeforeEffect);
       await assertPreparedBeforeEffect();
       await chmod(join(prepared, METADATA), 0o444);
@@ -494,14 +544,15 @@ export function createImmutableContentStore(options: ImmutableContentStoreOption
       throwIfAborted(signal);
       await assertPreparedBeforeEffect();
       await assertStoreBeforeEffect();
-      const publication = await options.platform.renameNoReplace(prepared, target);
+      const publication = await options.platform.publishDirectoryNoReplace(prepared, target);
       if (publication === "exists") {
         const winner = await inspectTarget(target, plan, targetRoot);
         if (winner !== "ready-match") throw storeError("storeIdentityCollision", "promoteContent", "concurrent content store publication collides with different content");
         if (await tryCleanupPrepared() !== undefined) throw cleanupError(new Error("identical promotion lost publication race"));
+        const existing = await inspectPublishedRevision(target, options.sha256);
         await options.allocator.discardStaging(plan.allocation, new AbortController().signal);
         await assertStoreBeforeEffect();
-        return { kind: "already-present" as const, identity: plan.identity, root: join(target, "content"), manifest: plan.manifest };
+        return { kind: "already-present" as const, identity: plan.identity, root: join(existing.root, "content"), manifest: plan.manifest };
       }
       published = true;
       await assertStoreBeforeEffect();
@@ -512,7 +563,8 @@ export function createImmutableContentStore(options: ImmutableContentStoreOption
       await assertSourceBeforeEffect();
       await options.allocator.discardStaging(plan.allocation, new AbortController().signal);
       await assertStoreBeforeEffect();
-      return { kind: "promoted" as const, identity: plan.identity, root: join(target, "content"), manifest: plan.manifest };
+      const visible = await inspectPublishedRevision(target, options.sha256);
+      return { kind: "promoted" as const, identity: plan.identity, root: join(visible.root, "content"), manifest: plan.manifest };
     } catch (error) {
       if (!published && await tryCleanupPrepared() !== undefined) {
         if (isIncompleteCleanup(error)) throw error;
