@@ -2052,3 +2052,30 @@ export type {
   NativeControlSelectionService,
 } from "./application/native-control-selection.js";
 export type { NativeControlDispatchResult } from "./application/native-control-projection.js";
+export {
+  NativeControlFrameSchema,
+  NativeControlDeliveryClosedError,
+  createNativeControlProgressController,
+} from "./application/native-control-progress.js";
+export type { NativeControlFrame, NativeControlProgressController } from "./application/native-control-progress.js";
+export {
+  parseNativeControlOperationHandle,
+  createNativeControlOperationRouter,
+} from "./application/native-control-operation.js";
+export {
+  NativeControlAdmissionError,
+  createNativeControlExecutionCoordinator,
+} from "./application/native-control-execution.js";
+export type {
+  NativeControlDispatchFunction,
+  NativeControlExecutionCoordinator,
+} from "./application/native-control-execution.js";
+export type {
+  NativeControlFrameSink,
+  NativeControlExecutionIdPort,
+  NativeControlTimeoutPort,
+  NativeControlExecutionReport,
+  NativeControlExecutionCoreOptions,
+  NativeControlProgressSink,
+  NativeControlDispatchExecutionContext,
+} from "./application/ports/native-control-execution.js";

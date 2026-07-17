@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-deterministic-control-facade-operation-progress-admission
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, reliability]
 parent: epic-native-plugin-management-deterministic-control-facade
 depends_on: [epic-native-plugin-management-deterministic-control-facade-contracts-registry, epic-native-plugin-management-deterministic-control-facade-input-redaction]
@@ -34,3 +34,15 @@ Create commit-aware command execution with structured accepted/progress/result f
 - Timeout, caller abort, SIGINT-shaped abort, explicit operation cancel, and host quiescence converge on one signal while committed/partial/rollback/recovery evidence wins.
 - Status/cancel validates and routes existing trusted-install/lifecycle tokens without a local session registry or latest-token fallback.
 - Quiesce rejects new work; idempotent close drains admitted possibly-committed operations before dependent resources close.
+
+## Implementation notes
+
+- Added versioned accepted/progress/result frames and a per-execution sequencer with owner progress validation, strictly increasing counters, and directly awaited sink writes.
+- Sink close/EPIPE/failure stops delivery and aborts the operation signal without throwing from the observer or rewriting a later committed owner result.
+- Added exact existing-token parsing/routing for trusted-install and lifecycle status/cancel; no facade session or fallback token lookup exists.
+- Added injected ID/timeout execution admission, linked cancellation, isolated concurrent execution state, quiesce rejection, and idempotent active-operation draining.
+
+## Verification
+
+- `npm run typecheck`
+- `npx vitest run test/application/native-control-progress.test.ts test/application/native-control-operation.test.ts test/application/native-control-execution.test.ts`
