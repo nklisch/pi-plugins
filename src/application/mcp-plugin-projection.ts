@@ -251,44 +251,15 @@ function canonicalWithoutDigest(value: PluginMcpProjection): Omit<PluginMcpProje
   return withoutDigest;
 }
 
-export function createPluginMcpProjection(input: Readonly<{
-  projection: PluginRuntimeProjection;
-  compatibility: CompatibilityReport;
-  runtimeCapabilities: McpRuntimeCapabilities;
-  sha256: Sha256;
-  digest?: ContentDigest;
-}>): PluginMcpProjection {
-  let projection: PluginRuntimeProjection;
-  let compatibility: CompatibilityReport;
-  let runtime: McpRuntimeCapabilities;
-  try {
-    projection = createActiveProjectionExpectation(
-      PluginRuntimeProjectionSchemaV1.parse(input.projection),
-      input.sha256,
-    ).projection;
-    compatibility = CompatibilityReportSchema.parse(input.compatibility);
-    runtime = McpRuntimeCapabilitiesSchemaV1.parse(input.runtimeCapabilities);
-  } catch {
-    fail("INVALID_MCP_PROJECTION_INPUT");
-  }
-  if (projection.pluginIdentity.key !== projection.plugin ||
-      canonicalJson(compatibility.plugin) !== canonicalJson(projection.pluginIdentity)) {
-    fail("PLUGIN_IDENTITY_MISMATCH");
-  }
-  if (digestCompatibilityReport(compatibility, input.sha256) !== projection.compatibilityDigest) {
-    fail("COMPATIBILITY_EVIDENCE_MISMATCH");
-  }
-  if (!compatibility.activatable) fail("REPORT_NOT_ACTIVATABLE");
-
-  const inventoryIds = projection.components.mcpServers.map((component) => component.id);
-  const reportMcpIds = compatibility.components
-    .filter((assessment) => assessment.componentId.startsWith("component-v1:mcp-server:"))
-    .filter((assessment) => assessment.verdict.kind === "supported")
-    .map((assessment) => assessment.componentId);
-  if (!sameStrings(inventoryIds, reportMcpIds)) {
-    fail("MCP_INVENTORY_MISMATCH", [...inventoryIds, ...reportMcpIds]);
-  }
-
+function derivePluginMcpProjection(
+  projection: PluginRuntimeProjection,
+  runtime: McpRuntimeCapabilities,
+  sha256: Sha256,
+  verifyPlan?: (
+    componentId: ComponentId,
+    capabilities: readonly RuntimeCapabilityId[],
+  ) => void,
+): PluginMcpProjection {
   const identity = sourceIdentity(projection);
   if (projection.components.mcpServers.length === 0) {
     const withoutDigest = {
@@ -297,11 +268,10 @@ export function createPluginMcpProjection(input: Readonly<{
       identity,
       aliasOmissions: [] as const,
     };
-    const digest = digestProjection(withoutDigest, input.sha256);
-    if (input.digest !== undefined && ContentDigestSchema.parse(input.digest) !== digest) {
-      fail("MCP_PROJECTION_DIGEST_MISMATCH");
-    }
-    return PluginMcpProjectionSchemaV1.parse({ ...withoutDigest, digest });
+    return PluginMcpProjectionSchemaV1.parse({
+      ...withoutDigest,
+      digest: digestProjection(withoutDigest, sha256),
+    });
   }
 
   const rows = projection.components.mcpServers.map((component) => {
@@ -309,18 +279,19 @@ export function createPluginMcpProjection(input: Readonly<{
       verifyComponentId(component.id, projection.plugin, {
         kind: "mcp-server",
         nativeKey: component.nativeKey.value,
-      }, input.sha256);
+      }, sha256);
     } catch {
       fail("MCP_COMPONENT_ID_MISMATCH", [component.id]);
     }
     const analysis = analyzeMcpCompatibility({ plugin: projection.plugin, component });
     if (analysis.kind === "incompatible") fail("MCP_DECLARATION_UNSUPPORTED", [component.id]);
-    verifyReportPlan(
-      compatibility,
-      component.id,
-      analysis.plan.requirementCapabilityIds,
-      runtime,
-    );
+    for (const capability of analysis.plan.requirementCapabilityIds) {
+      if (!runtimeSupports(capability, runtime)) {
+        fail("MCP_RUNTIME_CAPABILITY_MISMATCH", [component.id]);
+      }
+    }
+    verifyPlan?.(component.id, analysis.plan.requirementCapabilityIds);
+
     const serverKey = deriveMcpRuntimeServerKey(component.id);
     const provenance = canonicalLocations(analysis.plan.provenance);
     const alias = aliasFor(
@@ -367,18 +338,111 @@ export function createPluginMcpProjection(input: Readonly<{
   });
   const aliasOmissions = rows.flatMap((row) => row.omission === undefined ? [] : [row.omission])
     .sort((left, right) => compareUtf8(left.serverKey, right.serverKey) || compareUtf8(left.code, right.code));
-  const registration = createMcpSourceRegistration({ source, sha256: input.sha256 });
+  const registration = createMcpSourceRegistration({ source, sha256 });
   const withoutDigest = {
     schemaVersion: 1 as const,
     kind: "source" as const,
     registration,
     aliasOmissions,
   };
-  const digest = digestProjection(withoutDigest, input.sha256);
-  if (input.digest !== undefined && ContentDigestSchema.parse(input.digest) !== digest) {
+  return PluginMcpProjectionSchemaV1.parse({
+    ...withoutDigest,
+    digest: digestProjection(withoutDigest, sha256),
+  });
+}
+
+/**
+ * Recompute MCP contribution bytes from the authoritative whole-plugin
+ * projection. Lifecycle callers use this rather than trusting a separately
+ * self-hashed MCP projection supplied beside the expectation.
+ */
+export function createPluginMcpProjectionFromExpectation(input: Readonly<{
+  projection: PluginRuntimeProjection;
+  runtimeCapabilities: McpRuntimeCapabilities;
+  sha256: Sha256;
+}>): PluginMcpProjection {
+  let projection: PluginRuntimeProjection;
+  let runtime: McpRuntimeCapabilities;
+  try {
+    projection = createActiveProjectionExpectation(
+      PluginRuntimeProjectionSchemaV1.parse(input.projection),
+      input.sha256,
+    ).projection;
+    runtime = McpRuntimeCapabilitiesSchemaV1.parse(input.runtimeCapabilities);
+  } catch {
+    fail("INVALID_MCP_PROJECTION_INPUT");
+  }
+  return derivePluginMcpProjection(projection, runtime, input.sha256);
+}
+
+/** Verify a claimed source projection against independently derived authority. */
+export function verifyPluginMcpProjectionAgainstExpectation(input: Readonly<{
+  claimed: unknown;
+  projection: PluginRuntimeProjection;
+  runtimeCapabilities: McpRuntimeCapabilities;
+  sha256: Sha256;
+}>): PluginMcpProjection {
+  const claimed = verifyPluginMcpProjection(input.claimed, input.sha256);
+  const authoritative = createPluginMcpProjectionFromExpectation(input);
+  if (canonicalJson(claimed) !== canonicalJson(authoritative)) {
+    fail("MCP_PROJECTION_AUTHORITY_MISMATCH");
+  }
+  return authoritative;
+}
+
+export function createPluginMcpProjection(input: Readonly<{
+  projection: PluginRuntimeProjection;
+  compatibility: CompatibilityReport;
+  runtimeCapabilities: McpRuntimeCapabilities;
+  sha256: Sha256;
+  digest?: ContentDigest;
+}>): PluginMcpProjection {
+  let projection: PluginRuntimeProjection;
+  let compatibility: CompatibilityReport;
+  let runtime: McpRuntimeCapabilities;
+  try {
+    projection = createActiveProjectionExpectation(
+      PluginRuntimeProjectionSchemaV1.parse(input.projection),
+      input.sha256,
+    ).projection;
+    compatibility = CompatibilityReportSchema.parse(input.compatibility);
+    runtime = McpRuntimeCapabilitiesSchemaV1.parse(input.runtimeCapabilities);
+  } catch {
+    fail("INVALID_MCP_PROJECTION_INPUT");
+  }
+  if (projection.pluginIdentity.key !== projection.plugin ||
+      canonicalJson(compatibility.plugin) !== canonicalJson(projection.pluginIdentity)) {
+    fail("PLUGIN_IDENTITY_MISMATCH");
+  }
+  if (digestCompatibilityReport(compatibility, input.sha256) !== projection.compatibilityDigest) {
+    fail("COMPATIBILITY_EVIDENCE_MISMATCH");
+  }
+  if (!compatibility.activatable) fail("REPORT_NOT_ACTIVATABLE");
+
+  const inventoryIds = projection.components.mcpServers.map((component) => component.id);
+  const reportMcpIds = compatibility.components
+    .filter((assessment) => assessment.componentId.startsWith("component-v1:mcp-server:"))
+    .filter((assessment) => assessment.verdict.kind === "supported")
+    .map((assessment) => assessment.componentId);
+  if (!sameStrings(inventoryIds, reportMcpIds)) {
+    fail("MCP_INVENTORY_MISMATCH", [...inventoryIds, ...reportMcpIds]);
+  }
+
+  const result = derivePluginMcpProjection(
+    projection,
+    runtime,
+    input.sha256,
+    (componentId, capabilityIds) => verifyReportPlan(
+      compatibility,
+      componentId,
+      capabilityIds,
+      runtime,
+    ),
+  );
+  if (input.digest !== undefined && ContentDigestSchema.parse(input.digest) !== result.digest) {
     fail("MCP_PROJECTION_DIGEST_MISMATCH");
   }
-  return PluginMcpProjectionSchemaV1.parse({ ...withoutDigest, digest });
+  return result;
 }
 
 export function verifyPluginMcpProjection(

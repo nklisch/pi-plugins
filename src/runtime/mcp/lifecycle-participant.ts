@@ -11,6 +11,7 @@ import {
 import type { Sha256 } from "../../domain/source.js";
 import {
   verifyPluginMcpProjection,
+  verifyPluginMcpProjectionAgainstExpectation,
   type PluginMcpProjection,
 } from "../../application/mcp-plugin-projection.js";
 import {
@@ -175,6 +176,10 @@ function parseState(input: McpLifecycleState, sha256: Sha256): McpLifecycleState
     return Object.freeze({ kind: "inactive", expectation });
   }
   if (expectation.kind !== "active") throw new Error("active MCP state requires an active expectation");
+  const hasMcpServers = expectation.projection.components.mcpServers.length > 0;
+  if ((input.kind === "source") !== hasMcpServers) {
+    throw new Error("MCP state kind differs from the authoritative component inventory");
+  }
   const projection = verifyPluginMcpProjection(input.projection, sha256);
   if (projection.kind !== input.kind) throw new Error("MCP state and projection kind differ");
   const identity = projection.kind === "source"
@@ -187,13 +192,23 @@ function parseState(input: McpLifecycleState, sha256: Sha256): McpLifecycleState
     throw new Error("MCP projection does not bind the complete projection expectation");
   }
   if (projection.kind === "source") {
+    const capabilities = McpRuntimeCapabilitiesSchemaV1.parse(
+      (input as Extract<McpLifecycleState, { kind: "source" }>).capabilities,
+    );
+    const authoritative = verifyPluginMcpProjectionAgainstExpectation({
+      claimed: projection,
+      projection: expectation.projection,
+      runtimeCapabilities: capabilities,
+      sha256,
+    });
+    if (authoritative.kind !== "source") {
+      throw new Error("MCP projection differs from the authoritative whole-plugin projection");
+    }
     return Object.freeze({
       kind: "source",
       expectation,
-      projection,
-      capabilities: McpRuntimeCapabilitiesSchemaV1.parse(
-        (input as Extract<McpLifecycleState, { kind: "source" }>).capabilities,
-      ),
+      projection: authoritative,
+      capabilities,
     });
   }
   return Object.freeze({ kind: "none", expectation, projection });

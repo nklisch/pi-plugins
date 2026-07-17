@@ -4,6 +4,7 @@ import {
   createPluginMcpProjection,
   type PluginMcpProjection,
 } from "../../../src/application/mcp-plugin-projection.js";
+import { createMcpSourceRegistration } from "../../../src/application/mcp-source-registration.js";
 import {
   createMcpLifecycleParticipant,
   type McpLifecycleState,
@@ -21,7 +22,8 @@ import {
 } from "../../../src/application/ports/runtime-projection.js";
 import { evaluateCompatibility } from "../../../src/domain/compatibility-evaluator.js";
 import { deriveComponentId } from "../../../src/domain/component-identity.js";
-import { createContentManifest } from "../../../src/domain/content-manifest.js";
+import { canonicalJson } from "../../../src/domain/canonical-json.js";
+import { createContentManifest, hashContent } from "../../../src/domain/content-manifest.js";
 import { createInstalledRevisionRecord } from "../../../src/domain/state/installed-state.js";
 import {
   CanonicalProjectRootSchema,
@@ -174,6 +176,42 @@ function delegated(base: FakeMcpRuntime, overrides: Partial<McpRuntimePort>): Mc
   };
 }
 
+function rehashMcpProjection(
+  projection: Extract<PluginMcpProjection, { kind: "source" }>,
+  source: Extract<PluginMcpProjection, { kind: "source" }>["registration"]["source"],
+): Extract<PluginMcpProjection, { kind: "source" }> {
+  const registration = createMcpSourceRegistration({ source, sha256 });
+  const withoutDigest = {
+    schemaVersion: 1 as const,
+    kind: "source" as const,
+    registration,
+    aliasOmissions: projection.aliasOmissions,
+  };
+  const digest = hashContent(
+    new TextEncoder().encode(`plugin-mcp-projection-v1\0${canonicalJson(withoutDigest)}`),
+    sha256,
+  );
+  return { ...withoutDigest, digest };
+}
+
+function forgedNoneProjection(
+  source: Extract<PluginMcpProjection, { kind: "source" }>,
+): Extract<PluginMcpProjection, { kind: "none" }> {
+  const withoutDigest = {
+    schemaVersion: 1 as const,
+    kind: "none" as const,
+    identity: source.registration.source.identity,
+    aliasOmissions: [] as const,
+  };
+  return {
+    ...withoutDigest,
+    digest: hashContent(
+      new TextEncoder().encode(`plugin-mcp-projection-v1\0${canonicalJson(withoutDigest)}`),
+      sha256,
+    ),
+  };
+}
+
 describe("MCP lifecycle participant", () => {
   it("reconciles the complete source/none/inactive transition table idempotently", async () => {
     const sourceState = stateFixture().state;
@@ -216,6 +254,42 @@ describe("MCP lifecycle participant", () => {
     const stale = await owner.reconcile({ from: oldState, to: newState, currentProject }, signal);
     expect(stale).toEqual({ kind: "stale", current: thirdState.projection.registration.source.identity });
     expect(await runtime.inspectSource(thirdState.projection.registration.source.identity, signal)).toBeDefined();
+  });
+
+  it("rejects forged none and altered rehashed source evidence before runtime or provider effects", async () => {
+    const sourceState = stateFixture().state;
+    if (sourceState.kind !== "source") throw new Error("source state required");
+    const [key, server] = Object.entries(sourceState.projection.registration.source.servers)[0]!;
+    const altered = rehashMcpProjection(sourceState.projection, {
+      ...sourceState.projection.registration.source,
+      servers: { [key]: { ...server, nativeKey: "forged-native-key" } },
+    });
+    const forgedStates: McpLifecycleState[] = [
+      { ...sourceState, projection: altered },
+      {
+        kind: "none",
+        expectation: sourceState.expectation,
+        projection: forgedNoneProjection(sourceState.projection),
+      },
+    ];
+
+    for (const forged of forgedStates) {
+      for (const operation of ["reconcile", "observe"] as const) {
+        let runtimeEffects = 0;
+        const base = new FakeMcpRuntime();
+        const runtime = delegated(base, {
+          capabilities: async (signal) => { runtimeEffects += 1; return base.capabilities(signal); },
+          inspectSources: async (signal) => { runtimeEffects += 1; return base.inspectSources(signal); },
+          inspectSource: async (identity, signal) => { runtimeEffects += 1; return base.inspectSource(identity, signal); },
+        });
+        const created = participant(runtime);
+        const request = { from: stateFixture({ servers: false }).inactive, to: forged, currentProject };
+        const result = await created.participant[operation](request, new AbortController().signal);
+        expect(result, `${operation}:${forged.kind}`).toEqual({ kind: "failed", code: "INVALID_TRANSITION" });
+        expect(runtimeEffects, `${operation}:${forged.kind}`).toBe(0);
+        expect(created.calls, `${operation}:${forged.kind}`).toEqual({ launchValues: 0, runtimeLeases: 0 });
+      }
+    }
   });
 
   it("independently observes exact registration inventory while ignoring remote health", async () => {

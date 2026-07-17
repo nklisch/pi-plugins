@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   createPluginMcpProjection,
   verifyPluginMcpProjection,
+  verifyPluginMcpProjectionAgainstExpectation,
 } from "../../src/application/mcp-plugin-projection.js";
+import { createMcpSourceRegistration } from "../../src/application/mcp-source-registration.js";
 import {
+  McpConfigSourceSchemaV1,
   McpRuntimeCapabilitiesSchemaV1,
   deriveMcpRuntimeServerKey,
 } from "../../src/application/ports/mcp-runtime.js";
@@ -182,6 +185,27 @@ function create(f = fixture(), runtimeCapabilities = runtime()) {
   });
 }
 
+function rehashClaimedProjection(
+  projection: Extract<ReturnType<typeof create>, { kind: "source" }>,
+  sourceInput: unknown,
+) {
+  const source = McpConfigSourceSchemaV1.parse(sourceInput);
+  const registration = createMcpSourceRegistration({ source, sha256 });
+  const withoutDigest = {
+    schemaVersion: 1 as const,
+    kind: "source" as const,
+    registration,
+    aliasOmissions: projection.aliasOmissions,
+  };
+  return {
+    ...withoutDigest,
+    digest: hashContent(
+      new TextEncoder().encode(`plugin-mcp-projection-v1\0${canonicalJson(withoutDigest)}`),
+      sha256,
+    ),
+  };
+}
+
 describe("plugin MCP projection", () => {
   it("builds a deterministic logical-only source with canonical identity and provenance", () => {
     const f = fixture();
@@ -316,6 +340,92 @@ describe("plugin MCP projection", () => {
     expect(composedMcp.digest).not.toBe(decomposedMcp.digest);
     if (composedMcp.kind !== "source" || decomposedMcp.kind !== "source") throw new Error("expected sources");
     expect(Object.keys(composedMcp.registration.source.servers)).not.toEqual(Object.keys(decomposedMcp.registration.source.servers));
+  });
+
+  it("recomputes every source field from whole-plugin inventory and capability authority", () => {
+    const f = fixture();
+    const valid = create(f);
+    if (valid.kind !== "source") throw new Error("expected source projection");
+    const source = valid.registration.source;
+    const [key, server] = Object.entries(source.servers)[0]!;
+    const forgedComponentId = `component-v1:mcp-server:${"f".repeat(64)}`;
+    const forgedServerKey = `mcp-server-v1:${"f".repeat(64)}`;
+    const alterations: readonly unknown[] = [
+      { ...source, servers: { [key]: { ...server, nativeKey: "altered-native-key" } } },
+      {
+        ...source,
+        servers: {
+          [forgedServerKey]: {
+            ...server,
+            componentId: forgedComponentId,
+            projection: { ...server.projection, componentId: forgedComponentId },
+          },
+        },
+      },
+      {
+        ...source,
+        servers: {
+          [key]: {
+            ...server,
+            transport: "streamable-http",
+            launchTemplate: {
+              schemaVersion: 1,
+              transport: "streamable-http",
+              url: "https://altered.invalid/mcp",
+              headers: [],
+            },
+          },
+        },
+      },
+      { ...source, servers: { [key]: { ...server, options: { ...server.options, toolTimeoutMs: 17 } } } },
+      {
+        ...source,
+        servers: {
+          [key]: {
+            ...server,
+            launchTemplate: { ...server.launchTemplate, command: "altered-command" },
+          },
+        },
+      },
+      {
+        ...source,
+        servers: {
+          [key]: {
+            ...server,
+            provenance: server.provenance.map((entry) => ({ ...entry, pointer: "/altered" })),
+          },
+        },
+      },
+      { ...source, servers: { [key]: { ...server, toolAliases: [] } } },
+      {
+        ...source,
+        servers: {
+          [key]: {
+            ...server,
+            projection: {
+              ...server.projection,
+              contentRef: `plugin-content-v1:sha256:${"f".repeat(64)}`,
+            },
+          },
+        },
+      },
+    ];
+
+    expect(verifyPluginMcpProjectionAgainstExpectation({
+      claimed: valid,
+      projection: f.projection,
+      runtimeCapabilities: runtime(),
+      sha256,
+    })).toEqual(valid);
+    for (const altered of alterations) {
+      const claimed = rehashClaimedProjection(valid, altered);
+      expect(() => verifyPluginMcpProjectionAgainstExpectation({
+        claimed,
+        projection: f.projection,
+        runtimeCapabilities: runtime(),
+        sha256,
+      })).toThrow(DomainContractError);
+    }
   });
 
   it("returns an explicit deterministic none projection without an empty source", () => {
