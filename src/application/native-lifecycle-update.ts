@@ -26,7 +26,7 @@ export type PreparedNativeLifecycleUpdate = Readonly<{
 
 export type NativeLifecycleUpdatePreparationResult =
   | Readonly<{ kind: "ready"; update: PreparedNativeLifecycleUpdate }>
-  | Readonly<{ kind: "current-state"; reason: "revision-current" }>
+  | Readonly<{ kind: "current-state"; reason: "revision-current"; target: VerifiedNativeLifecycleTarget }>
   | Readonly<{ kind: "stale"; reason: "inspection" | "target" | "candidate" | "project" | "capability" }>
   | Readonly<{ kind: "blocked"; reason: "pending-transition" | "recovery-required" }>
   | Readonly<{ kind: "unavailable" | "rejected"; reason: "candidate" | "target" }>;
@@ -95,7 +95,7 @@ export function createNativeLifecycleUpdateService(input: Readonly<{
     const candidate = candidateResult.candidate;
     if (candidate.binding.immutableRevision === targetResult.target.binding.selectedRevision) {
       await candidate.lease.release();
-      return { kind: "current-state", reason: "revision-current" };
+      return { kind: "current-state", reason: "revision-current", target: targetResult.target };
     }
     const binding = sourceBinding(targetResult.target, candidate, input.sha256);
     if (binding === undefined) {
@@ -109,7 +109,7 @@ export function createNativeLifecycleUpdateService(input: Readonly<{
     const target = await input.targets.validate(update.target, signal);
     if (target.kind !== "ready") return mapTarget(target);
     if (await input.candidates.validate(update.candidate, signal) !== "current") return { kind: "stale", reason: "candidate" };
-    if (update.candidate.binding.immutableRevision === target.target.binding.selectedRevision) return { kind: "current-state", reason: "revision-current" };
+    if (update.candidate.binding.immutableRevision === target.target.binding.selectedRevision) return { kind: "current-state", reason: "revision-current", target: target.target };
     const binding = sourceBinding(target.target, update.candidate, input.sha256);
     if (binding === undefined || JSON.stringify({ ...binding, target: update.binding.target }) !== JSON.stringify(update.binding)) return { kind: "stale", reason: "candidate" };
     return { kind: "ready", update: Object.freeze({ target: target.target, candidate: update.candidate, binding: update.binding }) };

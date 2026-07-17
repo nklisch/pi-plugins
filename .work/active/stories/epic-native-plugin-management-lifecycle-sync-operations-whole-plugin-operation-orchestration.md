@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-lifecycle-sync-operations-whole-plugin-operation-orchestration
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, security]
 parent: epic-native-plugin-management-lifecycle-sync-operations
 depends_on: [epic-native-plugin-management-lifecycle-sync-operations-exact-target-update-preparation]
@@ -28,3 +28,11 @@ No application result exposes raw lifecycle snapshots or native failures. Succes
 - Project trust/root, target, candidate, configuration, consent, and capability are revalidated at every effectful boundary.
 - Changed/unchanged/rejected/stale/rolled-back/recovery-required lifecycle outcomes map losslessly and safely.
 - Progress callback failure never changes/cancels the operation or leaks callback text.
+
+## Implementation notes
+
+- Added one verified-context lifecycle executor for enable, disable, update, and uninstall. Enable/disable/uninstall call the existing lifecycle service with exact target expectations; manual update transfers the inspected candidate lease to the generalized prepared update authority.
+- Manual update uses the trusted-install submission validator, configuration save/exact-reread authority, project-root authority, and exact trust grant. Target/candidate/evidence/project/configuration are reread after preflight and before lifecycle.
+- Added bounded monotonic progress recording whose observer failures produce only `PROGRESS_DELIVERY_FAILED` safe evidence and never affect the operation.
+- Added lossless safe lifecycle projection for changed/current/stale/conflict/rollback/recovery/cancel/reject outcomes. Raw snapshots, causes, callback text, roots, and values are structurally absent.
+- Verification: strict typecheck; 15 focused lifecycle-operation/update/lifecycle tests passed.

@@ -247,7 +247,9 @@ export const NativeLifecycleOperationResultSchema = z.discriminatedUnion("kind",
   if (result.kind === "succeeded") {
     const sync = result.operation === "project-sync";
     if (sync !== (result.syncDigest !== undefined)) context.addIssue({ code: "custom", path: ["syncDigest"], message: "sync success requires only a sync digest" });
-    if (!sync && (result.before === undefined || result.after === undefined)) context.addIssue({ code: "custom", path: ["after"], message: "lifecycle success requires before and after evidence" });
+    if (!sync && result.before === undefined) context.addIssue({ code: "custom", path: ["before"], message: "lifecycle success requires before evidence" });
+    if (!sync && result.operation !== "uninstall" && result.after === undefined) context.addIssue({ code: "custom", path: ["after"], message: "activation success requires after evidence" });
+    if (result.operation === "uninstall" && result.after !== undefined) context.addIssue({ code: "custom", path: ["after"], message: "uninstall success must prove target absence" });
     if ((result.operation === "uninstall") !== (result.cleanup !== undefined)) context.addIssue({ code: "custom", path: ["cleanup"], message: "cleanup belongs only to uninstall success" });
   }
   if (result.kind === "current-state") {
