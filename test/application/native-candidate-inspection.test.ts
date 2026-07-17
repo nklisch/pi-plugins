@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createNativeCandidateInspector } from "../../src/application/native-candidate-inspection.js";
+import { createNativeInspectionService } from "../../src/application/native-inspection-service.js";
+import { deriveInspectionDetailId, deriveInspectionEvidenceSnapshotId } from "../../src/application/native-inspection-identifiers.js";
 import { createContentManifest, createMaterializationBinding } from "../../src/domain/content-manifest.js";
 import { createResolvedMarketplaceSource } from "../../src/domain/source.js";
 import { capabilities, directPlugin, fixtureProvenance, sha256 as fixtureSha } from "../fixtures/compatibility/common.js";
@@ -27,9 +29,10 @@ function setup() {
       source: { value: { kind: "git", url: "https://example.invalid/plugin.git" }, provenance: [fixtureProvenance()] },
     },
   } as never;
+  let acquisitionHook = () => {};
   const inspector = createNativeCandidateInspector({
     catalog: { resolve: vi.fn(async () => ({ kind: "resolved" as const, candidate })) },
-    content: { withMaterialized: vi.fn(async (_candidate, _signal, use) => use(materialized)) },
+    content: { withMaterialized: vi.fn(async (_candidate, _signal, use) => { acquisitionHook(); return use(materialized); }) },
     inspector: { inspect: vi.fn(async () => ({ ok: true as const, value: plugin, diagnostics: [] })) },
     readiness: { trust: vi.fn(async () => "authorized" as const), configuration: vi.fn(async () => []), secretCustody: () => ({ status: "available", explanation: "ready" }) },
     sha256,
@@ -52,7 +55,7 @@ function setup() {
     recovery: { results: [], deferred: false, processed: 0 },
     startup: { status: "ready", blocked: [], capabilities: { mcp: { status: "unavailable", explanation: "none" }, subagents: { status: "unavailable", explanation: "none" }, piReload: { status: "available", explanation: "yes" }, secrets: { status: "available", explanation: "yes" } } },
   } as never;
-  return { inspector, snapshot };
+  return { inspector, snapshot, onAcquisition: (hook: () => void) => { acquisitionHook = hook; } };
 }
 
 describe("native candidate inspection", () => {
@@ -76,6 +79,30 @@ describe("native candidate inspection", () => {
     if (result.kind !== "found") return;
     expect(result.detail.summary.condition).toBe("blocked");
     expect(result.detail.diagnostics.map((diagnostic) => diagnostic.code)).toContain("CATALOG_CORRUPT");
+  });
+
+  it("rejects a real candidate projection when authority changes during acquisition", async () => {
+    const value = setup();
+    let currentGeneration = 0;
+    value.onAcquisition(() => { currentGeneration = 1; });
+    const service = createNativeInspectionService({
+      evidence: {
+        capture: async () => value.snapshot,
+        validate: async (binding) => binding.scopes[0]?.generation === currentGeneration ? "current" : "stale",
+      },
+      installed: { inspect: vi.fn() },
+      candidates: value.inspector,
+      catalog: { search: vi.fn(), detail: vi.fn() } as never,
+      adoption: { preview: vi.fn() },
+      clock: { nowEpochMilliseconds: () => 1 } as never,
+      sha256,
+    });
+    const result = await service.detail({
+      snapshotId: deriveInspectionEvidenceSnapshotId(value.snapshot.binding, sha256),
+      detailId: deriveInspectionDetailId(subject, sha256),
+    }, new AbortController().signal);
+    expect(result).toEqual({ kind: "stale", action: "retry-read" });
+    expect(currentGeneration).toBe(1);
   });
 
   it("maps acquisition failures to stable diagnostics without native leakage", async () => {
