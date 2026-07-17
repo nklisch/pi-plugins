@@ -143,6 +143,15 @@ module.exports = {
       to: { path: "^src/(?:application/(?:state-contract|ports/(?:lifecycle-state-store|lifecycle-transition-store))(?:/|$)|infrastructure/state)(?:/|$)" },
     },
     {
+      name: "mcp-lifecycle-participant-no-transaction-or-host-authority",
+      comment: "The package-neutral MCP participant and lease provider consume prepared evidence and ports; they cannot own state, transitions, recovery, host composition, or concrete adapters.",
+      severity: "error",
+      from: { path: "^src/runtime/mcp/(?:lifecycle-participant|revision-lease-provider|\\.boundary-regression-fixture)\\.ts$" },
+      to: {
+        path: "^src/(?:application/(?:plugin-lifecycle-service|lifecycle-transition-reconciler|recovery-service|state-contract|ports/(?:lifecycle-state-store|lifecycle-transition-store))(?:\\.ts)?$|infrastructure|composition|pi)(?:/|$)",
+      },
+    },
+    {
       name: "infrastructure-no-outer-layer-imports",
       comment: "Infrastructure adapters may depend inward but not on format readers or host-specific outer integrations.",
       severity: "error",

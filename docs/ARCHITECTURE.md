@@ -611,23 +611,34 @@ hooks is incompatible when the required interception contract is unavailable.
 
 ### MCP adapter
 
-The MCP boundary is:
+MCP activation uses a package-neutral `McpRuntimePort`. A complete plugin-scoped
+source is wrapped in a canonical registration digest and published only through
+an exact absent/current compare-and-replace precondition. Runtime inspection
+returns the exact source identity, registration digest, and redacted local
+server inventory. Replace and remove success includes cleanup of source-owned
+tools, caches, providers, processes or connections, and runtime revision leases.
 
-```typescript
-interface McpRuntimePort {
-  validate(servers: PluginMcpProjection[]): Promise<McpValidationResult>;
-  activate(source: McpConfigSource): Promise<void>;
-  inspect(): Promise<McpRuntimeStatus>;
-}
-```
+A stateless lifecycle participant consumes exact previous and desired MCP states
+from the whole-plugin transition authority. It performs at most one source
+mutation, independently inspects the result, and contributes strict MCP evidence
+to the existing activation observation. It does not commit state, settle a
+transition, maintain a journal, or choose recovery policy. The existing
+lifecycle reconciler and startup recovery service remain authoritative.
 
-The default adapter uses `pi-mcp-adapter`. The integration supplies
-plugin-scoped configuration sources before MCP tool registration and preserves
-provenance for status and removal.
+Launch values are resolved only at process or connection creation and disposed
+immediately. A separate runtime lease provider pins the existing immutable
+plugin and projection artifacts until that execution closes. Registration and
+observation are local and offline-safe; remote connection, authentication,
+tool-discovery, and launch failures remain redacted per-server health rather
+than activation identity.
 
-If upstream exposes the required registration/config-source API, the package
-depends on it. Otherwise, a maintained fork implements the same port. The
-domain and lifecycle layers do not depend on either implementation.
+A conforming runtime must receive initial plugin sources before MCP tool
+registration with foreign file discovery isolated. No production runtime is
+selected merely because the portable port, fake, and conformance suite pass.
+The authorized maintained fork and later production adapter must implement the
+same unchanged contract and pass package-specific initial-source ordering,
+source isolation, cleanup, supported Node/Pi, and published-byte provenance
+qualification before MCP availability is reported.
 
 MCP server names derive from plugin identity and the native server key.
 Compatibility aliases preserve foreign tool references where the MCP runtime

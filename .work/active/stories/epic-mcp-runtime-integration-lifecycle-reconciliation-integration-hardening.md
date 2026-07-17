@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-lifecycle-reconciliation-integration-hardening
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-lifecycle-reconciliation
 depends_on: [epic-mcp-runtime-integration-lifecycle-reconciliation-recovery-conformance]
@@ -55,3 +55,19 @@ Record the exact handoff to `epic-native-plugin-management`: it owns transition/
 ## Ordering constraint
 
 Final checkpoint after lifecycle/recovery conformance. It does not depend on fork publication, so portable completion remains unblocked and production availability remains honest.
+
+## Implementation notes
+
+- Added package-neutral integration coverage for local/offline registration and exact observation, later remote-health separation, concurrent same-native-key owners across plugin/scope, project-trust revocation, redacted status, and runtime-unavailable no-MCP degradation without hiding source cleanup obligations.
+- Added a dependency boundary that prevents the MCP participant/provider from importing lifecycle transaction/recovery authority, state/transition stores, infrastructure adapters, native composition, or Pi. A committed regression fixture proves the rule fires.
+- Rolled the stale MCP architecture assertion forward to the exact registration/CAS/inspection/runtime-lease participant contract and recorded that native composition remains responsible for transition/state loading, concrete adapters, current project and active selection, initial sources, the real package factory, Pi reload, and complete observation composition.
+- Public and compiled allowlists expose only portable schemas, types, registration/participant/provider factories. No `pi-mcp-adapter` dependency, wrapper, settings writer, package deep import, Pi reload implementation, state/journal schema, global environment mutation, or production availability claim was added.
+
+## Verification
+
+- Focused integration/recovery/composition/boundary/public suites: **27 passed, 0 failed**.
+- Full `npm test` pipeline: passed.
+  - Typecheck: **0 errors**.
+  - Dependency boundaries: **237 modules, 1,444 dependencies**, no violations.
+  - Vitest: **177 files, 967 tests passed, 0 failed; 0 type errors**.
+  - Build and compiled package import: passed, **522 exports**.

@@ -101,6 +101,21 @@ describe("dependency boundary regression", () => {
     }
   });
 
+  it("keeps the MCP lifecycle participant out of transaction and host authority", () => {
+    const root = process.cwd();
+    const fixture = resolve(root, "src/runtime/mcp/.boundary-regression-fixture.ts");
+    writeFileSync(fixture, [
+      'import { createLifecycleRecoveryService } from "../../application/recovery-service.js";',
+      "void createLifecycleRecoveryService;",
+    ].join("\n"), "utf8");
+    try {
+      const output = cruise(root, "src/runtime/mcp/.boundary-regression-fixture.ts");
+      expect(output).toContain("mcp-lifecycle-participant-no-transaction-or-host-authority");
+    } finally {
+      rmSync(fixture, { force: true });
+    }
+  });
+
   it("rejects application runtime/adapter imports and infrastructure-to-format imports", () => {
     const root = process.cwd();
     const applicationFixture = resolve(root, "src/application/.boundary-regression-fixture.ts");
