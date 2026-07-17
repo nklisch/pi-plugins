@@ -237,12 +237,33 @@ export type {
 } from "./domain/marketplace.js";
 
 export {
+  MarketplaceRegistrationIdSchema,
+  MarketplaceCandidateIdSchema,
+  MarketplaceSnapshotTokenSchema,
+  MarketplaceCursorSchema,
+  MarketplaceScopeSelectionSchema,
+  deriveMarketplaceRegistrationId,
+  deriveMarketplaceSnapshotToken,
+  deriveMarketplaceCandidateId,
+} from "./domain/marketplace-registration.js";
+export type {
+  MarketplaceRegistrationId,
+  MarketplaceCandidateId,
+  MarketplaceSnapshotToken,
+  MarketplaceCursor,
+  MarketplaceScopeSelection,
+} from "./domain/marketplace-registration.js";
+
+export {
   UpdateCandidateKeySchema,
   RefreshClaimIdSchema,
   StableSourceIdentitySchema,
   AvailableRevisionSchema,
+  MarketplaceRegistrationOriginSchema,
+  MarketplaceRefreshAttemptSchema,
   MarketplaceRefreshMemorySchema,
   UpdateNotificationMemorySchema,
+  MarketplaceRegistrationRecordSchema,
   MarketplaceUpdateRecordSchema,
   deriveMarketplaceSourceIdentity,
   derivePluginSourceIdentity,
@@ -259,8 +280,11 @@ export type {
   RefreshClaimId,
   StableSourceIdentity,
   AvailableRevision,
+  MarketplaceRegistrationOrigin,
+  MarketplaceRefreshAttempt,
   MarketplaceRefreshMemory,
   UpdateNotificationMemory,
+  MarketplaceRegistrationRecord,
   MarketplaceUpdateRecord,
   RevisionComparison,
   InstalledRevisionDescriptor,
@@ -552,9 +576,13 @@ export {
   ForeignStateFileObservationSchema,
   AdoptionDocumentStatusSchema,
   AdoptionDiscoveryResultSchema,
+  AdoptionPreviewRequestSchema,
+  AdoptionPreviewCandidateSchema,
+  AdoptionPreviewResultSchema,
   MarketplaceRegistrationRequestSchema,
   MarketplaceRegistrationResultSchema,
   AdoptionSelectionRequestSchema,
+  AdoptionImportRequestSchema,
   AdoptionImportOutcomeSchema,
   AdoptionImportResultSchema,
 } from "./application/adoption-contract.js";
@@ -562,9 +590,13 @@ export type {
   ForeignStateFileObservation,
   AdoptionDocumentStatus,
   AdoptionDiscoveryResult,
+  AdoptionPreviewRequest,
+  AdoptionPreviewCandidate,
+  AdoptionPreviewResult,
   MarketplaceRegistrationRequest,
   MarketplaceRegistrationResult,
   AdoptionSelectionRequest,
+  AdoptionImportRequest,
   AdoptionImportOutcome,
   AdoptionImportResult,
   AdoptionReader,
@@ -574,6 +606,7 @@ export { createAdoptionService } from "./application/adoption-service.js";
 export type {
   AdoptionService,
   AdoptionServiceDependencies,
+  MarketplaceAdoptionRegistryPort,
 } from "./application/adoption-service.js";
 export type { ForeignStateFilesPort } from "./application/ports/foreign-state-files.js";
 export type { MarketplaceRegistrationPort } from "./application/ports/marketplace-registration.js";
@@ -775,6 +808,8 @@ export {
   UpdateApplicationPreferenceSchema,
   MarketplaceConfigurationRecordSchema,
   HostConfigDocumentSchemaV1,
+  HostConfigDocumentSchemaV2,
+  HostConfigDocumentSchemaV3,
   HostConfigDocumentSchema,
   HostConfigSchemaFamily,
 } from "./domain/state/config-state.js";
@@ -783,6 +818,8 @@ export type {
   UpdateApplicationPreference,
   MarketplaceConfigurationRecord,
   HostConfigDocumentV1,
+  HostConfigDocumentV2,
+  HostConfigDocumentV3,
   HostConfigDocument,
 } from "./domain/state/config-state.js";
 
@@ -857,6 +894,8 @@ export type {
 
 export {
   ProjectLocalStateDocumentSchemaV1,
+  ProjectLocalStateDocumentSchemaV2,
+  ProjectLocalStateDocumentSchemaV3,
   ProjectLocalStateDocumentSchema,
   ProjectLocalStateSchemaFamily,
   createProjectLocalStateDocument,
@@ -864,6 +903,8 @@ export {
 } from "./domain/state/project-state.js";
 export type {
   ProjectLocalStateDocumentV1,
+  ProjectLocalStateDocumentV2,
+  ProjectLocalStateDocumentV3,
   ProjectLocalStateDocument,
   ProjectPluginRecordCollectionDecode,
 } from "./domain/state/project-state.js";
@@ -1249,7 +1290,7 @@ export {
   UpdateDispositionSchema,
   NotificationIntentSchema,
   PluginUpdateOutcomeSchema,
-  MarketplaceReadResultSchema as MarketplaceRefreshOutcomeSchema,
+  MarketplaceRefreshOutcomeSchema,
   MarketplaceRefreshResultSchema,
 } from "./application/update-contract.js";
 export type {
@@ -1260,6 +1301,57 @@ export type {
   MarketplaceRefreshOutcome,
   MarketplaceRefreshResult,
 } from "./application/update-contract.js";
+export {
+  MarketplaceManagementContractRegistry,
+  MarketplaceCacheStatusSchema,
+  MarketplaceSelectedSnapshotViewSchema,
+  MarketplaceRegistrationViewSchema,
+  MarketplaceAddRequestSchema,
+  MarketplaceAddResultSchema,
+  MarketplaceRemoveRequestSchema,
+  MarketplaceRemoveResultSchema,
+  MarketplaceRegistrationListRequestSchema,
+  MarketplaceRegistrationPageSchema,
+} from "./application/marketplace-management-contract.js";
+export type {
+  MarketplaceCacheStatus,
+  MarketplaceSelectedSnapshotView,
+  MarketplaceRegistrationView,
+  MarketplaceAddRequest,
+  MarketplaceAddResult,
+  MarketplaceRemoveRequest,
+  MarketplaceRemoveResult,
+  MarketplaceRegistrationListRequest,
+  MarketplaceRegistrationPage,
+} from "./application/marketplace-management-contract.js";
+export { createMarketplaceRegistrationService } from "./application/marketplace-registration-service.js";
+export type {
+  MarketplaceRegistrationService,
+  MarketplaceRegistrationServiceDependencies,
+} from "./application/marketplace-registration-service.js";
+
+export {
+  MarketplaceCatalogSearchRequestSchema,
+  CatalogClaimOriginSchema,
+  CatalogAvailableRevisionSchema,
+  MarketplaceCandidateSummarySchema,
+  MarketplaceCatalogObservationSchema,
+  MarketplaceCatalogPageSchema,
+  MarketplaceCandidateDetailSchema,
+  MarketplaceCandidateDetailResultSchema,
+  MarketplaceCatalogError,
+} from "./application/marketplace-catalog-contract.js";
+export type {
+  MarketplaceCatalogSearchRequest,
+  CatalogClaimOrigin,
+  CatalogAvailableRevision,
+  MarketplaceCandidateSummary,
+  MarketplaceCatalogObservation,
+  MarketplaceCatalogPage,
+  MarketplaceCandidateDetail,
+  MarketplaceCandidateDetailResult,
+} from "./application/marketplace-catalog-contract.js";
+
 export type { RefreshClaimIdPort } from "./application/ports/refresh-claim-id.js";
 export type { UpdateDelayPort } from "./application/ports/update-delay.js";
 export {
@@ -1300,6 +1392,11 @@ export type {
   NodeMarketplaceUpdateServices,
   NodeMarketplaceUpdateServicesOptions,
 } from "./composition/create-marketplace-update-services.js";
+export { createNodeMarketplaceDiscoveryServices } from "./composition/create-marketplace-discovery-services.js";
+export type {
+  MarketplaceDiscoveryServices,
+  NodeMarketplaceDiscoveryServicesOptions,
+} from "./composition/create-marketplace-discovery-services.js";
 
 export {
   DefaultLifecycleRecoveryPolicy,

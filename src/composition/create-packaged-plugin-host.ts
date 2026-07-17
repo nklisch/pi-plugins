@@ -27,7 +27,7 @@ import { readClaudeMarketplace } from "../formats/claude/marketplace-reader.js";
 import { readCodexMarketplace } from "../formats/codex/marketplace-reader.js";
 import { mergeMarketplaces } from "../formats/marketplace-merger.js";
 import { createNodePluginInspector } from "./create-plugin-inspector.js";
-import { createNodeMarketplaceUpdateServices } from "./create-marketplace-update-services.js";
+import { createNodeMarketplaceDiscoveryServices } from "./create-marketplace-discovery-services.js";
 import { createHostConfigurationServices } from "./create-host-configuration.js";
 import { createNodePiRuntimeCapabilityProbe } from "./node-pi-runtime-capability-probe.js";
 import { buildRuntimeDesiredState, type HostBlockedPlugin, type RuntimeDesiredState } from "./runtime-desired-state.js";
@@ -301,7 +301,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           compatibility,
           sha256,
         });
-        const marketplace = createNodeMarketplaceUpdateServices({ refresh: {
+        const marketplace = createNodeMarketplaceDiscoveryServices({
           inventory: state.inventory,
           state: state.state,
           mutations,
@@ -310,10 +310,12 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           materializers,
           inspection: marketplaceInspection,
           content: content.content,
+          currentProject: project.scope,
+          projectTrust: project.trust,
           sha256,
           probe: marketplaceProbe,
           lifecycle,
-        } });
+        });
 
         const recoveryResult = await recovery.recover({ requiredScopes: [{ kind: "user" }, project.scope] }, startupSignal);
         if (successor === undefined) await reload.reconcileCurrent(startupSignal);
@@ -326,7 +328,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           configuration: configuration.application,
           recovery,
           collection,
-          marketplace: Object.freeze({ inspection: marketplaceInspection, ...marketplace }),
+          marketplace,
           capabilities,
           resources: skillHook.resources,
         });

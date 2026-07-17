@@ -13,8 +13,7 @@ import type { PluginInspectionService } from "../application/inspection-service.
 import type { BoundPluginConfigurationService } from "./create-host-configuration.js";
 import type { LifecycleRecoveryService } from "../application/recovery-service.js";
 import type { createRevisionCollectionService } from "../application/revision-collection-service.js";
-import type { MarketplaceInspectionService } from "../application/marketplace-inspection-contract.js";
-import type { NodeMarketplaceUpdateServices } from "./create-marketplace-update-services.js";
+import type { MarketplaceDiscoveryServices } from "./create-marketplace-discovery-services.js";
 import type { RuntimeCapabilityProbe } from "../application/ports/runtime-capability-probe.js";
 import type { SkillResourceDiscoveryPort } from "../runtime/skills/resource-discovery.js";
 
@@ -99,7 +98,7 @@ export type PackagedPluginHostApplication = Readonly<{
   configuration: BoundPluginConfigurationService;
   recovery: LifecycleRecoveryService;
   collection: ReturnType<typeof createRevisionCollectionService>;
-  marketplace: Readonly<{ inspection: MarketplaceInspectionService }> & NodeMarketplaceUpdateServices;
+  marketplace: MarketplaceDiscoveryServices;
   capabilities: RuntimeCapabilityProbe;
   resources: SkillResourceDiscoveryPort;
 }>;
