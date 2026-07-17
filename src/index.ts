@@ -1955,7 +1955,9 @@ export type {
   NativeControlCommandDefinition,
   NativeControlCommandId,
   NativeControlCommand,
+  NativeControlPolicyChange,
 } from "./application/native-control-registry.js";
+export { NativeControlPolicyChangeSchema } from "./application/native-control-registry.js";
 export {
   NativeControlEnvelopeVersionSchema,
   NativeControlExecutionIdSchema,
@@ -1979,3 +1981,31 @@ export type {
   NativeControlOperationHandle,
   NativeControlEnvelope,
 } from "./application/native-control-contract.js";
+export {
+  NativeControlArgvSchema,
+  NativeControlLexTokenSchema,
+  NativeControlLexResultSchema,
+  lexNativeControlText,
+  validateNativeControlScalar,
+} from "./application/native-control-lexer.js";
+export type { NativeControlArgv, NativeControlLexToken, NativeControlLexResult } from "./application/native-control-lexer.js";
+export {
+  NativeControlHelpCommandSchema,
+  NativeControlHelpSchema,
+  NativeControlExpectationSchema,
+  NativeControlCompletionRequestSchema,
+  NativeControlCompletionResultSchema,
+  createNativeControlHelp,
+  nativeControlGrammarMetadata,
+} from "./application/native-control-help.js";
+export type {
+  NativeControlHelp,
+  NativeControlExpectation,
+  NativeControlCompletionRequest,
+  NativeControlCompletionResult,
+} from "./application/native-control-help.js";
+export {
+  NativeControlParseResultSchema,
+  createNativeControlParser,
+} from "./application/native-control-parser.js";
+export type { NativeControlParseResult, NativeControlParser } from "./application/native-control-parser.js";

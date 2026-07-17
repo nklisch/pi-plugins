@@ -11,7 +11,8 @@ import { MarketplaceAvailabilitySchema } from "../domain/marketplace.js";
 import { MarketplaceSourceSchema } from "../domain/source.js";
 import {
   UpdateNoticeIdSchema,
-  UpdatePolicyChangeSchema,
+  UpdateApplicationOverrideSchema,
+  UpdateCadenceSchema,
   UpdatePolicyConsentIdSchema,
   UpdatePolicyPreviewIdSchema,
 } from "../domain/update-policy.js";
@@ -142,9 +143,23 @@ const UninstallControlSchema = exactPair(z.object({
 }).strict());
 const ProjectSyncControlSchema = z.object({ mode: z.enum(["apply-intent", "publish-intent", "merge"]), previewOnly: z.boolean().default(false), confirmed: z.boolean().default(false) }).strict().readonly();
 const UpdatesStatusControlSchema = z.object({ scope: ReadScopeSchema.default("all-current"), plugin: PluginKeySchema.optional() }).strict().readonly();
-const PolicyPreviewControlSchema = z.object({ change: UpdatePolicyChangeSchema }).strict().readonly();
-const PolicyApplyControlSchema = z.object({ change: UpdatePolicyChangeSchema, previewId: UpdatePolicyPreviewIdSchema, consentId: UpdatePolicyConsentIdSchema.optional() }).strict().readonly();
-const PolicySetControlSchema = z.object({ change: UpdatePolicyChangeSchema, previewId: UpdatePolicyPreviewIdSchema.optional(), consentId: UpdatePolicyConsentIdSchema.optional() }).strict().readonly();
+export const NativeControlPolicyChangeSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("application"),
+    target: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("global") }).strict().readonly(),
+      z.object({ kind: z.literal("scope"), scope: ScopeSchema }).strict().readonly(),
+      z.object({ kind: z.literal("marketplace"), scope: ScopeSchema, registrationId: MarketplaceRegistrationIdSchema }).strict().readonly(),
+      z.object({ kind: z.literal("plugin"), scope: ScopeSchema, plugin: PluginKeySchema }).strict().readonly(),
+    ]),
+    mode: UpdateApplicationOverrideSchema,
+  }).strict().readonly(),
+  z.object({ kind: z.literal("cadence"), target: z.object({ kind: z.literal("global") }).strict().readonly(), cadence: UpdateCadenceSchema }).strict().readonly(),
+]);
+export type NativeControlPolicyChange = z.infer<typeof NativeControlPolicyChangeSchema>;
+const PolicyPreviewControlSchema = z.object({ change: NativeControlPolicyChangeSchema }).strict().readonly();
+const PolicyApplyControlSchema = z.object({ change: NativeControlPolicyChangeSchema, previewId: UpdatePolicyPreviewIdSchema, consentId: UpdatePolicyConsentIdSchema.optional() }).strict().readonly();
+const PolicySetControlSchema = z.object({ change: NativeControlPolicyChangeSchema, previewId: UpdatePolicyPreviewIdSchema.optional(), consentId: UpdatePolicyConsentIdSchema.optional() }).strict().readonly();
 const NoticesListControlSchema = z.object({ scope: ReadScopeSchema.default("all-current"), plugin: PluginKeySchema.optional(), after: UpdateNoticeIdSchema.optional(), limit: z.number().int().min(1).max(200).default(50) }).strict().readonly();
 const NoticesAckControlSchema = z.object({ ids: z.array(UpdateNoticeIdSchema).min(1).max(200).readonly() }).strict().readonly();
 const AutomaticRunControlSchema = z.object({ noticeIds: z.array(UpdateNoticeIdSchema).readonly().optional(), limit: z.number().int().min(1).max(100).default(20) }).strict().readonly();
@@ -179,7 +194,8 @@ export type NativeControlCommandDefinition = Readonly<{
 const safe = (text: string) => SafeDisplayFieldSchema.parse({ text, escaped: false, truncated: false });
 const option = (name: `--${string}`, key: string, kind: NativeControlOptionKind, extra: Omit<NativeControlOptionDefinition, "name" | "key" | "kind"> = {}): NativeControlOptionDefinition => Object.freeze({ name, key, kind, equals: kind !== "flag", ...extra });
 const positional = (name: string, required = true, repeatable = false): NativeControlPositionalDefinition => Object.freeze({ name, required, repeatable });
-const scopeOption = option("--scope", "scope", "enum", { values: ["user", "project"] });
+const scopeOption = option("--scope", "scope", "enum", { required: true, values: ["user", "project"] });
+const optionalScopeOption = option("--scope", "scope", "enum", { values: ["user", "project"] });
 const readScopeOption = option("--scope", "scope", "enum", { values: ["user", "project", "all-current"] });
 const exactOptions = [option("--snapshot-id", "snapshotId", "string"), option("--detail-id", "detailId", "string")] as const;
 const lifecycleOptions = [scopeOption, ...exactOptions, option("--preview-only", "previewOnly", "flag"), option("--yes", "confirmed", "flag")] as const;
@@ -198,10 +214,10 @@ const registry = {
   "marketplace.refresh": command({ path: ["marketplace", "refresh"], aliases: [{ path: ["marketplace", "update"] }], summary: safe("Refresh marketplace registrations"), safety: "mutation", input: "none", request: MarketplaceRefreshControlSchema, response: MarketplaceRefreshResultSchema, positionals: [positional("registration-id", false, true)], options: [readScopeOption] }),
   "marketplace.adopt.preview": command({ path: ["marketplace", "adopt", "preview"], aliases: [{ path: ["adopt", "preview"] }], summary: safe("Preview foreign marketplace adoption"), safety: "local-read", input: "none", request: AdoptionPreviewControlSchema, response: AdoptionPreviewResultSchema, positionals: [], options: [readScopeOption] }),
   "marketplace.adopt.import": command({ path: ["marketplace", "adopt", "import"], aliases: [{ path: ["adopt", "import"] }], summary: safe("Import selected foreign marketplaces"), safety: "mutation", input: "confirmation", request: AdoptionImportControlSchema, response: AdoptionImportResultSchema, positionals: [positional("candidate-id", true, true)], options: [scopeOption, option("--yes", "confirmed", "flag", { required: true })] }),
-  browse: command({ path: ["browse"], aliases: [], summary: safe("Browse marketplace candidates"), safety: "local-read", input: "none", request: BrowseControlSchema, response: MarketplaceCatalogPageSchema, positionals: [positional("query", false)], options: [readScopeOption, option("--marketplace-id", "marketplaceIds", "repeatable"), option("--availability", "availability", "repeatable", { values: ["available", "installed", "update-available"] }), option("--cursor", "cursor", "string"), option("--limit", "limit", "integer")] }),
+  browse: command({ path: ["browse"], aliases: [], summary: safe("Browse marketplace candidates"), safety: "local-read", input: "none", request: BrowseControlSchema, response: MarketplaceCatalogPageSchema, positionals: [positional("query", false)], options: [readScopeOption, option("--marketplace-id", "marketplaceIds", "repeatable"), option("--availability", "availability", "repeatable", { values: ["available", "installed-by-default", "not-available"] }), option("--cursor", "cursor", "string"), option("--limit", "limit", "integer")] }),
   "inspection.list": command({ path: ["list"], aliases: [], summary: safe("List installed plugins"), safety: "local-read", input: "none", request: InstalledListControlSchema, response: NativeInspectionPageSchema, positionals: [], options: [readScopeOption, option("--query", "query", "string"), option("--condition", "conditions", "repeatable", { values: ["ready", "attention", "blocked", "unavailable"] }), option("--cursor", "cursor", "string"), option("--limit", "limit", "integer")] }),
   "inspection.show": command({ path: ["show"], aliases: [{ path: ["inspect"] }], summary: safe("Show exact plugin detail"), safety: "local-read", input: "none", request: PluginTargetControlSchema, response: NativeInspectionDetailResultSchema, positionals: [positional("plugin-key")], options: [scopeOption, ...exactOptions] }),
-  "inspection.diagnose": command({ path: ["diagnose"], aliases: [], summary: safe("Diagnose host or plugin state"), safety: "local-read", input: "none", request: DiagnoseControlSchema, response: NativeDiagnosticReportSchema, positionals: [positional("plugin-key", false)], options: [scopeOption, ...exactOptions, option("--include-adoption", "includeAdoption", "flag")] }),
+  "inspection.diagnose": command({ path: ["diagnose"], aliases: [], summary: safe("Diagnose host or plugin state"), safety: "local-read", input: "none", request: DiagnoseControlSchema, response: NativeDiagnosticReportSchema, positionals: [positional("plugin-key", false)], options: [optionalScopeOption, ...exactOptions, option("--include-adoption", "includeAdoption", "flag")] }),
   "install.open": command({ path: ["install", "open"], aliases: [], summary: safe("Open a trusted installation"), safety: "mutation", input: "none", request: PluginTargetControlSchema, response: TrustedInstallOpenResultSchema, positionals: [positional("plugin-key")], options: [scopeOption, ...exactOptions] }),
   "install.apply": command({ path: ["install", "apply"], aliases: [], summary: safe("Apply a trusted installation"), safety: "mutation", input: "configuration", request: InstallTokenControlSchema, response: TrustedInstallActivationResultSchema, positionals: [positional("install-token")], options: [] }),
   "install.recover": command({ path: ["install", "recover"], aliases: [], summary: safe("Recover a trusted installation"), safety: "mutation", input: "configuration", request: InstallTokenControlSchema, response: TrustedInstallActivationResultSchema, positionals: [positional("install-token")], options: [] }),
