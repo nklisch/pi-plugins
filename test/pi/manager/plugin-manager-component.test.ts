@@ -1,0 +1,77 @@
+import { describe, expect, it, vi } from "vitest";
+import { CURSOR_MARKER, Key, matchesKey } from "@earendil-works/pi-tui";
+import { PluginManagerComponent } from "../../../src/pi/manager/plugin-manager-component.js";
+import { createPluginManagerState, pluginManagerReducer, type PluginManagerIntent, type PluginManagerState } from "../../../src/pi/manager/plugin-manager-model.js";
+
+function harness() {
+  let state = createPluginManagerState();
+  const listeners = new Set<(state: PluginManagerState) => void>();
+  const intents: PluginManagerIntent[] = [];
+  const controller = {
+    state: () => state,
+    dispatch(intent: PluginManagerIntent) {
+      intents.push(intent);
+      state = pluginManagerReducer(state, { type: "intent", intent });
+      for (const listener of listeners) listener(state);
+    },
+    refresh: vi.fn(), dynamicCompletions: () => [], idle: async () => undefined, close: vi.fn(),
+    subscribe(listener: (next: PluginManagerState) => void) { listeners.add(listener); return () => listeners.delete(listener); },
+  } as any;
+  const tui = { terminal: { rows: 20 }, requestRender: vi.fn() } as any;
+  const theme = { fg: (_token: string, text: string) => text, bg: (_token: string, text: string) => text, bold: (text: string) => text } as any;
+  const keybindings = {
+    matches: (data: string, id: string) =>
+      id === "tui.select.up" ? matchesKey(data, Key.up) :
+      id === "tui.select.down" ? matchesKey(data, Key.down) :
+      id === "tui.select.pageDown" ? matchesKey(data, Key.pageDown) :
+      id === "tui.select.pageUp" ? matchesKey(data, Key.pageUp) :
+      id === "tui.select.confirm" ? matchesKey(data, Key.enter) :
+      id === "tui.select.cancel" || id === "app.interrupt" ? matchesKey(data, Key.escape) : false,
+    getKeys: () => ["enter"],
+  } as any;
+  const done = vi.fn();
+  const component = new PluginManagerComponent({ tui, theme, keybindings, controller, done });
+  component.focused = true;
+  return { component, controller, intents, tui, done, setState(next: PluginManagerState) { state = next; } };
+}
+
+describe("plugin manager component", () => {
+  it("supports focus traversal, configured navigation, mnemonics, refresh, and layered escape", () => {
+    const h = harness();
+    h.component.handleInput("/");
+    h.component.handleInput("abc");
+    h.component.handleInput("\r");
+    h.component.handleInput("\t");
+    h.component.handleInput("r");
+    h.component.handleInput("?");
+    h.component.handleInput("\u001b");
+    expect(h.intents).toEqual(expect.arrayContaining([
+      { type: "focus-next" },
+      { type: "focus-query" },
+      { type: "set-query", query: "abc" },
+      { type: "submit-search" },
+      { type: "refresh", scope: "all" },
+      { type: "toggle-help" },
+    ]));
+    expect(h.tui.requestRender).toHaveBeenCalled();
+  });
+
+  it("emits the IME cursor marker only while the query owns focus", () => {
+    const h = harness();
+    h.component.handleInput("/");
+    expect(h.component.render(70).join("\n")).toContain(CURSOR_MARKER);
+    h.component.handleInput("\u001b");
+    expect(h.component.render(70).join("\n")).not.toContain(CURSOR_MARKER);
+  });
+
+  it("handles resize/theme invalidation and idempotent disposal", () => {
+    const h = harness();
+    h.component.render(55);
+    expect(h.intents).toContainEqual({ type: "resized", columns: 55, rows: 20 });
+    h.component.invalidate();
+    h.component.dispose();
+    h.component.dispose();
+    h.component.handleInput("r");
+    expect(h.controller.close).not.toHaveBeenCalled();
+  });
+});

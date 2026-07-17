@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-pi-extension-manager-split-inspector-tui
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, tui]
 parent: epic-native-plugin-management-pi-extension-manager
 depends_on: [epic-native-plugin-management-pi-extension-manager-state-controller]
@@ -27,3 +27,9 @@ All meaning must survive reduced color. All actions must be reachable through Ta
 - Configured select/cancel/page keys and focus restoration work; query propagates `Focusable` for IME.
 - Adversarial ANSI/OSC/C0/C1/bidi input cannot alter terminal output; only Pi theme escapes survive.
 - Fresh component lifecycle and idempotent disposal leave no stale focus/callback/cache.
+
+## Implementation notes
+
+Translated the signed split inspector into one reducer-rendered Pi component. Wide terminals retain list/detail context, medium and narrow terminals use explicit list/detail navigation, and every layout preserves tabs, update counts, search, runtime inventory, compatibility/health, diagnostics, and action focus. Rendering projects untrusted scalars before callback theme styling, uses only semantic Pi tokens, wraps/truncates every line to the supplied width, and retains words/sigils when color is reduced.
+
+The component uses injected selection/cancel/page/app-interrupt bindings, Tab/Shift+Tab traversal, Enter activation, optional mnemonics, an IME cursor marker for search, semantic focus restoration, resize observation, theme invalidation, and idempotent disposal. Golden/adversarial tests cover wide/medium/narrow rendering, Unicode and terminal controls, widths, empty/blocked states, bindings, focus, resize, theme cache invalidation, and lifecycle. Full repository verification passed before this checkpoint advanced directly to done.
