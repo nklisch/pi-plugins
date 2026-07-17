@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CompatibilityPolicyRegistry } from "../../src/domain/compatibility-policy.js";
 import { analyzeMcpCompatibility } from "../../src/domain/mcp-compatibility-plan.js";
 import {
   McpEnvironmentNameSchema,
@@ -46,6 +47,35 @@ describe("canonical MCP launch templates", () => {
       ],
     });
     expect(McpLaunchTemplateSchemaV1.parse(first)).toEqual(first);
+  });
+
+  it("uses registry launch aliases instead of a parallel template vocabulary", () => {
+    const aliases = CompatibilityPolicyRegistry.mcp.keys.fieldGroups.workingDirectory.aliases as unknown as string[];
+    const original = [...aliases];
+    try {
+      aliases.push("executionDirectory");
+      const candidate = component({
+        transport: "stdio",
+        command: "node",
+        executionDirectory: "${PLUGIN_ROOT}/server",
+      });
+      expect(analyzeMcpCompatibility({
+        plugin: "demo@community",
+        component: candidate,
+      }).kind).toBe("supported");
+      expect(createMcpLaunchTemplate(candidate, "demo@community")).toMatchObject({
+        cwd: "${PLUGIN_ROOT}/server",
+      });
+
+      aliases.splice(aliases.indexOf("executionDirectory"), 1);
+      expect(analyzeMcpCompatibility({
+        plugin: "demo@community",
+        component: candidate,
+      }).kind).toBe("incompatible");
+      expect(() => createMcpLaunchTemplate(candidate, "demo@community")).toThrow(McpLaunchTemplateError);
+    } finally {
+      aliases.splice(0, aliases.length, ...original);
+    }
   });
 
   it("canonicalizes HTTP headers and bearer selectors without credential plaintext", () => {

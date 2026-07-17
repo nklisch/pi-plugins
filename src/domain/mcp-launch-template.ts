@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { compareUtf8 } from "./canonical-json.js";
 import { McpServerComponentSchema, type McpServerComponent } from "./components.js";
+import { CompatibilityPolicyRegistry } from "./compatibility-policy.js";
 import type { McpCanonicalAuth } from "./mcp-compatibility-plan.js";
 import { analyzeMcpCompatibility } from "./mcp-compatibility-plan.js";
 import { PluginKeySchema, type PluginKey } from "./identity.js";
@@ -51,6 +53,7 @@ export class McpLaunchTemplateError extends Error {
 }
 
 type JsonRecord = Readonly<Record<string, JsonValue>>;
+type McpFieldGroupName = keyof typeof CompatibilityPolicyRegistry.mcp.keys.fieldGroups;
 
 function fail(): never {
   throw new McpLaunchTemplateError();
@@ -60,8 +63,23 @@ function isRecord(value: JsonValue | undefined): value is JsonRecord {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
+function valueAtPath(declaration: JsonRecord, path: string): JsonValue | undefined {
+  let current: JsonValue = declaration;
+  for (const segment of path.split(".")) {
+    if (!isRecord(current) || !Object.prototype.hasOwnProperty.call(current, segment)) return undefined;
+    current = current[segment]!;
+  }
+  return current;
+}
+
+/** The compatibility registry owns every accepted launch-field spelling. */
+function fieldValue(declaration: JsonRecord, name: McpFieldGroupName): JsonValue | undefined {
+  const group = CompatibilityPolicyRegistry.mcp.keys.fieldGroups[name];
+  for (const alias of group.aliases) {
+    const value = valueAtPath(declaration, alias);
+    if (value !== undefined) return value;
+  }
+  return undefined;
 }
 
 function stringArray(value: JsonValue | undefined): readonly string[] {
@@ -71,22 +89,23 @@ function stringArray(value: JsonValue | undefined): readonly string[] {
 }
 
 function stdioTemplate(declaration: JsonRecord): McpLaunchTemplate {
-  if (typeof declaration.command !== "string" || declaration.command.length === 0) fail();
-  const cwd = declaration.cwd ?? declaration.workingDirectory;
+  const command = fieldValue(declaration, "command");
+  if (typeof command !== "string" || command.length === 0) fail();
+  const cwd = fieldValue(declaration, "workingDirectory");
   if (cwd !== undefined && typeof cwd !== "string") fail();
-  const rawEnvironment = declaration.env;
+  const rawEnvironment = fieldValue(declaration, "environment");
   if (rawEnvironment !== undefined && !isRecord(rawEnvironment)) fail();
   const env = Object.entries(rawEnvironment ?? {})
     .map(([name, value]) => {
       if (typeof value !== "string") fail();
       return McpEnvironmentEntrySchema.parse({ name, value });
     })
-    .sort((left, right) => compareText(left.name, right.name));
+    .sort((left, right) => compareUtf8(left.name, right.name));
   return McpLaunchTemplateSchemaV1.parse({
     schemaVersion: 1,
     transport: "stdio",
-    command: declaration.command,
-    args: stringArray(declaration.args),
+    command,
+    args: stringArray(fieldValue(declaration, "arguments")),
     ...(cwd === undefined ? {} : { cwd }),
     env,
   });
@@ -103,14 +122,19 @@ function bearerEnvironment(
   auth: McpCanonicalAuth,
 ): McpLateValue | undefined {
   if (auth.kind !== "bearer-environment") return undefined;
-  const topLevel = typeof declaration.bearerTokenEnv === "string"
-    ? declaration.bearerTokenEnv
-    : undefined;
-  const selected = ["auth", "authentication", "oauth"]
-    .map((field) => declaration[field])
+  const group = CompatibilityPolicyRegistry.mcp.keys.fieldGroups.authentication;
+  const topLevelValue = group.externalBearerAlias === undefined
+    ? undefined
+    : valueAtPath(declaration, group.externalBearerAlias);
+  const topLevel = typeof topLevelValue === "string" ? topLevelValue : undefined;
+  const selected = group.aliases
+    .filter((alias) => alias !== group.externalBearerAlias)
+    .map((alias) => valueAtPath(declaration, alias))
     .find((value) => value !== undefined);
-  const nested = isRecord(selected) && typeof selected.env === "string"
-    ? selected.env
+  const nested = isRecord(selected)
+    ? CompatibilityPolicyRegistry.mcp.keys.authSelectorDefinitions.bearerEnvironmentKeys
+      .map((key) => selected[key])
+      .find((value): value is string => typeof value === "string")
     : undefined;
   const name = nested ?? topLevel;
   if (name === undefined) fail();
@@ -118,9 +142,9 @@ function bearerEnvironment(
 }
 
 function httpTemplate(declaration: JsonRecord, auth: McpCanonicalAuth): McpLaunchTemplate {
-  if (typeof declaration.url !== "string" || declaration.url.length === 0) fail();
-  const features = isRecord(declaration.features) ? declaration.features : undefined;
-  const rawHeaders = declaration.headers ?? features?.headers;
+  const url = fieldValue(declaration, "url");
+  if (typeof url !== "string" || url.length === 0) fail();
+  const rawHeaders = fieldValue(declaration, "headers");
   if (rawHeaders !== undefined && !isRecord(rawHeaders)) fail();
   const seen = new Set<string>();
   const headers = Object.entries(rawHeaders ?? {})
@@ -131,13 +155,13 @@ function httpTemplate(declaration: JsonRecord, auth: McpCanonicalAuth): McpLaunc
       McpHeaderNameSchema.parse(name);
       return McpHeaderEntrySchema.parse({ name, value: headerValue(value) });
     })
-    .sort((left, right) => compareText(left.name.toLowerCase(), right.name.toLowerCase()) || compareText(left.name, right.name));
+    .sort((left, right) => compareUtf8(left.name.toLowerCase(), right.name.toLowerCase()) || compareUtf8(left.name, right.name));
   const bearerToken = bearerEnvironment(declaration, auth);
   if (bearerToken !== undefined && headers.some((entry) => entry.name.toLowerCase() === "authorization")) fail();
   return McpLaunchTemplateSchemaV1.parse({
     schemaVersion: 1,
     transport: "streamable-http",
-    url: declaration.url,
+    url,
     headers,
     ...(bearerToken === undefined ? {} : { bearerToken }),
   });

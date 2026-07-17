@@ -691,8 +691,10 @@ function analyze(plugin: PluginKey, component: McpServerComponent): McpCompatibi
   for (const field of headerResolution.conflicts) diagnostics.push(issue(plugin, component, field));
   const header = headerResolution.claims[0];
   if (header !== undefined) {
-    for (const name of invalidHeaderFields(header.value)) {
-      diagnostics.push(issue(plugin, component, name === "" ? header.field : `${header.field}.${name}`));
+    if (transport !== undefined && headerGroup.transports.includes(transport)) {
+      for (const name of invalidHeaderFields(header.value)) {
+        diagnostics.push(issue(plugin, component, name === "" ? header.field : `${header.field}.${name}`));
+      }
     }
     if (header.field.includes(".") && transport !== undefined && !headerGroup.transports.includes(transport)) {
       diagnostics.push(issue(plugin, component, header.field));
