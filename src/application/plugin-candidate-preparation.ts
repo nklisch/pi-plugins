@@ -56,6 +56,7 @@ import type { PluginMaterializer, SourceContext } from "./source-materialization
 import type { PluginInspectionService } from "./inspection-service.js";
 import type { CompatibilityService } from "./compatibility-service.js";
 import { createPromotionPlan } from "./content-promotion.js";
+import { createInstalledRevisionDescriptor } from "./installed-revision-descriptor.js";
 import {
   createActiveProjectionExpectation,
   createInactiveProjectionExpectation,
@@ -295,10 +296,22 @@ async function prepareNormalizedCandidate(
   }), dependencies.sha256);
   const preparedProjection = await prepareProjection(dependencies, projection, signal);
   if (preparedProjection.kind !== "active") throw new Error("active candidate projection became inactive");
+  const descriptor = createInstalledRevisionDescriptor({
+    loaded: {
+      plugin: normalized,
+      compatibility,
+      marketplaceSource: input.marketplaceSource,
+      content: materialized.content,
+      binding: materialized.binding,
+    },
+    revision,
+    sha256: dependencies.sha256,
+  });
   const promotion = createPromotionPlan({
     kind: "plugin",
     allocation,
     materialized,
+    descriptor,
   }, dependencies.sha256);
   return Object.freeze({
     operation: input.operation,

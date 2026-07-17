@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-packaged-host-composition-installed-revision-loader
 kind: story
-stage: implementing
+stage: done
 tags: [security, compatibility, infra]
 parent: epic-native-plugin-management-packaged-host-composition
 depends_on: [epic-native-plugin-management-packaged-host-composition-durable-state-configuration]
@@ -50,3 +50,10 @@ Close the currently unimplementable `InstalledPluginLoader` seam by sealing a st
 ## Ordering constraint
 
 Follows durable state/content contracts. Runtime desired-state construction depends on this exact loader.
+
+## Implementation notes
+
+- Added a strict digest-bound reconstruction descriptor containing the exact normalized plugin, compatibility report, marketplace source, content manifest, and binding used for installation.
+- Candidate preparation now attaches verified descriptors only to plugin promotion plans. Immutable plugin metadata v2 seals that evidence; marketplace and legacy descriptor-free promotions remain metadata v1.
+- Added the installed-revision loader and combined Node content infrastructure. Loading first revalidates scope-bound immutable content, then the sealed descriptor, then reconstructs and compares the complete installed revision before returning a deep-frozen value. V1 roots return `INSTALLED_DESCRIPTOR_UNAVAILABLE` and never consult catalogs or paths.
+- Verification: descriptor, immutable metadata, restart loader, lifecycle, and runtime projection focused suites passed (24 tests); `npm run typecheck` and `npm run boundaries` passed.

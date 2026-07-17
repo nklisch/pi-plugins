@@ -24,6 +24,7 @@ import type {
   ResolvedMarketplaceSource,
   ResolvedPluginSource,
 } from "../../domain/source.js";
+import type { InstalledRevisionDescriptor } from "../installed-revision-descriptor.js";
 
 /** Capabilities required before this port may report a successful promotion. */
 export type ContentStoreCapabilities = Readonly<{
@@ -108,6 +109,8 @@ export type VerifiedPromotionPlan = Readonly<{
   manifest: ContentManifest;
   binding: ContentDigest;
   identity: ContentStoreIdentity;
+  /** Present only for plugin promotions produced by candidate preparation. */
+  descriptor?: InstalledRevisionDescriptor;
 }>;
 
 /** The only lifecycle-facing physical-content capability. */

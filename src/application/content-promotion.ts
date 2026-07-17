@@ -25,6 +25,10 @@ import type {
   StagingAllocation,
   VerifiedPromotionPlan,
 } from "./ports/content-store.js";
+import {
+  InstalledRevisionDescriptorSchemaV1,
+  type InstalledRevisionDescriptor,
+} from "./installed-revision-descriptor.js";
 
 export type PromotionPlanInput = Readonly<{
   kind: "marketplace" | "plugin";
@@ -32,6 +36,8 @@ export type PromotionPlanInput = Readonly<{
   /** The completed materializer handoff. `handoff` is accepted as an alias for adapters. */
   materialized?: MaterializedMarketplace | MaterializedPlugin;
   handoff?: MaterializedMarketplace | MaterializedPlugin;
+  /** Exact restart reconstruction evidence; only plugin plans may carry it. */
+  descriptor?: InstalledRevisionDescriptor;
 }>;
 
 const verifiedPlans = new WeakSet<object>();
@@ -109,6 +115,18 @@ export function createPromotionPlan(
   if (input.kind !== "marketplace" && input.kind !== "plugin") throw invalidPlan("promotion store kind is invalid");
   const allocation = checkedAllocation(input.allocation);
   const materialized = checkedMaterialized(input.kind, materializedValue(input), sha256);
+  if (input.kind === "marketplace" && input.descriptor !== undefined) {
+    throw invalidPlan("marketplace promotion cannot carry an installed plugin descriptor");
+  }
+  let descriptor: InstalledRevisionDescriptor | undefined;
+  if (input.descriptor !== undefined) {
+    descriptor = InstalledRevisionDescriptorSchemaV1.parse(input.descriptor);
+    if (descriptor.loaded.binding !== materialized.binding ||
+        descriptor.loaded.content.rootDigest !== materialized.manifest.rootDigest ||
+        descriptor.loaded.plugin.source.hash !== materialized.source.hash) {
+      throw invalidPlan("installed plugin descriptor does not match materialized promotion evidence");
+    }
+  }
   const plan = Object.freeze({
     kind: input.kind,
     allocation,
@@ -117,6 +135,7 @@ export function createPromotionPlan(
     manifest: materialized.manifest,
     binding: materialized.binding,
     identity: materialized.identity,
+    ...(descriptor === undefined ? {} : { descriptor }),
   }) as VerifiedPromotionPlan;
   verifiedPlans.add(plan);
   return plan;
@@ -154,6 +173,17 @@ export function assertVerifiedPromotionPlan(
       message: "promotion plan identity is not bound to its source evidence",
       details: { operation: "promoteContent" },
     });
+  }
+  if (value.kind === "marketplace" && value.descriptor !== undefined) {
+    throw invalidPlan("marketplace promotion cannot carry an installed plugin descriptor");
+  }
+  if (value.descriptor !== undefined) {
+    const descriptor = InstalledRevisionDescriptorSchemaV1.parse(value.descriptor);
+    if (descriptor.loaded.binding !== value.binding ||
+        descriptor.loaded.content.rootDigest !== value.manifest.rootDigest ||
+        descriptor.loaded.plugin.source.hash !== value.source.hash) {
+      throw invalidPlan("installed plugin descriptor does not match promotion evidence");
+    }
   }
   return value;
 }

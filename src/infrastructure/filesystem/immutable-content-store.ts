@@ -34,6 +34,10 @@ import type { ContentStoreCapabilities } from "../../application/ports/content-s
 import type { ContentStorePlatform } from "../../application/ports/content-store-platform.js";
 import { DomainContractError, ErrorCodeRegistry } from "../../domain/errors.js";
 import type { Sha256 } from "../../domain/source.js";
+import {
+  InstalledRevisionDescriptorSchemaV1,
+  type InstalledRevisionDescriptor,
+} from "../../application/installed-revision-descriptor.js";
 import { verifyMaterializedContent } from "./secure-content-writer.js";
 import type { StagingAllocator } from "./staging-allocator.js";
 import {
@@ -48,12 +52,23 @@ const READY_TMP = "READY.tmp";
 const READY = "READY";
 const METADATA = "metadata.json";
 
-const PublishedMetadataSchema = z.object({
+const PublishedMetadataSchemaV1 = z.object({
   version: z.literal(1),
   identity: ContentStoreIdentitySchema,
   manifest: z.unknown(),
   binding: ContentDigestSchema,
 }).strict().readonly();
+const PublishedMetadataSchemaV2 = z.object({
+  version: z.literal(2),
+  identity: ContentStoreIdentitySchema,
+  manifest: z.unknown(),
+  binding: ContentDigestSchema,
+  descriptor: InstalledRevisionDescriptorSchemaV1,
+}).strict().readonly();
+const PublishedMetadataSchema = z.discriminatedUnion("version", [
+  PublishedMetadataSchemaV1,
+  PublishedMetadataSchemaV2,
+]);
 type PublishedMetadata = z.infer<typeof PublishedMetadataSchema>;
 
 export type PublishedRevision = Readonly<{
@@ -61,6 +76,7 @@ export type PublishedRevision = Readonly<{
   identity: ContentStoreIdentity;
   manifest: ContentManifest;
   binding: ContentDigest;
+  descriptor?: InstalledRevisionDescriptor;
 }>;
 
 export type ImmutableContentStore = Readonly<{
@@ -281,7 +297,13 @@ export async function inspectPublishedRevision(root: string, sha256: Sha256): Pr
   await verifySealedModes(root, manifest).catch((cause) => {
     throw storeError("contentVerificationFailed", "resolveContent", "published revision is not read-only", cause);
   });
-  return { root, identity: metadata.identity, manifest: actual, binding: metadata.binding };
+  return {
+    root,
+    identity: metadata.identity,
+    manifest: actual,
+    binding: metadata.binding,
+    ...(metadata.version === 1 ? {} : { descriptor: metadata.descriptor }),
+  };
 }
 
 export function createImmutableContentStore(options: ImmutableContentStoreOptions): ImmutableContentStore {
@@ -317,6 +339,7 @@ export function createImmutableContentStore(options: ImmutableContentStoreOption
       await assertLayoutRoot(options.layout, root, "promoteContent");
       const inspected = await inspectPublishedRevision(target, options.sha256);
       if (!sameJson(inspected.identity, plan.identity) || inspected.binding !== plan.binding || !sameJson(inspected.manifest, plan.manifest)) return "collision";
+      if (plan.descriptor !== undefined && !sameJson(inspected.descriptor, plan.descriptor)) return "collision";
       return "ready-match";
     } catch {
       // A target without a valid marker is inert but cannot be replaced under
@@ -433,7 +456,9 @@ export function createImmutableContentStore(options: ImmutableContentStoreOption
         throw storeError("contentVerificationFailed", "promoteContent", "prepared content failed verification", cause);
       });
       if (!sameJson(preparedManifest, plan.manifest)) throw storeError("contentVerificationFailed", "promoteContent", "prepared content differs from the handoff");
-      const metadata = JSON.stringify({ version: 1, identity: plan.identity, manifest: plan.manifest, binding: plan.binding });
+      const metadata = JSON.stringify(plan.kind === "plugin" && plan.descriptor !== undefined
+        ? { version: 2, identity: plan.identity, manifest: plan.manifest, binding: plan.binding, descriptor: plan.descriptor }
+        : { version: 1, identity: plan.identity, manifest: plan.manifest, binding: plan.binding });
       await writeSyncedFile(join(prepared, METADATA), metadata, options.platform, assertPreparedBeforeEffect);
       await assertPreparedBeforeEffect();
       await chmod(join(prepared, METADATA), 0o444);
