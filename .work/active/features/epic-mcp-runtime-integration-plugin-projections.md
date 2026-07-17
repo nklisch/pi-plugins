@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-plugin-projections
 kind: feature
-stage: review
+stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration
 depends_on: [epic-mcp-runtime-integration-config-source-bridge]
@@ -506,3 +506,29 @@ Full `npm test` passed after focused risky-seam suites:
 - Vitest: 158 test files, 819 tests passed; no type errors.
 - Build/package/public exports: ESM build passed and compiled package import passed with 478 exports.
 - One unrelated concurrent recovery-process test failed once with an existing journal race symptom, then passed immediately in the focused rerun; the required final full pipeline passed cleanly without code or test changes in that area.
+
+## Review (2026-07-16)
+
+**Verdict**: Approve
+
+**Blockers**: Four receiver-accepted high findings from the sole standard review pass were fixed in `93a0e76`:
+
+1. Restored pre-extraction MCP compatibility for positive fractional timeouts, direct `tools` arrays, independent OAuth/header claims, duplicate-header diagnostics, and transport/feature-specific requirement rules and provenance. Differential pre-extraction vectors now protect those forms.
+2. Made `CompatibilityPolicyRegistry.mcp.keys.fieldGroups` authoritative for recognized paths, aliases, canonical targets, transport applicability, and collisions. The evaluator and projector share the analyzer, and a mutable registry-fixture test proves alias addition/removal changes both paths together.
+3. Bound every complete runtime projection to the full plugin identity (including `manifestName`) and a canonical digest of the complete compatibility report and supported skill/hook/MCP inventory. Alias templates now derive only from that bound identity; manifest-only and non-MCP-inventory substitutions fail closed.
+4. Canonicalized set-like source/component provenance and JSON object order with explicit UTF-8 tuple comparators before complete projection hashing. Reordered/duplicated equivalent evidence now has byte-identical complete/MCP serialization, source identity, and contribution digest, while composed/decomposed Unicode remains distinct.
+
+**Important**: Optional malformed digest parsing outside the redacting guard was parked unbound at `.work/backlog/idea-redact-malformed-projection-digests.md` in `c3687ec`.
+
+**Nits**: none
+
+**Rejected**: none
+
+**Notes**: Substrate feature review at effective project-default weight `standard`; exactly one independent review pass ran before this adjudication. Closure used fix verification only, with no second review. Child stories remained `done`. Minimality audit found no production adapter, package coupling/claim, launch-context, lifecycle, persistence, or non-MCP behavior change beyond updating three handcrafted projection-schema test fixtures for the newly bound evidence fields.
+
+### Review verification
+
+- Focused MCP policy/evaluator/projection/conformance suite: 6 files, 43 tests passed.
+- Drifted skill-resource/contribution fixtures plus the previously flaky recovery vector: 11 focused tests passed (3 unrelated tests filtered out).
+- Final `npm test`: typecheck passed; dependency-cruiser passed with 226 modules and 1,359 dependencies, zero violations; Vitest passed 166 files and 873 tests with no type errors; package build/import passed with 494 exports.
+- `git diff --check`: passed.
