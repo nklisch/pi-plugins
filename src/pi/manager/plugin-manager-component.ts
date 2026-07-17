@@ -9,7 +9,7 @@ import {
 import type { PluginManagerController } from "./plugin-manager-controller.js";
 import { projectTerminalText } from "./pi-terminal-text.js";
 import { renderPluginManager } from "./plugin-manager-render.js";
-import type { PluginManagerView } from "./plugin-manager-model.js";
+import { pluginManagerRowActions, rowKeyIdentity, type PluginManagerView } from "./plugin-manager-model.js";
 
 export type PluginManagerCloseResult = Readonly<{ kind: "closed" | "action"; action?: string }>;
 
@@ -157,8 +157,15 @@ export class PluginManagerComponent implements Component, Focusable {
     } else if (matchesKey(data, Key.left) && this.controller.state().focus.pane === "tabs") this.switchView(-1);
     else if (matchesKey(data, Key.right) && this.controller.state().focus.pane === "tabs") this.switchView(1);
     else if (data === "/") this.controller.dispatch({ type: "focus-query" });
-    else if (data === "u") this.controller.dispatch({ type: "action", action: "update" });
-    else if (data === " ") this.controller.dispatch({ type: "action", action: "enable" });
+    else if (data === "u") {
+      const state = this.controller.state();
+      const row = state.page.rows.find((entry) => state.focus.row !== undefined && rowKeyIdentity(entry.key) === rowKeyIdentity(state.focus.row)) ?? state.page.rows[0];
+      if (pluginManagerRowActions(row).includes("update")) this.controller.dispatch({ type: "action", action: "update" });
+    } else if (data === " ") {
+      const state = this.controller.state();
+      const row = state.page.rows.find((entry) => state.focus.row !== undefined && rowKeyIdentity(entry.key) === rowKeyIdentity(state.focus.row)) ?? state.page.rows[0];
+      if (pluginManagerRowActions(row).includes("enable")) this.controller.dispatch({ type: "action", action: "enable" });
+    }
     else if (data === "r") this.controller.dispatch({ type: "refresh", scope: "all" });
     else if (data === "?") this.controller.dispatch({ type: "toggle-help" });
     this.invalidate();

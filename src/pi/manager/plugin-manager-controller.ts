@@ -1,5 +1,5 @@
 import type { SessionShutdownEvent } from "@earendil-works/pi-coding-agent";
-import { NativeInspectionPageSchema } from "../../application/native-inspection-contract.js";
+import { NativeInspectionDetailResultSchema, NativeInspectionPageSchema } from "../../application/native-inspection-contract.js";
 import {
   NativeControlMarketplaceCatalogResponseSchema,
   NativeControlMarketplaceListResponseSchema,
@@ -272,12 +272,26 @@ export function createPluginManagerController(input: Readonly<{
         apply({ type: "operation-cancelling" });
       } else if (intent.type === "action" && input.actions !== undefined) {
         const actionState = model;
+        if (intent.action === "install") {
+          const detail = NativeInspectionDetailResultSchema.safeParse(actionState.detail.envelope?.data);
+          if (!detail.success || detail.data.kind !== "found") {
+            apply({ type: "intent", intent: { type: "open-detail" } });
+            schedule(loadDetail);
+            return;
+          }
+        }
         apply({ type: "operation-started", action: intent.action });
         schedule(async () => {
-          const result = await input.actions!.run(intent.action, actionState);
-          if (result.presentation === "successor" || closed) return;
-          apply({ type: "operation-finished", envelope: result.envelope });
-          if (result.envelope.status === "stale" || result.envelope.status === "conflict") await refresh("all");
+          try {
+            const result = await input.actions!.run(intent.action, actionState);
+            if (result.presentation === "successor" || closed) return;
+            apply({ type: "operation-finished", envelope: result.envelope });
+            if (result.envelope.status === "stale" || result.envelope.status === "conflict") await refresh("all");
+          } catch {
+            if (closed) return;
+            apply({ type: "intent", intent: { type: "return-manager" } });
+            await refresh("all");
+          }
         });
       }
     },

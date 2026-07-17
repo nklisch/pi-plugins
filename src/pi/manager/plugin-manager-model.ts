@@ -148,7 +148,7 @@ export function pluginManagerRowActions(row: PluginManagerRow | undefined): read
   if (row === undefined) return Object.freeze([]);
   if (row.key.subject === "candidate") return Object.freeze(["inspect", "install"]);
   if (row.key.subject === "marketplace") return Object.freeze(["marketplace-refresh", "marketplace-remove"]);
-  if (row.key.subject === "notice") return Object.freeze(["inspect", "update", "notice-acknowledge"]);
+  if (row.key.subject === "notice") return Object.freeze(["inspect", "notice-acknowledge"]);
   return Object.freeze(["inspect", "enable", "disable", "update", "uninstall-keep", "uninstall-delete"]);
 }
 
