@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-deterministic-control-facade
 kind: feature
-stage: review
+stage: done
 tags: [compatibility]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-trusted-installation, epic-native-plugin-management-lifecycle-sync-operations, epic-native-plugin-management-update-policy-offline-startup]
@@ -730,6 +730,21 @@ The chosen boundaries address those failures with an exact lexer/parser, one sch
 - **Delivered boundary**: 32-command `plugin-control/v1` registry; strict argv/text parser; schema-derived help/completion; explicit input/redaction ports and Node channels; exact inspection selection; thin read/mutation dispatch; ordered commit-aware progress/admission; stable envelopes/exits/human fields/JSON lines; one packaged `application.control` surface.
 - **Business authority**: marketplace, inspection, trusted install, lifecycle/project sync, update policy/notices/automatic updates, host readiness, owner tokens/cursors/sessions, and packaged Pi admission remain authoritative. The facade has no state store, transaction, lock, materializer, trust evaluator, configuration validator, retry, or alternate recovery path.
 - **Packaged simplification**: removed public packaged joins for marketplace, inspection, trusted install, lifecycle, updates, status, configuration, recovery, collection, capabilities, and resources. Runtime/startup composition retains them privately; management consumers receive only `control`.
-- **Verification**: full `npm test` passed 305 test files and 1,440 tests with no type errors; dependency boundaries passed; build and exact compiled allowlists passed (846 root runtime exports, 3 Pi runtime exports); isolated packed Pi startup/read/mutation acceptance passed.
+- **Verification**: full `npm test` passed 307 test files and 1,479 tests with no type errors; dependency boundaries passed across 392 modules and 2,838 dependencies; build and exact compiled allowlists passed (847 root runtime exports, 3 Pi runtime exports); isolated packed Pi startup, process headless, persisted mutation/readback, and restart acceptance passed.
 - **Pre-review hardening**: explicit caller input ports now bind the `provided` channel automatically, partial quoted completion returns structured incomplete metadata instead of an executable parse, unknown help paths fail explicitly, and `show`/target diagnosis cover exact marketplace candidates as well as installed plugins.
-- **Review handoff**: advanced to feature review only after all nine child stories reached `done` and the integrated suite was green. Effective review weight is the project default `standard`; the invoking parent must provide the required one fresh-context pass because this owner was explicitly prohibited from nesting another agent.
+- **Review fixes**: added the thin Node process runner; made JSON-lines callback/backpressure/EPIPE settlement truthful; made the registry and exhaustive handler map authoritative; added strict command-specific safe projections with final reparsing; made idle stdin abort reusable; made current-project binding and refresh folds exhaustive; replaced parser-only acceptance with real stream/process/packed persistence evidence; and rolled `docs/SPEC.md` to the exact grammar-v1 contract. The earlier update-status alignment, scalar-safety helper, and sole `application.control` boundary remain intact.
+- **Review handoff**: all nine child stories remain `done`. The project-default `standard` review used one sole fresh-context pass at `cc11a99`; all accepted material findings were fixed and verified without a repeat review, as required by the standard closure policy and explicit caller instruction.
+
+## Review (2026-07-17)
+
+**Verdict**: Approve
+
+**Blockers**: none unresolved. Nine accepted high findings were fixed inline: Node headless delivery, callback-authoritative JSON-lines settlement, registry-owned exhaustive dispatch/contracts, command-safe reparsed projection, abortable reusable stdin, exact current-project classification, exhaustive refresh folding, non-self-confirming process/packed acceptance, and grammar-v1 specification alignment.
+
+**Important**: parked as `idea-complete-native-control-completion-metadata`, `idea-preserve-native-control-deprecation-warnings`, `idea-page-complete-native-control-uniqueness`, `idea-harden-native-control-json-file-input`, and `idea-narrow-native-control-public-exports`.
+
+**Nits**: none.
+
+**Rejected**: none.
+
+**Notes**: Substrate feature review; effective weight `standard` from `.work/CONVENTIONS.md`; one sole fresh-context pass, then receiver adjudication, blocker fixes, focused verification, packed-process verification, and full-suite verification. No repeat review or nested agent ran. Focused control/update/host/security/process coverage passed 221 tests; full verification passed 307 files and 1,479 tests plus package/packed acceptance. Closure preserves the sole packaged `application.control` facade, update-status fixes, scalar helper, source redaction, and the absence of Pi command/TUI production code.
