@@ -1,7 +1,7 @@
 ---
 id: consolidate-native-control-scalar-safety
 kind: story
-stage: review
+stage: done
 tags: [refactor, compatibility]
 parent: null
 depends_on: []
@@ -111,13 +111,13 @@ containsUnsafeNativeControlScalar(value)
 
 **Acceptance Criteria**:
 
-- [ ] Exactly one native-control UTF-16/control traversal remains across lexer, parser, and redaction code, with net source-line deletion.
-- [ ] Text lexing still accepts ASCII space/tab separators and rejects the same C0/C1, bidi, and lone-surrogate inputs.
-- [ ] Direct argv still rejects tab, controls, bidi markers, lone surrogates, and values longer than 8,192 code units.
-- [ ] Structural projection still replaces the same unsafe strings while retaining its current JSON-safety and redaction behavior.
-- [ ] No command ID, path, alias, option, request/response schema, exit, public export, or packaged allowlist changes.
-- [ ] `npx vitest run test/application/native-control-lexer.test.ts test/application/native-control-parser.test.ts test/application/native-control-redaction.test.ts` passes unchanged.
-- [ ] `npm run typecheck` passes.
+- [x] Exactly one native-control UTF-16/control traversal remains across lexer, parser, and redaction code, with net source-line deletion.
+- [x] Text lexing still accepts ASCII space/tab separators and rejects the same C0/C1, bidi, and lone-surrogate inputs.
+- [x] Direct argv still rejects tab, controls, bidi markers, lone surrogates, and values longer than 8,192 code units.
+- [x] Structural projection still replaces the same unsafe strings while retaining its current JSON-safety and redaction behavior.
+- [x] No command ID, path, alias, option, request/response schema, exit, public export, or packaged allowlist changes.
+- [x] `npx vitest run test/application/native-control-lexer.test.ts test/application/native-control-parser.test.ts test/application/native-control-redaction.test.ts` passes unchanged.
+- [x] `npm run typecheck` passes.
 
 **Rollback**: Revert the implementation commit; the three local predicates are independent and can be restored without data, schema, migration, or public API consequences.
 
@@ -145,3 +145,14 @@ containsUnsafeNativeControlScalar(value)
 - Update-count callback repetition and repeated optional composition spreads were rejected as too small to justify a new abstraction.
 - Update authority/revalidation and automatic-lifecycle branches were excluded because changing them belongs to correctness/security review, not a conservative refactor.
 - Parser splitting, test cleanup, control grammar changes, manager/Pi integration, and broader Unicode policy consolidation are out of scope.
+
+## Review (2026-07-17)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+**Rejected**: none
+
+**Notes**: Bounded inline standalone-story review at standard project weight; no independent, fresh-context, or cross-model reviewer ran, per standalone-story policy and the caller's no-nested-agents constraint. The review inspected implementation commit `3152df0` and confirmed that the helper preserves the exact C0/C1, bidi, and surrogate-pair traversal; only lexer text and the existing exported scalar validator pass the horizontal-tab exception; direct argv and structural projection retain strict tab rejection; length checks and their diagnostic ordering remain at their original callers; projection remains unbounded; and the helper is absent from `src/index.ts` and package exports. One traversal remains and the four production files total 509 lines versus 526 before the refactor. Focused contracts, typecheck, dependency boundaries, all 1,458 tests, package builds/imports, and packed Pi startup passed. Additional compiled policy probes covered tab handling at all three call sites, valid and lone surrogate cases, direct-argv length diagnostics, and unbounded projection. No behavior, security, contract, grammar, redaction, manager, or Pi integration issue was found.
