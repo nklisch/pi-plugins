@@ -682,6 +682,61 @@ const mcpKeyDefinitions = {
   transportValues: ["stdio", "streamable-http", "sse", "websocket"] as const,
   typeValues: ["stdio", "streamable-http", "http", "sse", "websocket"] as const,
   transportAliases: { http: "streamable-http" } as const,
+  /**
+   * Canonical MCP field groups are the shared acceptance vocabulary for
+   * compatibility reporting and runtime projection. Each group declares its
+   * exact aliases, output target, unit, and fail-closed collision policy.
+   */
+  fieldGroups: {
+    transport: {
+      target: "transport",
+      aliases: ["transport", "type"],
+      unit: "transport",
+      collision: "canonical-equality",
+    },
+    workingDirectory: {
+      target: "launch.workingDirectory",
+      aliases: ["cwd", "workingDirectory"],
+      unit: "string",
+      collision: "exact-equality",
+    },
+    startupTimeout: {
+      target: "options.startupTimeoutMs",
+      aliases: ["startupTimeout", "timeoutMs"],
+      unit: "milliseconds",
+      collision: "exact-equality",
+    },
+    toolTimeout: {
+      target: "options.toolTimeoutMs",
+      aliases: ["toolTimeout", "timeout"],
+      unit: "milliseconds",
+      collision: "exact-equality",
+    },
+    allowedTools: {
+      target: "options.allowedTools",
+      aliases: ["allowTools", "allowedTools", "tools.allow"],
+      unit: "exact-string-set",
+      collision: "set-equality",
+    },
+    deniedTools: {
+      target: "options.deniedTools",
+      aliases: ["denyTools", "disabledTools", "tools.deny"],
+      unit: "exact-string-set",
+      collision: "set-equality",
+    },
+    authentication: {
+      target: "options.auth",
+      aliases: ["auth", "oauth", "authentication", "bearerTokenEnv"],
+      unit: "authentication-mode",
+      collision: "coherent-single-mode",
+    },
+    features: {
+      target: "options.features",
+      aliases: ["toolApproval", "tool_approval", "sampling", "elicitation", "features.*"],
+      unit: "semantic-slot",
+      collision: "reject-duplicates",
+    },
+  } as const,
   transportAllowedFields: mcpTransportAllowedFields,
   type: "type",
   command: "command",

@@ -319,6 +319,21 @@ export type {
 } from "./domain/compatibility-policy.js";
 
 export {
+  McpCanonicalTransportSchema,
+  McpCanonicalAuthSchema,
+  McpCanonicalOptionsSchemaV1,
+  McpCompatibilityPlanSchemaV1,
+  analyzeMcpCompatibility,
+} from "./domain/mcp-compatibility-plan.js";
+export type {
+  McpCanonicalTransport,
+  McpCanonicalAuth,
+  McpCanonicalOptions,
+  McpCompatibilityPlan,
+  McpCompatibilityAnalysis,
+} from "./domain/mcp-compatibility-plan.js";
+
+export {
   CompatibilityEvaluationInputSchema,
   evaluateCompatibility,
 } from "./domain/compatibility-evaluator.js";

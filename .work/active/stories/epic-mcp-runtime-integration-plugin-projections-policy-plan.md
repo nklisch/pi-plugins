@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-plugin-projections-policy-plan
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-plugin-projections
 depends_on: []
@@ -46,3 +46,15 @@ The supported plan contains only component id, canonical transport, secret-free 
 ## Ordering and boundary
 
 No sibling dependencies. This story does not touch readers, files, runtime ports, fake runtime state, launch values, lifecycle, reload, persistence, or a production MCP package.
+
+## Implementation notes
+
+- Added one registry-driven `analyzeMcpCompatibility` plan and removed the evaluator's separate MCP parser. Compatibility reporting now derives requirements and diagnostics from the same analysis consumed by projection.
+- Canonical plans retain only transport, structural options, requirement capability ids, and stripped deterministic source locations. Launch, endpoint, header, environment, bearer, OAuth client, raw declaration, and native-cause values remain absent.
+- Added explicit registry metadata for field targets, aliases, units, and collision policy; conflicting selectors/aliases, allow/deny overlap, duplicate feature slots, unsupported transports/auth, and credential-bearing URLs fail closed.
+- Added the package-internal canonical JSON/UTF-8 comparator used for deterministic MCP evidence.
+
+## Verification
+
+- `npm run typecheck` — passed.
+- `npx vitest run test/domain/mcp-compatibility-plan.test.ts test/domain/compatibility-evaluator.test.ts test/domain/compatibility-table-contract.test.ts` — 3 files, 21 tests passed.

@@ -128,8 +128,8 @@ describe("compatibility table contract", () => {
       expect(negative).toMatchObject({ plugin: { key: "fixture@compatibility" } });
       assertSafeDiagnostics(positive, `${fixture.id}/positive`);
       assertSafeDiagnostics(negative, `${fixture.id}/negative`);
-      expect(observedOutcome(positive)).toEqual(expectedOutcome(fixture.positiveExpected));
-      expect(observedOutcome(negative)).toEqual(expectedOutcome(fixture.negativeExpected));
+      expect(observedOutcome(positive), `${fixture.id}/positive outcome`).toEqual(expectedOutcome(fixture.positiveExpected));
+      expect(observedOutcome(negative), `${fixture.id}/negative outcome`).toEqual(expectedOutcome(fixture.negativeExpected));
 
       for (const capability of rule!.requirementCapabilityIds) {
         if (fixture.positiveVerdict === "supported") {
