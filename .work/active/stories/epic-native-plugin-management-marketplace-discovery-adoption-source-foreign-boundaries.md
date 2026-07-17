@@ -1,0 +1,39 @@
+---
+id: epic-native-plugin-management-marketplace-discovery-adoption-source-foreign-boundaries
+kind: story
+stage: implementing
+tags: [compatibility, security]
+parent: epic-native-plugin-management-marketplace-discovery-adoption
+depends_on: []
+release_binding: null
+gate_origin: null
+research_refs: []
+research_origin: null
+created: 2026-07-17
+updated: 2026-07-17
+---
+
+# Harden approved marketplace and foreign-file boundaries
+
+## Checkpoint
+
+Retain the existing Git/GitHub/SSH/SCP/local materializer while preventing hidden host pivots and unsafe foreign-state reads. Verify Git's effective remote URL before contact, disable HTTPS redirects, canonicalize approved absolute user-local roots, and read only fixed Claude/Codex documents through contained no-follow file descriptors with bounded, identity-stable reads.
+
+## Files
+
+- `src/infrastructure/git/git-source-acquirer.ts`
+- `src/infrastructure/adoption/node-foreign-state-files.ts`
+- `src/composition/create-adoption-service.ts`
+- owning Git and foreign-file adapter tests
+
+## Acceptance evidence
+
+- Supported direct source forms still work; raw/unsupported protocols, HTTP redirects, and `url.*.insteadOf` host pivots fail before publication.
+- Local source symlink leaves/non-directories/relative paths fail; persisted local identity is canonical and user-only.
+- Foreign fixed paths cannot escape a canonical root or change identity while read; leaf symlink, non-file, oversize, invalid UTF-8, and I/O failures are isolated per document.
+- Clean environments return three logical `missing` statuses without either CLI.
+- Credential, remote-stderr, URL, and home-path canaries do not enter safe errors, diagnostics, or JSON.
+
+## Ordering
+
+Root checkpoint. Normal registration and adoption depend on it.
