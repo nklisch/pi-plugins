@@ -1,7 +1,7 @@
 ---
 id: centralize-application-abort-rejection-classification
 kind: feature
-stage: review
+stage: done
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -155,3 +155,10 @@ None. This consolidates an internal predicate without changing the ports-and-ada
 - Focused affected suites: 9 test files, 84 tests passed in two dependency-ordered runs (26 + 58), 0 failed.
 - Full `npm test`: 174 test files and 956 tests passed, no type errors; dependency boundaries passed across 236 modules and 1425 dependencies with 0 violations; compiled-package import passed with 508 public exports.
 - `git diff --check` passed. `src/index.ts`, package exports, recognized rejection shapes, signal ordering, callback ordering, error mappings, and runtime timeout/cancellation policy remain unchanged.
+
+## Review
+
+- Review weight: standard; exactly one independent GPT-5.6 pass.
+- Verdict: **APPROVE** with no material blockers and no parked findings.
+- Verified predicate equivalence, exact reason identity/type narrowing, signal precedence, timeout/cancellation mapping, cleanup/disposal ordering, error wrapping, call-site scope, package boundary, and test coverage.
+- No fixes or repeat review were required. Feature advanced `review → done`.
