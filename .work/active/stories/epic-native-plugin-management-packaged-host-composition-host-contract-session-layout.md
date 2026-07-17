@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-packaged-host-composition-host-contract-session-layout
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management-packaged-host-composition
 depends_on: []
@@ -50,3 +50,10 @@ Define the public construct/start/dispose state machine, pure host path plan, ex
 ## Ordering constraint
 
 Root checkpoint. All concrete adapters and application composition depend on these lifetime and path authorities.
+
+## Implementation notes
+
+- Added a pure, digest-only `PluginHostPathPlan` with fixed state, lock, configuration, content, recovery, lease, and retention locations. No filesystem lookup occurs while planning.
+- Added exact Pi session binding with live trust assessment, stale-context rejection, inert lifecycle delegates, and a versioned process-global composition/session claim. Reload overlap requires the predecessor's exact draining ticket.
+- Added redacted public host contracts and stable host-boundary errors. Construction claims and delegate registration are the only process-local effects; delegates are inert until activated.
+- Verification: `npx vitest run test/composition/packaged-plugin-host-contract.test.ts test/pi/pi-session-binding.test.ts` (5 passed) and `npm run typecheck` passed.
