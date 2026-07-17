@@ -105,36 +105,57 @@ function updateState(subject: InstalledInspectionDetailSubject, snapshot: Inspec
   return { state: "unknown" as const, stale: false };
 }
 
+type ParticipantStatus = "matching" | "missing" | "mismatched" | "unavailable";
+
 function participantStatus(input: Readonly<{
   evidence: InstalledRuntimeEvidence | undefined;
   participant: "skills-hooks" | "mcp";
   expectedSkills?: readonly ComponentId[];
   expectedHooks?: readonly ComponentId[];
+  expectedMcp?: readonly ComponentId[];
   selectedRevision: string;
   activeExpected: boolean;
-}>): "matching" | "missing" | "mismatched" | "unavailable" {
+}>): ParticipantStatus {
   if (input.evidence === undefined) return "missing";
   if (input.participant === "skills-hooks") {
+    const required = (input.expectedSkills?.length ?? 0) + (input.expectedHooks?.length ?? 0) > 0;
     const result = input.evidence.skillsHooks;
-    if (result.kind !== "ready") return "unavailable";
+    if (result.kind === "mismatched") return "mismatched";
+    if (result.kind === "unavailable") return required ? "unavailable" : "matching";
     const observation = result.observation;
-    if (observation.kind === "inactive") return input.activeExpected ? "missing" : "matching";
+    if (observation.kind === "inactive") return input.activeExpected && required ? "missing" : "matching";
+    if (!input.activeExpected) return "mismatched";
     return observation.revision === input.selectedRevision && observation.projectionDigest === input.evidence.projectionDigest &&
       sameIds(observation.skillComponentIds, input.expectedSkills ?? []) && sameIds(observation.hookComponentIds, input.expectedHooks ?? [])
       ? "matching" : "mismatched";
   }
+
+  const required = (input.expectedMcp?.length ?? 0) > 0;
   const expected = input.evidence.mcp.expected;
   const status = input.evidence.mcp.status;
-  if (status.kind !== "ready") {
-    return expected.kind !== "source" && (!input.activeExpected || expected.kind === "none") ? "matching" : "unavailable";
+  if (status.kind === "mismatched") return "mismatched";
+  if (status.kind === "unavailable") return required ? "unavailable" : "matching";
+  if (!input.activeExpected) {
+    return expected.kind !== "source" && status.status === null ? "matching" : "mismatched";
   }
-  if (expected.kind !== "source") {
-    if (status.status !== null) return "mismatched";
-    return expected.kind === "none" || !input.activeExpected ? "matching" : "missing";
+  if (!required) return expected.kind !== "source" && status.status === null ? "matching" : "mismatched";
+  if (expected.kind !== "source" || status.status === null) return "missing";
+  if (status.status.registrationDigest !== expected.registrationDigest || status.status.state !== "registered" ||
+      status.status.identity.plugin !== input.evidence.plugin || status.status.identity.revision !== input.selectedRevision ||
+      !sameScope(status.status.identity.scope, input.evidence.scope) || status.status.identity.projectionDigest !== input.evidence.projectionDigest) {
+    return "mismatched";
   }
-  if (status.status === null) return "missing";
-  if (status.status.registrationDigest !== expected.registrationDigest || status.status.state !== "registered") return "mismatched";
-  return sameIds(status.status.servers.map((server) => server.componentId), expected.servers.map((server) => server.componentId)) ? "matching" : "mismatched";
+  return sameIds(status.status.servers.map((server) => server.componentId), input.expectedMcp ?? []) &&
+    sameIds(expected.servers.map((server) => server.componentId), input.expectedMcp ?? [])
+    ? "matching" : "mismatched";
+}
+
+function runtimeFinding(participant: "skills-hooks" | "mcp", status: ParticipantStatus): NativeDiagnosticInput["findings"][number]["key"] | undefined {
+  if (status === "matching") return undefined;
+  if (participant === "skills-hooks") {
+    return status === "mismatched" ? "activationMismatch" : status === "missing" ? "runtimeMissing" : "projectionUnavailable";
+  }
+  return status === "mismatched" ? "mcpRegistrationMismatch" : status === "missing" ? "mcpRegistrationMissing" : "runtimeUnavailable";
 }
 
 /** Installed detail over one exact state/runtime evidence snapshot. */
@@ -174,7 +195,7 @@ export function createNativeInstalledInspector(dependencies: Readonly<{
           detailId, subject: "installed", scope: subject.scope, plugin: subject.plugin,
           name: safe(names.plugin), marketplace: safe(names.marketplace),
           revision: { installed: safe(subject.selectedRevision), immutable: subject.selectedRevision, resolution: "exact" },
-          condition: "unavailable", freshness: { status: "unavailable", basis: "state" },
+          condition: deriveNativeInspectionCondition(diagnostics), freshness: { status: "unavailable", basis: "state" },
           diagnosticCounts: countNativeDiagnostics(diagnostics),
         });
         return NativeInspectionDetailResultSchema.parse({ kind: "unavailable", summary, diagnostics });
@@ -187,33 +208,46 @@ export function createNativeInstalledInspector(dependencies: Readonly<{
       const report = snapshot.capabilities === undefined
         ? undefined
         : CompatibilityReportSchema.parse(evaluateCompatibility({ plugin: loaded.plugin, capabilities: snapshot.capabilities }));
-      const configuration = await dependencies.readiness.configuration({
-        plugin: subject.plugin,
-        scope: subject.scope,
-        descriptors: loaded.plugin.configuration,
-        ...(authority.revision.configurationRef === undefined ? {} : { configurationRef: authority.revision.configurationRef }),
-      }, signal);
+      let configuration: Awaited<ReturnType<InspectionReadinessPort["configuration"]>> = [];
+      let configurationUnavailable = false;
+      try {
+        configuration = await dependencies.readiness.configuration({
+          plugin: subject.plugin,
+          scope: subject.scope,
+          descriptors: loaded.plugin.configuration,
+          ...(authority.revision.configurationRef === undefined ? {} : { configurationRef: authority.revision.configurationRef }),
+        }, signal);
+      } catch (error) {
+        if (signal.aborted) throw signal.reason ?? error;
+        configurationUnavailable = true;
+      }
       let trust: NativeTrustReadiness = "not-applicable";
       if (subject.scope.kind === "project" && snapshot.currentProject.trust.kind !== "trusted") {
         trust = "project-untrusted";
       } else if (report?.activatable === true) {
-        trust = await dependencies.readiness.trust(createTrustCandidate({
-          scope: subject.scope,
-          marketplaceSource: loaded.marketplaceSource,
-          plugin: loaded.plugin,
-          compatibility: report,
-          content: loaded.content,
-          materializationBinding: loaded.binding,
-        }, dependencies.sha256), subject.scope, signal);
+        try {
+          trust = await dependencies.readiness.trust(createTrustCandidate({
+            scope: subject.scope,
+            marketplaceSource: loaded.marketplaceSource,
+            plugin: loaded.plugin,
+            compatibility: report,
+            content: loaded.content,
+            materializationBinding: loaded.binding,
+          }, dependencies.sha256), subject.scope, signal);
+        } catch (error) {
+          if (signal.aborted) throw signal.reason ?? error;
+          trust = "unavailable";
+        }
       }
 
       const runtime = snapshot.runtime.find((candidate) => sameScope(candidate.scope, subject.scope) && candidate.plugin === subject.plugin && candidate.selectedRevision === subject.selectedRevision);
       const assessments = new Map(report?.components.map((assessment) => [assessment.componentId, assessment]) ?? []);
       const expectedSkills = loaded.plugin.components.skills.filter((component) => assessments.get(component.id)?.verdict.kind === "supported").map((component) => component.id);
       const expectedHooks = loaded.plugin.components.hooks.filter((component) => assessments.get(component.id)?.verdict.kind === "supported").map((component) => component.id);
+      const expectedMcp = loaded.plugin.components.mcpServers.filter((component) => assessments.get(component.id)?.verdict.kind === "supported").map((component) => component.id);
       const activeExpected = authority.record.activation === "enabled";
       const skillsStatus = participantStatus({ evidence: runtime, participant: "skills-hooks", expectedSkills, expectedHooks, selectedRevision: subject.selectedRevision, activeExpected });
-      const mcpStatus = participantStatus({ evidence: runtime, participant: "mcp", selectedRevision: subject.selectedRevision, activeExpected });
+      const mcpStatus = participantStatus({ evidence: runtime, participant: "mcp", expectedMcp, selectedRevision: subject.selectedRevision, activeExpected });
       const transition = authority.record.pendingTransition !== undefined ? "pending" as const : recoveryTransition(subject, snapshot);
       const update = updateState(subject, snapshot);
       const findings: NativeDiagnosticInput["findings"][number][] = [];
@@ -234,22 +268,30 @@ export function createNativeInstalledInspector(dependencies: Readonly<{
       else if (trust === "revoked") findings.push(finding("trustRevoked", detailId));
       else if (trust === "invalid-evidence") findings.push(finding("trustInvalid", detailId));
       else if (trust === "unavailable") findings.push(unavailableEvidenceFinding("trust", detailId));
+      if (configurationUnavailable) findings.push(unavailableEvidenceFinding("configuration", detailId));
+      let requiredConfigurationUnavailable = false;
       for (const option of configuration) {
         if (option.required && option.state === "missing") findings.push(finding("configurationRequired", detailId));
         if (option.state === "invalid") findings.push(finding("configurationInvalid", detailId));
-        if (option.required && option.sensitive && option.state === "unavailable") findings.push(finding("secretCustodyUnavailable", detailId));
+        if (option.required && option.state === "unavailable") {
+          if (option.sensitive) findings.push(finding("secretCustodyUnavailable", detailId));
+          else requiredConfigurationUnavailable = true;
+        }
       }
+      if (requiredConfigurationUnavailable) findings.push(unavailableEvidenceFinding("configuration", detailId));
 
-      const participantsRequired = authority.record.activation === "enabled" && report?.activatable === true && trust === "authorized" && transition === "none";
-      if (participantsRequired && (skillsStatus !== "matching" || mcpStatus !== "matching")) {
-        findings.push(finding(mcpStatus === "mismatched" || mcpStatus === "missing" ? "mcpRegistrationMismatch" : "activationMismatch", detailId));
+      const configurationReady = !configurationUnavailable && !configuration.some((option) =>
+        option.state === "invalid" || option.required && ["missing", "unavailable"].includes(option.state));
+      const runtimeAuthorityEligible = report?.activatable === true && trust === "authorized" && configurationReady && transition === "none";
+      if (runtimeAuthorityEligible) {
+        const skillsFinding = runtimeFinding("skills-hooks", skillsStatus);
+        const mcpFinding = runtimeFinding("mcp", mcpStatus);
+        if (skillsFinding !== undefined) findings.push(finding(skillsFinding, detailId));
+        if (mcpFinding !== undefined) findings.push(finding(mcpFinding, detailId));
       }
-      if (authority.record.activation === "disabled" && (skillsStatus !== "matching" || mcpStatus !== "matching")) {
-        findings.push(finding("activationMismatch", detailId));
-      }
-      const localMcpMatching = mcpStatus === "matching" && runtime?.mcp.status.kind === "ready";
-      if (localMcpMatching) {
-        for (const server of runtime.mcp.status.kind === "ready" ? runtime.mcp.status.status?.servers ?? [] : []) {
+      const localRuntimeCurrent = runtimeAuthorityEligible && skillsStatus === "matching" && mcpStatus === "matching";
+      if (localRuntimeCurrent && runtime?.mcp.status.kind === "ready") {
+        for (const server of runtime.mcp.status.status?.servers ?? []) {
           if (server.state === "needs-auth") findings.push(finding("mcpAuthRequired", detailId, server.componentId));
           else if (server.state === "failed") findings.push(finding("mcpRemoteFailed", detailId, server.componentId));
         }
@@ -290,10 +332,9 @@ export function createNativeInstalledInspector(dependencies: Readonly<{
       });
       const activationState = transition !== "none" ? (transition === "pending" ? "pending" : "recovery-required")
         : condition === "blocked" ? "blocked"
-        : runtime === undefined ? "unavailable"
+        : !localRuntimeCurrent ? "unavailable"
         : authority.record.activation === "disabled" ? "inactive"
-        : skillsStatus === "matching" && mcpStatus === "matching" ? "active"
-        : "blocked";
+        : "active";
       const activation = NativeActivationViewSchema.parse({
         intent: authority.record.activation,
         state: activationState,
@@ -304,18 +345,26 @@ export function createNativeInstalledInspector(dependencies: Readonly<{
           { participant: "mcp", status: mcpStatus, ...(runtime?.mcp.expected.registrationDigest === undefined ? {} : { contributionDigest: runtime.mcp.expected.registrationDigest }) },
         ],
       });
-      const mcpHealth = runtime === undefined ? undefined : NativeMcpHealthViewSchema.parse({
-        localRegistration: mcpStatus === "matching" ? "matching" : mcpStatus === "missing" ? "absent" : mcpStatus,
-        servers: runtime.mcp.status.kind !== "ready" || runtime.mcp.status.status === null ? [] : runtime.mcp.status.status.servers.map((server) => ({
-          componentId: server.componentId,
-          serverKey: server.key,
-          nativeKey: safe(server.nativeKey),
-          transport: runtime.mcp.expected.servers.find((candidate) => candidate.componentId === server.componentId)?.transport ?? "stdio",
-          state: server.state,
-          ...(server.toolCount === undefined ? {} : { toolCount: server.toolCount }),
-          ...(server.errorCode === undefined ? {} : { errorCode: server.errorCode }),
-        })),
-      });
+      const observedMcp = runtime?.mcp.status.kind === "ready" ? runtime.mcp.status.status : null;
+      const mcpHealth = runtime === undefined || expectedMcp.length === 0 && observedMcp === null && mcpStatus === "matching"
+        ? undefined
+        : NativeMcpHealthViewSchema.parse({
+            localRegistration: mcpStatus === "matching" ? "matching" : mcpStatus === "missing" ? "absent" : mcpStatus,
+            servers: observedMcp?.servers.map((server) => {
+              const exactExpectation = runtime.mcp.expected.servers.find((candidate) =>
+                candidate.componentId === server.componentId && candidate.serverKey === server.key);
+              return {
+                componentId: server.componentId,
+                serverKey: server.key,
+                nativeKey: safe(server.nativeKey),
+                authority: localRuntimeCurrent ? "current" as const : "stale" as const,
+                ...(exactExpectation === undefined ? {} : { transport: exactExpectation.transport }),
+                state: server.state,
+                ...(server.toolCount === undefined ? {} : { toolCount: server.toolCount }),
+                ...(server.errorCode === undefined ? {} : { errorCode: server.errorCode }),
+              };
+            }) ?? [],
+          });
       return NativeInspectionDetailResultSchema.parse({
         kind: "found",
         detail: NativeInspectionDetailSchema.parse({

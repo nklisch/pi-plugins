@@ -47,6 +47,8 @@ import {
   type InspectionDetailSubject,
 } from "./native-inspection-identifiers.js";
 
+const encoder = new TextEncoder();
+
 export class NativeInspectionError extends Error {
   constructor(readonly code: "CURSOR_INVALID" | "CURSOR_STALE" | "SNAPSHOT_STALE") {
     super(code === "CURSOR_INVALID" ? "inspection cursor is invalid" : "inspection snapshot is stale");
@@ -95,15 +97,46 @@ function queryMatches(summary: NativeInspectionSummary, tokens: readonly string[
   return tokens.every((token) => searchable.includes(token));
 }
 
+type PageAuthorityStatus = "ready" | "stale" | "corrupt" | "unavailable";
+
+function scopeKey(scope: NativeInspectionSummary["scope"]): string {
+  return scope.kind === "user" ? "user" : `project:${scope.projectKey}`;
+}
+
+function catalogAuthority(cache: InspectionEvidenceSnapshot["binding"]["catalogs"][number]["cache"]): PageAuthorityStatus {
+  if (cache.kind === "corrupt") return "corrupt";
+  if (cache.kind === "stale") return "stale";
+  if (cache.kind === "unavailable" || cache.kind === "not-materialized") return "unavailable";
+  return "ready";
+}
+
+/**
+ * Page condition summarizes the complete post-filter result, not one pagination
+ * slice. Only requested subject/scope authorities participate: state for
+ * installed rows and catalog publication/search for candidate rows.
+ */
 function pageCondition(
   items: readonly NativeInspectionSummary[],
-  observations: readonly { status: "ready" | "corrupt" | "unavailable" }[],
-  catalogs: InspectionEvidenceSnapshot["binding"]["catalogs"],
+  authorities: readonly PageAuthorityStatus[],
 ): NativeInspectionCondition {
-  if (observations.some((observation) => observation.status === "corrupt") || catalogs.some((catalog) => catalog.cache.kind === "corrupt") || items.some((item) => item.condition === "blocked")) return "blocked";
+  if (authorities.length === 0 || authorities.every((status) => status === "unavailable")) return "unavailable";
+  if (authorities.some((status) => status === "corrupt") || items.some((item) => item.condition === "blocked")) return "blocked";
   if (items.length > 0 && items.every((item) => item.condition === "unavailable")) return "unavailable";
-  if (observations.some((observation) => observation.status === "unavailable") || catalogs.some((catalog) => ["stale", "unavailable", "not-materialized"].includes(catalog.cache.kind)) || items.some((item) => item.condition !== "ready")) return "degraded";
+  if (authorities.some((status) => status === "stale" || status === "unavailable") || items.some((item) => item.condition !== "ready")) return "degraded";
   return "ready";
+}
+
+function opaqueOwner(value: string, sha256: Sha256) {
+  const bytes = sha256(encoder.encode(`native-inspection-owner-v1\0${value}`));
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength !== 32) throw new Error("SHA-256 function must return exactly 32 bytes");
+  return safe(`sha256:${[...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`);
+}
+
+function ownerFacts(scope: NativeInspectionSummary["scope"], plugin?: string): NonNullable<NativeDiagnosticInput["findings"][number]["facts"]> {
+  return [
+    { key: "owner-scope", value: safe(scopeKey(scope)) },
+    ...(plugin === undefined ? [] : [{ key: "owner-plugin", value: safe(plugin) }]),
+  ];
 }
 
 function corruptionFacts(corruption: StateCorruption): NonNullable<NativeDiagnosticInput["findings"][number]["facts"]> {
@@ -111,6 +144,7 @@ function corruptionFacts(corruption: StateCorruption): NonNullable<NativeDiagnos
     ? undefined
     : corruption.location.kind === "field" ? corruption.location.id : corruption.location.value;
   return [
+    ...ownerFacts(corruption.scope),
     { key: "corruption-code", value: safe(corruption.code) },
     ...(corruption.recordIdentity === undefined ? [] : [{ key: "record", value: safe(corruption.recordIdentity) }]),
     ...(location === undefined ? [] : [{ key: "location", value: safe(location) }]),
@@ -229,13 +263,32 @@ export function createNativeInspectionService(dependencies: Readonly<{
         }
       }
 
+      const candidateSearchFailures = new Set<string>();
       if (request.subjects.includes("marketplace-candidate")) {
-        let cursor: Awaited<ReturnType<MarketplaceCatalogService["search"]>>["nextCursor"];
-        do {
-          const page = await dependencies.catalog.search({ scope: request.scope, query: request.query, limit: 100, ...(cursor === undefined ? {} : { cursor }) }, signal);
-          summaries.push(...page.candidates.map((candidate) => basicCandidateSummary(candidate, snapshot, dependencies.sha256)));
-          cursor = page.nextCursor;
-        } while (cursor !== undefined);
+        for (const state of snapshot.states) {
+          if (!state.ok) continue;
+          const scope = toScopeReference(state.snapshot.scope);
+          if (!scopeMatches(request.scope, scope)) continue;
+          const scoped: NativeInspectionSummary[] = [];
+          try {
+            let cursor: Awaited<ReturnType<MarketplaceCatalogService["search"]>>["nextCursor"];
+            const seenCursors = new Set<string>();
+            do {
+              const page = await dependencies.catalog.search({ scope: scope.kind, query: request.query, limit: 100, ...(cursor === undefined ? {} : { cursor }) }, signal);
+              for (const candidate of page.candidates) {
+                if (scopeKey(candidate.scope) !== scopeKey(scope)) throw new TypeError("catalog returned a candidate for another scope");
+                scoped.push(basicCandidateSummary(candidate, snapshot, dependencies.sha256));
+              }
+              cursor = page.nextCursor;
+              if (cursor !== undefined && seenCursors.has(cursor)) throw new TypeError("catalog cursor did not advance");
+              if (cursor !== undefined) seenCursors.add(cursor);
+            } while (cursor !== undefined);
+            summaries.push(...scoped);
+          } catch (error) {
+            if (signal.aborted) throw signal.reason ?? error;
+            candidateSearchFailures.add(scopeKey(scope));
+          }
+        }
       }
 
       const filtered = summaries
@@ -255,16 +308,41 @@ export function createNativeInspectionService(dependencies: Readonly<{
       const nextCursor = start + items.length < filtered.length && items.length > 0
         ? encodeInspectionCursor({ version: 1, snapshotId, filterHash, lastSort: summarySort(items.at(-1)!) }, dependencies.sha256)
         : undefined;
-      const observations = snapshot.binding.scopes.map((observation) => NativeScopeObservationSchema.parse({
-        scope: observation.scope,
-        status: observation.status,
-        ...(observation.generation === undefined ? {} : { generation: observation.generation }),
-        corruptionCodes: observation.corruptionCodes.map((code) => safe(code)),
-      }));
+      const readableStateScopes = new Set(snapshot.states.filter((state) => state.ok).map((state) => scopeKey(toScopeReference(state.snapshot.scope))));
+      const authorities: PageAuthorityStatus[] = [];
+      const observations = snapshot.binding.scopes.filter((binding) => scopeMatches(request.scope, binding.scope)).map((binding) => {
+        const statuses: PageAuthorityStatus[] = [];
+        if (request.subjects.includes("installed")) statuses.push(binding.status);
+        if (request.subjects.includes("marketplace-candidate")) {
+          const key = scopeKey(binding.scope);
+          if (!readableStateScopes.has(key)) {
+            statuses.push(binding.status === "corrupt" ? "corrupt" : "unavailable");
+          } else if (candidateSearchFailures.has(key)) {
+            statuses.push("unavailable");
+          } else {
+            const catalogs = snapshot.binding.catalogs.filter((catalog) => scopeKey(catalog.scope) === key);
+            statuses.push(...(catalogs.length === 0 ? ["ready" as const] : catalogs.map((catalog) => catalogAuthority(catalog.cache))));
+          }
+        }
+        authorities.push(...statuses);
+        const status = statuses.some((value) => value === "corrupt") ? "corrupt" as const
+          : statuses.some((value) => value === "unavailable") ? "unavailable" as const
+          : "ready" as const;
+        const corruptionCodes = [
+          ...(request.subjects.includes("installed") ? binding.corruptionCodes : []),
+          ...(request.subjects.includes("marketplace-candidate") && statuses.includes("corrupt") ? ["CATALOG_CORRUPT"] : []),
+        ];
+        return NativeScopeObservationSchema.parse({
+          scope: binding.scope,
+          status,
+          ...(binding.generation === undefined ? {} : { generation: binding.generation }),
+          corruptionCodes: [...new Set(corruptionCodes)].sort(compareUtf8).map((code) => safe(code)),
+        });
+      });
       if (await dependencies.evidence.validate(snapshot.binding, signal) === "stale") throw new NativeInspectionError("SNAPSHOT_STALE");
       return NativeInspectionPageSchema.parse({
         snapshotId,
-        condition: pageCondition(items, observations, snapshot.binding.catalogs),
+        condition: pageCondition(filtered, authorities),
         items,
         observations,
         ...(nextCursor === undefined ? {} : { nextCursor }),
@@ -282,7 +360,7 @@ export function createNativeInspectionService(dependencies: Readonly<{
       if (await dependencies.evidence.validate(snapshot.binding, signal) === "stale") {
         return NativeInspectionDetailResultSchema.parse({ kind: "stale", action: "retry-read" });
       }
-      return result;
+      return NativeInspectionDetailResultSchema.parse(result);
     },
 
     async diagnose(requestInput, signal): Promise<NativeDiagnosticReport> {
@@ -305,7 +383,10 @@ export function createNativeInspectionService(dependencies: Readonly<{
         }
         const diagnostics = result.kind === "found" ? result.detail.diagnostics
           : result.kind === "unavailable" ? result.diagnostics
-          : compileNativeDiagnostics({ findings: [{ key: "candidateMissing" }] }, dependencies.sha256);
+          : compileNativeDiagnostics({ findings: [{
+              key: subject.subject === "installed" ? "revisionUnavailable" : "candidateMissing",
+              subjectId: request.target.detailId,
+            }] }, dependencies.sha256);
         return NativeDiagnosticReportSchema.parse({ snapshotId, condition: deriveNativeInspectionCondition(diagnostics), observations, diagnostics });
       }
 
@@ -316,27 +397,53 @@ export function createNativeInspectionService(dependencies: Readonly<{
           if (loaded?.ok && loaded.snapshot.corruptions.length > 0) {
             findings.push(...loaded.snapshot.corruptions.map((corruption) => ({ key: "recordCorrupt" as const, facts: corruptionFacts(corruption) })));
           } else {
-            findings.push({ key: "stateCorrupt" });
+            findings.push({ key: "stateCorrupt", facts: ownerFacts(scope.scope) });
           }
-        } else if (scope.status === "unavailable") findings.push(unavailableEvidenceFinding("state"));
+        } else if (scope.status === "unavailable") {
+          const unavailable = unavailableEvidenceFinding("state");
+          findings.push({ ...unavailable, facts: [...(unavailable.facts ?? []), ...ownerFacts(scope.scope)] });
+        }
       }
-      if (snapshot.startup.status === "blocked") findings.push({ key: "startupBlocked" });
+      if (snapshot.startup.status === "blocked") {
+        for (const blocked of snapshot.startup.blocked) {
+          findings.push({ key: "startupBlocked", facts: [
+            // Startup observations allow adapter-defined strings. Hashing keeps
+            // distinct owners distinct without publishing a native path/error.
+            { key: "owner-plugin", value: opaqueOwner(blocked.plugin, dependencies.sha256) },
+          ] });
+        }
+      }
       for (const result of snapshot.recovery.results) {
-        if (result.kind === "blocked") findings.push({ key: "recoveryBlocked" });
-        else if (result.kind === "deferred") findings.push({ key: "recoveryDeferred" });
+        if (result.kind !== "blocked" && result.kind !== "deferred") continue;
+        findings.push({
+          key: result.kind === "blocked" ? "recoveryBlocked" : "recoveryDeferred",
+          facts: [
+            ...ownerFacts(result.scope, result.plugin),
+            { key: "recovery-code", value: safe(result.code) },
+            ...(result.reference === undefined ? [] : [{ key: "transition", value: safe(result.reference) }]),
+          ],
+        });
       }
       if (snapshot.binding.capability.status === "unavailable") findings.push({ key: "capabilityUnavailable" });
       for (const catalog of snapshot.binding.catalogs) {
-        if (catalog.cache.kind === "corrupt") findings.push({ key: "catalogCorrupt" });
-        else if (catalog.cache.kind === "stale") findings.push({ key: "catalogStale" });
-        else if (["unavailable", "not-materialized"].includes(catalog.cache.kind)) findings.push({ key: "catalogUnavailable" });
+        const facts = [
+          ...ownerFacts(catalog.scope),
+          { key: "registration", value: safe(catalog.registrationId) },
+        ];
+        if (catalog.cache.kind === "corrupt") findings.push({ key: "catalogCorrupt", facts });
+        else if (catalog.cache.kind === "stale") findings.push({ key: "catalogStale", facts });
+        else if (["unavailable", "not-materialized"].includes(catalog.cache.kind)) findings.push({ key: "catalogUnavailable", facts });
       }
       if (request.includeAdoption) {
         try {
           const adoption = await dependencies.adoption.preview({ compareScope: "all-current" }, signal);
           for (const document of adoption.documents) {
-            if (document.kind === "unreadable") findings.push({ key: "adoptionUnreadable" });
-            else if (document.kind === "changed-during-read") findings.push({ key: "adoptionChanged" });
+            const facts = [
+              { key: "owner-host", value: safe(document.host) },
+              { key: "owner-document", value: safe(document.document) },
+            ];
+            if (document.kind === "unreadable") findings.push({ key: "adoptionUnreadable", facts });
+            else if (document.kind === "changed-during-read") findings.push({ key: "adoptionChanged", facts });
           }
         } catch (error) {
           if (signal.aborted) throw signal.reason ?? error;

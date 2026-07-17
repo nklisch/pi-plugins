@@ -29,6 +29,7 @@ export type InspectionSnapshotBinding = Readonly<{
     epoch: ContentDigest;
   }>;
   catalogs: readonly Readonly<{
+    scope: ScopeReference;
     registrationId: MarketplaceRegistrationId;
     snapshot?: MarketplaceSnapshotToken;
     cache: MarketplaceCacheStatus;
@@ -60,12 +61,14 @@ export type InstalledRuntimeEvidence = Readonly<{
   projectionDigest?: ContentDigest;
   skillsHooks: Readonly<
     | { kind: "ready"; observation: RuntimeContributionObservation & Readonly<{ skillComponentIds: readonly ComponentId[]; hookComponentIds: readonly ComponentId[] }> }
+    | { kind: "mismatched" }
     | { kind: "unavailable"; code: string }
   >;
   mcp: Readonly<{
     expected: InspectionMcpExpectation;
     status: Readonly<
       | { kind: "ready"; status: McpSourceStatus | null }
+      | { kind: "mismatched" }
       | { kind: "unavailable"; code: string }
     >;
   }>;

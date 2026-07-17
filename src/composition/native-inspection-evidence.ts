@@ -82,11 +82,13 @@ function mcpExpectation(desired: RuntimeDesiredState | undefined, scope: ReturnT
 
 function safeMcpStatus(result: McpLifecycleStatusResult): InstalledRuntimeEvidence["mcp"]["status"] {
   if (result.kind === "ready") return Object.freeze({ kind: "ready" as const, status: result.status });
+  if (result.kind === "ambiguous") return Object.freeze({ kind: "mismatched" as const });
   return Object.freeze({ kind: "unavailable" as const, code: result.kind === "unavailable" ? "RUNTIME_UNAVAILABLE" : result.kind === "cancelled" ? "CANCELLED" : result.code });
 }
 
 function safeSkillObservation(result: SkillHookContributionObservationResult): InstalledRuntimeEvidence["skillsHooks"] {
   if (result.kind === "ready") return Object.freeze({ kind: "ready" as const, observation: result.observation });
+  if (result.kind === "failed" && result.code === "OBSERVATION_MISMATCH") return Object.freeze({ kind: "mismatched" as const });
   return Object.freeze({ kind: "unavailable" as const, code: result.kind === "cancelled" ? "CANCELLED" : result.code });
 }
 
@@ -160,6 +162,7 @@ export function createNativeInspectionEvidence(input: Readonly<{
         const registrationId = deriveMarketplaceRegistrationId({ scope: scopeReference, source: record.source }, input.sha256);
         const selected = snapshots.find((snapshot) => snapshot.marketplace === record.marketplace);
         catalogs.push({
+          scope: scopeReference,
           registrationId,
           ...(selected === undefined ? {} : { snapshot: deriveMarketplaceSnapshotToken({ scope: scopeReference, registrationId, snapshot: selected }, input.sha256) }),
           // Replaced below by the catalog service's publication-verified
@@ -168,21 +171,32 @@ export function createNativeInspectionEvidence(input: Readonly<{
         });
       }
     }
-    if (catalogs.length > 0) {
+    // Search each readable scope independently. A failed user adapter must not
+    // hide a valid project catalog (or vice versa), and native errors never
+    // enter the binding or public observations.
+    for (const result of states) {
+      if (!result.ok) continue;
+      const scope = toScopeReference(result.snapshot.scope);
+      if (!catalogs.some((catalog) => stable(catalog.scope) === stable(scope))) continue;
       try {
-        // The catalog service owns selected-publication verification and
-        // normalized catalog inspection. Reusing its observations keeps this
-        // binding aligned with corrupt/unavailable distinctions at that exact
-        // authority boundary instead of copying content rules here.
-        const page = await input.catalog.search({ scope: "all-current", query: "", limit: 1 }, signal);
+        const page = await input.catalog.search({ scope: scope.kind, query: "", limit: 1 }, signal);
         const observations = new Map(page.observations.map((observation) => [observation.registrationId, observation.cache]));
-        catalogs = catalogs.map((catalog) => ({ ...catalog, cache: observations.get(catalog.registrationId) ?? { kind: "unavailable" } }));
+        catalogs = catalogs.map((catalog) => stable(catalog.scope) !== stable(scope)
+          ? catalog
+          : { ...catalog, cache: observations.get(catalog.registrationId) ?? { kind: "unavailable" } });
       } catch (error) {
         if (signal.aborted) throw error;
-        catalogs = catalogs.map((catalog) => ({ ...catalog, cache: { kind: "unavailable" } }));
+        catalogs = catalogs.map((catalog) => stable(catalog.scope) !== stable(scope)
+          ? catalog
+          : { ...catalog, cache: { kind: "unavailable" } });
       }
     }
-    catalogs.sort((left, right) => compareUtf8(left.registrationId, right.registrationId));
+    catalogs.sort((left, right) => {
+      const scopeCompare = left.scope.kind !== right.scope.kind ? (left.scope.kind === "user" ? -1 : 1)
+        : left.scope.kind === "project" && right.scope.kind === "project" ? compareUtf8(left.scope.projectKey, right.scope.projectKey)
+        : 0;
+      return scopeCompare || compareUtf8(left.registrationId, right.registrationId);
+    });
 
     const desired = input.desired();
     const selectionSnapshot = input.selections.snapshot();
@@ -195,8 +209,20 @@ export function createNativeInspectionEvidence(input: Readonly<{
       const reference = toScopeReference(scope);
       const selection = selectionSnapshot.selections.find((candidate) => stable(candidate.scope) === stable(reference) && candidate.plugin === record.plugin && candidate.revision.revision === record.selectedRevision);
       const expectation = selection?.skillHook.prepared.expectation ?? createInactiveProjectionExpectation({ scope: reference, plugin: record.plugin, sha256: input.sha256 });
-      const skillsHooks = safeSkillObservation(await input.skillHook.observe(expectation, signal));
-      const status = safeMcpStatus(await input.mcp.status({ scope: reference, plugin: record.plugin }, signal));
+      let skillsHooks: InstalledRuntimeEvidence["skillsHooks"];
+      try {
+        skillsHooks = safeSkillObservation(await input.skillHook.observe(expectation, signal));
+      } catch (error) {
+        if (signal.aborted) throw error;
+        skillsHooks = Object.freeze({ kind: "unavailable", code: "ADAPTER_FAILED" });
+      }
+      let status: InstalledRuntimeEvidence["mcp"]["status"];
+      try {
+        status = safeMcpStatus(await input.mcp.status({ scope: reference, plugin: record.plugin }, signal));
+      } catch (error) {
+        if (signal.aborted) throw error;
+        status = Object.freeze({ kind: "unavailable", code: "ADAPTER_FAILED" });
+      }
       runtime.push(Object.freeze({
         scope: reference,
         plugin: record.plugin,

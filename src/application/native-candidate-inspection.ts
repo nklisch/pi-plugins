@@ -90,7 +90,7 @@ export function createNativeCandidateInspector(dependencies: CandidateInspection
         const summary = NativeInspectionSummarySchema.parse({
           detailId, subject: subject.subject, scope: subject.scope, plugin: subject.plugin,
           name: safe(names.plugin), marketplace: safe(names.marketplace), revision: { resolution: "unresolved" },
-          condition: "unavailable", freshness: { status: "unavailable", basis: "marketplace" },
+          condition: deriveNativeInspectionCondition(diagnostics), freshness: { status: "unavailable", basis: "marketplace" },
           diagnosticCounts: countNativeDiagnostics(diagnostics),
         });
         return NativeInspectionDetailResultSchema.parse({ kind: "unavailable", summary, diagnostics });
@@ -108,7 +108,7 @@ export function createNativeCandidateInspector(dependencies: CandidateInspection
           name: safe(names.plugin),
           marketplace: safe(names.marketplace),
           revision: { resolution: "unresolved" },
-          condition: "unavailable",
+          condition: deriveNativeInspectionCondition(diagnostics),
           freshness: { status: "unavailable", basis: "marketplace" },
           diagnosticCounts: countNativeDiagnostics(diagnostics),
         });
@@ -132,7 +132,7 @@ export function createNativeCandidateInspector(dependencies: CandidateInspection
               detailId, subject: subject.subject, scope: subject.scope, plugin: subject.plugin,
               name: safe(names.plugin), marketplace: safe(names.marketplace),
               revision: { available: safe(sourceRevision(materialized.source)), immutable: materialized.binding, resolution: "exact" },
-              condition: "unavailable", freshness: { status: "current", basis: "marketplace" },
+              condition: deriveNativeInspectionCondition(diagnostics), freshness: { status: "current", basis: "marketplace" },
               diagnosticCounts: countNativeDiagnostics(diagnostics),
             });
             return NativeInspectionDetailResultSchema.parse({ kind: "unavailable", summary, diagnostics });
@@ -150,11 +150,18 @@ export function createNativeCandidateInspector(dependencies: CandidateInspection
                 capabilities: snapshot.capabilities,
                 ...(candidate.entry.policy === undefined ? {} : { marketplacePolicy: candidate.entry.policy }),
               }));
-          const configuration = await dependencies.readiness.configuration({
-            plugin: subject.plugin,
-            scope: subject.scope,
-            descriptors: plugin.configuration,
-          }, signal);
+          let configuration: Awaited<ReturnType<InspectionReadinessPort["configuration"]>> = [];
+          let configurationUnavailable = false;
+          try {
+            configuration = await dependencies.readiness.configuration({
+              plugin: subject.plugin,
+              scope: subject.scope,
+              descriptors: plugin.configuration,
+            }, signal);
+          } catch (error) {
+            if (signal.aborted) throw signal.reason ?? error;
+            configurationUnavailable = true;
+          }
           let trust: import("./native-inspection-contract.js").NativeTrustReadiness = "not-applicable";
           if (report?.activatable === true) {
             const trustCandidate = createTrustCandidate({
@@ -165,7 +172,12 @@ export function createNativeCandidateInspector(dependencies: CandidateInspection
               content: materialized.content,
               materializationBinding: materialized.binding,
             }, dependencies.sha256);
-            trust = await dependencies.readiness.trust(trustCandidate, subject.scope, signal);
+            try {
+              trust = await dependencies.readiness.trust(trustCandidate, subject.scope, signal);
+            } catch (error) {
+              if (signal.aborted) throw signal.reason ?? error;
+              trust = "unavailable";
+            }
           }
 
           const findings: NativeDiagnosticInput["findings"][number][] = [];
@@ -185,11 +197,17 @@ export function createNativeCandidateInspector(dependencies: CandidateInspection
           else if (trust === "invalid-evidence") findings.push(finding("trustInvalid", detailId));
           else if (trust === "project-untrusted") findings.push(finding("projectUntrusted", detailId));
           else if (trust === "unavailable") findings.push(unavailableEvidenceFinding("trust", detailId));
+          if (configurationUnavailable) findings.push(unavailableEvidenceFinding("configuration", detailId));
+          let requiredConfigurationUnavailable = false;
           for (const option of configuration) {
             if (option.required && option.state === "missing") findings.push(finding("configurationRequired", detailId));
             if (option.state === "invalid") findings.push(finding("configurationInvalid", detailId));
-            if (option.required && option.sensitive && option.state === "unavailable") findings.push(finding("secretCustodyUnavailable", detailId));
+            if (option.required && option.state === "unavailable") {
+              if (option.sensitive) findings.push(finding("secretCustodyUnavailable", detailId));
+              else requiredConfigurationUnavailable = true;
+            }
           }
+          if (requiredConfigurationUnavailable) findings.push(unavailableEvidenceFinding("configuration", detailId));
           const catalogBinding = snapshot.binding.catalogs.find((catalog) => catalog.registrationId === subject.registrationId);
           if (catalogBinding?.cache.kind === "corrupt") findings.push(finding("catalogCorrupt", detailId));
           else if (catalogBinding?.cache.kind === "stale") findings.push(finding("catalogStale", detailId));
@@ -245,7 +263,7 @@ export function createNativeCandidateInspector(dependencies: CandidateInspection
         const summary = NativeInspectionSummarySchema.parse({
           detailId, subject: subject.subject, scope: subject.scope, plugin: subject.plugin,
           name: safe(names.plugin), marketplace: safe(names.marketplace), revision: { resolution: "unresolved" },
-          condition: "unavailable", freshness: { status: "unavailable", basis: "marketplace" },
+          condition: deriveNativeInspectionCondition(diagnostics), freshness: { status: "unavailable", basis: "marketplace" },
           diagnosticCounts: countNativeDiagnostics(diagnostics),
         });
         return NativeInspectionDetailResultSchema.parse({ kind: "unavailable", summary, diagnostics });

@@ -14,6 +14,7 @@ import {
   NativeDiagnosticCategorySchema,
   NativeDiagnosticCodeSchema,
 } from "./native-diagnostic-registry.js";
+import { containsUnsafeDisplayScalar } from "./native-inspection-display-safety.js";
 
 export const NativeInspectionSubjectKindSchema = z.enum(["installed", "marketplace-candidate"]);
 export const NativeInspectionConditionSchema = z.enum(["ready", "degraded", "blocked", "unavailable"]);
@@ -32,7 +33,9 @@ export const InspectionCursorSchema = z.string()
   .brand<"InspectionCursor">();
 
 export const SafeDisplayFieldSchema = z.object({
-  text: z.string().max(8192),
+  text: z.string().max(8192).refine((value) => !containsUnsafeDisplayScalar(value), {
+    message: "safe display text contains an unsafe scalar",
+  }),
   escaped: z.boolean(),
   truncated: z.boolean(),
 }).strict().readonly();
@@ -172,7 +175,8 @@ export const NativeMcpHealthViewSchema = z.object({
     componentId: ComponentIdSchema,
     serverKey: McpRuntimeServerKeySchemaV1,
     nativeKey: SafeDisplayFieldSchema,
-    transport: McpBridgeTransportSchema,
+    authority: z.enum(["current", "stale", "unavailable"]),
+    transport: McpBridgeTransportSchema.optional(),
     state: z.enum(["registered", "idle", "connecting", "connected", "needs-auth", "failed"]),
     toolCount: z.number().int().nonnegative().optional(),
     errorCode: ErrorCodeSchema.optional(),

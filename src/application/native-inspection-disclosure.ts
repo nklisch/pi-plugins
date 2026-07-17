@@ -28,7 +28,10 @@ import {
 } from "./native-inspection-contract.js";
 import { NativeDisplayLimits, toSafeDisplayField } from "./native-inspection-display.js";
 
-const ABSOLUTE_PATH = /^(?:\/|[A-Za-z]:[\\/]|file:\/\/)/u;
+// Classify paths for every host, not the machine running inspection. Leading
+// slash/backslash covers POSIX, UNC, device, and Windows root-relative forms;
+// any drive-qualified or file: form is treated as sensitive provenance.
+const ABSOLUTE_PATH = /^(?:[\\/]|[A-Za-z]:|file:)/iu;
 
 function safePath(value: string, allowAbsolute = false) {
   const projected = !allowAbsolute && ABSOLUTE_PATH.test(value) ? "[redacted-absolute-path]" : value;
