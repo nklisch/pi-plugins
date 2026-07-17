@@ -47,15 +47,33 @@ export function createAutomaticUpdateLifecycleAdapter(dependencies: Readonly<{
     }, signal);
   }
 
+  async function projectAuthorized(scope: ScopeContext, signal: AbortSignal): Promise<boolean> {
+    if (scope.kind === "user") return true;
+    try {
+      if ((await dependencies.projectTrust.assess(scope.projectKey, signal)).kind !== "trusted") return false;
+      const root = await dependencies.projectRoots.acquire(signal);
+      const current = dependencies.projectRoots.revalidate === undefined
+        ? dependencies.projectRoots.verify(root, scope)
+        : await dependencies.projectRoots.revalidate(root, scope, signal);
+      return current.kind === "project" && current.projectKey === scope.projectKey;
+    } catch (error) {
+      if (signal.aborted) throw signal.reason ?? error;
+      return false;
+    }
+  }
+
   const port: AutomaticUpdateLifecyclePort = {
     async inspect(notice, signal) {
       const [resolved, current] = await Promise.all([resolve(notice, signal), target(notice, signal)]);
       if (resolved.kind !== "resolved") return { candidate: "stale", source: "stable", target: "current", project: "trusted", recovery: "clear", configuration: "valid", secrets: "available", capability: "available" };
       const candidate = resolved.candidate;
+      const selected = current?.record.revisions.find((revision) => revision.revision === current.record.selectedRevision);
       const source = deriveMarketplaceSourceIdentity(candidate.marketplace.source.declared, dependencies.sha256) === notice.available.marketplaceSourceIdentity &&
-        derivePluginSourceIdentity(candidate.entry.source.value, dependencies.sha256) === notice.available.pluginSourceIdentity ? "stable" as const : "changed" as const;
-      if (current === undefined) return { candidate: "current", source, target: "stale", project: "trusted", recovery: "clear", configuration: "valid", secrets: "available", capability: "available" };
-      const project = current.scope.kind === "project" && (await dependencies.projectTrust.assess(current.scope.projectKey, signal)).kind !== "trusted" ? "untrusted" as const : "trusted" as const;
+        derivePluginSourceIdentity(candidate.entry.source.value, dependencies.sha256) === notice.available.pluginSourceIdentity &&
+        selected?.evidence.source.marketplaceSourceIdentity === notice.available.marketplaceSourceIdentity &&
+        selected.evidence.source.pluginSourceIdentity === notice.available.pluginSourceIdentity ? "stable" as const : "changed" as const;
+      if (current === undefined || selected === undefined) return { candidate: "current", source, target: "stale", project: "trusted", recovery: "clear", configuration: "valid", secrets: "available", capability: "available" };
+      const project = await projectAuthorized(current.scope, signal) ? "trusted" as const : "untrusted" as const;
       const recovery = current.record.pendingTransition === undefined ? "clear" as const : "required" as const;
       const evidence = await dependencies.evidence.capture(signal);
       const snapshotId = deriveInspectionEvidenceSnapshotId(evidence.binding, dependencies.sha256);
@@ -80,6 +98,13 @@ export function createAutomaticUpdateLifecycleAdapter(dependencies: Readonly<{
       if (resolved.kind !== "resolved" || current === undefined || current.record.pendingTransition !== undefined) return { kind: "stale" };
       const selected = current.record.revisions.find((revision) => revision.revision === current.record.selectedRevision);
       if (selected === undefined) return { kind: "stale" };
+      const candidate = resolved.candidate;
+      if (deriveMarketplaceSourceIdentity(candidate.marketplace.source.declared, dependencies.sha256) !== notice.available.marketplaceSourceIdentity ||
+          derivePluginSourceIdentity(candidate.entry.source.value, dependencies.sha256) !== notice.available.pluginSourceIdentity ||
+          selected.evidence.source.marketplaceSourceIdentity !== notice.available.marketplaceSourceIdentity ||
+          selected.evidence.source.pluginSourceIdentity !== notice.available.pluginSourceIdentity) {
+        return { kind: "rejected", code: "UNTRUSTED" };
+      }
       const expectedTarget = LifecycleTargetExpectationSchema.parse({
         generation: current.snapshot.generation,
         plugin: current.record.plugin,
@@ -88,7 +113,6 @@ export function createAutomaticUpdateLifecycleAdapter(dependencies: Readonly<{
         targetDigest: deriveLifecycleTargetDigest(toScopeReference(current.scope), current.record, dependencies.sha256),
         pendingTransition: "none",
       });
-      const candidate = resolved.candidate;
       const sourceContext = candidate.entry.source.value.kind === "marketplace-path" ? {
         kind: "marketplace" as const,
         root: candidate.marketplace.root,
@@ -97,9 +121,18 @@ export function createAutomaticUpdateLifecycleAdapter(dependencies: Readonly<{
         content: candidate.marketplace.content,
         binding: candidate.marketplace.binding,
       } : { kind: "external" as const };
-      const configurationPathContext = current.scope.kind === "project"
-        ? { scope: current.scope, trustedProjectRoot: await dependencies.projectRoots.acquire(signal) }
-        : { scope: current.scope, trustedBaseDirectory: dependencies.userBaseDirectory };
+      let configurationPathContext;
+      if (current.scope.kind === "project") {
+        if (!await projectAuthorized(current.scope, signal)) return { kind: "rejected", code: "UNTRUSTED" };
+        try {
+          configurationPathContext = { scope: current.scope, trustedProjectRoot: await dependencies.projectRoots.acquire(signal) };
+        } catch (error) {
+          if (signal.aborted) throw signal.reason ?? error;
+          return { kind: "rejected", code: "UNTRUSTED" };
+        }
+      } else {
+        configurationPathContext = { scope: current.scope, trustedBaseDirectory: dependencies.userBaseDirectory };
+      }
       const result = await dependencies.lifecycle.update({
         scope: current.scope,
         plugin: notice.plugin,

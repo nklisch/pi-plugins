@@ -8,7 +8,11 @@ import { createInactiveProjectionExpectation } from "../../src/application/ports
 import { createLifecycleTransitionRecord } from "../../src/application/ports/lifecycle-transition-store.js";
 import { deriveLifecyclePendingTransitionRef } from "../../src/application/plugin-lifecycle-contract.js";
 import { createInstalledPluginRecord, createInstalledRevisionRecord, createMarketplaceSnapshotRecord } from "../../src/domain/state/installed-state.js";
-import { createProjectLocalStateDocumentV3 } from "../../src/domain/state/project-state.js";
+import {
+  createProjectLocalStateDocumentV3,
+  createProjectLocalStateDocumentV4,
+  projectProjectLocalV3ToV4,
+} from "../../src/domain/state/project-state.js";
 import { createScopeContext, deriveProjectKey, toScopeReference } from "../../src/domain/state/scope.js";
 import { createContentManifest } from "../../src/domain/content-manifest.js";
 import { createResolvedMarketplaceSource } from "../../src/domain/source.js";
@@ -30,7 +34,7 @@ describe("node lifecycle recovery composition", () => {
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 
-  it("recovers a V3 project transition through the real journal without changing declaration or native/adopted registrations", async () => {
+  it("recovers a V3-migrated project transition without changing lifecycle, intent, policy, or registration evidence", async () => {
     const root = await mkdtemp(join(process.cwd(), ".test-lifecycle-v3-recovery-"));
     try {
       const identity = { kind: "path-only" as const, canonicalRoot: "file:///recovery-project/" as never, limitation: "identity-changes-with-canonical-root" as const };
@@ -53,7 +57,7 @@ describe("node lifecycle recovery composition", () => {
         createMarketplaceSnapshotRecord({ marketplace: "adopted", source: adoptedSource, content }, sha256),
       ];
       const declarationDigest = `sha256:${"d".repeat(64)}` as never;
-      const project = createProjectLocalStateDocumentV3({
+      const legacyProject = createProjectLocalStateDocumentV3({
         schemaVersion: 3,
         generation: 0,
         projectKey: scope.projectKey,
@@ -62,9 +66,14 @@ describe("node lifecycle recovery composition", () => {
         marketplaces,
         plugins: [pending],
         marketplaceUpdates: [
-          { marketplace: "compatibility", source: nativeSource.declared, updateApplication: "manual", origin: { kind: "native" } },
+          { marketplace: "compatibility", source: nativeSource.declared, updateApplication: "automatic", origin: { kind: "native" } },
           { marketplace: "adopted", source: adoptedSource.declared, updateApplication: "manual", origin: { kind: "adoption", candidateId: `adoption-v1:sha256:${"e".repeat(64)}`, documents: [{ host: "claude", document: "claude-known-marketplaces" }] } },
         ],
+      }, scope, sha256);
+      const migrated = projectProjectLocalV3ToV4(legacyProject);
+      const project = createProjectLocalStateDocumentV4({
+        ...migrated,
+        scope: { application: "automatic" },
       }, scope, sha256);
       let snapshot: any = { scope, generation: 0, project, pointers: {}, corruptions: [] };
       const state = { async read() { return { ok: true as const, snapshot }; }, async commit() { throw new Error("coordinator owns commit"); } };
@@ -108,13 +117,22 @@ describe("node lifecycle recovery composition", () => {
       };
       const reconciler = createLifecycleTransitionReconciler({ state: state as any, mutations: mutations as any, reload: reload as any, transitions: adapters.transitionStore, sha256 });
       const recovery = adapters.createRecoveryService({ state: state as any, reconciler, reload: reload as any });
-      const retained = JSON.stringify({ declarationDigest: project.declarationDigest, marketplaceUpdates: project.marketplaceUpdates });
+      expect(project.marketplaceUpdates[0]).toMatchObject({ origin: { kind: "native" }, applicationOverride: "automatic" });
+      const retained = JSON.stringify({
+        declarationDigest: project.declarationDigest,
+        scope: project.scope,
+        marketplaceUpdates: project.marketplaceUpdates,
+      });
       const result = await recovery.recover({ requiredScopes: [scope] }, new AbortController().signal);
       expect(result.results).toContainEqual(expect.objectContaining({ kind: "rolled-back", plugin: previous.plugin }));
-      expect(snapshot.project.schemaVersion).toBe(3);
+      expect(snapshot.project.schemaVersion).toBe(4);
       expect(snapshot.project.plugins[0]?.activation).toBe("disabled");
       expect(snapshot.project.plugins[0]).not.toHaveProperty("pendingTransition");
-      expect(JSON.stringify({ declarationDigest: snapshot.project.declarationDigest, marketplaceUpdates: snapshot.project.marketplaceUpdates })).toBe(retained);
+      expect(JSON.stringify({
+        declarationDigest: snapshot.project.declarationDigest,
+        scope: snapshot.project.scope,
+        marketplaceUpdates: snapshot.project.marketplaceUpdates,
+      })).toBe(retained);
       await adapters.close();
     } finally { await rm(root, { recursive: true, force: true }); }
   });

@@ -81,6 +81,10 @@ function scopeContext(reference: ScopeReference, currentProject: NativeUpdatePol
   return currentProject?.projectKey === reference.projectKey ? currentProject : undefined;
 }
 
+function projectPolicyEpoch(projectKey: string, generation: number, sha256: Sha256): string {
+  return deriveUpdatePolicyPreviewId({ projectKey, generation }, sha256);
+}
+
 function scopeOverride(snapshot: GenerationSnapshot): UpdateApplicationMode | undefined {
   return "config" in snapshot ? snapshot.config.scope.application : snapshot.project.scope.application;
 }
@@ -238,7 +242,13 @@ export function createNativeUpdatePolicyService(dependencies: NativeUpdatePolicy
         },
         authority: {
           userGeneration: authority.user.generation,
-          ...(reference?.kind === "project" ? { projectEpoch: deriveUpdatePolicyPreviewId({ projectKey: reference.projectKey, generation: authority.scopes.find((snapshot) => snapshot.scope.kind === "project")?.generation }, dependencies.sha256) } : {}),
+          ...(reference?.kind === "project" ? {
+            projectEpoch: projectPolicyEpoch(
+              reference.projectKey,
+              authority.scopes.find((snapshot) => snapshot.scope.kind === "project")!.generation,
+              dependencies.sha256,
+            ),
+          } : {}),
         },
       }),
     });
@@ -309,6 +319,10 @@ export function createNativeUpdatePolicyService(dependencies: NativeUpdatePolicy
     if (context === undefined) return NativeUpdatePolicyApplyResultSchema.parse({ kind: "stale", reason: "project" });
     const loaded = await dependencies.state.read(context, signal);
     if (!loaded.ok) return NativeUpdatePolicyApplyResultSchema.parse({ kind: "rejected", code: "STATE_UNAVAILABLE" });
+    const currentAuthority = context.kind === "user"
+      ? loaded.snapshot.generation === checked.preview.authority.userGeneration
+      : checked.preview.authority.projectEpoch === projectPolicyEpoch(context.projectKey, loaded.snapshot.generation, dependencies.sha256);
+    if (!currentAuthority) return NativeUpdatePolicyApplyResultSchema.parse({ kind: "stale", reason: "generation" });
     const before = canonicalJson("config" in loaded.snapshot ? loaded.snapshot.config : loaded.snapshot.project);
     try {
       const result = await dependencies.mutations.runPreparedMutation(

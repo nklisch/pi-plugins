@@ -10,6 +10,7 @@ import { marketplaceUpdateRecords } from "./marketplace-update-state.js";
 import type { LifecycleClock } from "./ports/lifecycle-clock.js";
 import type { LifecycleStateInventoryPort } from "./ports/lifecycle-state-inventory.js";
 import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
+import type { ProjectTrustPort } from "./ports/project-trust.js";
 import type { UpdateSchedulerLeasePort } from "./ports/update-scheduler-lease.js";
 import { parseStateMutation, type GenerationSnapshot } from "./state-contract.js";
 
@@ -19,6 +20,8 @@ export function createStateUpdateSchedulerLeasePort(dependencies: Readonly<{
   mutations: GenerationMutationCoordinator;
   clock: LifecycleClock;
   sha256: Sha256;
+  currentProject?: Extract<ScopeContext, { kind: "project" }>;
+  projectTrust?: ProjectTrustPort;
 }>): UpdateSchedulerLeasePort {
   if (dependencies === null || typeof dependencies !== "object" || typeof dependencies.sha256 !== "function") throw new TypeError("scheduler lease state dependencies are required");
 
@@ -27,12 +30,20 @@ export function createStateUpdateSchedulerLeasePort(dependencies: Readonly<{
     return loaded.ok && "config" in loaded.snapshot ? loaded.snapshot.config.global.cadence : "paused" as const;
   }
 
+  async function projectAuthorized(context: ScopeContext, signal: AbortSignal): Promise<boolean> {
+    if (context.kind === "user") return true;
+    return dependencies.currentProject?.projectKey === context.projectKey &&
+      dependencies.projectTrust !== undefined &&
+      (await dependencies.projectTrust.assess(context.projectKey, signal)).kind === "trusted";
+  }
+
   async function inventory(signal: AbortSignal) {
     const discovered = await dependencies.inventory.discover(signal);
     const cadence = await userCadence(signal);
     const plans = [];
     for (const contextInput of discovered.scopes) {
       const context = ScopeContextSchema.parse(contextInput);
+      if (!await projectAuthorized(context, signal)) continue;
       const loaded = await dependencies.state.read(context, signal);
       if (!loaded.ok) continue;
       const scope = toScopeReference(context);
@@ -77,6 +88,7 @@ export function createStateUpdateSchedulerLeasePort(dependencies: Readonly<{
     signal: AbortSignal,
   ): Promise<"self" | "other" | "unavailable"> {
     const owner = UpdateSchedulerLeaseIdSchema.parse(ownerInput);
+    if (!await projectAuthorized(scope, signal)) return "unavailable";
     for (let attempt = 0; attempt < 4; attempt += 1) {
       const loaded = await dependencies.state.read(scope, signal);
       if (!loaded.ok) return "unavailable";
@@ -95,7 +107,13 @@ export function createStateUpdateSchedulerLeasePort(dependencies: Readonly<{
           const authority = lease(snapshot);
           if (mode === "acquire" && active(authority, now) && authority?.id !== owner) throw new Error("LEASE_OWNED");
           if (mode !== "acquire" && authority?.id !== owner) throw new Error("LEASE_LOST");
-          return { mutation: mutation(snapshot, nextLease), value: undefined };
+          return {
+            mutation: mutation(snapshot, nextLease),
+            value: undefined,
+            beforeCommit: async () => {
+              if (!await projectAuthorized(scope, signal)) throw new Error("PROJECT_UNTRUSTED");
+            },
+          };
         },
         signal,
       ).catch((error) => {
@@ -114,6 +132,7 @@ export function createStateUpdateSchedulerLeasePort(dependencies: Readonly<{
     async release(scope, owner, signal) { await replace(scope, owner, dependencies.clock.nowEpochMilliseconds(), 1, "release", signal); },
     async validate(scope, ownerInput, now, signal) {
       const owner = UpdateSchedulerLeaseIdSchema.parse(ownerInput);
+      if (!await projectAuthorized(scope, signal)) return false;
       const loaded = await dependencies.state.read(scope, signal);
       return loaded.ok && lease(loaded.snapshot)?.id === owner && active(lease(loaded.snapshot), now);
     },

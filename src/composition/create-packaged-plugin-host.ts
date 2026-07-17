@@ -384,7 +384,11 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           piReload: qualification.hostApi,
           secrets: secrets.availability.status,
         });
-        const hostStatus = createHostStatusService({ startup });
+        const hostStatus = createHostStatusService({
+          startup,
+          recovery: unresolvedRecovery.length === 0 ? "settled" : "degraded",
+          runtime: [...(latestDesired?.blocked ?? []), ...runtimeStartupBlocked].length === 0 ? "reconciled" : "degraded",
+        });
         const candidateContent = createCandidateContentLeasePort({ content: content.content, materializer: materializers.plugins });
         const nativeInspection = createNativeInspectionComposition({
           state: state.state,
@@ -428,7 +432,9 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           sha256,
           scheduler: marketplaceComposition.updates.scheduler,
           lifecycle: automaticLifecycle,
-          activation: { availability: () => operationContexts.getStore() === undefined ? "unavailable" : "available" },
+          // A Pi command frame can fund exactly one reload. Once lifecycle
+          // consumes that context, remaining automatic candidates stay pending.
+          activation: { availability: () => operationContexts.getStore()?.reloadContext === undefined ? "unavailable" : "available" },
           currentProject: project.scope,
           projectTrust: project.trust,
           onCounts: (counts) => hostStatus.update(counts),
@@ -664,12 +670,17 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
   async function beginSessionShutdown(
     event?: SessionShutdownEvent,
     context?: ExtensionContext,
+    reason: SessionShutdownEvent["reason"] = event?.reason ?? "quit",
   ): Promise<void> {
     terminal = true;
     operationAdmission = false;
     quiesceTrustedInstallation?.();
     quiesceOperations?.();
     await stopBackground?.();
+    // A reload operation cannot wait for itself from predecessor shutdown;
+    // every other shutdown drains admitted foreground work before closing the
+    // runtime and durable adapters those operations may still need.
+    if (reason !== "reload") await waitForOperations();
     started = undefined;
     if (event !== undefined && context !== undefined) {
       sessionEndPromise ??= delegates.dispatchSessionEnd(event, context);
@@ -686,8 +697,8 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
     }
   }
 
-  async function dispose(_reason: SessionShutdownEvent["reason"]): Promise<void> {
-    await beginSessionShutdown();
+  async function dispose(reason: SessionShutdownEvent["reason"]): Promise<void> {
+    await beginSessionShutdown(undefined, undefined, reason);
     await ensureFinalClose();
   }
 

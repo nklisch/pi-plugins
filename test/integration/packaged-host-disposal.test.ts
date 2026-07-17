@@ -70,6 +70,31 @@ describe("packaged host disposal matrix", () => {
     await rm(root, { recursive: true, force: true });
   }, 30_000);
 
+  it("drains admitted work before quit closes its application adapters", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-host-quit-drain-"));
+    const agentDir = join(root, "agent");
+    const project = join(root, "project");
+    await Promise.all([mkdir(agentDir), mkdir(project)]);
+    const fake = pi();
+    const bound = context(project);
+    const host = createPackagedPluginHost({ pi: fake.api as never, agentDir });
+    await host.start({ type: "session_start", reason: "startup" } as never, bound as never);
+    let continueOperation!: () => void;
+    const operationGate = new Promise<void>((resolve) => { continueOperation = resolve; });
+    const operation = host.runWithPiOperationContext(bound as never, new AbortController().signal, async (application) => {
+      await operationGate;
+      return application.marketplace.registration.list({ scope: "user", limit: 50 }, new AbortController().signal);
+    });
+
+    const disposal = host.dispose("quit");
+    await expect(host.runWithPiOperationContext(bound as never, new AbortController().signal, async () => undefined))
+      .rejects.toMatchObject({ code: PackagedPluginHostErrorCode.terminal });
+    continueOperation();
+    await expect(operation).resolves.toEqual({ registrations: [] });
+    await disposal;
+    await rm(root, { recursive: true, force: true });
+  }, 30_000);
+
   it("quiesces shutdown admission but keeps pinned application adapters live until an admitted operation settles", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-host-operation-lease-"));
     const agentDir = join(root, "agent");

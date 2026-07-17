@@ -79,7 +79,7 @@ import {
 import {
   createInstalledUserStateDocument,
 } from "../domain/state/installed-state.js";
-import { createProjectLocalStateDocumentV3 } from "../domain/state/project-state.js";
+import { createProjectLocalStateDocumentV4 } from "../domain/state/project-state.js";
 import {
   ScopeContextSchema,
   createScopeContext,
@@ -305,9 +305,9 @@ function replaceTarget(
       replace: { installed },
     }, sha256);
   }
-  // Lifecycle owns only the target plugin. Rebuilding through the current V3
-  // constructor preserves declaration and native/adopted registration evidence.
-  const project = createProjectLocalStateDocumentV3({
+  // Lifecycle owns only the target plugin. Rebuilding through the current
+  // constructor preserves declaration, policy, scheduler, and registration evidence.
+  const project = createProjectLocalStateDocumentV4({
     ...snapshot.project,
     generation: snapshot.generation,
     plugins: records,

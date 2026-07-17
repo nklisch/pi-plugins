@@ -17,6 +17,8 @@ function environment(records: readonly unknown[] = []) {
     scope: {},
     records,
   });
+  let readCount = 0;
+  let advanceAtRead: number | undefined;
   const snapshot = () => ({
     scope: { kind: "user" as const },
     generation: GenerationSchema.parse(generation),
@@ -26,7 +28,14 @@ function environment(records: readonly unknown[] = []) {
     trust: { schemaVersion: 1, generation, records: [] },
     corruptions: [],
   }) as any;
-  const state = { async read() { return { ok: true as const, snapshot: snapshot() }; } };
+  const state = { async read() {
+    readCount += 1;
+    if (readCount === advanceAtRead) {
+      generation += 1;
+      config = HostConfigDocumentSchemaV4.parse({ ...config, generation, scope: { application: "automatic" } });
+    }
+    return { ok: true as const, snapshot: snapshot() };
+  } };
   const mutations = {
     async runPreparedMutation(request: any, prepare: any) {
       if (request.expectedGeneration !== generation) return { kind: "stale-generation" as const, expected: request.expectedGeneration, actual: generation };
@@ -42,7 +51,12 @@ function environment(records: readonly unknown[] = []) {
     sha256,
     clock: { nowEpochMilliseconds: () => 100, monotonicMilliseconds: () => 100 },
   } as any;
-  return { service: createNativeUpdatePolicyService(dependencies), dependencies, config: () => config };
+  return {
+    service: createNativeUpdatePolicyService(dependencies),
+    dependencies,
+    config: () => config,
+    advanceAfterReads(count: number) { advanceAtRead = readCount + count; },
+  };
 }
 
 describe("native update policy service", () => {
@@ -70,6 +84,17 @@ describe("native update policy service", () => {
     expect(preview.kind).toBe("previewed");
     if (preview.kind !== "previewed") return;
     await expect(env.service.apply({ change, expectedPreviewId: preview.preview.previewId }, signal)).resolves.toMatchObject({ kind: "changed" });
+  });
+
+  it("rejects an authority race between the apply-time preview and mutation read", async () => {
+    const env = environment();
+    const change = { kind: "cadence" as const, target: { kind: "global" as const }, cadence: "frequent" as const };
+    const preview = await env.service.preview(change, signal);
+    if (preview.kind !== "previewed") throw new Error("expected preview");
+    env.advanceAfterReads(2);
+    await expect(env.service.apply({ change, expectedPreviewId: preview.preview.previewId }, signal))
+      .resolves.toMatchObject({ kind: "stale", reason: "generation" });
+    expect(env.config().global.cadence).toBe("balanced");
   });
 
   it("makes a reused preview stale after another process commits", async () => {

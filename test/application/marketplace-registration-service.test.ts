@@ -3,14 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import { createMarketplaceRegistrationService } from "../../src/application/marketplace-registration-service.js";
 import { createContentManifest, createMaterializationBinding } from "../../src/domain/content-manifest.js";
 import { createResolvedMarketplaceSource, type MarketplaceSource, type Sha256 } from "../../src/domain/source.js";
-import { HostConfigDocumentSchemaV3, GenerationSchema } from "../../src/domain/state/config-state.js";
+import { HostConfigDocumentSchema, GenerationSchema } from "../../src/domain/state/config-state.js";
 import { InstalledUserStateDocumentSchemaV2 } from "../../src/domain/state/installed-state.js";
 import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
 import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
 import { deriveStateBlobRef } from "../../src/domain/state/references.js";
 import { readClaudeMarketplace } from "../../src/formats/claude/marketplace-reader.js";
 import type { GenerationSnapshot } from "../../src/application/state-contract.js";
-import { createProjectLocalStateDocumentV3 } from "../../src/domain/state/project-state.js";
+import { createProjectLocalStateDocumentV4 } from "../../src/domain/state/project-state.js";
 import { deriveProjectKey } from "../../src/domain/state/scope.js";
 
 const sha256: Sha256 = (bytes) => new Uint8Array(createHash("sha256").update(bytes).digest());
@@ -32,7 +32,13 @@ function environment(options: Readonly<{ abortAfterCommit?: AbortController }> =
         digest: digest("a"),
       })),
     }),
-    config: HostConfigDocumentSchemaV3.parse({ schemaVersion: 3, generation, records: [] }),
+    config: HostConfigDocumentSchema.parse({
+      schemaVersion: 4,
+      generation,
+      global: { application: "manual", cadence: "balanced" },
+      scope: {},
+      records: [],
+    }),
     installed: InstalledUserStateDocumentSchemaV2.parse({ schemaVersion: 2, generation, marketplaces: [], plugins: [] }),
     trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation, records: [] }),
     corruptions: [],
@@ -144,12 +150,13 @@ describe("marketplace registration service", () => {
     const projectKey = deriveProjectKey(identity, sha256);
     const scope = { kind: "project" as const, identity, projectKey };
     const emptyContent = createContentManifest([], sha256);
-    const project = createProjectLocalStateDocumentV3({
-      schemaVersion: 3,
+    const project = createProjectLocalStateDocumentV4({
+      schemaVersion: 4,
       generation,
       projectKey,
       identity,
       declarationDigest: emptyContent.rootDigest,
+      scope: {},
       marketplaces: [],
       plugins: [],
       marketplaceUpdates: [],

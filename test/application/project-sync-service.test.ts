@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createProjectSyncService } from "../../src/application/project-sync-service.js";
 import { createScopeContext, deriveProjectKey } from "../../src/domain/state/scope.js";
-import { createProjectLocalStateDocumentV3 } from "../../src/domain/state/project-state.js";
+import { createProjectLocalStateDocumentV4 } from "../../src/domain/state/project-state.js";
+import { createMarketplaceConfigurationRecord } from "../../src/domain/update-policy.js";
 import { createInstalledPluginRecord, createInstalledRevisionRecord } from "../../src/domain/state/installed-state.js";
 import { encodeProjectIntentDeclaration } from "../../src/application/project-intent-codec.js";
 import { createNativeInstalledHarness } from "../helpers/native-installed-inspection.js";
@@ -24,7 +25,7 @@ function fixture(configure?: (scope: any) => Readonly<{ records: readonly any[];
     scope,
     generation: 0,
     pointers: {},
-    project: createProjectLocalStateDocumentV3({ schemaVersion: 3, generation: 0, projectKey: scope.projectKey, identity: scope.identity, declarationDigest: `sha256:${"0".repeat(64)}`, marketplaces: [], plugins: [], marketplaceUpdates: [] }, scope, sha256),
+    project: createProjectLocalStateDocumentV4({ schemaVersion: 4, generation: 0, projectKey: scope.projectKey, identity: scope.identity, declarationDigest: `sha256:${"0".repeat(64)}`, scope: {}, marketplaces: [], plugins: [], marketplaceUpdates: [] }, scope, sha256),
     corruptions: [],
   };
   const configured = configure?.(scope);
@@ -34,7 +35,7 @@ function fixture(configure?: (scope: any) => Readonly<{ records: readonly any[];
       project: {
         ...snapshot.project,
         marketplaces: [],
-        marketplaceUpdates: [{ marketplace: "compatibility", source: { kind: "github", repository: "owner/market" }, updateApplication: "manual", refresh: { nextScheduledAt: 0, consecutiveFailures: 0 }, notifications: [], origin: { kind: "native" } }],
+        marketplaceUpdates: [createMarketplaceConfigurationRecord({ marketplace: "compatibility", source: { kind: "github", repository: "owner/market" }, origin: { kind: "native" } })],
         plugins: [...configured.records],
       },
     };
@@ -113,7 +114,20 @@ function fixture(configure?: (scope: any) => Readonly<{ records: readonly any[];
     scope, service, replace, lifecycle, registrations,
     get snapshot() { return snapshot; },
     failNextCommit() { ambiguousCommit = true; },
-    advance() { snapshot = { ...snapshot, generation: snapshot.generation + 1, project: { ...snapshot.project, generation: snapshot.generation + 1 } }; },
+    advance() {
+      snapshot = {
+        ...snapshot,
+        generation: snapshot.generation + 1,
+        project: { ...snapshot.project, generation: snapshot.generation + 1, declarationDigest: `sha256:${"e".repeat(64)}` },
+      };
+    },
+    advanceUpdateEvidence() {
+      snapshot = {
+        ...snapshot,
+        generation: snapshot.generation + 1,
+        project: { ...snapshot.project, generation: snapshot.generation + 1, scope: { ...snapshot.project.scope, application: "automatic" } },
+      };
+    },
     changeReadiness() { readinessTag = "8"; },
     makeReadinessMissing() { readinessMissing = true; readinessTag = "8"; },
     changeReadinessAfterWrite() { changeReadinessAfterWrite = true; },
@@ -155,7 +169,7 @@ describe("project sync service", () => {
     expect(value.replace).not.toHaveBeenCalled();
   });
 
-  it("detects project generation replacement before the first file or state effect", async () => {
+  it("detects project intent authority replacement before the first file or state effect", async () => {
     const value = fixture();
     const preview = await value.service.preview({ mode: "publish-intent", projectKey: value.scope.projectKey, previewId }, signal);
     expect(preview.kind).toBe("ready");
@@ -164,6 +178,16 @@ describe("project sync service", () => {
     const result = await value.service.apply({ context: preview.context, resolutions: [] }, undefined, signal);
     expect(result).toMatchObject({ kind: "conflict", reason: "state-generation-changed", effects: { state: "unchanged" } });
     expect(value.replace).not.toHaveBeenCalled();
+  });
+
+  it("rebases update-only project evidence and preserves it through intent finalization", async () => {
+    const value = fixture();
+    const preview = await value.service.preview({ mode: "publish-intent", projectKey: value.scope.projectKey, previewId }, signal);
+    if (preview.kind !== "ready") throw new Error("preview fixture failed");
+    value.advanceUpdateEvidence();
+    const result = await value.service.apply({ context: preview.context, resolutions: [] }, undefined, signal);
+    expect(result).toMatchObject({ kind: "succeeded", effects: { projectFile: "written" } });
+    expect(value.snapshot.project.scope.application).toBe("automatic");
   });
 
   it("binds exact readiness before the first effect", async () => {

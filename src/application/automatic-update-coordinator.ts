@@ -84,6 +84,7 @@ export function createAutomaticUpdateCoordinator(dependencies: AutomaticUpdateCo
     if (authority.configuration === "required") return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: "configuration-required" });
     if (authority.secrets === "unavailable") return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: "secret-unavailable" });
     if (authority.capability === "unavailable") return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: "capability-unavailable" });
+    if (dependencies.activation.availability() !== "available") return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: "awaiting-host-context" });
     return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: "eligible" });
   }
 
@@ -179,6 +180,12 @@ export function createAutomaticUpdateCoordinator(dependencies: AutomaticUpdateCo
       const latest = await locate(candidate.notice.id, signal);
       if (latest === undefined || latest.notice.resolution !== undefined) {
         outcomes.push({ noticeId: candidate.notice.id, kind: "stale", reason: "notice-stale" });
+        continue;
+      }
+      if (dependencies.activation.availability() !== "available") {
+        const pending = AutomaticUpdateEligibilitySchema.parse({ noticeId: latest.notice.id, kind: "awaiting-host-context" });
+        await updateNotice(latest.context, latest.notice.id, (notice) => eligibilityUpdate(notice, pending), signal);
+        outcomes.push({ noticeId: latest.notice.id, kind: "pending", reason: "awaiting-host-context" });
         continue;
       }
       const result = await dependencies.lifecycle.apply(latest.notice, signal);

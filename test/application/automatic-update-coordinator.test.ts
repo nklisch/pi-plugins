@@ -13,22 +13,33 @@ const source = { kind: "github" as const, repository: "example/community" };
 const marketplaceIdentity = deriveMarketplaceSourceIdentity(source, sha256);
 const pluginIdentity = derivePluginSourceIdentity({ kind: "git", url: "https://example.com/demo.git" }, sha256);
 
-function environment() {
-  const candidate = deriveUpdateCandidateKey({ scope, plugin: "demo@community", marketplaceSourceIdentity: marketplaceIdentity, pluginSourceIdentity: pluginIdentity, immutableRevision: ContentDigestSchema.parse(`sha256:${"b".repeat(64)}`) }, sha256);
-  const id = deriveUpdateNoticeId({ scope, plugin: "demo@community", candidate }, sha256);
+function environment(noticeCount = 1) {
+  const notices = ["b", "c"].slice(0, noticeCount).map((suffix, index) => {
+    const plugin = `${index === 0 ? "demo" : "second"}@community` as const;
+    const immutableRevision = ContentDigestSchema.parse(`sha256:${suffix.repeat(64)}`);
+    const candidate = deriveUpdateCandidateKey({ scope, plugin, marketplaceSourceIdentity: marketplaceIdentity, pluginSourceIdentity: pluginIdentity, immutableRevision }, sha256);
+    return {
+      id: deriveUpdateNoticeId({ scope, plugin, candidate }, sha256),
+      scope,
+      plugin,
+      registrationId: deriveMarketplaceRegistrationId({ scope, source }, sha256),
+      snapshot: `marketplace-snapshot-v1:sha256:${suffix.repeat(64)}`,
+      candidateId: `marketplace-candidate-v1:sha256:${suffix.repeat(64)}`,
+      candidate,
+      available: { immutableRevision, marketplaceSourceIdentity: marketplaceIdentity, pluginSourceIdentity: pluginIdentity, sourceRevision: suffix.repeat(40) },
+      display: { installed: "1.0.0", available: "1.1.0" },
+      disposition: "automatic-pending" as const,
+      publication: "pending" as const,
+      unread: true,
+      discoveredAt: index + 1,
+      automatic: { state: "pending" as const, reason: "awaiting-host-context" as const },
+    };
+  });
+  const ids = notices.map((notice) => notice.id);
+  const id = ids[0]!;
   let generation = 0;
   let record: any = createMarketplaceConfigurationRecord({
-    marketplace: "community", source, applicationOverride: "automatic",
-    notices: [{
-      id, scope, plugin: "demo@community",
-      registrationId: deriveMarketplaceRegistrationId({ scope, source }, sha256),
-      snapshot: `marketplace-snapshot-v1:sha256:${"a".repeat(64)}`,
-      candidateId: `marketplace-candidate-v1:sha256:${"a".repeat(64)}`,
-      candidate,
-      available: { immutableRevision: ContentDigestSchema.parse(`sha256:${"b".repeat(64)}`), marketplaceSourceIdentity: marketplaceIdentity, pluginSourceIdentity: pluginIdentity, sourceRevision: "b".repeat(40) },
-      display: { installed: "1.0.0", available: "1.1.0" }, disposition: "automatic-pending", publication: "pending", unread: true, discoveredAt: 1,
-      automatic: { state: "pending", reason: "awaiting-host-context" },
-    }],
+    marketplace: "community", source, applicationOverride: "automatic", notices,
   });
   const snapshot = () => ({ scope, generation, config: { schemaVersion: 4, generation, global: { application: "manual", cadence: "balanced" }, scope: {}, records: [record] }, installed: { schemaVersion: 2, generation, marketplaces: [], plugins: [] }, trust: { schemaVersion: 1, generation, records: [] }, pointers: { schemaVersion: 1, scope, generation, documents: [] }, corruptions: [] }) as any;
   let authority: any = { candidate: "current", source: "stable", target: "current", project: "trusted", recovery: "clear", configuration: "valid", secrets: "available", capability: "available" };
@@ -50,8 +61,10 @@ function environment() {
     setAuthority(value: Partial<typeof authority>) { authority = { ...authority, ...value }; },
     setContext(value: typeof context) { context = value; },
     setResult(value: any) { lifecycleResult = value; },
-    setRetryAt(retryAt: number) { record = { ...record, notices: [{ ...record.notices[0], disposition: "automatic-retryable", automatic: { state: "retryable", reason: "retryable", attemptedAt: 50, retryAt } }] }; },
-    acknowledgeDuringApply() { onApply = () => { record = { ...record, notices: [{ ...record.notices[0], unread: false, acknowledgedAt: 99 }] }; }; },
+    ids,
+    setRetryAt(retryAt: number) { record = { ...record, notices: record.notices.map((notice: any, index: number) => index === 0 ? { ...notice, disposition: "automatic-retryable", automatic: { state: "retryable", reason: "retryable", attemptedAt: 50, retryAt } } : notice) }; },
+    acknowledgeDuringApply() { onApply = () => { record = { ...record, notices: record.notices.map((notice: any, index: number) => index === 0 ? { ...notice, unread: false, acknowledgedAt: 99 } : notice) }; }; },
+    consumeContextDuringApply() { onApply = () => { context = "unavailable"; }; },
     notice: () => record.notices[0], applyCalls: () => applyCalls,
   };
 }
@@ -98,6 +111,16 @@ describe("automatic update coordinator", () => {
     await expect(env.service.run({ noticeIds: [env.id], limit: 1 }, signal)).resolves.toMatchObject({ outcomes: [{ kind: "applied" }] });
     expect(env.applyCalls()).toBe(1);
     expect(env.notice()).toMatchObject({ disposition: "automatic-applied", unread: true, resolution: { kind: "installed" } });
+  });
+
+  it("spends one reload-capable context and leaves later candidates pending", async () => {
+    const env = environment(2);
+    env.setContext("available");
+    env.consumeContextDuringApply();
+    await expect(env.service.run({ noticeIds: env.ids, limit: 2 }, signal)).resolves.toMatchObject({
+      outcomes: [{ kind: "applied" }, { kind: "pending" }],
+    });
+    expect(env.applyCalls()).toBe(1);
   });
 
   it("does not revert a concurrent acknowledgment when lifecycle completion commits", async () => {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createMarketplaceStoreIdentityFromEvidence, createPluginStoreIdentityFromEvidence, type ContentStoreKey } from "../domain/content-store.js";
 import { type InstalledPluginRecord, type InstalledRevisionRecord, type MarketplaceSnapshotRecord, createInstalledUserStateDocument } from "../domain/state/installed-state.js";
-import { createProjectLocalStateDocument } from "../domain/state/project-state.js";
+import { createProjectLocalStateDocumentV4 } from "../domain/state/project-state.js";
 import { ScopeContextSchema, toScopeReference, type ScopeContext, type ScopeReference } from "../domain/state/scope.js";
 import { parseStateMutation, type GenerationSnapshot } from "./state-contract.js";
 import type { GenerationMutationCoordinator } from "./generation-mutation-coordinator.js";
@@ -57,7 +57,7 @@ function stateWithPlugins(snapshot: GenerationSnapshot, plugins: readonly Instal
     const installed = createInstalledUserStateDocument({ ...snapshot.installed, generation: snapshot.generation, plugins }, sha256);
     return parseStateMutation({ scope: snapshot.scope, expectedGeneration: snapshot.generation, replace: { installed } }, sha256);
   }
-  const project = createProjectLocalStateDocument({ ...snapshot.project, generation: snapshot.generation, plugins }, snapshot.scope, sha256);
+  const project = createProjectLocalStateDocumentV4({ ...snapshot.project, generation: snapshot.generation, plugins }, snapshot.scope, sha256);
   return parseStateMutation({ scope: snapshot.scope, expectedGeneration: snapshot.generation, replace: { project } }, sha256);
 }
 

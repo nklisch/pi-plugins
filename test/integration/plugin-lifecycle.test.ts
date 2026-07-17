@@ -10,7 +10,7 @@ import {
   createInstalledUserStateDocument,
   createMarketplaceSnapshotRecord,
 } from "../../src/domain/state/installed-state.js";
-import { createProjectLocalStateDocumentV3 } from "../../src/domain/state/project-state.js";
+import { createProjectLocalStateDocumentV4 } from "../../src/domain/state/project-state.js";
 import { HostConfigDocumentSchemaV1, GenerationSchema, type Generation } from "../../src/domain/state/config-state.js";
 import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
 import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
@@ -47,6 +47,7 @@ import type { InstalledPluginLoader } from "../../src/application/ports/installe
 import type { ProjectRootAuthorityPort } from "../../src/application/ports/project-root-authority.js";
 import type { GenerationSnapshot } from "../../src/application/state-contract.js";
 import { createTrustCandidate, grantTrust } from "../../src/domain/trust-policy.js";
+import { createMarketplaceConfigurationRecord } from "../../src/domain/update-policy.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(bytes).digest());
 const provenance = { location: { host: "claude" as const, documentKind: "manifest" as const, path: "plugin.json", pointer: "/components" } };
@@ -182,17 +183,18 @@ function lifecycleProjectSnapshot(
     scope: lifecycleProject,
     generation: value,
     pointers: lifecyclePointers(lifecycleProject, value),
-    project: createProjectLocalStateDocumentV3({
-      schemaVersion: 3,
+    project: createProjectLocalStateDocumentV4({
+      schemaVersion: 4,
       generation: value,
       projectKey: lifecycleProject.projectKey,
       identity: lifecycleProject.identity,
       declarationDigest: content.rootDigest,
+      scope: { application: "automatic" },
       marketplaces: [marketplace, adopted],
       plugins: [],
       marketplaceUpdates: [
-        { marketplace: "community", source: lifecycleMarketplace.declared, updateApplication: "manual", origin: { kind: "native" } },
-        { marketplace: "adopted", source: adoptedMarketplace.declared, updateApplication: "manual", origin: { kind: "adoption", candidateId: `adoption-v1:sha256:${"c".repeat(64)}`, documents: [{ host: "claude", document: "claude-known-marketplaces", pointer: "/adopted" }] } },
+        createMarketplaceConfigurationRecord({ marketplace: "community", source: lifecycleMarketplace.declared, applicationOverride: "automatic", origin: { kind: "native" } }),
+        createMarketplaceConfigurationRecord({ marketplace: "adopted", source: adoptedMarketplace.declared, origin: { kind: "adoption", candidateId: `adoption-v1:sha256:${"c".repeat(64)}`, documents: [{ host: "claude", document: "claude-known-marketplaces", pointer: "/adopted" }] } }),
       ],
     }, lifecycleProject, sha256),
     corruptions: [],
@@ -394,13 +396,18 @@ describe("project-scoped lifecycle service wiring", () => {
     if (initialProject.scope.kind !== "project") throw new Error("project fixture scope changed");
     const retainedProjectAuthority = JSON.stringify({
       declarationDigest: initialProject.project.declarationDigest,
+      scope: initialProject.project.scope,
       marketplaceUpdates: initialProject.project.marketplaceUpdates,
     });
     const assertProjectAuthorityRetained = () => {
       const current = state.get(lifecycleProject);
       if (current.scope.kind !== "project") throw new Error("project fixture scope changed");
-      expect(current.project.schemaVersion).toBe(3);
-      expect(JSON.stringify({ declarationDigest: current.project.declarationDigest, marketplaceUpdates: current.project.marketplaceUpdates })).toBe(retainedProjectAuthority);
+      expect(current.project.schemaVersion).toBe(4);
+      expect(JSON.stringify({
+        declarationDigest: current.project.declarationDigest,
+        scope: current.project.scope,
+        marketplaceUpdates: current.project.marketplaceUpdates,
+      })).toBe(retainedProjectAuthority);
     };
     const userRequest = {
       scope: { kind: "user" as const },

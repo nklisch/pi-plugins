@@ -1,4 +1,4 @@
-import { createProjectLocalStateDocumentV3 } from "../domain/state/project-state.js";
+import { createProjectLocalStateDocumentV4 } from "../domain/state/project-state.js";
 import type { ContentDigest } from "../domain/content-manifest.js";
 import type { ProjectScopeContext, ProjectGenerationSnapshot } from "./state-contract.js";
 import { parseStateMutation } from "./state-contract.js";
@@ -20,7 +20,7 @@ export async function commitProjectSyncDeclarationDigest(input: Readonly<{
   const scope = input.snapshot.scope as ProjectScopeContext;
   const result = await input.mutations.runPreparedMutation({ scope, plugins: [], expectedGeneration: input.snapshot.generation }, async (context) => {
     if (!("project" in context.snapshot) || context.snapshot.scope.projectKey !== scope.projectKey) throw new Error("project sync state authority changed");
-    const project = createProjectLocalStateDocumentV3({ ...context.snapshot.project, generation: context.snapshot.generation, declarationDigest: input.digest }, scope, input.sha256);
+    const project = createProjectLocalStateDocumentV4({ ...context.snapshot.project, generation: context.snapshot.generation, declarationDigest: input.digest }, scope, input.sha256);
     return { mutation: parseStateMutation({ scope, expectedGeneration: context.snapshot.generation, replace: { project } }, input.sha256), value: input.digest };
   }, signal);
   if (result.kind === "committed") {

@@ -110,6 +110,8 @@ export function createNodeMarketplaceDiscoveryComposition(
     mutations: options.mutations,
     clock: options.clock,
     sha256: options.sha256,
+    ...(options.currentProject === undefined ? {} : { currentProject: options.currentProject }),
+    ...(options.projectTrust === undefined ? {} : { projectTrust: options.projectTrust }),
   });
   const updates = createNodeMarketplaceUpdateServices({
     refresh: {

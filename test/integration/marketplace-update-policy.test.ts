@@ -19,7 +19,13 @@ const scope = { kind: "user" as const };
 type FakeSnapshot = Readonly<{
   scope: typeof scope;
   generation: number;
-  config: Readonly<{ schemaVersion: 3; generation: number; records: readonly ReturnType<typeof createMarketplaceConfigurationRecord>[] }>;
+  config: Readonly<{
+    schemaVersion: 4;
+    generation: number;
+    global: Readonly<{ application: "manual" | "automatic"; cadence: "balanced" }>;
+    scope: Readonly<Record<string, never>>;
+    records: readonly ReturnType<typeof createMarketplaceConfigurationRecord>[];
+  }>;
   installed: Readonly<{ schemaVersion: 2; generation: number; marketplaces: readonly unknown[]; plugins: readonly unknown[] }>;
 }>;
 
@@ -85,7 +91,13 @@ function makeEnvironment(options: Readonly<{
   let current: FakeSnapshot = {
     scope,
     generation: 0,
-    config: { schemaVersion: 3, generation: 0, records: [record] },
+    config: {
+      schemaVersion: 4,
+      generation: 0,
+      global: { application: "manual", cadence: "balanced" },
+      scope: {},
+      records: [record],
+    },
     installed: { schemaVersion: 2, generation: 0, marketplaces: [], plugins: [] },
   };
   let queue = Promise.resolve();

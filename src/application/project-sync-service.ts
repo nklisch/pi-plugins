@@ -72,6 +72,23 @@ export type ProjectSyncServiceDependencies = Readonly<{
 }>;
 
 function same(left: unknown, right: unknown): boolean { return canonicalJson(left) === canonicalJson(right); }
+
+/** Update scheduling and notification evidence shares the project document but
+ * is not portable intent. Rebase only those unrelated writes; installed plugin
+ * or registered source changes still invalidate the sync plan. */
+function projectSyncAuthority(snapshot: ProjectGenerationSnapshot): unknown {
+  return {
+    projectKey: snapshot.project.projectKey,
+    identity: snapshot.project.identity,
+    declarationDigest: snapshot.project.declarationDigest,
+    registrations: snapshot.project.marketplaceUpdates.map((record) => ({
+      marketplace: record.marketplace,
+      source: record.source,
+    })),
+    plugins: snapshot.project.plugins,
+  };
+}
+
 function effectState(completed: readonly string[], file: "unchanged" | "written" | "unknown") { return completed.length === 0 && file === "unchanged" ? "unchanged" as const : "partially-changed" as const; }
 function repreviewAction(sha256: Sha256) {
   const evidence = { kind: "repreview-sync", action: "retry-read" } as const;
@@ -146,7 +163,10 @@ export function createProjectSyncService(dependencies: ProjectSyncServiceDepende
     let authority;
     try { authority = await projectAuthority(planning.snapshot.scope.projectKey, signal); }
     catch (error) { if (signal.aborted) return result(context, progress, { kind: "cancelled", phase: "authority-revalidation" }, [], planning.plan.actions.map((action) => action.id), "unchanged"); throw error; }
-    if (authority === undefined || authority.projectEpoch !== planning.plan.projectEpoch || authority.snapshot.generation !== planning.snapshot.generation || !same(authority.snapshot.project, planning.snapshot.project)) return result(context, progress, { kind: "conflict", reason: "state-generation-changed" }, [], planning.plan.actions.map((action) => action.id), "unchanged");
+    if (authority === undefined || authority.projectEpoch !== planning.plan.projectEpoch ||
+        !same(projectSyncAuthority(authority.snapshot), projectSyncAuthority(planning.snapshot))) {
+      return result(context, progress, { kind: "conflict", reason: "state-generation-changed" }, [], planning.plan.actions.map((action) => action.id), "unchanged");
+    }
     const fileCurrent = await dependencies.files.read(context.root, signal);
     if (fileCurrent.kind === "unavailable" || fileCurrent.observation.publicId !== context.observation.publicId) return result(context, progress, { kind: "conflict", reason: "file-changed" }, [], planning.plan.actions.map((action) => action.id), "unchanged");
     let currentReadiness: ProjectSyncReadinessSnapshot;
