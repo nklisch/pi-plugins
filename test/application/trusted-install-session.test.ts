@@ -29,6 +29,15 @@ describe("trusted-install session registry", () => {
     expect((await value.registry.lookup(`${entry.token.slice(0, -1)}0` as never)).kind).toBe("missing");
   });
 
+  it("projects fractional monotonic touches as integer epoch expiry without extending the lease", async () => {
+    const value = setup();
+    const entry = await value.registry.create(value.candidate, new AbortController().signal);
+    value.advance(0.75);
+    expect((await value.registry.lookup(entry.token)).kind).toBe("found");
+    expect(value.registry.expiresAt(entry)).toBe(1_000 + TrustedInstallSessionPolicy.idleTtlMs);
+    expect(Number.isInteger(value.registry.expiresAt(entry))).toBe(true);
+  });
+
   it("never extends the absolute host-epoch lease", async () => {
     const value = setup();
     const entry = await value.registry.create(value.candidate, new AbortController().signal);

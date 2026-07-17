@@ -80,26 +80,25 @@ export function createNativeControlProgressController(input: Readonly<{
   let sequence = 0;
   let deliveredThrough = -1;
   let delivery: "complete" | "closed" | "failed" = "complete";
-  let writing = false;
+  let writeTail = Promise.resolve();
 
-  async function write(frameInput: unknown): Promise<void> {
-    if (delivery !== "complete") return;
+  function write(frameInput: unknown): Promise<void> {
     const frame = NativeControlFrameSchema.parse(frameInput);
-    if (writing) {
-      delivery = "failed";
-      input.abortDelivery();
-      return;
-    }
-    writing = true;
-    try {
-      if (input.sink !== undefined) await input.sink.write(frame, input.signal);
-      deliveredThrough = frame.sequence;
-    } catch (error) {
-      delivery = deliveryKind(error);
-      input.abortDelivery();
-    } finally {
-      writing = false;
-    }
+    const scheduled = writeTail.then(async () => {
+      if (delivery !== "complete") return;
+      try {
+        if (input.sink !== undefined) await input.sink.write(frame, input.signal);
+        deliveredThrough = frame.sequence;
+      } catch (error) {
+        delivery = deliveryKind(error);
+        input.abortDelivery();
+      }
+    });
+    // Producers may report adjacent lifecycle phases without awaiting their
+    // observer callbacks. Serialize at the output authority so backpressure
+    // cannot turn valid concurrent reports into owner cancellation.
+    writeTail = scheduled.catch(() => undefined);
+    return scheduled;
   }
 
   const progress: NativeControlProgressSink = Object.freeze({
@@ -125,6 +124,7 @@ export function createNativeControlProgressController(input: Readonly<{
       await write({ schemaVersion: 1, type: "result", executionId: input.executionId, sequence, result: envelope });
     },
     async close() {
+      await writeTail;
       try { await input.sink?.close(); }
       catch (error) {
         if (delivery === "complete") delivery = deliveryKind(error);

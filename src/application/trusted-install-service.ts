@@ -483,7 +483,8 @@ export function createTrustedInstallationService(dependencies: TrustedInstallati
       signal.throwIfAborted();
 
       if (await dependencies.candidate.validate(entry.candidate, signal) !== "current") return finish(entry, stale(entry, "candidate"));
-      if (await dependencies.evidence.validate(entry.candidate.snapshotBinding, signal) !== "current") {
+      const validateInstallAuthority = dependencies.evidence.validateForInstall?.bind(dependencies.evidence) ?? dependencies.evidence.validate.bind(dependencies.evidence);
+      if (await validateInstallAuthority(entry.candidate.snapshotBinding, signal) !== "current") {
         return finish(entry, stale(entry, entry.candidate.binding.scope.kind === "project" ? "project" : "capability"));
       }
       if (root !== undefined && dependencies.projectRoots.revalidate !== undefined) {

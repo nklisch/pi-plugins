@@ -96,7 +96,9 @@ export function createNativeLifecycleOperationSessionRegistry(input: Readonly<{
       return { kind: "found", entry };
     },
     expiresAt(entry: NativeLifecycleOperationSessionEntry): number {
-      return entry.createdEpoch + Math.min(entry.lastAccessMonotonic - entry.createdMonotonic + NativeLifecycleOperationSessionPolicy.idleTtlMs, NativeLifecycleOperationSessionPolicy.absoluteTtlMs);
+      // performance.now() is fractional; public epoch contracts are integer
+      // milliseconds. Flooring avoids extending either idle or absolute TTL.
+      return Math.floor(entry.createdEpoch + Math.min(entry.lastAccessMonotonic - entry.createdMonotonic + NativeLifecycleOperationSessionPolicy.idleTtlMs, NativeLifecycleOperationSessionPolicy.absoluteTtlMs));
     },
     finish(entry: NativeLifecycleOperationSessionEntry, result: NativeLifecycleOperationResult): void {
       entry.state = result.kind;

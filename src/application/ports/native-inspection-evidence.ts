@@ -88,4 +88,11 @@ export type InspectionEvidenceSnapshot = Readonly<{
 export interface NativeInspectionEvidencePort {
   capture(signal: AbortSignal): Promise<InspectionEvidenceSnapshot>;
   validate(binding: InspectionSnapshotBinding, signal: AbortSignal): Promise<"current" | "stale">;
+  /**
+   * Revalidate install-bearing authority after the workflow's own configuration
+   * or trust mutation. Scope generation and notice-only digest changes are
+   * expected there; catalog, capability, project, runtime, and recovery
+   * authority must remain exact.
+   */
+  validateForInstall?(binding: InspectionSnapshotBinding, signal: AbortSignal): Promise<"current" | "stale">;
 }

@@ -281,6 +281,16 @@ function assertGitRevisionBinding(
 
 const EXACT_NPM_VERSION = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9A-Za-z-][0-9A-Za-z-]*))*)?(?:\+(?:0|[1-9A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9A-Za-z-][0-9A-Za-z-]*))*)?$/u;
 
+/**
+ * Catalogs spell repository-relative paths with a leading `./`, while content
+ * manifests intentionally forbid dot segments. Remove only that catalog sigil
+ * before applying the shared containment validator; every other path rule is
+ * preserved unchanged.
+ */
+export function normalizeMarketplaceSourcePath(path: string): string {
+  return normalizeContentPath(path.startsWith("./") ? path.slice(2) : path);
+}
+
 function assertPluginDeclarationBinding(
   declared: PluginSource,
   resolved: ResolvedPluginSource,
@@ -416,7 +426,7 @@ export function createSourceMaterializers(
         if (declaration.kind === "marketplace-path") {
           const marketplace = checkedMarketplaceContext(context, dependencies.sha256);
           try {
-            normalizeContentPath(declaration.path);
+            normalizeMarketplaceSourcePath(declaration.path);
           } catch (error) {
             throw new SourceMaterializationError({
               code: "PATH_CONTAINMENT_FAILED",

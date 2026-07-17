@@ -24,6 +24,31 @@ describe("native control progress", () => {
     expect(frames.map((frame) => frame.sequence)).toEqual([0, 1, 2]);
   });
 
+  it("serializes concurrent producer reports instead of cancelling owner work", async () => {
+    const frames: any[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const sink = {
+      write: vi.fn(async (frame: any) => {
+        frames.push(frame);
+        if (frame.sequence === 1) await gate;
+      }),
+      close: vi.fn(async () => undefined),
+    };
+    const abort = vi.fn();
+    const progress = createNativeControlProgressController({ executionId, command: "status", sink, signal: new AbortController().signal, abortDelivery: abort });
+    await progress.accepted();
+    const first = progress.progress.emit({ phase: "preflight", state: "started", operationSequence: 0 });
+    const second = progress.progress.emit({ phase: "preflight", state: "completed", operationSequence: 1 });
+    await Promise.resolve();
+    expect(frames.map((frame) => frame.sequence)).toEqual([0, 1]);
+    expect(progress.delivery()).toBe("complete");
+    release();
+    await Promise.all([first, second]);
+    expect(frames.map((frame) => frame.sequence)).toEqual([0, 1, 2]);
+    expect(abort).not.toHaveBeenCalled();
+  });
+
   it("classifies EPIPE without throwing or rewriting semantic truth", async () => {
     const abort = vi.fn();
     const sink = { write: vi.fn(async () => { throw new NativeControlDeliveryClosedError(); }), close: vi.fn(async () => undefined) };

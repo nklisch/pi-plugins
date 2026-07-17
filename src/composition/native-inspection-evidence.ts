@@ -46,6 +46,21 @@ function sameAuthority(left: InspectionSnapshotBinding, right: InspectionSnapsho
   return stable(leftAuthority) === stable(rightAuthority);
 }
 
+function installAuthority(binding: InspectionSnapshotBinding): unknown {
+  const { capturedAt: _capturedAt, updateDigest: _updateDigest, scopes, ...authority } = binding;
+  return {
+    ...authority,
+    // Exact trust/configuration writes advance the containing scope generation.
+    // Preserve health/corruption authority while excluding only that expected
+    // workflow-owned counter.
+    scopes: scopes.map(({ generation: _generation, ...scope }) => scope),
+  };
+}
+
+function sameInstallAuthority(left: InspectionSnapshotBinding, right: InspectionSnapshotBinding): boolean {
+  return stable(installAuthority(left)) === stable(installAuthority(right));
+}
+
 function scopeOrder(left: ScopeContext, right: ScopeContext): number {
   if (left.kind !== right.kind) return left.kind === "user" ? -1 : 1;
   return left.kind === "project" && right.kind === "project" ? compareUtf8(left.projectKey, right.projectKey) : 0;
@@ -280,6 +295,10 @@ export function createNativeInspectionEvidence(input: Readonly<{
     async validate(binding, signal) {
       const current = await captureAuthority(signal);
       return sameAuthority(binding, current.binding) ? "current" : "stale";
+    },
+    async validateForInstall(binding, signal) {
+      const current = await captureAuthority(signal);
+      return sameInstallAuthority(binding, current.binding) ? "current" : "stale";
     },
   };
   return Object.freeze(port);

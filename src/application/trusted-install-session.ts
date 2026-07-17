@@ -104,10 +104,12 @@ export function createTrustedInstallSessionRegistry(dependencies: Readonly<{
       return { kind: "found", entry };
     },
     expiresAt(entry: TrustedInstallSessionEntry): number {
-      return entry.createdEpoch + Math.min(
+      // performance.now() is fractional; public epoch contracts are integer
+      // milliseconds. Flooring avoids extending either idle or absolute TTL.
+      return Math.floor(entry.createdEpoch + Math.min(
         entry.lastAccessMonotonic - entry.createdMonotonic + TrustedInstallSessionPolicy.idleTtlMs,
         TrustedInstallSessionPolicy.absoluteTtlMs,
-      );
+      ));
     },
     finish(entry: TrustedInstallSessionEntry, state: TrustedInstallSessionState, result: TrustedInstallActivationResult): void {
       entry.state = state;

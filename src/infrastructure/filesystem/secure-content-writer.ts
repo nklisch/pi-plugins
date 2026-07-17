@@ -28,7 +28,10 @@ import {
   type ContentManifestEntry,
 } from "../../domain/content-manifest.js";
 import type { Sha256 } from "../../domain/source.js";
-import { SourceMaterializationError } from "../../application/source-materialization.js";
+import {
+  normalizeMarketplaceSourcePath,
+  SourceMaterializationError,
+} from "../../application/source-materialization.js";
 import {
   DEFAULT_MATERIALIZATION_LIMITS,
   type ContentEntry,
@@ -771,7 +774,7 @@ export function createFilesystemMarketplacePathAcquirer(
 }
 
 function safeSourcePath(path: string): string {
-  try { return normalizeContentPath(path); }
+  try { return normalizeMarketplaceSourcePath(path); }
   catch (error) { throw policyError("copyMarketplacePath", "marketplace source contains an unsafe path", path); }
 }
 

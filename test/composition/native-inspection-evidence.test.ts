@@ -123,6 +123,7 @@ describe("native inspection evidence", () => {
     const first = await stateChange.port.capture(new AbortController().signal);
     stateChange.setGeneration(1);
     expect(await stateChange.port.validate(first.binding, new AbortController().signal)).toBe("stale");
+    expect(await stateChange.port.validateForInstall?.(first.binding, new AbortController().signal)).toBe("current");
 
     const trustChange = fixture();
     const second = await trustChange.port.capture(new AbortController().signal);

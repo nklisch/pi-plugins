@@ -10,6 +10,7 @@ import {
 } from "../../src/domain/source.js";
 import {
   createSourceMaterializers,
+  normalizeMarketplaceSourcePath,
   SourceMaterializationError,
   type SecureContentSession,
   type SourceMaterializationDependencies,
@@ -69,6 +70,13 @@ function dependencies(overrides: DependencyOverrides = {}): SourceMaterializatio
 }
 
 describe("source materialization application contract", () => {
+  it("maps catalog-relative ./ paths onto canonical content paths without weakening containment", () => {
+    expect(normalizeMarketplaceSourcePath("./plugins/demo")).toBe("plugins/demo");
+    expect(normalizeMarketplaceSourcePath("plugins/demo")).toBe("plugins/demo");
+    expect(() => normalizeMarketplaceSourcePath("./../escape")).toThrow();
+    expect(() => normalizeMarketplaceSourcePath(".//absolute")).toThrow();
+  });
+
   it("dispatches external plugin sources and verifies the resolved handoff", async () => {
     const deps = dependencies();
     const result = await createSourceMaterializers(deps).plugins.materialize(
