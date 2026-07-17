@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-lifecycle-sync-operations-contracts-identifiers
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility]
 parent: epic-native-plugin-management-lifecycle-sync-operations
 depends_on: []
@@ -27,3 +27,10 @@ Export only safe application contracts from `src/index.ts`; no raw snapshots, re
 - Identifier tests prove binding across host/project/capability epoch, scope, target generation/revision/activation/digest, candidate, file observation, mode, plan/actions/conflicts, and desired digest.
 - Deterministic preview/apply and explicit-provider run signatures typecheck from packed exports.
 - Public/source/compiled export allowlists remain exact.
+
+## Implementation notes
+
+- Added the schema-inferred operation, sync-plan, confirmation, progress, effect, result, session, status, and cancellation contracts plus the shared prepared-candidate alias.
+- Added host-epoch session tokens and domain-separated preview, file-observation, action, and conflict identifiers. Preview identity accepts only caller-supplied safe evidence and binds every captured authority field through canonical JSON.
+- Kept boundary objects strict and added cross-field refinements for operation pairing, duplicate resolutions, monotonic progress, disjoint effects, and lifecycle-versus-sync result evidence.
+- Verification: `npx tsc -p tsconfig.json --noEmit --pretty false`; 5 focused tests passed.

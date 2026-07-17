@@ -39,7 +39,7 @@ export const TrustedInstallConsentIdSchema = z.string()
   .regex(/^trusted-install-consent-v1:sha256:[0-9a-f]{64}$/)
   .brand<"TrustedInstallConsentId">();
 
-export const TrustedInstallCandidateBindingSchema = z.object({
+export const PreparedLifecycleCandidateBindingSchema = z.object({
   scope: ScopeReferenceSchema,
   registrationId: MarketplaceRegistrationIdSchema,
   candidateId: MarketplaceCandidateIdSchema,
@@ -56,6 +56,9 @@ export const TrustedInstallCandidateBindingSchema = z.object({
   capabilityDigest: ContentDigestSchema,
   projectEpoch: ContentDigestSchema.optional(),
 }).strict().readonly();
+
+/** Source-compatible trusted-install name for the shared prepared candidate contract. */
+export const TrustedInstallCandidateBindingSchema = PreparedLifecycleCandidateBindingSchema;
 
 export const TrustedInstallSessionStateRegistry = Object.freeze({
   awaitingInput: { tag: "awaiting-input" }, ready: { tag: "ready" }, activating: { tag: "activating" },
@@ -221,7 +224,8 @@ export const TrustedInstallCancellationResultSchema = z.discriminatedUnion("kind
 export type TrustedInstallSessionState = z.infer<typeof TrustedInstallSessionStateSchema>;
 export type TrustedInstallSessionToken = z.infer<typeof TrustedInstallSessionTokenSchema>;
 export type TrustedInstallConsentId = z.infer<typeof TrustedInstallConsentIdSchema>;
-export type TrustedInstallCandidateBinding = z.infer<typeof TrustedInstallCandidateBindingSchema>;
+export type PreparedLifecycleCandidateBinding = z.infer<typeof PreparedLifecycleCandidateBindingSchema>;
+export type TrustedInstallCandidateBinding = PreparedLifecycleCandidateBinding;
 export type TrustedInstallConfigurationField = z.infer<typeof TrustedInstallConfigurationFieldSchema>;
 export type TrustedInstallConsentDisclosure = z.infer<typeof TrustedInstallConsentDisclosureSchema>;
 export type TrustedInstallProgressEvent = z.infer<typeof TrustedInstallProgressEventSchema>;
