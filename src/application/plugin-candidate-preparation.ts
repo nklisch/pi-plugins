@@ -52,6 +52,10 @@ import type { ProjectRootAuthorityPort } from "./ports/project-root-authority.js
 import type { SecretStore } from "./ports/secret-store.js";
 import type { ConfigurationPathPort } from "./ports/configuration-path.js";
 import type { ContentStorePort, StagingAllocation, VerifiedPromotionPlan } from "./ports/content-store.js";
+import type { CandidateContentLease } from "./ports/candidate-content-lease.js";
+import type { TrustedInstallCandidateBinding } from "./trusted-install-contract.js";
+import { digestConfigurationDescriptors } from "../domain/configured-values.js";
+import { digestCompatibilityReport } from "./ports/runtime-projection.js";
 import type { PluginMaterializer, SourceContext } from "./source-materialization.js";
 import type { PluginInspectionService } from "./inspection-service.js";
 import type { CompatibilityService } from "./compatibility-service.js";
@@ -112,6 +116,8 @@ export type PluginCandidatePreparationRequest = Readonly<{
   configurationPathContext: ConfigurationPathContext;
   existing?: InstalledPluginRecord;
   expectedRevision?: import("../domain/content-manifest.js").ContentDigest;
+  candidateLease?: CandidateContentLease;
+  expectedBinding?: TrustedInstallCandidateBinding;
   automaticAuthorization?: AutomaticUpdateAuthorizationEvidence;
 }>;
 
@@ -239,6 +245,34 @@ async function resolveReadiness(
   }
 }
 
+function verifyTrustedInstallBinding(
+  input: PluginCandidatePreparationRequest,
+  candidate: Readonly<{
+    normalized: NormalizedPlugin;
+    compatibility: CompatibilityReport;
+    revision: InstalledRevisionRecord;
+    trust: TrustCandidate;
+    materialized: Awaited<ReturnType<PluginMaterializer["materialize"]>>;
+    scope: ScopeContext;
+  }>,
+  sha256: Sha256,
+): void {
+  const expected = input.expectedBinding;
+  if (expected === undefined) return;
+  const scope = toScopeReference(candidate.scope);
+  const mismatch = expected.plugin !== candidate.normalized.identity.key ||
+    !sameJson(expected.scope, scope) ||
+    expected.sourceIdentity !== candidate.materialized.source.hash ||
+    expected.immutableRevision !== candidate.revision.revision ||
+    expected.contentDigest !== candidate.materialized.content.rootDigest ||
+    expected.compatibilityFingerprint !== digestCompatibilityReport(candidate.compatibility, sha256) ||
+    expected.configurationDescriptorDigest !== digestConfigurationDescriptors(candidate.normalized.configuration, sha256) ||
+    expected.configurationRef !== candidate.revision.configurationRef ||
+    expected.trustSubject !== candidate.trust.subject ||
+    expected.executableSurfaceDigest !== candidate.trust.evidence.executableSurfaceDigest;
+  if (mismatch) throw new Error("AVAILABLE_REVISION_CHANGED");
+}
+
 async function prepareNormalizedCandidate(
   dependencies: PluginCandidatePreparationDependencies,
   input: PluginCandidatePreparationRequest,
@@ -268,6 +302,7 @@ async function prepareNormalizedCandidate(
     content: materialized.content,
     materializationBinding: materialized.binding,
   }, dependencies.sha256);
+  verifyTrustedInstallBinding(input, { normalized, compatibility, revision, trust, materialized, scope }, dependencies.sha256);
   await resolveReadiness(dependencies, {
     trust,
     trustRecords: input.trustRecords,
@@ -346,13 +381,27 @@ export async function preparePluginCandidate(
       marketplaceSource: ResolvedMarketplaceSourceSchema.parse(input.marketplaceSource),
     };
     PluginSourceSchema.parse(request.entry.source.value);
-    allocation = await dependencies.content.allocateStaging(signal);
-    const materialized = await dependencies.materializer.materialize(
-      request.entry.source.value,
-      request.sourceContext,
-      allocation.slot,
-      signal,
-    );
+    let materialized: Awaited<ReturnType<PluginMaterializer["materialize"]>>;
+    if (request.candidateLease === undefined) {
+      allocation = await dependencies.content.allocateStaging(signal);
+      materialized = await dependencies.materializer.materialize(
+        request.entry.source.value,
+        request.sourceContext,
+        allocation.slot,
+        signal,
+      );
+    } else {
+      const claimed = await request.candidateLease.claim(signal);
+      allocation = claimed.allocation;
+      materialized = claimed.materialized;
+      const expected = request.expectedBinding;
+      if (expected === undefined || claimed.candidate.id !== expected.candidateId ||
+          claimed.candidate.registrationId !== expected.registrationId || claimed.candidate.snapshot !== expected.catalogSnapshot ||
+          claimed.candidate.entry.identity.value.key !== expected.plugin || !sameJson(toScopeReference(claimed.candidate.scope), expected.scope) ||
+          !sameJson(claimed.candidate.entry, request.entry) || !sameJson(claimed.candidate.marketplace.source, request.marketplaceSource)) {
+        throw new Error("AVAILABLE_REVISION_CHANGED");
+      }
+    }
     phase = "inspect";
     const inspected = await dependencies.inspector.inspect({ entry: request.entry, materialized }, signal);
     if (!inspected.ok) return { kind: "rejected", code: "INCOMPATIBLE" };

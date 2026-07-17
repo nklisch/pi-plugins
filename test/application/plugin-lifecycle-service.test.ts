@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { createPluginLifecycleService, type PluginLifecycleServiceDependencies } from "../../src/application/plugin-lifecycle-service.js";
+import { createPluginLifecycleComposition, createPluginLifecycleService, type PluginLifecycleServiceDependencies } from "../../src/application/plugin-lifecycle-service.js";
+import { digestConfigurationDescriptors } from "../../src/domain/configured-values.js";
+import { digestCompatibilityReport } from "../../src/application/ports/runtime-projection.js";
 import { prepareEnableCandidate } from "../../src/application/plugin-candidate-preparation.js";
 import { createMaterializationBinding, createContentManifest } from "../../src/domain/content-manifest.js";
 import { CompatibilityReportSchema } from "../../src/domain/compatibility.js";
@@ -225,6 +227,55 @@ describe("plugin lifecycle service", () => {
     const service = createPluginLifecycleService(dependencies(missing));
     expect(await service.uninstall({ scope: { kind: "user" }, plugin: plugin.identity.key }, signal)).toMatchObject({ kind: "unchanged", operation: "uninstall" });
     expect(await service.disable({ scope: { kind: "user" }, plugin: plugin.identity.key }, signal)).toMatchObject({ kind: "rejected", code: "NOT_INSTALLED" });
+  });
+
+  it("enforces expected revision on initial install", async () => {
+    const state = new MemoryState(snapshot(0, []));
+    const service = createPluginLifecycleService(dependencies(state));
+    const result = await service.install({ ...installRequest, expectedRevision: `sha256:${"9".repeat(64)}` }, signal);
+    expect(result).toMatchObject({ kind: "rejected", operation: "install", code: "AVAILABLE_REVISION_CHANGED" });
+    expect(state.current.installed.plugins).toHaveLength(0);
+  });
+
+  it("consumes prepared candidate bytes without a second materializer call", async () => {
+    const state = new MemoryState(snapshot(0, []));
+    const base = dependencies(state);
+    let materializations = 0;
+    const composition = createPluginLifecycleComposition({ ...base, materializer: { async materialize() { materializations += 1; return materialized; } } });
+    const expected = {
+      scope: { kind: "user" as const },
+      registrationId: `marketplace-registration-v1:sha256:${"1".repeat(64)}` as never,
+      candidateId: `marketplace-candidate-v1:sha256:${"2".repeat(64)}` as never,
+      catalogSnapshot: `marketplace-snapshot-v1:sha256:${"3".repeat(64)}` as never,
+      plugin: plugin.identity.key,
+      sourceIdentity: plugin.source.hash,
+      immutableRevision: revision.revision,
+      contentDigest: content.rootDigest,
+      compatibilityFingerprint: digestCompatibilityReport(compatibility, sha256),
+      configurationDescriptorDigest: digestConfigurationDescriptors(plugin.configuration, sha256),
+      trustSubject: trustCandidate.subject,
+      executableSurfaceDigest: trustCandidate.evidence.executableSurfaceDigest,
+      capabilityDigest: `sha256:${"4".repeat(64)}` as never,
+    };
+    const claimedCandidate = { id: expected.candidateId, registrationId: expected.registrationId, snapshot: expected.catalogSnapshot, scope: { kind: "user" }, entry, marketplace: { source: marketplaceSource } } as never;
+    let claimed = false;
+    const lease = {
+      candidate: claimedCandidate,
+      materialized,
+      async claim() {
+        if (claimed) throw new Error("duplicate claim");
+        claimed = true;
+        return { candidate: claimedCandidate, materialized, allocation: { slot: { root: "/virtual/stage" }, allocationId: "stage" } } as never;
+      },
+      async release() {},
+    } as never;
+    const result = await composition.preparedInstall.installPrepared({
+      scope: { kind: "user" }, plugin: plugin.identity.key, entry, marketplaceSource, sourceContext: installRequest.sourceContext,
+      lease, expected, configurationPathContext: installRequest.configurationPathContext,
+    }, signal);
+    expect(result.kind).toBe("changed");
+    expect(claimed).toBe(true);
+    expect(materializations).toBe(0);
   });
 
   it("runs one whole-plugin path through install, disable, enable, and uninstall", async () => {

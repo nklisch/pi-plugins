@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-trusted-installation-lifecycle-activation-bridge
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, security]
 parent: epic-native-plugin-management-trusted-installation
 depends_on: [epic-native-plugin-management-trusted-installation-candidate-lease-disclosure]
@@ -37,3 +37,16 @@ Add a package-private prepared-install entry that consumes the exact candidate l
 - Exact disabled revision uses enable, exact enabled is current-state, and a different revision is conflict—not update.
 - Success requires exact complete active observation; callback/progress/reload acceptance cannot prove success.
 - Concurrent install/update/uninstall and all lifecycle result variants map losslessly through existing scheduler, lock, CAS, rollback, and recovery authority.
+
+## Implementation notes
+
+- Added package-private `createPluginLifecycleComposition`, preserving the source-compatible public lifecycle factory while exposing one prepared-install authority only to composition.
+- Candidate preparation now accepts a single-transfer lease, claims its existing staging allocation, performs no materializer/network call, and rejoins the same inspection, compatibility, trust/configuration readiness, projection, promotion, transition, reload, observation, rollback, and recovery executor.
+- Prepared candidates revalidate exact scope/plugin/catalog selection, materialized source/content, installed revision, compatibility fingerprint, configuration descriptor/reference, trust subject, and executable-surface digest before promotion.
+- Initial public install now forwards `expectedRevision` (not only update).
+- Added the trusted lifecycle selector: absent installs prepared bytes, exact disabled enables existing state, exact enabled returns current-state, another revision conflicts, and pending transitions stay explicit.
+
+## Verification
+
+- `npm run typecheck`
+- `npx vitest run test/application/plugin-lifecycle-service.test.ts test/application/trusted-install-lifecycle.test.ts test/integration/plugin-lifecycle.test.ts` — 14 passed.

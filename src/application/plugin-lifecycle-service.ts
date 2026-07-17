@@ -44,6 +44,8 @@ import {
   preparePluginCandidate,
 } from "./plugin-candidate-preparation.js";
 import type { PluginMaterializer } from "./source-materialization.js";
+import type { CandidateContentLease } from "./ports/candidate-content-lease.js";
+import type { TrustedInstallCandidateBinding } from "./trusted-install-contract.js";
 import type { PluginInspectionService } from "./inspection-service.js";
 import type { CompatibilityService } from "./compatibility-service.js";
 import type { ContentStorePort, PromotionResult } from "./ports/content-store.js";
@@ -100,6 +102,10 @@ export type InstallPluginRequest = Readonly<{
   automaticAuthorization?: AutomaticUpdateAuthorizationEvidence;
 }>;
 export type UpdatePluginRequest = InstallPluginRequest;
+type PreparedInstallPluginRequest = InstallPluginRequest & Readonly<{
+  candidateLease: CandidateContentLease;
+  expectedBinding: TrustedInstallCandidateBinding;
+}>;
 export type EnablePluginRequest = Readonly<{
   scope: ScopeContext;
   plugin: PluginKey;
@@ -161,6 +167,24 @@ export interface PluginLifecycleService {
   update(request: UpdatePluginRequest, signal: AbortSignal): Promise<PluginLifecycleResult>;
   uninstall(request: UninstallPluginRequest, signal: AbortSignal): Promise<PluginLifecycleResult>;
 }
+
+export interface PreparedInstallLifecycleAuthority {
+  installPrepared(request: Readonly<{
+    scope: ScopeContext;
+    plugin: PluginKey;
+    entry: NormalizedMarketplaceEntry;
+    marketplaceSource: ResolvedMarketplaceSource;
+    sourceContext: SourceContext;
+    lease: CandidateContentLease;
+    expected: TrustedInstallCandidateBinding;
+    configurationPathContext: ConfigurationPathContext;
+  }>, signal: AbortSignal): Promise<PluginLifecycleResult>;
+}
+
+export type PluginLifecycleComposition = Readonly<{
+  application: PluginLifecycleService;
+  preparedInstall: PreparedInstallLifecycleAuthority;
+}>;
 
 export type PluginLifecycleServiceDependencies = Readonly<{
   state: LifecycleStateStore;
@@ -412,9 +436,9 @@ function recovery(
     : { kind: "recovery-required", operation, transition, committed };
 }
 
-export function createPluginLifecycleService(
+function createPluginLifecycleImplementation(
   dependencies: PluginLifecycleServiceDependencies,
-): PluginLifecycleService {
+): PluginLifecycleComposition {
   if (dependencies === null || typeof dependencies !== "object") throw new TypeError("lifecycle service dependencies are required");
   const preparation: PluginCandidatePreparationDependencies = dependencies;
   const reconciler = createLifecycleTransitionReconciler({
@@ -504,7 +528,7 @@ export function createPluginLifecycleService(
 
   async function execute(
     operation: LifecycleOperation,
-    request: InstallPluginRequest | EnablePluginRequest | DisablePluginRequest | UninstallPluginRequest,
+    request: InstallPluginRequest | PreparedInstallPluginRequest | EnablePluginRequest | DisablePluginRequest | UninstallPluginRequest,
     signal: AbortSignal,
   ): Promise<PluginLifecycleResult> {
     LifecycleOperationSchema.parse(operation);
@@ -600,7 +624,11 @@ export function createPluginLifecycleService(
           configurationPathContext: installRequest.configurationPathContext,
           ...(previous === undefined ? {} : { existing: previous }),
           ...(automaticAuthorization === undefined ? {} : { automaticAuthorization }),
-          ...(operation === "update" && (request as UpdatePluginRequest).expectedRevision === undefined ? {} : operation === "update" ? { expectedRevision: (request as UpdatePluginRequest).expectedRevision } : {}),
+          ...(installRequest.expectedRevision === undefined ? {} : { expectedRevision: installRequest.expectedRevision }),
+          ...("candidateLease" in installRequest ? {
+            candidateLease: (installRequest as PreparedInstallPluginRequest).candidateLease,
+            expectedBinding: (installRequest as PreparedInstallPluginRequest).expectedBinding,
+          } : {}),
         };
         const result = await preparePluginCandidate(preparation, candidateRequest, signal);
         if (result.kind === "rejected") return rejected(operation, mapPreparationCode(result.code));
@@ -737,13 +765,49 @@ export function createPluginLifecycleService(
     };
   }
 
-  return {
-    install: (request, signal) => execute("install", request, signal),
-    enable: (request, signal) => execute("enable", request, signal),
-    disable: (request, signal) => execute("disable", request, signal),
-    update: (request, signal) => execute("update", request, signal),
-    uninstall: (request, signal) => execute("uninstall", request, signal),
-  };
+  const application: PluginLifecycleService = Object.freeze({
+    install: (request: InstallPluginRequest, signal: AbortSignal) => execute("install", request, signal),
+    enable: (request: EnablePluginRequest, signal: AbortSignal) => execute("enable", request, signal),
+    disable: (request: DisablePluginRequest, signal: AbortSignal) => execute("disable", request, signal),
+    update: (request: UpdatePluginRequest, signal: AbortSignal) => execute("update", request, signal),
+    uninstall: (request: UninstallPluginRequest, signal: AbortSignal) => execute("uninstall", request, signal),
+  });
+  const preparedInstall: PreparedInstallLifecycleAuthority = Object.freeze({
+    async installPrepared(request: Parameters<PreparedInstallLifecycleAuthority["installPrepared"]>[0], signal: AbortSignal) {
+      const preparedRequest: PreparedInstallPluginRequest = {
+          scope: request.scope,
+          plugin: request.plugin,
+          origin: "manual",
+          entry: request.entry,
+          marketplaceSource: request.marketplaceSource,
+          sourceContext: request.sourceContext,
+          configurationPathContext: request.configurationPathContext,
+          expectedRevision: request.expected.immutableRevision,
+          candidateLease: request.lease,
+          expectedBinding: request.expected,
+        };
+      try {
+        return await execute("install", preparedRequest, signal);
+      } finally {
+        // No-op after transfer; mandatory cleanup when lifecycle returned before claim.
+        await request.lease.release();
+      }
+    },
+  });
+  return Object.freeze({ application, preparedInstall });
+}
+
+export function createPluginLifecycleComposition(
+  dependencies: PluginLifecycleServiceDependencies,
+): PluginLifecycleComposition {
+  return createPluginLifecycleImplementation(dependencies);
+}
+
+/** Source-compatible public lifecycle factory. */
+export function createPluginLifecycleService(
+  dependencies: PluginLifecycleServiceDependencies,
+): PluginLifecycleService {
+  return createPluginLifecycleImplementation(dependencies).application;
 }
 
 export const PluginLifecycleResultSchema = z.object({
