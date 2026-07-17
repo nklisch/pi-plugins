@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-inspection-diagnostics-safe-display-redaction
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, security]
 parent: epic-native-plugin-management-inspection-diagnostics
 depends_on: [epic-native-plugin-management-inspection-diagnostics-contracts-identifiers]
@@ -33,3 +33,11 @@ Implement the one public display projection for plugin-authored text, paths, com
 - Hook argv remains structured and unexpanded; MCP URL query/header/bearer/environment values are absent.
 - Secret/configuration values and locators, project/custody paths, native messages/causes, stdout/stderr, and raw declarations fail canary searches.
 - Hostile MCP native keys cannot alter terminal layout and retain exact upstream identity semantics.
+
+## Implementation notes
+
+- Added the sole public display sanitizer with scalar and serialized-output bounds. It visibly escapes terminal controls, bidi/invisible formatting, combining marks, and malformed UTF-16 without normalizing identity.
+- Added structural source, provenance, hook, MCP, and component projections. Existing MCP compatibility/template analysis remains the authority; incompatible declarations never fall back to raw JSON.
+- URLs expose only scheme/host/port/path plus query/fragment-presence flags. Header/environment names remain visible while all values, URL userinfo/query/fragment values, raw declarations, and absolute custody/provenance paths are unrepresentable.
+- Verified the parked hostile-native-key case and archived `idea-escape-mcp-status-native-keys` without changing runtime key identity.
+- Verification: `npm run typecheck`; focused Vitest display/disclosure suites (14 tests).

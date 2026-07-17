@@ -785,6 +785,17 @@ export type {
   NativeInspectionService,
 } from "./application/native-inspection-contract.js";
 export {
+  NativeDisplayLimits,
+  toSafeDisplayField,
+} from "./application/native-inspection-display.js";
+export {
+  projectRedactedUrl,
+  projectSafeSource,
+  projectSafeProvenance,
+  projectSafeComponents,
+} from "./application/native-inspection-disclosure.js";
+
+export {
   InstalledInspectionDetailSubjectSchema,
   CandidateInspectionDetailSubjectSchema,
   InspectionDetailSubjectSchema,
