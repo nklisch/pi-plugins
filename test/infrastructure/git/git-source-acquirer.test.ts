@@ -69,13 +69,18 @@ function acquirer(overrides: Partial<GitSourceAcquirerOptions> = {}) {
 }
 
 function localizingCommand(real: CommandRunner, localRoot: string, calls: CommandRequest[] = []): CommandRunner {
+  let approved = localRoot;
   return {
     async run(request, abortSignal): Promise<CommandResult> {
       calls.push(request);
-      const args = request.args[0] === "remote" && request.args[1] === "add"
-        ? [...request.args.slice(0, -1), localRoot]
-        : request.args;
-      return real.run({ ...request, args }, abortSignal);
+      if (request.args[0] === "remote" && request.args[1] === "add") {
+        approved = request.args.at(-1)!;
+        return real.run({ ...request, args: [...request.args.slice(0, -1), localRoot] }, abortSignal);
+      }
+      if (request.args[0] === "remote" && request.args[1] === "get-url") {
+        return { exitCode: 0, stdout: new TextEncoder().encode(`${approved}\n`), stderr: new Uint8Array(), stderrTruncated: false };
+      }
+      return real.run(request, abortSignal);
     },
   };
 }
@@ -120,7 +125,7 @@ describe("Git source acquisition", () => {
     const result = await createGitSourceAcquirer({ command: localizingCommand(real, fixture.root, calls), archive: createTarReader(), sha256 }).materializePlugin(source, shaSink, signal());
     if (result.kind !== "git") throw new Error("expected resolved Git source");
     expect(result.revision).toBe(fixture.first);
-    expect(calls.some((call) => call.args[0] === "ls-remote")).toBe(false);
+    expect(calls.some((call) => call.args.includes("ls-remote"))).toBe(false);
     await shaSink.abort();
   });
 
@@ -157,7 +162,7 @@ describe("Git source acquisition", () => {
           ? [...request.args.slice(0, -1), fixture.root]
           : request.args;
         const result = await real.run({ ...request, args }, abortSignal);
-        if (!moved && request.args[0] === "ls-remote") {
+        if (!moved && request.args.includes("ls-remote")) {
           moved = true;
           await git(fixture.root, ["update-ref", "refs/heads/moving", fixture.second]);
         }
@@ -173,12 +178,48 @@ describe("Git source acquisition", () => {
     await content.abort();
   });
 
+  it("rejects effective host rewrites before network contact and disables HTTPS redirects", async () => {
+    const calls: CommandRequest[] = [];
+    const empty = new Uint8Array();
+    const command: CommandRunner = {
+      async run(request) {
+        calls.push(request);
+        if (request.args[0] === "remote" && request.args[1] === "get-url") {
+          return { exitCode: 0, stdout: new TextEncoder().encode("https://127.0.0.1/pivot.git\n"), stderr: empty, stderrTruncated: false };
+        }
+        return { exitCode: 0, stdout: empty, stderr: empty, stderrTruncated: false };
+      },
+    };
+    const destination = await mkdtemp(join(tmpdir(), "pi-git-slot-"));
+    roots.push(destination);
+    const content = await sink(destination);
+    await expect(acquirer({ command }).materializeMarketplace(
+      { kind: "git", url: "https://example.test/repository.git" }, content, signal(),
+    )).rejects.toMatchObject({ code: "SOURCE_RESOLUTION_FAILED", classification: "security" });
+    expect(calls.some((call) => call.args.includes("ls-remote") || call.args.includes("fetch"))).toBe(false);
+    await content.abort();
+
+    const fixture = await repository();
+    const remoteCalls: CommandRequest[] = [];
+    const remoteSinkRoot = await mkdtemp(join(tmpdir(), "pi-git-slot-"));
+    roots.push(remoteSinkRoot);
+    const remoteSink = await sink(remoteSinkRoot);
+    await createGitSourceAcquirer({ command: localizingCommand(createNodeCommandRunner(), fixture.root, remoteCalls), archive: createTarReader(), sha256 })
+      .materializeMarketplace({ kind: "git", url: "https://example.test/repository.git" }, remoteSink, signal());
+    expect(remoteCalls.filter((call) => call.args.includes("ls-remote") || call.args.includes("fetch")))
+      .toSatisfy((networkCalls: CommandRequest[]) => networkCalls.every((call) => call.args.includes("http.followRedirects=false")));
+    await remoteSink.abort();
+  });
+
   it("keeps remote diagnostics free of credential-bearing stderr", async () => {
     const secret = "credential-marker-secret";
     const empty = new Uint8Array();
     const command: CommandRunner = {
       async run(request) {
-        if (request.args[0] === "ls-remote") {
+        if (request.args[0] === "remote" && request.args[1] === "get-url") {
+          return { exitCode: 0, stdout: new TextEncoder().encode("https://example.test/repository.git\n"), stderr: empty, stderrTruncated: false };
+        }
+        if (request.args.includes("ls-remote")) {
           return { exitCode: 1, stdout: empty, stderr: new TextEncoder().encode(`fatal: ${secret}`), stderrTruncated: false };
         }
         return { exitCode: 0, stdout: empty, stderr: empty, stderrTruncated: false };

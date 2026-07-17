@@ -12,7 +12,12 @@ import {
 import { DiagnosticSchema } from "../domain/error-contract.js";
 import { MarketplaceNameSchema } from "../domain/identity.js";
 import { PortableMarketplaceSourceSchema } from "../domain/state/portable-project-declaration.js";
-import { ScopeContextSchema } from "../domain/state/scope.js";
+import { ScopeContextSchema, ScopeReferenceSchema } from "../domain/state/scope.js";
+import {
+  MarketplaceRegistrationIdSchema,
+  MarketplaceScopeSelectionSchema,
+} from "../domain/marketplace-registration.js";
+import { MarketplaceAddResultSchema } from "./marketplace-management-contract.js";
 import { MarketplaceSourceSchema, type MarketplaceSource } from "../domain/source.js";
 import type { Diagnostic } from "../domain/error-contract.js";
 
@@ -35,7 +40,13 @@ export const ForeignStateFileObservationSchema = z.discriminatedUnion("kind", [
     document: AdoptionDocumentKindSchema,
     host: z.enum(["claude", "codex"]),
     path: z.string().min(1),
-    code: z.enum(["NOT_REGULAR", "TOO_LARGE", "INVALID_UTF8", "IO_FAILED"]),
+    code: z.enum(["SYMLINK", "ESCAPES_ROOT", "NOT_REGULAR", "TOO_LARGE", "INVALID_UTF8", "IO_FAILED"]),
+  }).strict().readonly(),
+  z.object({
+    kind: z.literal("changed-during-read"),
+    document: AdoptionDocumentKindSchema,
+    host: z.enum(["claude", "codex"]),
+    path: z.string().min(1),
   }).strict().readonly(),
 ]);
 export type ForeignStateFileObservation = z.infer<typeof ForeignStateFileObservationSchema>;
@@ -59,7 +70,13 @@ export const AdoptionDocumentStatusSchema = z.discriminatedUnion("kind", [
     document: AdoptionDocumentKindSchema,
     host: z.enum(["claude", "codex"]),
     path: z.string().min(1),
-    code: z.enum(["NOT_REGULAR", "TOO_LARGE", "INVALID_UTF8", "IO_FAILED"]),
+    code: z.enum(["SYMLINK", "ESCAPES_ROOT", "NOT_REGULAR", "TOO_LARGE", "INVALID_UTF8", "IO_FAILED"]),
+  }).strict().readonly(),
+  z.object({
+    kind: z.literal("changed-during-read"),
+    document: AdoptionDocumentKindSchema,
+    host: z.enum(["claude", "codex"]),
+    path: z.string().min(1),
   }).strict().readonly(),
 ]);
 export type AdoptionDocumentStatus = z.infer<typeof AdoptionDocumentStatusSchema>;
@@ -70,6 +87,31 @@ export const AdoptionDiscoveryResultSchema = z.object({
   diagnostics: z.array(DiagnosticSchema).readonly(),
 }).strict().readonly();
 export type AdoptionDiscoveryResult = z.infer<typeof AdoptionDiscoveryResultSchema>;
+
+export const AdoptionPreviewRequestSchema = z.object({
+  compareScope: MarketplaceScopeSelectionSchema.default("all-current"),
+}).strict().readonly();
+export type AdoptionPreviewRequest = z.infer<typeof AdoptionPreviewRequestSchema>;
+
+export const AdoptionPreviewCandidateSchema = z.object({
+  candidate: AdoptionCandidateSchema,
+  comparison: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("not-registered") }).strict().readonly(),
+    z.object({
+      kind: z.literal("already-registered"),
+      registrations: z.array(MarketplaceRegistrationIdSchema).nonempty().readonly(),
+      scopes: z.array(ScopeReferenceSchema).nonempty().readonly(),
+    }).strict().readonly(),
+  ]),
+}).strict().readonly();
+export type AdoptionPreviewCandidate = z.infer<typeof AdoptionPreviewCandidateSchema>;
+
+export const AdoptionPreviewResultSchema = z.object({
+  candidates: z.array(AdoptionPreviewCandidateSchema).readonly(),
+  documents: z.array(AdoptionDocumentStatusSchema).readonly(),
+  diagnostics: z.array(DiagnosticSchema).readonly(),
+}).strict().readonly();
+export type AdoptionPreviewResult = z.infer<typeof AdoptionPreviewResultSchema>;
 
 export const MarketplaceRegistrationRequestSchema = z.object({
   source: MarketplaceSourceSchema,
@@ -107,10 +149,18 @@ export const AdoptionSelectionRequestSchema = z.object({
 }).strict().readonly();
 export type AdoptionSelectionRequest = z.infer<typeof AdoptionSelectionRequestSchema>;
 
+export const AdoptionImportRequestSchema = z.object({
+  candidateIds: z.array(AdoptionCandidateIdSchema).min(1).superRefine(uniqueIds).readonly(),
+  scope: z.enum(["user", "project"]),
+}).strict().readonly();
+export type AdoptionImportRequest = z.infer<typeof AdoptionImportRequestSchema>;
+
 export const AdoptionImportOutcomeSchema = z.union([
   MarketplaceRegistrationResultSchema,
+  MarketplaceAddResultSchema,
   z.object({ kind: z.literal("candidate-unavailable") }).strict().readonly(),
   z.object({ kind: z.literal("not-portable") }).strict().readonly(),
+  z.object({ kind: z.literal("cancelled-before-start") }).strict().readonly(),
 ]);
 export type AdoptionImportOutcome = z.infer<typeof AdoptionImportOutcomeSchema>;
 

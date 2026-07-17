@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-marketplace-discovery-adoption-source-foreign-boundaries
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, security]
 parent: epic-native-plugin-management-marketplace-discovery-adoption
 depends_on: []
@@ -37,3 +37,15 @@ Retain the existing Git/GitHub/SSH/SCP/local materializer while preventing hidde
 ## Ordering
 
 Root checkpoint. Normal registration and adoption depend on it.
+
+## Implementation notes
+
+- Git now verifies `remote get-url --all` against the exact approved declaration before contact and forces `http.followRedirects=false` for every remote resolution/fetch. Existing HTTPS, SSH, SCP, GitHub, and local Git acquisition remains the sole network path.
+- Added a Node local-source boundary that accepts only absolute real directories, rejects symlink leaves, and returns the canonical realpath for persistence.
+- Foreign Claude/Codex reads now use lazily canonicalized fixed roots, logical home-relative result paths, leaf `O_NOFOLLOW`, containment checks, bounded UTF-8 reads, and pre/post descriptor identity. Symlink, escape, replacement, growth, oversize, and I/O conditions remain document-local.
+- No credential, remote stderr, canonical home path, or foreign content is projected into safe failure/status results.
+
+## Verification
+
+- Focused Git/foreign/materialization suite: 16 passed, 0 failed.
+- Host-pivot-before-contact, redirect-disable, symlink-leaf, parent escape, oversize, UTF-8, and redaction regressions are covered.

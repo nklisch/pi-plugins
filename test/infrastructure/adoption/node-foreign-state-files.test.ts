@@ -28,13 +28,14 @@ describe("Node foreign-state files adapter", () => {
         "codex-user-config",
       ]);
       expect(observations.map((observation) => observation.kind)).toEqual(["present", "missing", "missing"]);
-      expect(observations[0]!.path).toBe(join(root, ".claude", "plugins", "known_marketplaces.json"));
+      expect(observations[0]!.path).toBe(".claude/plugins/known_marketplaces.json");
+      expect(JSON.stringify(observations)).not.toContain(root);
     } finally {
       await cleanup(root);
     }
   });
 
-  it("allows a symlink to a regular file but rejects directories", async () => {
+  it("rejects symlink leaves and directories", async () => {
     const root = await home();
     try {
       const target = join(root, "known.json");
@@ -42,10 +43,26 @@ describe("Node foreign-state files adapter", () => {
       await symlink(target, join(root, ".claude", "plugins", "known_marketplaces.json"));
       await mkdir(join(root, ".claude", "settings.json"));
       const observations = await createNodeForeignStateFiles({ userHome: root }).readAll(new AbortController().signal);
-      expect(observations[0]!.kind).toBe("present");
+      expect(observations[0]).toMatchObject({ kind: "unreadable", code: "SYMLINK" });
       expect(observations[1]).toMatchObject({ kind: "unreadable", code: "NOT_REGULAR" });
     } finally {
       await cleanup(root);
+    }
+  });
+
+  it("rejects a fixed document that escapes through a parent symlink", async () => {
+    const root = await home();
+    const outside = await mkdtemp(join(tmpdir(), "pi-adoption-outside-"));
+    try {
+      await writeFile(join(outside, "known_marketplaces.json"), "{}", "utf8");
+      await rm(join(root, ".claude", "plugins"), { recursive: true });
+      await symlink(outside, join(root, ".claude", "plugins"));
+      const observations = await createNodeForeignStateFiles({ userHome: root }).readAll(new AbortController().signal);
+      expect(observations[0]).toMatchObject({ kind: "unreadable", code: "ESCAPES_ROOT" });
+      expect(JSON.stringify(observations)).not.toContain(outside);
+    } finally {
+      await cleanup(root);
+      await cleanup(outside);
     }
   });
 

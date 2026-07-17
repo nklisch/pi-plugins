@@ -340,6 +340,33 @@ async function addRemote(
   );
 }
 
+async function verifyEffectiveRemote(
+  options: GitSourceAcquirerOptions,
+  scratch: string,
+  source: RemoteSource,
+  signal: AbortSignal,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<void> {
+  const output = decode(await runCapture(
+    options.command,
+    options.gitExecutable ?? "git",
+    ["remote", "get-url", "--all", "origin"],
+    scratch,
+    signal,
+    env,
+    64 * 1024,
+    "resolveGitSource",
+    "adapter",
+  ), "resolveGitSource");
+  const remotes = output.split(/\r?\n/u).filter((value) => value.length > 0);
+  // `remote get-url` applies url.*.insteadOf. Requiring the exact approved
+  // declaration prevents a user/foreign config rewrite from silently changing
+  // the host that subsequent Git commands contact.
+  if (remotes.length !== 1 || remotes[0] !== source.url) {
+    throw safeFailure("SOURCE_RESOLUTION_FAILED", "security", "resolveGitSource", "Git effective remote differs from the approved source");
+  }
+}
+
 async function queryRemote(
   options: GitSourceAcquirerOptions,
   scratch: string,
@@ -351,7 +378,7 @@ async function queryRemote(
   const output = await runCapture(
     options.command,
     options.gitExecutable ?? "git",
-    ["ls-remote", ...args],
+    ["-c", "http.followRedirects=false", "ls-remote", ...args],
     scratch,
     signal,
     env,
@@ -373,7 +400,7 @@ async function fetchRef(
   await runCommand(
     options.command,
     options.gitExecutable ?? "git",
-    ["fetch", "--no-tags", "--no-recurse-submodules", "--force", "origin", `+${remoteRef}:${SELECTED_REF}`],
+    ["-c", "http.followRedirects=false", "fetch", "--no-tags", "--no-recurse-submodules", "--force", "origin", `+${remoteRef}:${SELECTED_REF}`],
     scratch,
     signal,
     env,
@@ -409,7 +436,7 @@ async function fetchSha(
   await runCommand(
     options.command,
     options.gitExecutable ?? "git",
-    ["fetch", "--no-tags", "--no-recurse-submodules", "--force", "origin", sha],
+    ["-c", "http.followRedirects=false", "fetch", "--no-tags", "--no-recurse-submodules", "--force", "origin", sha],
     scratch,
     signal,
     env,
@@ -760,6 +787,7 @@ async function acquire(
   return withScratch(signal, sink.workRoot ?? "", async (scratch) => {
     await initializeScratch(options, scratch, signal, env);
     await addRemote(options, scratch, remote, signal, env);
+    await verifyEffectiveRemote(options, scratch, remote, signal, env);
     const revision = await resolveRevision(options, scratch, ref, sha, signal, env);
     if (normalizedSubdirectory !== undefined) await ensureSubdirectory(options, scratch, revision, normalizedSubdirectory, signal, env);
     await inspectTree(options, scratch, revision, normalizedSubdirectory, signal, env, limits);

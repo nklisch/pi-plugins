@@ -44,8 +44,16 @@ async function gitWrapper(repository: string): Promise<string> {
   await writeFile(executable, `#!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 const args = process.argv.slice(2);
-if (args[0] === "remote" && args[1] === "add") args[args.length - 1] = ${JSON.stringify(repository)};
-execFileSync("git", args, { stdio: "inherit" });
+if (args[0] === "remote" && args[1] === "add") {
+  const approved = args[args.length - 1];
+  args[args.length - 1] = ${JSON.stringify(repository)};
+  execFileSync("git", args, { stdio: "inherit" });
+  execFileSync("git", ["config", "pluginhost.approvedRemote", approved], { stdio: "inherit" });
+} else if (args[0] === "remote" && args[1] === "get-url") {
+  process.stdout.write(execFileSync("git", ["config", "--get", "pluginhost.approvedRemote"]));
+} else {
+  execFileSync("git", args, { stdio: "inherit" });
+}
 `, "utf8");
   await chmod(executable, 0o755);
   return executable;
