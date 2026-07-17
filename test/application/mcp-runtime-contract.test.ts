@@ -56,6 +56,12 @@ function source(overrides: Record<string, unknown> = {}): McpConfigSource {
         nativeKey: "search",
         transport: "stdio",
         options: { timeoutMs: 1000 },
+        projection: {
+          schemaVersion: 1,
+          componentId,
+          contentRef: `plugin-content-v1:sha256:${"c".repeat(64)}`,
+          dataRef: `plugin-data-v1:sha256:${"d".repeat(64)}`,
+        },
         launchTemplate: {
           schemaVersion: 1,
           transport: "stdio",
@@ -145,6 +151,22 @@ describe("portable MCP runtime contract", () => {
     expect(McpSourceServerSchemaV1.safeParse({
       ...source().servers[serverKey],
       options: { nested: Number.NaN },
+    }).success).toBe(false);
+    expect(McpSourceServerSchemaV1.safeParse({
+      ...source().servers[serverKey],
+      projection: {
+        ...source().servers[serverKey]!.projection,
+        componentId: ComponentIdSchema.parse(`component-v1:mcp-server:${"f".repeat(64)}`),
+      },
+    }).success).toBe(false);
+    expect(McpSourceServerSchemaV1.safeParse({
+      ...source().servers[serverKey],
+      launchTemplate: {
+        schemaVersion: 1,
+        transport: "streamable-http",
+        url: "https://example.invalid/mcp",
+        headers: [],
+      },
     }).success).toBe(false);
   });
 

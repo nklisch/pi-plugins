@@ -87,10 +87,10 @@ function fixture(input: Readonly<{
     nativeKey: "search/../opaque",
     declaration: {
       transport: "stdio",
-      command: "CANARY_COMMAND",
-      args: ["CANARY_ARG"],
-      env: { TOKEN: "CANARY_ENV" },
-      cwd: "/CANARY_ROOT",
+      command: "${PLUGIN_ROOT}/bin/server",
+      args: ["--root", "${PLUGIN_DATA}"],
+      env: { TRACE: "${TRACE_VALUE}" },
+      cwd: "${CLAUDE_PROJECT_DIR}",
       startupTimeout: 1000,
       allowTools: ["read"],
       instructions: "read-only",
@@ -179,11 +179,19 @@ describe("plugin MCP projection", () => {
         instructions: "read-only",
         auth: { kind: "none" },
       },
-      launchTemplate: {
+      projection: {
         schemaVersion: 1,
         componentId: component.id,
         contentRef: f.projection.contentRef,
         dataRef: f.projection.dataRef,
+      },
+      launchTemplate: {
+        schemaVersion: 1,
+        transport: "stdio",
+        command: "${PLUGIN_ROOT}/bin/server",
+        args: ["--root", "${PLUGIN_DATA}"],
+        cwd: "${CLAUDE_PROJECT_DIR}",
+        env: [{ name: "TRACE", value: "${TRACE_VALUE}" }],
       },
       toolAliases: [{
         pluginName: "demo",

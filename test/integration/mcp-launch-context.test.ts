@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createMcpLaunchContextPort } from "../../src/application/mcp-launch-context.js";
+import { deriveMcpRuntimeServerKey } from "../../src/application/mcp-plugin-projection.js";
 import { withResolvedPluginConfiguration } from "../../src/application/configuration-resolver.js";
 import type { McpLaunchActiveSelectionPort } from "../../src/application/ports/mcp-launch-context.js";
 import type { McpLaunchEnvironmentPort } from "../../src/application/ports/mcp-launch-environment.js";
@@ -95,11 +96,20 @@ function integratedFixture() {
       revision: projection.revision,
       projectionDigest: projection.digest,
     },
-    servers: Object.fromEntries([stdio, remote].map((component) => [component.nativeKey.value, {
+    servers: Object.fromEntries([stdio, remote].map((component) => [deriveMcpRuntimeServerKey(component.id), {
       componentId: component.id,
-      transport: createMcpLaunchTemplate(component).transport,
+      nativeKey: component.nativeKey.value,
+      transport: createMcpLaunchTemplate(component, projection.plugin).transport,
       options: {},
-      launchTemplate: createMcpLaunchTemplate(component),
+      projection: {
+        schemaVersion: 1,
+        componentId: component.id,
+        contentRef: projection.contentRef,
+        dataRef: projection.dataRef,
+        configurationRef: projection.configurationRef,
+      },
+      launchTemplate: createMcpLaunchTemplate(component, projection.plugin),
+      toolAliases: [],
       provenance: component.declaration.provenance.map((entry: { location: unknown }) => entry.location),
     }])),
   });

@@ -14,6 +14,7 @@ import {
   type ResolvedMcpLaunchContext,
 } from "./ports/mcp-launch-context.js";
 import { verifyProjectionExpectation } from "./ports/runtime-projection.js";
+import { McpSourceProjectionBindingSchemaV1 } from "./ports/mcp-runtime.js";
 import { McpServerComponentSchema } from "../domain/components.js";
 import { PluginConfigurationSchema } from "../domain/configuration.js";
 import { createMcpLaunchTemplate } from "../domain/mcp-launch-template.js";
@@ -80,6 +81,7 @@ function parseSelection(
 ): Readonly<{
   selection: McpLaunchActiveSelection;
   scope: ScopeContext;
+  projection: ReturnType<typeof McpSourceProjectionBindingSchemaV1.parse>;
   template: ReturnType<typeof createMcpLaunchTemplate>;
 }> {
   const expectation = verifyProjectionExpectation(input.expectation, dependencies.sha256);
@@ -119,8 +121,17 @@ function parseSelection(
   if (trustEntry.kind !== "mcp-server" || trustEntry.nativeKey !== component.nativeKey.value ||
       !sameJson(trustEntry.declaration, component.declaration.value)) throw authorityError(binding);
 
-  const template = createMcpLaunchTemplate(component);
+  const template = createMcpLaunchTemplate(component, projection.plugin);
   if (template.transport !== binding.transport) throw authorityError(binding);
+  const projectionBinding = McpSourceProjectionBindingSchemaV1.parse({
+    schemaVersion: 1,
+    componentId: component.id,
+    contentRef: projection.contentRef,
+    dataRef: projection.dataRef,
+    ...(projection.configurationRef === undefined
+      ? {}
+      : { configurationRef: projection.configurationRef }),
+  });
 
   return {
     selection: Object.freeze({
@@ -134,6 +145,7 @@ function parseSelection(
       pathContext: Object.freeze({ ...input.pathContext, scope: pathScope }),
     }),
     scope: pathScope,
+    projection: projectionBinding,
     template,
   };
 }
@@ -173,7 +185,7 @@ export function createMcpLaunchContextPort(
     try {
       await dependencies.active.withSelection(binding, signal, async (selectionInput) => {
         signal.throwIfAborted();
-        const { selection, scope, template } = parseSelection(selectionInput, binding, dependencies);
+        const { selection, scope, projection, template } = parseSelection(selectionInput, binding, dependencies);
 
         // Deny unauthorized executable evidence before resolving/creating roots.
         const authorization = await authorizeTrustCandidate({
@@ -267,6 +279,7 @@ export function createMcpLaunchContextPort(
               pluginRoot: content.root,
               pluginDataRoot: data.root,
               projectRoot: projectCapability.canonicalRoot,
+              projection,
               template,
               configuration,
             }));

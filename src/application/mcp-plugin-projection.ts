@@ -8,21 +8,18 @@ import {
   type CompatibilityReport,
 } from "../domain/compatibility.js";
 import { analyzeMcpCompatibility, compareMcpSourceLocations } from "../domain/mcp-compatibility-plan.js";
+import { createMcpLaunchTemplate } from "../domain/mcp-launch-template.js";
 import { RuntimeCapabilityRegistry, type RuntimeCapabilityId } from "../domain/compatibility-policy.js";
 import { ContentDigestSchema, hashContent, type ContentDigest } from "../domain/content-manifest.js";
 import { DomainContractError, ErrorCodeRegistry } from "../domain/errors.js";
 import { SourceLocationSchema, type SourceLocation } from "../domain/provenance-location.js";
-import {
-  PluginConfigurationRefSchema,
-  PluginContentRefSchema,
-  PluginDataRefSchema,
-} from "../domain/state/references.js";
 import type { Sha256 } from "../domain/source.js";
 import {
   McpConfigSourceSchemaV1,
   McpRuntimeCapabilitiesSchemaV1,
   McpRuntimeServerKeySchemaV1,
   McpSourceIdentitySchemaV1,
+  McpSourceProjectionBindingSchemaV1,
   McpToolAliasSegmentSchema,
   McpToolAliasTemplateSchemaV1,
   type McpConfigSource,
@@ -36,13 +33,7 @@ import {
   type PluginRuntimeProjection,
 } from "./ports/runtime-projection.js";
 
-export const PluginMcpLaunchTemplateSchemaV1 = z.object({
-  schemaVersion: z.literal(1),
-  componentId: ComponentIdSchema,
-  contentRef: PluginContentRefSchema,
-  dataRef: PluginDataRefSchema,
-  configurationRef: PluginConfigurationRefSchema.optional(),
-}).strict().readonly();
+export const PluginMcpLaunchTemplateSchemaV1 = McpSourceProjectionBindingSchemaV1;
 export type PluginMcpLaunchTemplate = z.infer<typeof PluginMcpLaunchTemplateSchemaV1>;
 
 export const PluginMcpAliasOmissionCodeSchema = z.enum([
@@ -332,13 +323,19 @@ export function createPluginMcpProjection(input: Readonly<{
       provenance,
       runtime,
     );
-    const launchTemplate = PluginMcpLaunchTemplateSchemaV1.parse({
+    const projectionBinding = PluginMcpLaunchTemplateSchemaV1.parse({
       schemaVersion: 1,
       componentId: component.id,
       contentRef: projection.contentRef,
       dataRef: projection.dataRef,
       ...(projection.configurationRef === undefined ? {} : { configurationRef: projection.configurationRef }),
     });
+    let launchTemplate: ReturnType<typeof createMcpLaunchTemplate>;
+    try {
+      launchTemplate = createMcpLaunchTemplate(component, projection.plugin);
+    } catch {
+      fail("MCP_LAUNCH_TEMPLATE_MISMATCH", [component.id]);
+    }
     return {
       serverKey,
       server: {
@@ -346,6 +343,7 @@ export function createPluginMcpProjection(input: Readonly<{
         nativeKey: component.nativeKey.value,
         transport: analysis.plan.transport,
         options: analysis.plan.options,
+        projection: projectionBinding,
         launchTemplate,
         toolAliases: alias.aliases,
         provenance,

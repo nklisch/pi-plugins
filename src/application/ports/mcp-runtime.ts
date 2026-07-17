@@ -23,6 +23,11 @@ import {
   SourceLocationSchema,
   type SourceLocation,
 } from "../../domain/provenance-location.js";
+import {
+  PluginConfigurationRefSchema,
+  PluginContentRefSchema,
+  PluginDataRefSchema,
+} from "../../domain/state/references.js";
 import { JsonValueSchema, type JsonValue } from "../../domain/schema.js";
 import { hasLoneSurrogate } from "../../domain/canonical-json.js";
 import { McpLaunchTemplateSchemaV1 } from "../../domain/mcp-launch-template.js";
@@ -89,19 +94,52 @@ export const McpToolAliasTemplateSchemaV1 = z
   .readonly();
 export type McpToolAliasTemplate = z.infer<typeof McpToolAliasTemplateSchemaV1>;
 
-/** A source server contains structure only; launch values arrive later. */
+/**
+ * Exact logical projection evidence travels beside the executable template.
+ * Physical roots and configured values remain absent until immediate launch.
+ */
+export const McpSourceProjectionBindingSchemaV1 = z
+  .object({
+    schemaVersion: z.literal(1),
+    componentId: ComponentIdSchema,
+    contentRef: PluginContentRefSchema,
+    dataRef: PluginDataRefSchema,
+    configurationRef: PluginConfigurationRefSchema.optional(),
+  })
+  .strict()
+  .readonly();
+export type McpSourceProjectionBinding = z.infer<typeof McpSourceProjectionBindingSchemaV1>;
+
+/** A source server contains structure only; plaintext launch values arrive later. */
 export const McpSourceServerSchemaV1 = z
   .object({
     componentId: ComponentIdSchema,
     nativeKey: z.string().min(1),
     transport: McpBridgeTransportSchema,
     options: SecretFreeJsonRecordSchema,
+    projection: McpSourceProjectionBindingSchemaV1,
     launchTemplate: McpLaunchTemplateSchemaV1,
     toolAliases: z.array(McpToolAliasTemplateSchemaV1).max(1).readonly(),
     provenance: z.array(SourceLocationSchema).min(1).readonly(),
   })
   .strict()
-  .readonly();
+  .readonly()
+  .superRefine((server, context) => {
+    if (server.projection.componentId !== server.componentId) {
+      context.addIssue({
+        code: "custom",
+        path: ["projection", "componentId"],
+        message: "source projection component must match the server component",
+      });
+    }
+    if (server.launchTemplate.transport !== server.transport) {
+      context.addIssue({
+        code: "custom",
+        path: ["launchTemplate", "transport"],
+        message: "launch template transport must match the server transport",
+      });
+    }
+  });
 export type McpSourceServer = z.infer<typeof McpSourceServerSchemaV1>;
 
 export const McpConfigSourceSchemaV1 = z

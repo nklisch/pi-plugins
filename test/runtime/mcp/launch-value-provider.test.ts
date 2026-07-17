@@ -28,6 +28,7 @@ const location = SourceLocationSchema.parse({
   pointer: "/mcpServers/search",
 });
 const componentId = ComponentIdSchema.parse(`component-v1:mcp-server:${"a".repeat(64)}`);
+const serverKey = `mcp-server-v1:${"b".repeat(64)}`;
 const digest = (hex: string) => ContentDigestSchema.parse(`sha256:${hex.repeat(64).slice(0, 64)}`);
 const identity = {
   schemaVersion: 1 as const,
@@ -75,11 +76,19 @@ function setup(options: Readonly<{
     schemaVersion: 1,
     identity,
     servers: {
-      search: {
+      [serverKey]: {
         componentId,
+        nativeKey: "search",
         transport: template.transport,
         options: {},
+        projection: {
+          schemaVersion: 1,
+          componentId,
+          contentRef: `plugin-content-v1:sha256:${"c".repeat(64)}`,
+          dataRef: `plugin-data-v1:sha256:${"d".repeat(64)}`,
+        },
         launchTemplate: template,
+        toolAliases: [],
         provenance: [location],
       },
     },
@@ -100,6 +109,7 @@ function setup(options: Readonly<{
           pluginRoot: "/plugin",
           pluginDataRoot: "/data",
           projectRoot: "file:///project/",
+          projection: parsedSource.servers[serverKey]!.projection,
           template,
           configuration,
         });
@@ -119,7 +129,7 @@ function setup(options: Readonly<{
     environment,
     platform: options.platform ?? "posix",
   });
-  const request = { source: identity, serverKey: "search", transport: template.transport } as const;
+  const request = { source: identity, serverKey, transport: template.transport } as const;
   return { provider, request, source, context, environment, get callbacks() { return callbacks; } };
 }
 
@@ -259,7 +269,7 @@ describe("trusted MCP launch value provider", () => {
 
   it("copies registered source/template state before caller mutation", async () => {
     const fixture = setup();
-    (fixture.source.servers.search.launchTemplate as { command?: string }).command = "MUTATED";
+    (fixture.source.servers[serverKey]!.launchTemplate as { command?: string }).command = "MUTATED";
     const values = await fixture.provider.resolve(fixture.request, new AbortController().signal);
     expect(values.transport === "stdio" && values.command).toBe("/plugin/bin/server");
     fixture.provider.dispose(values);

@@ -135,6 +135,7 @@ const expectedExports = [
   "McpToolAliasTemplateSchemaV1",
   "McpServerComponentSchema",
   "McpSourceIdentitySchemaV1",
+  "McpSourceProjectionBindingSchemaV1",
   "McpSourceRemoveResultSchema",
   "McpSourceReplaceResultSchema",
   "McpSourceServerSchemaV1",

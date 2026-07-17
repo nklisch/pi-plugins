@@ -477,22 +477,28 @@ No production MCP runtime, `pi-mcp-adapter` import/composition, process launch, 
 - Ownership: GPT-5.6 Sol, xhigh, direct host implementation. One sequential feature owner was retained because all stories share the same trust/value-lifetime invariants and overlapping contracts; nested agents and peer mechanisms were explicitly prohibited.
 - Review weight: standard by project default, but the caller explicitly set the lifecycle boundary at **feature `review` after full green verification** and prohibited nested agents. No independent review was run in this implementation stride.
 - Child checkpoints advanced directly `implementing → done`: portable-contracts, trusted-context, transport-delivery, conformance.
-- Story commits:
-  - `b2728e8` — portable contracts
-  - `b8c3bda` — trusted context
-  - `19b8edf` — transport delivery
-  - `28d730d` — conformance/integration/public surface
+- Rebased story commits:
+  - `f620d10` — portable contracts
+  - `407067b` — trusted context
+  - `6f1bb4b` — transport delivery
+  - `5b2701b` — conformance/integration/public surface
+
+## Mainline integration
+
+The rebase onto the plugin-projection work preserved one registry-driven MCP compatibility plan as policy authority. `createMcpLaunchTemplate` now consumes that shared analysis instead of restoring the deleted evaluator parser, and `createPluginMcpProjection` emits both exact logical projection binding and the canonical unexpanded launch template. The runtime source schema verifies component and transport agreement across bridge, projection, aliases, and launch contracts; the trusted context recreates and checks both projection binding and template before any plaintext delivery.
+
+Projection feature stage and review findings remain unchanged. Launch child stories remain `done`, this feature remains at `review`, and no production adapter or capability claim was added.
 
 ## Integrated verification
 
-Full `npm test` pipeline passed:
+Full `npm test` pipeline passed after mainline integration:
 
 - typecheck: no errors;
-- dependency boundaries: **223 modules / 1,342 dependencies**, no violations;
-- unit/integration/contracts: **161 files / 860 tests passed**, 0 failed, no type errors;
-- compiled package import: **476 exports**.
+- dependency boundaries: **233 modules / 1,401 dependencies**, no violations;
+- unit/integration/contracts: **173 files / 926 tests passed**, 0 failed, no type errors;
+- compiled package import: **508 exports**.
 
-Focused risk suites additionally recorded **43/43** portable-contract tests, **11/11** trusted-context tests, **26/26** transport/lifetime tests, and **27/27** conformance/integration/public tests.
+The combined projection, launch, compatibility, and bridge focused run passed **149/149 tests**.
 
 ## Portable completion status
 

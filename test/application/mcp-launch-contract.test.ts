@@ -26,7 +26,7 @@ function binding(): McpLaunchBinding {
       revision: digest("1"),
       projectionDigest: digest("2"),
     },
-    serverKey: "search",
+    serverKey: `mcp-server-v1:${"4".repeat(64)}`,
     componentId: ComponentIdSchema.parse(`component-v1:mcp-server:${"3".repeat(64)}`),
     transport: "stdio",
   });
@@ -73,7 +73,7 @@ describe("portable MCP launch callback contracts", () => {
 
   it("keeps the binding secret-free and exactly source/component/transport qualified", () => {
     const value = binding();
-    expect(JSON.stringify(value)).toContain("search");
+    expect(JSON.stringify(value)).toContain("mcp-server-v1:");
     expect(JSON.stringify(value)).not.toMatch(/command|header|bearer|environment|secret|token/i);
   });
 });

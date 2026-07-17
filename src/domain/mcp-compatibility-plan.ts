@@ -20,6 +20,7 @@ import { PluginKeySchema, type PluginKey } from "./identity.js";
 import { SourceLocationSchema, type SourceLocation } from "./provenance-location.js";
 import { ProvenanceSchema, type Provenance } from "./provenance.js";
 import { JsonValueSchema, type JsonValue } from "./schema.js";
+import { isSensitiveFieldName, isSensitiveQueryName } from "./sensitive-fields.js";
 import { canonicalJson, compareUtf8 } from "./canonical-json.js";
 
 export const McpCanonicalTransportSchema = z.enum(["stdio", "streamable-http"]);
@@ -210,8 +211,22 @@ function stringArray(value: JsonValue): value is readonly string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string");
 }
 
-function stringRecord(value: JsonValue): value is JsonRecord {
-  return isRecord(value) && Object.values(value).every((entry) => typeof entry === "string");
+const PORTABLE_VALUE_REFERENCE = /^\$\{(?:user_config\.[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*)\}$/;
+const PORTABLE_ENVIRONMENT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const HTTP_HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+function portableCredentialTemplate(value: string): boolean {
+  return PORTABLE_VALUE_REFERENCE.test(value) ||
+    /^(?:bearer|basic)\s+\$\{(?:user_config\.[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*)\}$/i.test(value);
+}
+
+function invalidEnvironmentFields(value: JsonValue): readonly string[] {
+  if (!isRecord(value)) return [""];
+  return Object.entries(value)
+    .filter(([name, entry]) => !PORTABLE_ENVIRONMENT_NAME.test(name) || typeof entry !== "string" ||
+      (isSensitiveFieldName(name) && !PORTABLE_VALUE_REFERENCE.test(entry)))
+    .map(([name]) => name)
+    .sort(compareUtf8);
 }
 
 function positiveNumber(value: JsonValue): value is number {
@@ -263,17 +278,24 @@ function parseToolList(value: JsonValue): readonly string[] | undefined {
 function invalidHeaderFields(value: JsonValue): readonly string[] {
   if (!isRecord(value)) return [""];
   const invalid: string[] = [];
+  const seen = new Set<string>();
   for (const [name, entry] of Object.entries(value)) {
-    if (name.length === 0) {
+    const canonicalName = name.toLowerCase();
+    if (!HTTP_HEADER_NAME.test(name) || seen.has(canonicalName)) {
       invalid.push(name);
-    } else if (typeof entry === "string") {
-      if (entry.length === 0 || (/^bearer\s+/i.test(entry) && !/^bearer\s+\$\{[^}]+\}$/i.test(entry))) invalid.push(name);
+      continue;
+    }
+    seen.add(canonicalName);
+    if (typeof entry === "string") {
+      if (entry.length === 0 || isSensitiveFieldName(name) && !portableCredentialTemplate(entry)) {
+        invalid.push(name);
+      }
     } else if (!isRecord(entry) || Object.keys(entry).length !== 1 ||
-      typeof entry.env !== "string" || entry.env.length === 0) {
+      typeof entry.env !== "string" || !PORTABLE_ENVIRONMENT_NAME.test(entry.env)) {
       invalid.push(name);
     }
   }
-  return invalid;
+  return invalid.sort(compareUtf8);
 }
 
 function recognizedFlow(value: string): OAuthFlow | undefined {
@@ -487,7 +509,9 @@ function analyze(
       try {
         const parsed = new URL(url as string);
         const protocols = transport === "websocket" ? ["ws:", "wss:"] : ["http:", "https:"];
-        validUrl = protocols.includes(parsed.protocol) && parsed.username.length === 0 && parsed.password.length === 0;
+        validUrl = protocols.includes(parsed.protocol) && parsed.username.length === 0 && parsed.password.length === 0 &&
+          [...parsed.searchParams].every(([name, value]) =>
+            !isSensitiveQueryName(name) || PORTABLE_VALUE_REFERENCE.test(value));
       } catch {
         validUrl = false;
       }
@@ -506,8 +530,12 @@ function analyze(
   }
 
   if (declaration.args !== undefined && !stringArray(declaration.args)) diagnostics.push(issue(plugin, component, "args"));
-  if (declaration.env !== undefined && !stringRecord(declaration.env)) diagnostics.push(issue(plugin, component, "env"));
-  if (declaration.headers !== undefined) {
+  if (declaration.env !== undefined && transport === "stdio") {
+    for (const name of invalidEnvironmentFields(declaration.env)) {
+      diagnostics.push(issue(plugin, component, name === "" ? "env" : `env.${name}`));
+    }
+  }
+  if (declaration.headers !== undefined && transport === "streamable-http") {
     for (const name of invalidHeaderFields(declaration.headers)) {
       diagnostics.push(issue(plugin, component, name === "" ? "headers" : `headers.${name}`));
     }
@@ -656,6 +684,18 @@ function analyze(
     if (transport !== "streamable-http") {
       if (allowedFields.includes("bearerTokenEnv")) diagnostics.push(issue(plugin, component, "bearerTokenEnv"));
     } else options.auth = { kind: "bearer-environment" };
+  }
+
+  const headerRecords = [
+    declaration.headers,
+    ...(isRecord(nestedFeatures) ? [nestedFeatures.headers] : []),
+  ].filter((value): value is JsonRecord => isRecord(value));
+  const hasAuthorizationHeader = headerRecords.some((headers) =>
+    Object.keys(headers).some((name) => name.toLowerCase() === "authorization"));
+  const canonicalAuth = McpCanonicalAuthSchema.safeParse(options.auth);
+  if (hasAuthorizationHeader && canonicalAuth.success &&
+      canonicalAuth.data.kind === "bearer-environment") {
+    diagnostics.push(issue(plugin, component, externalBearer === undefined ? "auth" : "bearerTokenEnv"));
   }
 
   if (diagnostics.length > 0 || transport !== "stdio" && transport !== "streamable-http") {

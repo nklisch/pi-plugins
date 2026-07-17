@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createMcpLaunchContextPort } from "../../src/application/mcp-launch-context.js";
+import { deriveMcpRuntimeServerKey } from "../../src/application/mcp-plugin-projection.js";
 import {
   McpLaunchBindingSchemaV1,
   McpLaunchErrorCodes,
@@ -65,7 +66,7 @@ function fixture(projectScoped = false) {
       revision: projection.revision,
       projectionDigest: projection.digest,
     },
-    serverKey: component.nativeKey.value,
+    serverKey: deriveMcpRuntimeServerKey(component.id),
     componentId: component.id,
     transport: "stdio",
   });

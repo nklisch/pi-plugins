@@ -10,9 +10,11 @@ import type { CurrentProjectRuntimeContext } from "./project-trust.js";
 import type { ProjectionExpectation } from "./runtime-projection.js";
 import {
   McpBridgeTransportSchema,
+  McpRuntimeServerKeySchemaV1,
   McpSourceIdentitySchemaV1,
   type McpBridgeTransport,
   type McpSourceIdentity,
+  type McpSourceProjectionBinding,
 } from "./mcp-runtime.js";
 import type { ResolvedConfiguration } from "../resolved-configuration.js";
 import type { McpLaunchTemplate } from "../../domain/mcp-launch-template.js";
@@ -20,7 +22,7 @@ import type { McpLaunchTemplate } from "../../domain/mcp-launch-template.js";
 export const McpLaunchBindingSchemaV1 = z.object({
   schemaVersion: z.literal(1),
   source: McpSourceIdentitySchemaV1,
-  serverKey: z.string().min(1),
+  serverKey: McpRuntimeServerKeySchemaV1,
   componentId: ComponentIdSchema,
   transport: McpBridgeTransportSchema,
 }).strict().readonly();
@@ -55,6 +57,7 @@ export type ResolvedMcpLaunchContext = Readonly<{
   pluginRoot: string;
   pluginDataRoot: string;
   projectRoot: string;
+  projection: McpSourceProjectionBinding;
   template: McpLaunchTemplate;
   configuration: ResolvedConfiguration;
 }>;

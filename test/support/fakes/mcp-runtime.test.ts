@@ -43,6 +43,12 @@ function source(sourceIdentity: McpSourceIdentity, keys: readonly string[] = [sh
       nativeKey: `native-${index}`,
       transport: "stdio",
       options: { secret: "CANARY_SOURCE_DEFINITION" },
+      projection: {
+        schemaVersion: 1,
+        componentId: ComponentIdSchema.parse(`component-v1:mcp-server:${(index + 1).toString(16).repeat(64).slice(0, 64)}`),
+        contentRef: `plugin-content-v1:sha256:${"c".repeat(64)}`,
+        dataRef: `plugin-data-v1:sha256:${"d".repeat(64)}`,
+      },
       launchTemplate: {
         schemaVersion: 1,
         transport: "stdio",

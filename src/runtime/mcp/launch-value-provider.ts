@@ -417,7 +417,10 @@ export function createTrustedMcpLaunchValueProvider(input: Readonly<{
 
       await input.context.withContext(binding, signal, async (context) => {
         try {
-          if (!sameJson(context.binding, binding)) throw new Error("context binding mismatch");
+          if (!sameJson(context.binding, binding) ||
+              !sameJson(context.projection, server.projection)) {
+            throw new Error("context projection mismatch");
+          }
           const selectedTemplate = McpLaunchTemplateSchemaV1.parse(context.template);
           if (!sameJson(selectedTemplate, server.launchTemplate)) throw new Error("launch template mismatch");
           const configured = configuredEnvironment(context.configuration);

@@ -363,18 +363,18 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
 export const mcpProjectionConformanceVectors = {
   stdio: {
     transport: "stdio",
-    command: "CANARY_STDIO_COMMAND",
-    args: ["CANARY_STDIO_ARG"],
-    env: { TOKEN: "CANARY_STDIO_ENV" },
-    cwd: "/CANARY_STDIO_PATH",
+    command: "${PLUGIN_ROOT}/bin/server",
+    args: ["--data", "${PLUGIN_DATA}"],
+    env: { TRACE: "${TRACE_VALUE}" },
+    cwd: "${CLAUDE_PROJECT_DIR}",
     timeoutMs: 1200,
     allowTools: ["read"],
   },
   streamableHttp: {
     transport: "streamable-http",
-    url: "https://example.invalid/CANARY_HTTP_PATH",
-    headers: { Authorization: "${CANARY_HEADER_ENV}" },
-    bearerTokenEnv: "CANARY_BEARER_ENV",
+    url: "https://example.invalid/${user_config.NAME}",
+    headers: { "X-Trace": "${TRACE_VALUE}" },
+    bearerTokenEnv: "MCP_BEARER_TOKEN",
     resources: ["docs"],
   },
 } as const;

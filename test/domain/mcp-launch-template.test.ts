@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { analyzeMcpCompatibility } from "../../src/domain/mcp-compatibility-plan.js";
 import {
   McpEnvironmentNameSchema,
   McpHeaderNameSchema,
@@ -8,8 +9,12 @@ import {
 } from "../../src/domain/mcp-launch-template.js";
 import { mcp } from "../fixtures/compatibility/mcp.js";
 
+function component(declaration: Record<string, unknown>, token = "1") {
+  return mcp(declaration, token) as never;
+}
+
 function template(declaration: Record<string, unknown>, token = "1") {
-  return createMcpLaunchTemplate(mcp(declaration, token) as never);
+  return createMcpLaunchTemplate(component(declaration, token));
 }
 
 describe("canonical MCP launch templates", () => {
@@ -77,7 +82,12 @@ describe("canonical MCP launch templates", () => {
     { type: "http", url: "https://example.invalid", headers: { Authorization: "${TOKEN}" }, bearerTokenEnv: "TOKEN" },
     { type: "http", url: "https://example.invalid", auth: { type: "bearer", env: "ONE" }, bearerTokenEnv: "TWO" },
   ])("rejects conflicting aliases and literal credential material", (declaration) => {
-    expect(() => template(declaration)).toThrow(McpLaunchTemplateError);
+    const candidate = component(declaration);
+    expect(analyzeMcpCompatibility({
+      plugin: "demo@community",
+      component: candidate,
+    }).kind).toBe("incompatible");
+    expect(() => createMcpLaunchTemplate(candidate, "demo@community")).toThrow(McpLaunchTemplateError);
   });
 
   it("uses strict portable name grammars without caller-spelling normalization", () => {

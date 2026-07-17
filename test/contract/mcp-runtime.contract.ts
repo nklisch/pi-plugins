@@ -68,6 +68,12 @@ function source(
       nativeKey: `native-${index}`,
       transport,
       options: { timeoutMs: 500 },
+      projection: {
+        schemaVersion: 1,
+        componentId: ComponentIdSchema.parse(`component-v1:mcp-server:${(index + 1).toString(16).repeat(64).slice(0, 64)}`),
+        contentRef: `plugin-content-v1:sha256:${"c".repeat(64)}`,
+        dataRef: `plugin-data-v1:sha256:${"d".repeat(64)}`,
+      },
       launchTemplate: transport === "stdio"
         ? {
             schemaVersion: 1,

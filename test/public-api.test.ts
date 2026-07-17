@@ -127,6 +127,7 @@ import {
   McpToolAliasSegmentSchema,
   McpToolAliasTemplateSchemaV1,
   McpSourceIdentitySchemaV1,
+  McpSourceProjectionBindingSchemaV1,
   McpSourceRemoveResultSchema,
   McpSourceReplaceResultSchema,
   McpSourceServerSchemaV1,
@@ -440,6 +441,7 @@ import {
   type McpToolAliasSegment,
   type McpToolAliasTemplate,
   type McpSourceIdentity,
+  type McpSourceProjectionBinding,
   type McpSourceRemoveResult,
   type McpSourceReplaceRequest,
   type McpSourceReplaceResult,
@@ -620,6 +622,7 @@ describe("explicit package API", () => {
       McpToolAliasSegmentSchema,
       McpToolAliasTemplateSchemaV1,
       McpSourceIdentitySchemaV1,
+      McpSourceProjectionBindingSchemaV1,
       McpSourceRemoveResultSchema,
       McpSourceReplaceResultSchema,
       McpSourceServerSchemaV1,
@@ -923,6 +926,7 @@ describe("explicit package API", () => {
     expectTypeOf<McpToolAliasSegment>().toEqualTypeOf<z.infer<typeof McpToolAliasSegmentSchema>>();
     expectTypeOf<McpToolAliasTemplate>().toEqualTypeOf<z.infer<typeof McpToolAliasTemplateSchemaV1>>();
     expectTypeOf<McpSourceIdentity>().toEqualTypeOf<z.infer<typeof McpSourceIdentitySchemaV1>>();
+    expectTypeOf<McpSourceProjectionBinding>().toEqualTypeOf<z.infer<typeof McpSourceProjectionBindingSchemaV1>>();
     expectTypeOf<McpSourceServer>().toEqualTypeOf<z.infer<typeof McpSourceServerSchemaV1>>();
     expectTypeOf<McpSourceServerStatus>().toEqualTypeOf<z.infer<typeof McpSourceServerStatusSchema>>();
     expectTypeOf<McpSourceStatus>().toEqualTypeOf<z.infer<typeof McpSourceStatusSchema>>();

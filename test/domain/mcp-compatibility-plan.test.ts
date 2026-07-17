@@ -30,7 +30,7 @@ describe("MCP compatibility plan", () => {
       component: component({
         type: "http",
         url: "https://example.invalid/CANARY_URL_PATH",
-        headers: { Authorization: "${CANARY_HEADER_ENV}" },
+        headers: { "X-Trace": "${CANARY_HEADER_ENV}" },
         bearerTokenEnv: "CANARY_BEARER_ENV",
         startupTimeout: 1200,
         timeout: 500,
