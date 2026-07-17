@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-packaged-host-composition-runtime-selection-capabilities
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management-packaged-host-composition
 depends_on: [epic-native-plugin-management-packaged-host-composition-project-secret-identity-adapters, epic-native-plugin-management-packaged-host-composition-installed-revision-loader]
@@ -53,3 +53,10 @@ Create one immutable exact-selection catalog for hooks and MCP, one desired-stat
 ## Ordering constraint
 
 Converges project/secret and installed-loader checkpoints. Hook/subagent and MCP composition can proceed in parallel afterward.
+
+## Implementation notes
+
+- Added one session-owned immutable runtime selection catalog implementing exact hook lookup and reference-counted MCP callback epochs. Replacement is atomic; retired epochs drain without exposing mixed selections, and close rejects new callbacks before draining existing ones.
+- Added authoritative desired-state reconstruction that rereads user/current-trusted-project state, reloads sealed installed descriptors, reassesses current compatibility, rebuilds replaceable projections, derives exact skill/hook and MCP selections, and isolates blocked plugins.
+- Added the single host configuration composition, complete Node/Pi capability chain, and requested-name-only redacted MCP environment custody. Optional adapter absence remains unavailable while malformed present evidence remains a boundary failure.
+- Verification: catalog/desired-state/capability/environment suites and existing capability/launch/context suites passed (36 tests); `npm run typecheck` and `npm run boundaries` passed.
