@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-packaged-host-composition-durable-state-configuration
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management-packaged-host-composition
 depends_on: [epic-native-plugin-management-packaged-host-composition-host-contract-session-layout]
@@ -52,3 +52,10 @@ Implement real per-scope authoritative state/inventory, non-secret configuration
 ## Ordering constraint
 
 Follows host/path contracts. Installed reconstruction and the converged application container depend on this checkpoint.
+
+## Implementation notes
+
+- Added one rollback-journal SQLite lifecycle database per scope with strict protocol/scope evidence, canonical state blobs, current/previous generation pointers, exact final CAS, in-memory codec migration, corruption results, strict inventory, database identity checks, and idempotent close. Fresh project state carries an explicit unsynchronized-intent digest and never reads foreign state.
+- Added the private SQLite non-secret configuration store with exact ref/revision CAS and confirmed-removal semantics, plus the session/root-authorized configuration path adapter.
+- Added cryptographic operation/configuration/refresh identifiers and one inert process clock.
+- Verification: focused state/configuration/identifier suites plus the two-real-process CAS suite passed (8 tests); `npm run typecheck` and `npm run boundaries` passed.
