@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-clean-environment-core-e2e-chaos-concurrency
 kind: story
-stage: implementing
+stage: done
 tags: [e2e-test, testing]
 parent: epic-native-plugin-management-clean-environment-core-e2e
 depends_on: [epic-native-plugin-management-clean-environment-core-e2e-golden-journeys, epic-native-plugin-management-clean-environment-core-e2e-failure-recovery]
@@ -48,3 +48,14 @@ Use external process/service/filesystem phase observation. Do not add production
 ## Test integrity
 
 Park any real crash/concurrency bug through `/agile-workflow:park`, preserve the deterministic reproducer and honest assertion, and link any temporary xfail. Fix bad phase detection, service faults, and timing assumptions in-session. Never rerun-until-green, broaden expected outcomes beyond the actual contract, or delete a race because it is inconvenient.
+
+## Implementation notes
+
+- Execution capability: GPT-5.6 Sol xhigh, caller-selected; deterministic process/service fault ownership stayed with the feature owner and used no nested agents.
+- Review weight: standard from `.work/CONVENTIONS.md`; child-story checkpoint does not receive review.
+- Files changed: `test/e2e/chaos/{lifecycle-crash-recovery,multiprocess-network-clock}.e2e.test.ts` plus shared process-fault controls.
+- Tests added: Pi kill at a real Git backend phase and exact retry; pending lifecycle/reload kill; two-process same/distinct registration contention; Git process-group loss with old-catalog/offline restart; and complete-Pi clock regression with pinned libfaketime receipt.
+- Simplification: fault triggers are service phase files/signals only, with one fixed Git listener and one process-group owner; no sleeps, random chaos, production hook, fake clock, or SQLite mock exists.
+- Discrepancies from design: a dead refresh claim coalesces the one retry, distinct-target adds expose `STATE_STALE`, and lifecycle crash cannot reach a pending transition until production projection publication works. This host lacks pinned libfaketime, so the clock test records/asserts explicit capability diagnosis; `PI_PLUGIN_HOST_E2E_REQUIRE_LIBFAKETIME=1` makes Linux CI fail closed when absent.
+- Adjacent issues parked: `idea-recover-crashed-refresh-claim`, `idea-distinct-marketplace-add-contention`; `idea-production-projection-publication` remains linked to lifecycle/reload crash.
+- Verification: all chaos files passed (5 tests including linked executable expected failures); network kill/offline restart and capability diagnosis are green.
