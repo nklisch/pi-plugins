@@ -57,6 +57,8 @@ export type PreparedMutationContext = Readonly<{
 export type PreparedMutation<T> = Readonly<{
   mutation: VerifiedStateMutation;
   value: T;
+  /** Last authority check while the scope lease is still owned, immediately before durable commit. */
+  beforeCommit?: () => Promise<void>;
 }>;
 
 export type GenerationMutationResult<T> =
@@ -550,6 +552,8 @@ class Coordinator implements GenerationMutationCoordinator {
           request,
           scope,
         );
+        await lease.assertOwned(signal);
+        await prepared.beforeCommit?.();
         await lease.assertOwned(signal);
         try {
           const commitResult = validateCommitResult(

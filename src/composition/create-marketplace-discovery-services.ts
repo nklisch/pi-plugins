@@ -56,8 +56,8 @@ export type NodeMarketplaceDiscoveryServicesOptions = Readonly<{
   materializers: Readonly<{ marketplaces: MarketplaceMaterializer; plugins?: PluginMaterializer }>;
   inspection: MarketplaceInspectionService;
   content: ContentStorePort;
-  currentProject: Extract<ScopeContext, { kind: "project" }>;
-  projectTrust: ProjectTrustPort;
+  currentProject?: Extract<ScopeContext, { kind: "project" }>;
+  projectTrust?: ProjectTrustPort;
   /** Packaged hosts re-resolve the bound project before every public operation. */
   revalidateCurrentProject?: (signal: AbortSignal) => Promise<unknown>;
   sha256: Sha256;
@@ -84,8 +84,8 @@ export function createNodeMarketplaceDiscoveryServices(
     inspection: options.inspection,
     content: options.content,
     clock: options.clock,
-    currentProject: options.currentProject,
-    projectTrust: options.projectTrust,
+    ...(options.currentProject === undefined ? {} : { currentProject: options.currentProject }),
+    ...(options.projectTrust === undefined ? {} : { projectTrust: options.projectTrust }),
     localSources: createNodeMarketplaceLocalSourcePort(),
     sha256: options.sha256,
   });
@@ -99,7 +99,8 @@ export function createNodeMarketplaceDiscoveryServices(
       materializers: options.materializers,
       inspection: options.inspection,
       content: options.content,
-      currentProject: options.currentProject,
+      ...(options.currentProject === undefined ? {} : { currentProject: options.currentProject }),
+      ...(options.projectTrust === undefined ? {} : { projectTrust: options.projectTrust }),
       sha256: options.sha256,
       ...(options.probe === undefined ? {} : { probe: options.probe }),
       ...(options.lifecycle === undefined ? {} : { lifecycle: options.lifecycle }),
@@ -110,7 +111,7 @@ export function createNodeMarketplaceDiscoveryServices(
     content: options.content,
     inspection: options.inspection,
     clock: options.clock,
-    currentProject: options.currentProject,
+    ...(options.currentProject === undefined ? {} : { currentProject: options.currentProject }),
     sha256: options.sha256,
   });
   const internalAdoption = createNodeAdoptionService({
@@ -124,7 +125,7 @@ export function createNodeMarketplaceDiscoveryServices(
 
   async function revalidate(signal: AbortSignal): Promise<void> {
     signal.throwIfAborted();
-    await options.revalidateCurrentProject?.(signal);
+    if (options.currentProject !== undefined) await options.revalidateCurrentProject?.(signal);
     signal.throwIfAborted();
   }
 
@@ -147,8 +148,9 @@ export function createNodeMarketplaceDiscoveryServices(
       await revalidate(signal);
       let bound = MarketplaceRefreshRequestSchema.parse(request);
       if (bound.scope === "project" || bound.scope === "all-current") {
-        const trust = await options.projectTrust.assess(options.currentProject.projectKey, signal);
-        if (trust.kind !== "trusted") {
+        const trusted = options.currentProject !== undefined && options.projectTrust !== undefined &&
+          (await options.projectTrust.assess(options.currentProject.projectKey, signal)).kind === "trusted";
+        if (!trusted) {
           if (bound.scope === "project") {
             return MarketplaceRefreshResultSchema.parse({ outcomes: [], notifications: [] });
           }
@@ -168,14 +170,14 @@ export function createNodeMarketplaceDiscoveryServices(
       if (request.scope !== "user" && request.scope !== "project") {
         throw new TypeError("marketplace policy scope must be user or current project");
       }
-      const scope = request.scope === "user" ? { kind: "user" as const } : options.currentProject;
-      if (scope.kind === "project") {
-        const trust = await options.projectTrust.assess(scope.projectKey, signal);
-        if (trust.kind !== "trusted") {
+      if (request.scope === "project") {
+        if (options.currentProject === undefined || options.projectTrust === undefined ||
+            (await options.projectTrust.assess(options.currentProject.projectKey, signal)).kind !== "trusted") {
           return MarketplaceUpdatePreferenceResultSchema.parse({ kind: "rejected", code: "STATE_STALE" });
         }
+        return updates.policy.setApplicationPreference({ ...request, scope: options.currentProject }, signal);
       }
-      return updates.policy.setApplicationPreference({ ...request, scope }, signal);
+      return updates.policy.setApplicationPreference({ ...request, scope: { kind: "user" as const } }, signal);
     },
   });
   const catalog: MarketplaceDiscoveryServices["catalog"] = Object.freeze({

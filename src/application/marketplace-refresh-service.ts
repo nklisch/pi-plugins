@@ -13,6 +13,7 @@ import type { ContentStorePort } from "./ports/content-store.js";
 import type { LifecycleClock } from "./ports/lifecycle-clock.js";
 import type { LifecycleStateInventoryPort } from "./ports/lifecycle-state-inventory.js";
 import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
+import type { ProjectTrustPort } from "./ports/project-trust.js";
 import type { MarketplaceMaterializer, MaterializedMarketplace, PluginMaterializer, SourceContext } from "./source-materialization.js";
 import type { PluginLifecycleService } from "./plugin-lifecycle-service.js";
 import type { LifecycleRejectionCode } from "./plugin-lifecycle-contract.js";
@@ -105,7 +106,7 @@ function claimIsActive(record: MarketplaceRegistrationRecord, now: number): bool
 function failureCode(error: unknown): Extract<MarketplaceRefreshOutcome, { kind: "failed" }>["code"] {
   if (error instanceof Error) {
     if (error.message === "REMOVED_DURING_REFRESH") return "REMOVED_DURING_REFRESH";
-    if (error.message === "STATE_STALE") return "STATE_STALE";
+    if (error.message === "STATE_STALE" || error.message === "PROJECT_REVOKED") return "STATE_STALE";
     if (error.message === "PROMOTION_FAILED") return "PROMOTION_FAILED";
   }
   if (error !== null && typeof error === "object" && "code" in error) {
@@ -136,6 +137,18 @@ function replaceRecord(snapshot: GenerationSnapshot, replacement: MarketplaceReg
   return createMarketplaceUpdateRecordsMutation(snapshot, records, sha256);
 }
 
+async function assertScopeAuthority(
+  dependencies: MarketplaceRefreshServiceDependencies,
+  scope: ScopeContext,
+  signal: AbortSignal,
+): Promise<void> {
+  if (scope.kind === "user") return;
+  if (dependencies.currentProject === undefined || !sameScope(scope, dependencies.currentProject) || dependencies.projectTrust === undefined ||
+      (await dependencies.projectTrust.assess(scope.projectKey, signal)).kind !== "trusted") {
+    throw new Error("PROJECT_REVOKED");
+  }
+}
+
 async function mutateClaimRecord(
   dependencies: MarketplaceRefreshServiceDependencies,
   scope: ScopeContext,
@@ -151,11 +164,19 @@ async function mutateClaimRecord(
         const current = recordFor(context.snapshot, registrationIdValue, dependencies.sha256);
         if (current === undefined) throw new Error("REMOVED_DURING_REFRESH");
         if (deriveMarketplaceSourceIdentity(current.source, dependencies.sha256) !== deriveMarketplaceSourceIdentity(replacement.source, dependencies.sha256)) throw new Error("STATE_STALE");
-        return { mutation: replaceRecord(context.snapshot, replacement, dependencies.sha256), value: undefined };
+        return {
+          mutation: replaceRecord(context.snapshot, replacement, dependencies.sha256),
+          value: undefined,
+          beforeCommit: () => assertScopeAuthority(dependencies, scope, signal),
+        };
       },
       signal,
     );
-    return result.kind === "committed" ? "committed" : "stale";
+    if (result.kind === "committed") return "committed";
+    const authoritative = await dependencies.state.read(scope, new AbortController().signal).catch(() => undefined);
+    return authoritative?.ok && recordFor(authoritative.snapshot, registrationIdValue, dependencies.sha256) === undefined
+      ? "removed"
+      : "stale";
   } catch (error) {
     if (error instanceof Error && error.message === "REMOVED_DURING_REFRESH") return "removed";
     throw error;
@@ -241,6 +262,7 @@ export type MarketplaceRefreshServiceDependencies = Readonly<{
   lifecycle?: PluginLifecycleService;
   inventoryComplete?: () => boolean;
   currentProject?: Extract<ScopeContext, { kind: "project" }>;
+  projectTrust?: ProjectTrustPort;
 }>;
 
 export function createMarketplaceRefreshService(dependencies: MarketplaceRefreshServiceDependencies): MarketplaceRefreshService {
@@ -289,7 +311,20 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
         nextScheduledAt: completedAt + backoffDelayMs(failures, DefaultMarketplaceUpdatePolicy.failureBaseMs, DefaultMarketplaceUpdatePolicy.failureMaxMs),
       },
     });
-    await mutateClaimRecord(dependencies, scope, loaded.snapshot, id, replacement, cleanupSignal).catch(() => "stale");
+    const settlement = await mutateClaimRecord(dependencies, scope, loaded.snapshot, id, replacement, cleanupSignal).catch(() => "stale" as const);
+    if (settlement !== "committed") {
+      const authoritative = await dependencies.state.read(scope, cleanupSignal).catch(() => undefined);
+      if (authoritative?.ok) {
+        const authority = recordFor(authoritative.snapshot, id, dependencies.sha256);
+        if (authority === undefined) return { kind: "failed", registrationId: id, code: "REMOVED_DURING_REFRESH", retained: { kind: "not-materialized" } };
+        return {
+          kind: "failed",
+          registrationId: id,
+          code: "STATE_STALE",
+          retained: cacheWithoutIo(authority, snapshotFor(authoritative.snapshot, authority), now()),
+        };
+      }
+    }
     return { kind: "failed", registrationId: id, code, retained };
   }
 
@@ -350,27 +385,15 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
       if (catalog.marketplace.name.value !== current.marketplace) throw new Error("STATE_STALE");
       const selected = createMarketplaceSnapshotRecord({ marketplace: current.marketplace, source: materialized.source, content: materialized.content, binding: materialized.binding }, dependencies.sha256);
       const probes = dependencies.probe === undefined ? [] : await dependencies.probe({ scope, record: claimed, snapshot: selected, catalog, marketplace: materialized, signal });
-      const discovered = discoveredNotifications(claimed, scope, probes);
+      const discoveredOutcomes = discoveredNotifications(claimed, scope, probes).outcomes;
       const completedAt = now();
-      const published = MarketplaceRegistrationRecordSchema.parse({
-        ...discovered.record,
-        refresh: {
-          lastCompletedAt: completedAt,
-          lastAttempt: { completedAt, outcome: "succeeded" },
-          nextScheduledAt: current.source.kind === "local-git" ? 0 : completedAt + DefaultMarketplaceUpdatePolicy.successIntervalMs,
-          consecutiveFailures: 0,
-        },
-      });
       const latest = await dependencies.state.read(scope, signal);
       if (!latest.ok) throw new Error("STATE_STALE");
-      const oldSnapshot = snapshotFor(latest.snapshot, current);
+      const latestAuthority = recordFor(latest.snapshot, id, dependencies.sha256);
+      if (latestAuthority === undefined) throw new Error("REMOVED_DURING_REFRESH");
+      if (latestAuthority.refresh.claim?.id !== claimId || deriveMarketplaceSourceIdentity(latestAuthority.source, dependencies.sha256) !== deriveMarketplaceSourceIdentity(current.source, dependencies.sha256)) throw new Error("STATE_STALE");
+      const oldSnapshot = snapshotFor(latest.snapshot, latestAuthority);
       const unchanged = oldSnapshot !== undefined && oldSnapshot.source.revision === selected.source.revision && oldSnapshot.contentDigest === selected.contentDigest && oldSnapshot.binding === selected.binding;
-      const publicationRecord = unchanged
-        ? MarketplaceRegistrationRecordSchema.parse({
-            ...published,
-            refresh: { ...published.refresh, lastAttempt: { completedAt, outcome: "unchanged" } },
-          })
-        : published;
       const plan = createPromotionPlan({ kind: "marketplace", allocation, materialized }, dependencies.sha256);
       const result = await dependencies.mutations.runPreparedMutation(
         { scope, plugins: [], expectedGeneration: latest.snapshot.generation },
@@ -378,6 +401,22 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
           const authority = recordFor(context.snapshot, id, dependencies.sha256);
           if (authority === undefined) throw new Error("REMOVED_DURING_REFRESH");
           if (authority.refresh.claim?.id !== claimId || deriveMarketplaceSourceIdentity(authority.source, dependencies.sha256) !== deriveMarketplaceSourceIdentity(current.source, dependencies.sha256)) throw new Error("STATE_STALE");
+          await assertScopeAuthority(dependencies, scope, signal);
+          // Policy and origin are authoritative in the locked snapshot. Only
+          // refresh memory and newly discovered notification facts belong to
+          // this long-running refresh operation.
+          const discovered = discoveredNotifications(authority, scope, probes);
+          const publicationRecord = MarketplaceRegistrationRecordSchema.parse({
+            ...discovered.record,
+            refresh: {
+              ...authority.refresh,
+              claim: undefined,
+              lastCompletedAt: completedAt,
+              lastAttempt: { completedAt, outcome: unchanged ? "unchanged" : "succeeded" },
+              nextScheduledAt: authority.source.kind === "local-git" ? 0 : completedAt + DefaultMarketplaceUpdatePolicy.successIntervalMs,
+              consecutiveFailures: 0,
+            },
+          });
           let promoted: Awaited<ReturnType<ContentStorePort["promote"]>>;
           try {
             promoted = await dependencies.content.promote(plan, signal);
@@ -391,7 +430,11 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
           const index = snapshots.findIndex((snapshot) => snapshot.marketplace === current.marketplace);
           if (index >= 0) snapshots[index] = selected;
           else snapshots.push(selected);
-          return { mutation: createMarketplaceRegistrationSnapshotMutation(context.snapshot, records, snapshots, dependencies.sha256), value: undefined };
+          return {
+            mutation: createMarketplaceRegistrationSnapshotMutation(context.snapshot, records, snapshots, dependencies.sha256),
+            value: undefined,
+            beforeCommit: () => assertScopeAuthority(dependencies, scope, signal),
+          };
         },
         signal,
       );
@@ -401,9 +444,9 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
       // committed refresh into a cancelled result.
       const registration = await safeView(result.snapshot, committed, new AbortController().signal);
 
-      const pluginOutcomes = [...discovered.outcomes];
+      const pluginOutcomes = [...discoveredOutcomes];
       const dispositions = new Map<string, ReturnType<typeof automaticDisposition>>();
-      const automatic = dependencies.lifecycle !== undefined && completeInventory && current.updateApplication === "automatic" && current.source.kind !== "local-git";
+      const automatic = dependencies.lifecycle !== undefined && completeInventory && committed.updateApplication === "automatic" && committed.source.kind !== "local-git";
       for (const probe of probes) {
         if (signal.aborted) break;
         let disposition: ReturnType<typeof automaticDisposition> = "manual-required";
@@ -476,7 +519,7 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
     const inventory = await dependencies.inventory.discover(signal);
     const candidates = inventory.scopes.map((scope) => ScopeContextSchema.parse(scope));
     const scopes = candidates.filter((scope) => scope.kind === "user" ||
-      dependencies.currentProject === undefined || sameScope(scope, dependencies.currentProject));
+      dependencies.currentProject !== undefined && sameScope(scope, dependencies.currentProject));
     return { scopes: scopes.sort(scopeSort), complete: inventory.complete };
   }
 
@@ -518,7 +561,10 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
         if (!loaded.ok) continue;
         for (const record of marketplaceUpdateRecords(loaded.snapshot)) {
           if (record.source.kind === "local-git") continue;
-          if (earliest === undefined || record.refresh.nextScheduledAt < earliest) earliest = record.refresh.nextScheduledAt;
+          const scheduledAt = record.refresh.claim !== undefined && record.refresh.claim.expiresAt > dependencies.clock.nowEpochMilliseconds()
+            ? Math.max(record.refresh.nextScheduledAt, record.refresh.claim.expiresAt)
+            : record.refresh.nextScheduledAt;
+          if (earliest === undefined || scheduledAt < earliest) earliest = scheduledAt;
         }
       }
       return earliest;

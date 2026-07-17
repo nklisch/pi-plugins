@@ -133,13 +133,19 @@ export function createMarketplaceRegistrationService(
     ? undefined
     : ScopeContextSchema.parse(dependencies.currentProject) as Extract<ScopeContext, { kind: "project" }>;
 
+  async function projectAuthorityIsCurrent(signal: AbortSignal): Promise<boolean> {
+    if (projectScope === undefined || dependencies.projectTrust === undefined) return false;
+    const trust = await dependencies.projectTrust.assess(projectScope.projectKey, signal);
+    return trust.kind === "trusted";
+  }
+
   async function scopeFor(selection: "user" | "project", signal: AbortSignal): Promise<ScopeContext | undefined> {
     if (selection === "user") return userScope;
-    if (projectScope === undefined) return undefined;
-    const trust = dependencies.projectTrust === undefined
-      ? { kind: "untrusted" as const }
-      : await dependencies.projectTrust.assess(projectScope.projectKey, signal);
-    return trust.kind === "trusted" ? projectScope : undefined;
+    return await projectAuthorityIsCurrent(signal) ? projectScope : undefined;
+  }
+
+  async function assertScopeAuthority(scope: ScopeContext, signal: AbortSignal): Promise<void> {
+    if (scope.kind === "project" && !await projectAuthorityIsCurrent(signal)) throw new Error("PROJECT_REVOKED");
   }
 
   async function view(snapshot: GenerationSnapshot, record: MarketplaceRegistrationRecord, signal: AbortSignal) {
@@ -224,6 +230,7 @@ export function createMarketplaceRegistrationService(
           if (sameSourceIndex >= 0 && records[sameSourceIndex]!.marketplace !== marketplace) throw new Error("SOURCE_NAME_CHANGED");
           if (nameIndex >= 0 && nameIndex !== sameSourceIndex) throw new Error("NAME_CONFLICT");
 
+          await assertScopeAuthority(scope, signal);
           let promoted: Awaited<ReturnType<ContentStorePort["promote"]>>;
           try {
             promoted = await dependencies.content.promote(plan, signal);
@@ -245,6 +252,7 @@ export function createMarketplaceRegistrationService(
           return {
             mutation: createMarketplaceRegistrationSnapshotMutation(context.snapshot, records, snapshots, dependencies.sha256),
             value: marketplace,
+            beforeCommit: () => assertScopeAuthority(scope, signal),
           };
         },
         signal,
@@ -264,7 +272,10 @@ export function createMarketplaceRegistrationService(
         return MarketplaceAddResultSchema.parse({ kind: "rejected", code: "STATE_STALE" });
       }
       const committed = recordBySource(result.snapshot, source, dependencies.sha256)!;
-      return MarketplaceAddResultSchema.parse({ kind: "added", registration: await view(result.snapshot, committed, signal) });
+      // A committed add remains added even if the caller cancels while the
+      // post-commit cache projection is being built. Cancellation governs only
+      // work that has not yet acquired durable authority.
+      return MarketplaceAddResultSchema.parse({ kind: "added", registration: await view(result.snapshot, committed, new AbortController().signal) });
     } catch (error) {
       if (error instanceof CommittedMutationCleanupError) {
         const snapshot = error.committed.snapshot;
@@ -274,6 +285,7 @@ export function createMarketplaceRegistrationService(
       if (signal.aborted) throw signal.reason ?? error;
       if (error instanceof Error && error.message === "NAME_CONFLICT") return MarketplaceAddResultSchema.parse({ kind: "rejected", code: "NAME_CONFLICT" });
       if (error instanceof Error && error.message === "SOURCE_NAME_CHANGED") return MarketplaceAddResultSchema.parse({ kind: "rejected", code: "SOURCE_NAME_CHANGED" });
+      if (error instanceof Error && error.message === "PROJECT_REVOKED") return MarketplaceAddResultSchema.parse({ kind: "rejected", code: "PROJECT_UNTRUSTED" });
       if (error instanceof Error && error.message === "PROMOTION_FAILED") return MarketplaceAddResultSchema.parse({ kind: "rejected", code: "PROMOTION_FAILED" });
       const code = classifyPreparation(error);
       return MarketplaceAddResultSchema.parse({ kind: "rejected", code: code ?? "CATALOG_INVALID" });

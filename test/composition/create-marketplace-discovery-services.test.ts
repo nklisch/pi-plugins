@@ -60,6 +60,22 @@ describe("marketplace discovery composition", () => {
     expect(revalidateCurrentProject).not.toHaveBeenCalled();
   });
 
+  it("binds all-current operations to user state when no current project exists", async () => {
+    const signal = new AbortController().signal;
+    const read = vi.fn(async (scope) => ({ ok: false as const, scope, corruptions: [] }));
+    const discover = vi.fn().mockResolvedValue({ scopes: [{ kind: "user" }, currentProject], complete: true });
+    const configured = dependencies({ state: { read, commit: vi.fn() } as never, inventory: { discover } as never });
+    const { currentProject: _project, projectTrust: _trust, ...userOnly } = configured;
+    const services = createNodeMarketplaceDiscoveryServices(userOnly);
+
+    await services.registration.list({ scope: "all-current", limit: 50 }, signal);
+    await services.refresh.nextScheduledAt(signal);
+    await services.catalog.search({ scope: "all-current", query: "", limit: 50 }, signal);
+
+    expect(read).toHaveBeenCalledTimes(3);
+    expect(read.mock.calls.every(([scope]) => scope.kind === "user")).toBe(true);
+  });
+
   it("revalidates project identity and binds policy mutation to the exact current project", async () => {
     const signal = new AbortController().signal;
     const read = vi.fn().mockResolvedValue({ ok: false, scope: currentProject, corruptions: [] });

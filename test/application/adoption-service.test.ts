@@ -15,6 +15,7 @@ import {
   type MarketplaceRegistrationResult,
 } from "../../src/application/adoption-contract.js";
 import { createAdoptionService } from "../../src/application/adoption-service.js";
+import { MarketplaceAddResultSchema } from "../../src/application/marketplace-management-contract.js";
 import type { ForeignStateFilesPort } from "../../src/application/ports/foreign-state-files.js";
 import type { MarketplaceRegistrationPort } from "../../src/application/ports/marketplace-registration.js";
 import { readClaudeKnownMarketplacesJson } from "../../src/formats/claude/state-reader.js";
@@ -155,6 +156,49 @@ describe("adoption service", () => {
     const candidate = (await service.discover(new AbortController().signal)).candidates[0]!;
     const result = await service.adopt({ candidateIds: [candidate.id] }, new AbortController().signal);
     expect(result.outcomes[0]!.outcome).toEqual({ kind: "rejected", code: "PROJECT_UNTRUSTED" });
+  });
+
+  it("keeps a committed add and cancels only remaining import candidates", async () => {
+    const document = JSON.stringify({
+      alpha: { source: { source: "github", repo: "owner/alpha" } },
+      zeta: { source: { source: "github", repo: "owner/zeta" } },
+    });
+    const controller = new AbortController();
+    const added = MarketplaceAddResultSchema.parse({
+      kind: "added",
+      registration: {
+        id: `marketplace-registration-v1:sha256:${"a".repeat(64)}`,
+        scope: { kind: "user" },
+        marketplace: "catalog",
+        source: { kind: "github", repository: "owner/catalog" },
+        sourceIdentity: `sha256:${"b".repeat(64)}`,
+        origin: { kind: "native" },
+        updateApplication: "manual",
+        refresh: { nextScheduledAt: 0, consecutiveFailures: 0 },
+        cache: { kind: "not-materialized" },
+      },
+    });
+    const service = createAdoptionService({
+      files: { readAll: async () => observations({ "claude-known-marketplaces": document }) },
+      readers,
+      registrations: { register: async () => ({ kind: "rejected", code: "ADAPTER_FAILED" }) },
+      registry: {
+        async add() {
+          controller.abort(new Error("cancel after commit"));
+          return added;
+        },
+        async list() { return { registrations: [] }; },
+      },
+      sha256,
+    });
+    const candidates = (await service.preview({ compareScope: "user" }, new AbortController().signal)).candidates
+      .map((entry) => entry.candidate.id)
+      .sort();
+    const result = await service.import({ candidateIds: candidates, scope: "user" }, controller.signal);
+    expect(result.outcomes).toEqual([
+      { candidateId: candidates[0], outcome: added },
+      { candidateId: candidates[1], outcome: { kind: "cancelled-before-start" } },
+    ]);
   });
 
   it("previews without native writes and imports through normal registration with provenance", async () => {

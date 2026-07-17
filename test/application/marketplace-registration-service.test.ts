@@ -10,11 +10,13 @@ import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.j
 import { deriveStateBlobRef } from "../../src/domain/state/references.js";
 import { readClaudeMarketplace } from "../../src/formats/claude/marketplace-reader.js";
 import type { GenerationSnapshot } from "../../src/application/state-contract.js";
+import { createProjectLocalStateDocumentV3 } from "../../src/domain/state/project-state.js";
+import { deriveProjectKey } from "../../src/domain/state/scope.js";
 
 const sha256: Sha256 = (bytes) => new Uint8Array(createHash("sha256").update(bytes).digest());
 const digest = (value: string) => `sha256:${value.repeat(64)}` as `sha256:${string}`;
 
-function environment() {
+function environment(options: Readonly<{ abortAfterCommit?: AbortController }> = {}) {
   const generation = GenerationSchema.parse(0);
   let current: Extract<GenerationSnapshot, { scope: { kind: "user" } }> = {
     scope: { kind: "user" },
@@ -45,7 +47,7 @@ function environment() {
   });
   let queue = Promise.resolve();
   const mutations = {
-    async runPreparedMutation(request: { expectedGeneration: number }, prepare: (context: { snapshot: typeof current; assertOwned(): Promise<void> }) => Promise<{ mutation: any; value: unknown }>) {
+    async runPreparedMutation(request: { expectedGeneration: number }, prepare: (context: { snapshot: typeof current; assertOwned(): Promise<void> }) => Promise<{ mutation: any; value: unknown; beforeCommit?: () => Promise<void> }>) {
       let release!: () => void;
       const prior = queue;
       queue = new Promise<void>((resolve) => { release = resolve; });
@@ -53,6 +55,7 @@ function environment() {
       try {
         if (request.expectedGeneration !== current.generation) return { kind: "stale-generation" as const, expected: request.expectedGeneration, actual: current.generation };
         const prepared = await prepare({ snapshot: current, assertOwned: async () => undefined });
+        await prepared.beforeCommit?.();
         const next = GenerationSchema.parse(current.generation + 1);
         current = {
           ...current,
@@ -61,6 +64,7 @@ function environment() {
           installed: { ...(prepared.mutation.replace.installed ?? current.installed), generation: next },
           pointers: { ...current.pointers, generation: next, previousGeneration: current.generation, documents: current.pointers.documents.map((pointer) => ({ ...pointer, generation: next })) },
         };
+        options.abortAfterCommit?.abort(new Error("cancelled after durable commit"));
         return { kind: "committed" as const, value: prepared.value, snapshot: current };
       } finally {
         release();
@@ -101,6 +105,18 @@ describe("marketplace registration service", () => {
     expect(fixture.promote).toHaveBeenCalledTimes(1);
   });
 
+  it("reports a committed add after caller cancellation during post-commit projection", async () => {
+    const controller = new AbortController();
+    const fixture = environment({ abortAfterCommit: controller });
+    const result = await fixture.service.add({
+      source: { kind: "github", repository: "example/community" },
+      scope: "user",
+      origin: { kind: "native" },
+    }, controller.signal);
+    expect(result).toMatchObject({ kind: "added", registration: { marketplace: "community" } });
+    expect(fixture.state().config.records).toHaveLength(1);
+  });
+
   it("reports an authoritative root-name conflict without replacing the selected cache", async () => {
     const fixture = environment();
     await fixture.service.add({ source: { kind: "github", repository: "example/first" }, scope: "user", origin: { kind: "native" } }, new AbortController().signal);
@@ -120,5 +136,72 @@ describe("marketplace registration service", () => {
     expect(fixture.state().installed.marketplaces).toEqual([]);
     expect(await fixture.service.remove({ scope: "user", registrationId: added.registration.id }, new AbortController().signal))
       .toEqual({ kind: "unchanged", reason: "not-configured" });
+  });
+
+  it("does not commit a long project add after trust is revoked", async () => {
+    const generation = GenerationSchema.parse(0);
+    const identity = { kind: "path-only" as const, canonicalRoot: "file:///project/", limitation: "identity-changes-with-canonical-root" as const };
+    const projectKey = deriveProjectKey(identity, sha256);
+    const scope = { kind: "project" as const, identity, projectKey };
+    const emptyContent = createContentManifest([], sha256);
+    const project = createProjectLocalStateDocumentV3({
+      schemaVersion: 3,
+      generation,
+      projectKey,
+      identity,
+      declarationDigest: emptyContent.rootDigest,
+      marketplaces: [],
+      plugins: [],
+      marketplaceUpdates: [],
+    }, scope, sha256);
+    const snapshot = {
+      scope,
+      generation,
+      pointers: StatePointersDocumentSchemaV1.parse({
+        schemaVersion: 1,
+        scope: { kind: "project", projectKey },
+        generation,
+        documents: [{
+          kind: "projectLocal",
+          generation,
+          blob: deriveStateBlobRef({ document: "projectLocal", scope: "project", generation }, sha256),
+          digest: digest("c"),
+        }],
+      }),
+      project,
+      corruptions: [],
+    } as Extract<GenerationSnapshot, { scope: { kind: "project" } }>;
+    const source = { kind: "github" as const, repository: "example/community" };
+    const resolved = createResolvedMarketplaceSource({ declared: source, revision: "a".repeat(40) }, sha256);
+    const materialized = { root: "/stage/content", source: resolved, content: emptyContent, binding: createMaterializationBinding(resolved.hash, emptyContent.rootDigest, sha256) };
+    const promote = vi.fn(async (plan: { identity: unknown; manifest: unknown }) => ({ kind: "promoted" as const, identity: plan.identity, root: "/store", manifest: plan.manifest }));
+    let assessments = 0;
+    const service = createMarketplaceRegistrationService({
+      state: { read: async () => ({ ok: true, snapshot }), commit: async () => { throw new Error("must not commit"); } },
+      mutations: {
+        async runPreparedMutation(_request, prepare) {
+          const prepared = await prepare({ snapshot, assertOwned: async () => undefined });
+          await prepared.beforeCommit?.();
+          throw new Error("commit should have been blocked");
+        },
+      },
+      materializer: { materialize: async () => materialized },
+      inspection: { inspect: async () => readClaudeMarketplace({ name: "community", plugins: [] }) },
+      content: {
+        allocateStaging: async () => ({ slot: { root: "/stage" }, allocationId: "allocation" }),
+        discardStaging: async () => undefined,
+        promote,
+      } as never,
+      clock: { nowEpochMilliseconds: () => 1_000, monotonicMilliseconds: () => 1_000 },
+      currentProject: scope,
+      projectTrust: { async assess() { assessments += 1; return assessments < 3 ? { kind: "trusted" } : { kind: "untrusted" }; } },
+      localSources: { canonicalize: async (value) => value },
+      sha256,
+    });
+
+    await expect(service.add({ source, scope: "project", origin: { kind: "native" } }, new AbortController().signal))
+      .resolves.toEqual({ kind: "rejected", code: "PROJECT_UNTRUSTED" });
+    expect(promote).toHaveBeenCalledTimes(1);
+    expect(snapshot.project.marketplaceUpdates).toEqual([]);
   });
 });

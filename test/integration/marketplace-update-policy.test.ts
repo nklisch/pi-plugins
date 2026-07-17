@@ -29,6 +29,8 @@ function makeEnvironment(options: Readonly<{
   movedRevision?: boolean;
   complete?: boolean;
   inventory?: { discover(signal: AbortSignal): Promise<{ scopes: ReadonlyArray<typeof scope>; complete: boolean }> };
+  changePolicyDuringMaterialization?: boolean;
+  activeClaim?: boolean;
 }> = { automatic: false }) {
   const content = createContentManifest([], sha256);
   const source = createResolvedMarketplaceSource({ declared: marketplace, revision: "a".repeat(40) }, sha256);
@@ -72,6 +74,13 @@ function makeEnvironment(options: Readonly<{
     marketplace: "community",
     source: marketplace,
     updateApplication: options.automatic ? "automatic" : "manual",
+    ...(options.activeClaim ? {
+      refresh: {
+        claim: { id: "refresh-claim-v1:uuid:123e4567-e89b-42d3-a456-426614174099", startedAt: 500, expiresAt: 5_000 },
+        nextScheduledAt: 0,
+        consecutiveFailures: 0,
+      },
+    } : {}),
   });
   let current: FakeSnapshot = {
     scope,
@@ -86,7 +95,7 @@ function makeEnvironment(options: Readonly<{
     async read() { return { ok: true as const, snapshot: current }; },
   };
   const mutations = {
-    async runPreparedMutation(request: { expectedGeneration: number }, prepare: (context: { snapshot: FakeSnapshot; assertOwned(): Promise<void> }) => Promise<{ mutation: any; value: unknown }>) {
+    async runPreparedMutation(request: { expectedGeneration: number }, prepare: (context: { snapshot: FakeSnapshot; assertOwned(): Promise<void> }) => Promise<{ mutation: any; value: unknown; beforeCommit?: () => Promise<void> }>) {
       let release!: () => void;
       const previous = queue;
       queue = new Promise<void>((resolve) => { release = resolve; });
@@ -94,6 +103,7 @@ function makeEnvironment(options: Readonly<{
       try {
         if (request.expectedGeneration !== current.generation) return { kind: "stale-generation" as const, expected: request.expectedGeneration, actual: current.generation };
         const prepared = await prepare({ snapshot: current, assertOwned: async () => undefined });
+        await prepared.beforeCommit?.();
         const config = prepared.mutation.replace.config ?? current.config;
         const installed = prepared.mutation.replace.installed ?? current.installed;
         current = {
@@ -114,7 +124,19 @@ function makeEnvironment(options: Readonly<{
     mutations,
     clock: { nowEpochMilliseconds: () => 1_000, monotonicMilliseconds: () => 1_000 },
     claimIds: { async create() { claimSequence += 1; return `refresh-claim-v1:uuid:123e4567-e89b-42d3-a456-42661417400${claimSequence}`; } },
-    materializers: { marketplaces: { async materialize() { return materialized; } } },
+    materializers: { marketplaces: { async materialize() {
+      if (options.changePolicyDuringMaterialization) {
+        const latest = current.config.records[0]!;
+        const generation = current.generation + 1;
+        current = {
+          ...current,
+          generation,
+          config: { ...current.config, generation, records: [{ ...latest, updateApplication: "automatic" }] },
+          installed: { ...current.installed, generation },
+        };
+      }
+      return materialized;
+    } } },
     inspection: { async inspect() { return catalog; } },
     content: {
       async allocateStaging() { return { slot: { root: "/virtual/stage" }, allocationId: "stage" }; },
@@ -184,6 +206,19 @@ describe("marketplace update policy integration", () => {
     const result = await environment.service.refresh({ trigger: "explicit" }, new AbortController().signal);
     expect(environment.lifecycleCalls).toBe(1);
     expect(result.notifications).toMatchObject([{ plugin: "first@community", disposition: "automatic-retryable" }]);
+  });
+
+  it("rebases refresh fields onto the latest policy authority", async () => {
+    const environment = makeEnvironment({ automatic: false, changePolicyDuringMaterialization: true });
+    const result = await environment.service.refresh({ trigger: "explicit" }, new AbortController().signal);
+    expect(result.outcomes).toMatchObject([{ kind: "refreshed" }]);
+    expect(environment.state().config.records[0]!.updateApplication).toBe("automatic");
+    expect(environment.lifecycleCalls).toBe(1);
+  });
+
+  it("schedules active persisted claims no earlier than their expiry", async () => {
+    const environment = makeEnvironment({ automatic: false, activeClaim: true });
+    await expect(environment.service.nextScheduledAt(new AbortController().signal)).resolves.toBe(5_000);
   });
 
   it("routes automatic application through lifecycle and keeps earlier intents when a later plugin throws", async () => {
