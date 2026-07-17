@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-launch-context-trusted-context
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra, security]
 parent: epic-mcp-runtime-integration-launch-context
 depends_on: [epic-mcp-runtime-integration-launch-context-portable-contracts]
@@ -69,3 +69,18 @@ The main risk is a race between active selection and trust/configuration resolut
 ## Production boundary
 
 The fake proves authority/callback behavior only. No lifecycle state, reload observer, revision lease implementation, source registration, process, connection, or `pi-mcp-adapter` composition is claimed.
+
+## Implementation notes
+
+- Added `createMcpLaunchContextPort` as the sole application authority window. It parses and copies the active selection, recomputes projection/revision/reference evidence, verifies the exact MCP component against the projection and trust executable surface, and rejects source/component/transport drift before effects.
+- Exact plugin trust is authorized before root/data work. Current project trust and the opaque project-root capability are rechecked for every invocation; project-scoped sources must match the current project key/identity/root exactly, while user scope retains its distinct configuration-path semantics.
+- Content and data roots are resolved from the installed revision's logical refs per invocation. Content-store identity, binding, manifest digest, scope, plugin, and refs are all checked before any physical root reaches the callback.
+- The existing `withResolvedPluginConfiguration` callback remains the final trust/document/descriptor/path/secret revalidation boundary. Callback completions are discarded and all native failures collapse to stable identity-only MCP launch codes.
+- Added deterministic active-selection and requested-name-only environment fakes. The active fake implements pin-or-wait replacement rather than a stale get-and-cache snapshot.
+
+## Verification
+
+- Focused authority matrix: `npx vitest run test/application/mcp-launch-context.test.ts` — **11 passed, 0 failed**.
+- The matrix covers projection/revision/component/trust/project drift, absent trust before effects, exact project authority, pre-abort, mid-content abort identity, redacted configuration failure, and callback/root success evidence.
+- `npm run typecheck` — passed.
+- No lifecycle state, reload observer, production selection adapter, source registration, process, connection, or package composition was added.
