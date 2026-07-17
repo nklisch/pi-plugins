@@ -1,0 +1,124 @@
+import { createHash } from "node:crypto";
+import { describe, expect, it, vi } from "vitest";
+import { createMarketplaceRegistrationService } from "../../src/application/marketplace-registration-service.js";
+import { createContentManifest, createMaterializationBinding } from "../../src/domain/content-manifest.js";
+import { createResolvedMarketplaceSource, type MarketplaceSource, type Sha256 } from "../../src/domain/source.js";
+import { HostConfigDocumentSchemaV3, GenerationSchema } from "../../src/domain/state/config-state.js";
+import { InstalledUserStateDocumentSchemaV2 } from "../../src/domain/state/installed-state.js";
+import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
+import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
+import { deriveStateBlobRef } from "../../src/domain/state/references.js";
+import { readClaudeMarketplace } from "../../src/formats/claude/marketplace-reader.js";
+import type { GenerationSnapshot } from "../../src/application/state-contract.js";
+
+const sha256: Sha256 = (bytes) => new Uint8Array(createHash("sha256").update(bytes).digest());
+const digest = (value: string) => `sha256:${value.repeat(64)}` as `sha256:${string}`;
+
+function environment() {
+  const generation = GenerationSchema.parse(0);
+  let current: Extract<GenerationSnapshot, { scope: { kind: "user" } }> = {
+    scope: { kind: "user" },
+    generation,
+    pointers: StatePointersDocumentSchemaV1.parse({
+      schemaVersion: 1,
+      scope: { kind: "user" },
+      generation,
+      documents: ["hostConfig", "installedUser", "trust"].map((document) => ({
+        kind: document,
+        generation,
+        blob: deriveStateBlobRef({ document, scope: "user", generation }, sha256),
+        digest: digest("a"),
+      })),
+    }),
+    config: HostConfigDocumentSchemaV3.parse({ schemaVersion: 3, generation, records: [] }),
+    installed: InstalledUserStateDocumentSchemaV2.parse({ schemaVersion: 2, generation, marketplaces: [], plugins: [] }),
+    trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation, records: [] }),
+    corruptions: [],
+  };
+  const content = createContentManifest([], sha256);
+  const catalog = readClaudeMarketplace({ name: "community", plugins: [{ name: "demo", source: "./demo", strict: false }] });
+  const promote = vi.fn(async (plan: { identity: unknown; manifest: unknown }) => ({ kind: "promoted" as const, identity: plan.identity, root: "/store", manifest: plan.manifest }));
+  let allocation = 0;
+  const materialize = vi.fn(async (source: MarketplaceSource) => {
+    const resolved = createResolvedMarketplaceSource({ declared: source, revision: "a".repeat(40) }, sha256);
+    return { root: "/stage/content", source: resolved, content, binding: createMaterializationBinding(resolved.hash, content.rootDigest, sha256) };
+  });
+  let queue = Promise.resolve();
+  const mutations = {
+    async runPreparedMutation(request: { expectedGeneration: number }, prepare: (context: { snapshot: typeof current; assertOwned(): Promise<void> }) => Promise<{ mutation: any; value: unknown }>) {
+      let release!: () => void;
+      const prior = queue;
+      queue = new Promise<void>((resolve) => { release = resolve; });
+      await prior;
+      try {
+        if (request.expectedGeneration !== current.generation) return { kind: "stale-generation" as const, expected: request.expectedGeneration, actual: current.generation };
+        const prepared = await prepare({ snapshot: current, assertOwned: async () => undefined });
+        const next = GenerationSchema.parse(current.generation + 1);
+        current = {
+          ...current,
+          generation: next,
+          config: { ...(prepared.mutation.replace.config ?? current.config), generation: next },
+          installed: { ...(prepared.mutation.replace.installed ?? current.installed), generation: next },
+          pointers: { ...current.pointers, generation: next, previousGeneration: current.generation, documents: current.pointers.documents.map((pointer) => ({ ...pointer, generation: next })) },
+        };
+        return { kind: "committed" as const, value: prepared.value, snapshot: current };
+      } finally {
+        release();
+      }
+    },
+  };
+  const service = createMarketplaceRegistrationService({
+    state: { read: async () => ({ ok: true, snapshot: current }), commit: async () => { throw new Error("unused"); } },
+    mutations: mutations as never,
+    materializer: { materialize } as never,
+    inspection: { inspect: async () => catalog },
+    content: {
+      allocateStaging: async () => ({ slot: { root: "/stage" }, allocationId: `allocation-${++allocation}` }),
+      discardStaging: async () => undefined,
+      promote,
+      resolveMarketplace: async (record) => ({ kind: "marketplace", root: "/store", identity: { kind: "marketplace", key: "marketplace-store-v1:" + "a".repeat(64) }, manifest: content, contentRef: record.contentRef }),
+    } as never,
+    clock: { nowEpochMilliseconds: () => 1_000, monotonicMilliseconds: () => 1_000 },
+    localSources: { canonicalize: async (source) => source },
+    sha256,
+  });
+  return { service, materialize, promote, state: () => current };
+}
+
+describe("marketplace registration service", () => {
+  it("publishes registration and selected snapshot atomically and is source-idempotent", async () => {
+    const fixture = environment();
+    const source = { kind: "github" as const, repository: "example/community" };
+    const first = await fixture.service.add({ source, scope: "user", origin: { kind: "native" } }, new AbortController().signal);
+    expect(first.kind).toBe("added");
+    expect(fixture.state().config.records).toHaveLength(1);
+    expect(fixture.state().installed.marketplaces).toHaveLength(1);
+    expect(fixture.state().config.generation).toBe(fixture.state().installed.generation);
+
+    const second = await fixture.service.add({ source, scope: "user", origin: { kind: "native" } }, new AbortController().signal);
+    expect(second.kind).toBe("unchanged");
+    expect(fixture.materialize).toHaveBeenCalledTimes(1);
+    expect(fixture.promote).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports an authoritative root-name conflict without replacing the selected cache", async () => {
+    const fixture = environment();
+    await fixture.service.add({ source: { kind: "github", repository: "example/first" }, scope: "user", origin: { kind: "native" } }, new AbortController().signal);
+    const before = fixture.state().installed.marketplaces[0];
+    const conflict = await fixture.service.add({ source: { kind: "github", repository: "example/second" }, scope: "user", origin: { kind: "native" } }, new AbortController().signal);
+    expect(conflict).toEqual({ kind: "rejected", code: "NAME_CONFLICT" });
+    expect(fixture.state().installed.marketplaces).toEqual([before]);
+  });
+
+  it("removes registration and selected cache together and remains idempotent", async () => {
+    const fixture = environment();
+    const added = await fixture.service.add({ source: { kind: "github", repository: "example/community" }, scope: "user", origin: { kind: "native" } }, new AbortController().signal);
+    if (added.kind !== "added") throw new Error("registration failed");
+    expect(await fixture.service.remove({ scope: "user", registrationId: added.registration.id }, new AbortController().signal))
+      .toEqual({ kind: "removed", registrationId: added.registration.id });
+    expect(fixture.state().config.records).toEqual([]);
+    expect(fixture.state().installed.marketplaces).toEqual([]);
+    expect(await fixture.service.remove({ scope: "user", registrationId: added.registration.id }, new AbortController().signal))
+      .toEqual({ kind: "unchanged", reason: "not-configured" });
+  });
+});
