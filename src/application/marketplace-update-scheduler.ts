@@ -36,7 +36,7 @@ export function createMarketplaceUpdateScheduler(
       for (;;) {
         signal.throwIfAborted();
         try {
-          await dependencies.refresh.refresh({ trigger: "scheduled" }, signal);
+          await dependencies.refresh.refresh({ trigger: "scheduled", scope: "all-current" }, signal);
           signal.throwIfAborted();
         } catch (error) {
           // A failed marketplace must not stop checks for unrelated marketplaces.

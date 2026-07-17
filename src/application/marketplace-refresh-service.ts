@@ -1,11 +1,9 @@
-import { z } from "zod";
 import {
-  MarketplaceUpdateRecordSchema,
-  deriveMarketplaceSourceIdentity,
+  MarketplaceRegistrationRecordSchema,
   backoffDelayMs,
-  type MarketplaceUpdateRecord,
+  deriveMarketplaceSourceIdentity,
+  type MarketplaceRegistrationRecord,
 } from "../domain/update-policy.js";
-import { MarketplaceNameSchema, type MarketplaceName } from "../domain/identity.js";
 import { createMarketplaceSnapshotRecord, type MarketplaceSnapshotRecord } from "../domain/state/installed-state.js";
 import { ScopeContextSchema, toScopeReference, type ScopeContext } from "../domain/state/scope.js";
 import { createPromotionPlan } from "./content-promotion.js";
@@ -18,15 +16,17 @@ import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
 import type { MarketplaceMaterializer, MaterializedMarketplace, PluginMaterializer, SourceContext } from "./source-materialization.js";
 import type { PluginLifecycleService } from "./plugin-lifecycle-service.js";
 import type { LifecycleRejectionCode } from "./plugin-lifecycle-contract.js";
-import type { GenerationSnapshot, StateMutation } from "./state-contract.js";
+import type { GenerationSnapshot } from "./state-contract.js";
 import {
   createMarketplaceUpdateRecordsMutation,
+  createMarketplaceRegistrationSnapshotMutation,
+  marketplaceSnapshots,
   marketplaceUpdateRecords,
 } from "./marketplace-update-state.js";
 import {
   MarketplaceRefreshRequestSchema,
   MarketplaceRefreshResultSchema,
-  MarketplaceReadResultSchema,
+  MarketplaceRefreshOutcomeSchema,
   PluginUpdateOutcomeSchema,
   type MarketplaceRefreshRequest,
   type MarketplaceRefreshResult,
@@ -36,6 +36,15 @@ import {
 } from "./update-contract.js";
 import type { Sha256 } from "../domain/source.js";
 import type { RefreshClaimIdPort } from "./ports/refresh-claim-id.js";
+import {
+  deriveMarketplaceRegistrationId,
+  type MarketplaceRegistrationId,
+} from "../domain/marketplace-registration.js";
+import {
+  createMarketplaceRegistrationView,
+  codePointCompare,
+} from "./marketplace-state.js";
+import type { MarketplaceCacheStatus } from "./marketplace-management-contract.js";
 
 export const DefaultMarketplaceUpdatePolicy = Object.freeze({
   successIntervalMs: 6 * 60 * 60 * 1_000,
@@ -55,7 +64,7 @@ export type MarketplacePluginProbeResult = Readonly<{
 
 export type MarketplacePluginProbePort = (input: Readonly<{
   scope: ScopeContext;
-  record: MarketplaceUpdateRecord;
+  record: MarketplaceRegistrationRecord;
   snapshot: MarketplaceSnapshotRecord;
   catalog: import("../domain/marketplace.js").MarketplaceReadResult;
   marketplace: MaterializedMarketplace;
@@ -63,53 +72,94 @@ export type MarketplacePluginProbePort = (input: Readonly<{
 }>) => Promise<readonly MarketplacePluginProbeResult[]>;
 
 function abortIfRequested(signal: AbortSignal): void {
-  if (signal.aborted) throw signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+  signal.throwIfAborted();
 }
 
 function scopeSort(left: ScopeContext, right: ScopeContext): number {
   if (left.kind !== right.kind) return left.kind === "user" ? -1 : 1;
   if (left.kind === "user" || right.kind === "user") return 0;
-  return left.projectKey.localeCompare(right.projectKey);
+  return codePointCompare(left.projectKey, right.projectKey);
 }
 
-function recordFor(snapshot: GenerationSnapshot, marketplace: MarketplaceName): MarketplaceUpdateRecord | undefined {
-  return marketplaceUpdateRecords(snapshot).find((record) => record.marketplace === marketplace);
+function sameScope(left: ScopeContext, right: ScopeContext): boolean {
+  if (left.kind !== right.kind) return false;
+  return left.kind === "user" || right.kind === "user" || left.projectKey === right.projectKey;
 }
 
-function replaceRecord(snapshot: GenerationSnapshot, marketplace: MarketplaceName, replacement: MarketplaceUpdateRecord, sha256: Sha256): StateMutation {
-  const records = marketplaceUpdateRecords(snapshot).map((record) => record.marketplace === marketplace ? replacement : record);
-  return createMarketplaceUpdateRecordsMutation(snapshot, records, sha256);
+function registrationId(scope: ScopeContext, record: MarketplaceRegistrationRecord, sha256: Sha256): MarketplaceRegistrationId {
+  return deriveMarketplaceRegistrationId({ scope: toScopeReference(scope), source: record.source }, sha256);
 }
 
-function outcomeFailed(marketplace: MarketplaceName, code: string): MarketplaceRefreshOutcome {
-  return MarketplaceReadResultSchema.parse({ kind: "failed", marketplace, code });
+function recordFor(snapshot: GenerationSnapshot, id: MarketplaceRegistrationId, sha256: Sha256): MarketplaceRegistrationRecord | undefined {
+  return marketplaceUpdateRecords(snapshot).find((record) => registrationId(snapshot.scope, record, sha256) === id);
 }
 
-function claimIsActive(record: MarketplaceUpdateRecord, now: number): boolean {
+function snapshotFor(snapshot: GenerationSnapshot, record: MarketplaceRegistrationRecord): MarketplaceSnapshotRecord | undefined {
+  return marketplaceSnapshots(snapshot).find((candidate) => candidate.marketplace === record.marketplace);
+}
+
+function claimIsActive(record: MarketplaceRegistrationRecord, now: number): boolean {
   return record.refresh.claim !== undefined && record.refresh.claim.expiresAt > now;
 }
 
-function shouldRateLimit(record: MarketplaceUpdateRecord, now: number): boolean {
-  return record.refresh.nextScheduledAt > now;
+function failureCode(error: unknown): Extract<MarketplaceRefreshOutcome, { kind: "failed" }>["code"] {
+  if (error instanceof Error) {
+    if (error.message === "REMOVED_DURING_REFRESH") return "REMOVED_DURING_REFRESH";
+    if (error.message === "STATE_STALE") return "STATE_STALE";
+    if (error.message === "PROMOTION_FAILED") return "PROMOTION_FAILED";
+  }
+  if (error !== null && typeof error === "object" && "code" in error) {
+    const code = (error as { code?: unknown }).code;
+    if (code === "MARKETPLACE_ROOT_INVALID" || code === "CLAIM_CONFLICT") return "CATALOG_INVALID";
+    if (code === "CONTENT_INVALID" || code === "CONTENT_DIGEST_MISMATCH" || code === "PATH_CONTAINMENT_FAILED") return "CONTENT_INVALID";
+  }
+  return "SOURCE_UNAVAILABLE";
 }
 
-function nextRefreshTime(record: MarketplaceUpdateRecord, now: number): number {
-  if (record.refresh.nextScheduledAt > now) return record.refresh.nextScheduledAt;
-  return now;
+function cacheWithoutIo(record: MarketplaceRegistrationRecord, snapshot: MarketplaceSnapshotRecord | undefined, now: number): MarketplaceCacheStatus {
+  if (snapshot === undefined) return { kind: "not-materialized" };
+  const validator = { kind: "git-commit" as const, revision: snapshot.source.revision };
+  const etag = { kind: "not-applicable" as const };
+  if (record.source.kind === "local-git") return { kind: "unknown-local", validator, etag };
+  return {
+    kind: record.refresh.nextScheduledAt > 0 && record.refresh.nextScheduledAt <= now ? "stale" : "ready",
+    validator,
+    etag,
+    ...(record.refresh.lastCompletedAt === undefined ? {} : { checkedAt: record.refresh.lastCompletedAt }),
+  };
 }
 
-function failureRecord(record: MarketplaceUpdateRecord, now: number): MarketplaceUpdateRecord {
-  const failures = record.refresh.consecutiveFailures + 1;
-  const delay = backoffDelayMs(failures, DefaultMarketplaceUpdatePolicy.failureBaseMs, DefaultMarketplaceUpdatePolicy.failureMaxMs);
-  return MarketplaceUpdateRecordSchema.parse({
-    ...record,
-    refresh: {
-      ...record.refresh,
-      claim: undefined,
-      consecutiveFailures: failures,
-      nextScheduledAt: now + delay,
-    },
-  });
+function replaceRecord(snapshot: GenerationSnapshot, replacement: MarketplaceRegistrationRecord, sha256: Sha256) {
+  const identity = deriveMarketplaceSourceIdentity(replacement.source, sha256);
+  const records = marketplaceUpdateRecords(snapshot).map((record) =>
+    deriveMarketplaceSourceIdentity(record.source, sha256) === identity ? replacement : record);
+  return createMarketplaceUpdateRecordsMutation(snapshot, records, sha256);
+}
+
+async function mutateClaimRecord(
+  dependencies: MarketplaceRefreshServiceDependencies,
+  scope: ScopeContext,
+  expected: GenerationSnapshot,
+  registrationIdValue: MarketplaceRegistrationId,
+  replacement: MarketplaceRegistrationRecord,
+  signal: AbortSignal,
+): Promise<"committed" | "stale" | "removed"> {
+  try {
+    const result = await dependencies.mutations.runPreparedMutation(
+      { scope, plugins: [], expectedGeneration: expected.generation },
+      async (context) => {
+        const current = recordFor(context.snapshot, registrationIdValue, dependencies.sha256);
+        if (current === undefined) throw new Error("REMOVED_DURING_REFRESH");
+        if (deriveMarketplaceSourceIdentity(current.source, dependencies.sha256) !== deriveMarketplaceSourceIdentity(replacement.source, dependencies.sha256)) throw new Error("STATE_STALE");
+        return { mutation: replaceRecord(context.snapshot, replacement, dependencies.sha256), value: undefined };
+      },
+      signal,
+    );
+    return result.kind === "committed" ? "committed" : "stale";
+  } catch (error) {
+    if (error instanceof Error && error.message === "REMOVED_DURING_REFRESH") return "removed";
+    throw error;
+  }
 }
 
 type AutomaticDispositionInput =
@@ -127,9 +177,6 @@ export function automaticDisposition(result: AutomaticDispositionInput): "automa
     case "rolled-back": return "automatic-retryable";
     case "rejected":
       switch (result.code) {
-        // These outcomes describe candidate or authority conditions that need
-        // an explicit/manual decision; repeating the same automatic attempt
-        // would only churn the durable backoff and notification memory.
         case "INVALID_REQUEST":
         case "NOT_INSTALLED":
         case "ALREADY_INSTALLED":
@@ -138,35 +185,27 @@ export function automaticDisposition(result: AutomaticDispositionInput): "automa
         case "INCOMPATIBLE":
         case "UNTRUSTED":
         case "UNCONFIGURED":
-        case "MALFORMED":
-          return "manual-required";
-        // The candidate may have moved or failed during preparation, so the
-        // next scheduled pass may safely retry the same authority path.
+        case "MALFORMED": return "manual-required";
         case "PROJECTION_FAILED":
         case "PROMOTION_FAILED":
         case "ABORTED":
-        case "AVAILABLE_REVISION_CHANGED":
-          return "automatic-retryable";
+        case "AVAILABLE_REVISION_CHANGED": return "automatic-retryable";
       }
   }
 }
 
-function candidateNotifications(
-  record: MarketplaceUpdateRecord,
+function discoveredNotifications(
+  record: MarketplaceRegistrationRecord,
   scope: ScopeContext,
   probes: readonly MarketplacePluginProbeResult[],
-): Readonly<{ record: MarketplaceUpdateRecord; outcomes: readonly PluginUpdateOutcome[] }> {
+): Readonly<{ record: MarketplaceRegistrationRecord; outcomes: readonly PluginUpdateOutcome[] }> {
   const notifications = [...record.notifications];
   const outcomes: PluginUpdateOutcome[] = [];
   for (const probe of probes) {
-    const parsed = PluginUpdateOutcomeSchema.parse({
-      plugin: probe.plugin,
-      disposition: "discovered",
-      candidate: probe.candidate,
-      available: probe.available,
-    });
-    outcomes.push(parsed);
-    const index = notifications.findIndex((notification) => notification.plugin === probe.plugin && notification.scope.kind === scope.kind && (scope.kind === "user" || notification.scope.kind === "project" && notification.scope.projectKey === scope.projectKey));
+    outcomes.push(PluginUpdateOutcomeSchema.parse({ plugin: probe.plugin, disposition: "discovered", candidate: probe.candidate, available: probe.available }));
+    const index = notifications.findIndex((notification) => notification.plugin === probe.plugin &&
+      notification.scope.kind === scope.kind &&
+      (scope.kind === "user" || notification.scope.kind === "project" && notification.scope.projectKey === scope.projectKey));
     const previous = index < 0 ? undefined : notifications[index];
     if (previous?.candidate === probe.candidate) continue;
     const next = {
@@ -180,7 +219,7 @@ function candidateNotifications(
     if (index < 0) notifications.push(next);
     else notifications[index] = next;
   }
-  return { record: MarketplaceUpdateRecordSchema.parse({ ...record, notifications }), outcomes };
+  return { record: MarketplaceRegistrationRecordSchema.parse({ ...record, notifications }), outcomes };
 }
 
 export interface MarketplaceRefreshService {
@@ -201,95 +240,180 @@ export type MarketplaceRefreshServiceDependencies = Readonly<{
   probe?: MarketplacePluginProbePort;
   lifecycle?: PluginLifecycleService;
   inventoryComplete?: () => boolean;
+  currentProject?: Extract<ScopeContext, { kind: "project" }>;
 }>;
 
 export function createMarketplaceRefreshService(dependencies: MarketplaceRefreshServiceDependencies): MarketplaceRefreshService {
   if (typeof dependencies.sha256 !== "function") throw new TypeError("marketplace refresh requires SHA-256");
   const now = () => dependencies.clock.nowEpochMilliseconds();
 
-  async function mutateRecord(
-    scope: ScopeContext,
-    marketplace: MarketplaceName,
-    expected: GenerationSnapshot,
-    next: MarketplaceUpdateRecord,
-    signal: AbortSignal,
-  ): Promise<"committed" | "stale"> {
-    const result = await dependencies.mutations.runPreparedMutation(
-      { scope, plugins: [], expectedGeneration: expected.generation },
-      async (context) => {
-        const current = recordFor(context.snapshot, marketplace);
-        if (current === undefined || deriveMarketplaceSourceIdentity(current.source, dependencies.sha256) !== deriveMarketplaceSourceIdentity(next.source, dependencies.sha256)) throw new Error("SOURCE_CHANGED");
-        return { mutation: replaceRecord(context.snapshot, marketplace, next, dependencies.sha256), value: undefined };
-      },
+  async function safeView(snapshot: GenerationSnapshot, record: MarketplaceRegistrationRecord, signal: AbortSignal) {
+    const selected = snapshotFor(snapshot, record);
+    return createMarketplaceRegistrationView({
+      scope: snapshot.scope,
+      record,
+      ...(selected === undefined ? {} : { snapshot: selected }),
+      now: now(),
+      content: dependencies.content,
       signal,
-    );
-    return result.kind === "committed" ? "committed" : "stale";
+      sha256: dependencies.sha256,
+    });
+  }
+
+  async function settleFailure(
+    scope: ScopeContext,
+    id: MarketplaceRegistrationId,
+    claimId: string,
+    code: Extract<MarketplaceRefreshOutcome, { kind: "failed" }>["code"],
+  ): Promise<MarketplaceRefreshOutcome> {
+    const cleanupSignal = new AbortController().signal;
+    const loaded = await dependencies.state.read(scope, cleanupSignal).catch(() => undefined);
+    if (loaded?.ok !== true) return { kind: "failed", registrationId: id, code, retained: { kind: "unavailable" } };
+    const record = recordFor(loaded.snapshot, id, dependencies.sha256);
+    if (record === undefined) return { kind: "failed", registrationId: id, code: "REMOVED_DURING_REFRESH", retained: { kind: "not-materialized" } };
+    const retained = cacheWithoutIo(record, snapshotFor(loaded.snapshot, record), now());
+    if (record.refresh.claim?.id !== claimId) return { kind: "failed", registrationId: id, code: "STATE_STALE", retained };
+    const failures = record.refresh.consecutiveFailures + 1;
+    const completedAt = now();
+    const replacement = MarketplaceRegistrationRecordSchema.parse({
+      ...record,
+      refresh: {
+        ...record.refresh,
+        claim: undefined,
+        lastAttempt: {
+          completedAt,
+          outcome: code === "SOURCE_UNAVAILABLE" ? "unavailable" : "failed",
+          code,
+        },
+        consecutiveFailures: failures,
+        nextScheduledAt: completedAt + backoffDelayMs(failures, DefaultMarketplaceUpdatePolicy.failureBaseMs, DefaultMarketplaceUpdatePolicy.failureMaxMs),
+      },
+    });
+    await mutateClaimRecord(dependencies, scope, loaded.snapshot, id, replacement, cleanupSignal).catch(() => "stale");
+    return { kind: "failed", registrationId: id, code, retained };
+  }
+
+  async function settleCancellation(
+    scope: ScopeContext,
+    id: MarketplaceRegistrationId,
+    claimId: string,
+  ): Promise<MarketplaceRefreshOutcome> {
+    const cleanupSignal = new AbortController().signal;
+    const loaded = await dependencies.state.read(scope, cleanupSignal).catch(() => undefined);
+    if (loaded?.ok !== true) return { kind: "cancelled", registrationId: id };
+    const record = recordFor(loaded.snapshot, id, dependencies.sha256);
+    if (record === undefined || record.refresh.claim?.id !== claimId) return { kind: "cancelled", registrationId: id };
+    const completedAt = now();
+    const replacement = MarketplaceRegistrationRecordSchema.parse({
+      ...record,
+      refresh: {
+        ...record.refresh,
+        claim: undefined,
+        lastAttempt: { completedAt, outcome: "cancelled", code: "ABORTED" },
+      },
+    });
+    await mutateClaimRecord(dependencies, scope, loaded.snapshot, id, replacement, cleanupSignal).catch(() => "stale");
+    return { kind: "cancelled", registrationId: id };
   }
 
   async function refreshOne(
     scope: ScopeContext,
-    marketplace: MarketplaceName,
+    id: MarketplaceRegistrationId,
     trigger: "explicit" | "scheduled",
     completeInventory: boolean,
     signal: AbortSignal,
   ): Promise<Readonly<{ outcome: MarketplaceRefreshOutcome; notifications: readonly NotificationIntent[] }>> {
     abortIfRequested(signal);
     const loaded = await dependencies.state.read(scope, signal);
-    if (!loaded.ok) return { outcome: outcomeFailed(marketplace, "STATE_CORRUPT"), notifications: [] };
-    const initialRecord = recordFor(loaded.snapshot, marketplace);
-    if (initialRecord === undefined) return { outcome: outcomeFailed(marketplace, "STATE_STALE"), notifications: [] };
-    const current = MarketplaceUpdateRecordSchema.parse(initialRecord);
+    if (!loaded.ok) return { outcome: { kind: "failed", registrationId: id, code: "STATE_STALE", retained: { kind: "unavailable" } }, notifications: [] };
+    const current = recordFor(loaded.snapshot, id, dependencies.sha256);
+    if (current === undefined) return { outcome: { kind: "not-configured", registrationId: id }, notifications: [] };
     const time = now();
-    if (trigger === "scheduled" && current.source.kind === "local-git") return { outcome: MarketplaceReadResultSchema.parse({ kind: "skipped-local", marketplace, trigger }), notifications: [] };
-    if (claimIsActive(current, time)) return { outcome: MarketplaceReadResultSchema.parse({ kind: "coalesced", marketplace, claimExpiresAt: current.refresh.claim!.expiresAt }), notifications: [] };
-    if (trigger === "scheduled" && shouldRateLimit(current, time)) return { outcome: MarketplaceReadResultSchema.parse({ kind: "rate-limited", marketplace, nextAt: nextRefreshTime(current, time) }), notifications: [] };
+    if (trigger === "scheduled" && current.source.kind === "local-git") return { outcome: { kind: "skipped-local", registrationId: id }, notifications: [] };
+    if (claimIsActive(current, time)) return { outcome: { kind: "coalesced", registrationId: id, claimExpiresAt: current.refresh.claim!.expiresAt }, notifications: [] };
+    if (trigger === "scheduled" && current.refresh.nextScheduledAt > time) return { outcome: { kind: "rate-limited", registrationId: id, nextAt: current.refresh.nextScheduledAt }, notifications: [] };
 
-    const id = await dependencies.claimIds.create();
-    const claim = { id, startedAt: time, expiresAt: time + DefaultMarketplaceUpdatePolicy.claimLeaseMs };
-    const claimed = MarketplaceUpdateRecordSchema.parse({ ...current, refresh: { ...current.refresh, claim } });
-    try {
-      if (await mutateRecord(scope, marketplace, loaded.snapshot, claimed, signal) !== "committed") return { outcome: outcomeFailed(marketplace, "STATE_STALE"), notifications: [] };
-    } catch (error) {
-      if (error instanceof Error && error.message === "SOURCE_CHANGED") return { outcome: outcomeFailed(marketplace, "STATE_STALE"), notifications: [] };
-      throw error;
-    }
+    const claimId = await dependencies.claimIds.create();
+    const claimed = MarketplaceRegistrationRecordSchema.parse({
+      ...current,
+      refresh: { ...current.refresh, claim: { id: claimId, startedAt: time, expiresAt: time + DefaultMarketplaceUpdatePolicy.claimLeaseMs } },
+    });
+    const claimedResult = await mutateClaimRecord(dependencies, scope, loaded.snapshot, id, claimed, signal);
+    if (claimedResult === "removed") return { outcome: { kind: "not-configured", registrationId: id }, notifications: [] };
+    if (claimedResult !== "committed") return { outcome: { kind: "failed", registrationId: id, code: "STATE_STALE", retained: cacheWithoutIo(current, snapshotFor(loaded.snapshot, current), time) }, notifications: [] };
 
     let allocation: Awaited<ReturnType<ContentStorePort["allocateStaging"]>> | undefined;
-    const intents: NotificationIntent[] = [];
     try {
       allocation = await dependencies.content.allocateStaging(signal);
-      const materialized: MaterializedMarketplace = await dependencies.materializers.marketplaces.materialize(current.source, allocation.slot, signal);
+      const materialized = await dependencies.materializers.marketplaces.materialize(current.source, allocation.slot, signal);
       const catalog = await dependencies.inspection.inspect(materialized, signal);
-      const snapshot = createMarketplaceSnapshotRecord({ marketplace, source: materialized.source, content: materialized.content, binding: materialized.binding }, dependencies.sha256);
-      const probes = dependencies.probe === undefined ? [] : await dependencies.probe({ scope, record: claimed, snapshot, catalog, marketplace: materialized, signal });
-      const discovered = candidateNotifications(claimed, scope, probes);
-      const published = MarketplaceUpdateRecordSchema.parse({ ...discovered.record, refresh: { lastCompletedAt: now(), nextScheduledAt: now() + DefaultMarketplaceUpdatePolicy.successIntervalMs, consecutiveFailures: 0 } });
+      if (catalog.marketplace.name.value !== current.marketplace) throw new Error("STATE_STALE");
+      const selected = createMarketplaceSnapshotRecord({ marketplace: current.marketplace, source: materialized.source, content: materialized.content, binding: materialized.binding }, dependencies.sha256);
+      const probes = dependencies.probe === undefined ? [] : await dependencies.probe({ scope, record: claimed, snapshot: selected, catalog, marketplace: materialized, signal });
+      const discovered = discoveredNotifications(claimed, scope, probes);
+      const completedAt = now();
+      const published = MarketplaceRegistrationRecordSchema.parse({
+        ...discovered.record,
+        refresh: {
+          lastCompletedAt: completedAt,
+          lastAttempt: { completedAt, outcome: "succeeded" },
+          nextScheduledAt: current.source.kind === "local-git" ? 0 : completedAt + DefaultMarketplaceUpdatePolicy.successIntervalMs,
+          consecutiveFailures: 0,
+        },
+      });
       const latest = await dependencies.state.read(scope, signal);
       if (!latest.ok) throw new Error("STATE_STALE");
+      const oldSnapshot = snapshotFor(latest.snapshot, current);
+      const unchanged = oldSnapshot !== undefined && oldSnapshot.source.revision === selected.source.revision && oldSnapshot.contentDigest === selected.contentDigest && oldSnapshot.binding === selected.binding;
+      const publicationRecord = unchanged
+        ? MarketplaceRegistrationRecordSchema.parse({
+            ...published,
+            refresh: { ...published.refresh, lastAttempt: { completedAt, outcome: "unchanged" } },
+          })
+        : published;
       const plan = createPromotionPlan({ kind: "marketplace", allocation, materialized }, dependencies.sha256);
-      const publishResult = await dependencies.mutations.runPreparedMutation(
+      const result = await dependencies.mutations.runPreparedMutation(
         { scope, plugins: [], expectedGeneration: latest.snapshot.generation },
         async (context) => {
-          const record = recordFor(context.snapshot, marketplace);
-          if (record === undefined || record.refresh.claim?.id !== id || record.updateApplication !== current.updateApplication || deriveMarketplaceSourceIdentity(record.source, dependencies.sha256) !== deriveMarketplaceSourceIdentity(current.source, dependencies.sha256)) throw new Error("STATE_STALE");
-          const promoted = await dependencies.content.promote(plan, signal);
+          const authority = recordFor(context.snapshot, id, dependencies.sha256);
+          if (authority === undefined) throw new Error("REMOVED_DURING_REFRESH");
+          if (authority.refresh.claim?.id !== claimId || deriveMarketplaceSourceIdentity(authority.source, dependencies.sha256) !== deriveMarketplaceSourceIdentity(current.source, dependencies.sha256)) throw new Error("STATE_STALE");
+          let promoted: Awaited<ReturnType<ContentStorePort["promote"]>>;
+          try {
+            promoted = await dependencies.content.promote(plan, signal);
+          } catch (error) {
+            if (signal.aborted) throw error;
+            throw Object.assign(new Error("PROMOTION_FAILED"), { cause: error });
+          }
           if (promoted.identity.kind !== "marketplace") throw new Error("PROMOTION_FAILED");
-          return { mutation: replaceRecord(context.snapshot, marketplace, published, dependencies.sha256), value: undefined };
+          const records = marketplaceUpdateRecords(context.snapshot).map((record) => registrationId(scope, record, dependencies.sha256) === id ? publicationRecord : record);
+          const snapshots = [...marketplaceSnapshots(context.snapshot)];
+          const index = snapshots.findIndex((snapshot) => snapshot.marketplace === current.marketplace);
+          if (index >= 0) snapshots[index] = selected;
+          else snapshots.push(selected);
+          return { mutation: createMarketplaceRegistrationSnapshotMutation(context.snapshot, records, snapshots, dependencies.sha256), value: undefined };
         },
         signal,
       );
-      if (publishResult.kind !== "committed") throw new Error("STATE_STALE");
+      if (result.kind !== "committed") throw new Error("STATE_STALE");
+      const committed = recordFor(result.snapshot, id, dependencies.sha256)!;
+      // Once state proves publication, caller cancellation cannot turn the
+      // committed refresh into a cancelled result.
+      const registration = await safeView(result.snapshot, committed, new AbortController().signal);
 
-      const outcomes = [...discovered.outcomes];
+      const pluginOutcomes = [...discovered.outcomes];
+      const dispositions = new Map<string, ReturnType<typeof automaticDisposition>>();
       const automatic = dependencies.lifecycle !== undefined && completeInventory && current.updateApplication === "automatic" && current.source.kind !== "local-git";
       for (const probe of probes) {
-        let disposition: "automatic-applied" | "automatic-retryable" | "manual-required" | "approval-required" | "recovery-required" = "manual-required";
+        if (signal.aborted) break;
+        let disposition: ReturnType<typeof automaticDisposition> = "manual-required";
         if (automatic) {
+          disposition = "automatic-retryable";
           try {
             const sourceContext: SourceContext = probe.entry.source.value.kind === "marketplace-path"
               ? { kind: "marketplace", root: materialized.root, source: materialized.source, contentRootDigest: materialized.content.rootDigest, content: materialized.content, binding: materialized.binding }
               : { kind: "external" };
-            const lifecycleResult = await dependencies.lifecycle!.update({
+            disposition = automaticDisposition(await dependencies.lifecycle!.update({
               scope,
               plugin: probe.plugin,
               origin: "automatic-update",
@@ -298,97 +422,103 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
               sourceContext,
               expectedRevision: probe.available.immutableRevision,
               configurationPathContext: { scope },
-            }, signal);
-            disposition = automaticDisposition(lifecycleResult);
-          } catch (error) {
-            if (signal.aborted) throw error;
-            // A thrown adapter/lifecycle failure is retryable, but it is not
-            // recovery evidence. The lifecycle service owns journal recovery;
-            // refresh only records the notification disposition.
-            disposition = "automatic-retryable";
+            }, signal));
+          } catch {
+            // The catalog snapshot is already committed. Lifecycle probing is
+            // secondary and cannot rewrite that evidence as cancellation.
           }
         }
+        dispositions.set(probe.plugin, disposition);
+      }
 
-        try {
-          const latest = await dependencies.state.read(scope, signal);
-          if (!latest.ok) continue;
-          const latestRecord = recordFor(latest.snapshot, marketplace);
-          if (latestRecord === undefined) continue;
-          const notificationIndex = latestRecord.notifications.findIndex((notification) => notification.plugin === probe.plugin && notification.scope.kind === scope.kind && (scope.kind === "user" || notification.scope.kind === "project" && notification.scope.projectKey === scope.projectKey) && notification.candidate === probe.candidate);
-          if (notificationIndex < 0) continue;
-          const existing = latestRecord.notifications[notificationIndex]!;
-          const outcomeIndex = outcomes.findIndex((outcome) => outcome.plugin === probe.plugin);
-          if (existing.phase === "emitted") {
-            if (outcomeIndex >= 0) outcomes[outcomeIndex] = PluginUpdateOutcomeSchema.parse({ ...outcomes[outcomeIndex], disposition: existing.disposition ?? disposition, notification: "already-emitted" });
-            continue;
+      const notifications: NotificationIntent[] = [];
+      const latestNotificationState = await dependencies.state.read(scope, signal).catch(() => undefined);
+      if (latestNotificationState?.ok) {
+        const latestRecord = recordFor(latestNotificationState.snapshot, id, dependencies.sha256);
+        if (latestRecord !== undefined) {
+          let changed = false;
+          const nextNotifications = latestRecord.notifications.map((notification) => {
+            const probe = probes.find((candidate) => candidate.plugin === notification.plugin && candidate.candidate === notification.candidate);
+            if (probe === undefined) return notification;
+            const disposition = dispositions.get(probe.plugin) ?? "manual-required";
+            const outcomeIndex = pluginOutcomes.findIndex((outcome) => outcome.plugin === probe.plugin);
+            if (notification.phase === "emitted") {
+              if (outcomeIndex >= 0) pluginOutcomes[outcomeIndex] = PluginUpdateOutcomeSchema.parse({ ...pluginOutcomes[outcomeIndex], disposition: notification.disposition ?? disposition, notification: "already-emitted" });
+              return notification;
+            }
+            changed = true;
+            if (outcomeIndex >= 0) pluginOutcomes[outcomeIndex] = PluginUpdateOutcomeSchema.parse({ ...pluginOutcomes[outcomeIndex], disposition, notification: "new" });
+            notifications.push({ scope: toScopeReference(scope), plugin: probe.plugin, candidate: probe.candidate, installed: probe.display.installed, available: probe.display.available, disposition });
+            return { ...notification, phase: "emitted" as const, disposition };
+          });
+          if (changed) {
+            const replacement = MarketplaceRegistrationRecordSchema.parse({ ...latestRecord, notifications: nextNotifications });
+            const committedNotification = await mutateClaimRecord(dependencies, scope, latestNotificationState.snapshot, id, replacement, signal);
+            if (committedNotification !== "committed") notifications.length = 0;
           }
-          const notifications = latestRecord.notifications.map((notification, index) => index === notificationIndex ? { ...notification, phase: "emitted" as const, disposition } : notification);
-          const nextRecord = MarketplaceUpdateRecordSchema.parse({ ...latestRecord, notifications });
-          if (await mutateRecord(scope, marketplace, latest.snapshot, nextRecord, signal) === "committed") {
-            intents.push({ scope: toScopeReference(scope), plugin: probe.plugin, candidate: probe.candidate, installed: probe.display.installed, available: probe.display.available, disposition });
-            if (outcomeIndex >= 0) outcomes[outcomeIndex] = PluginUpdateOutcomeSchema.parse({ ...outcomes[outcomeIndex], disposition, notification: "new" });
-          }
-        } catch (error) {
-          if (signal.aborted) throw error;
-          // Keep processing sibling plugins and, importantly, retain intents
-          // already committed for earlier probes.
         }
       }
       return {
-        outcome: MarketplaceReadResultSchema.parse({ kind: "refreshed", marketplace, snapshot, plugins: outcomes }),
-        notifications: intents,
+        outcome: MarketplaceRefreshOutcomeSchema.parse({ kind: "refreshed", registrationId: id, change: unchanged ? "unchanged" : "changed", registration, plugins: pluginOutcomes }),
+        notifications,
       };
     } catch (error) {
-      if (signal.aborted) return { outcome: outcomeFailed(marketplace, "ABORTED"), notifications: intents };
-      const latest = await dependencies.state.read(scope, signal).catch(() => undefined);
-      if (latest?.ok) {
-        const record = recordFor(latest.snapshot, marketplace);
-        if (record !== undefined) {
-          try { await mutateRecord(scope, marketplace, latest.snapshot, failureRecord(record, now()), signal); } catch { /* retain active state if failure memory cannot commit */ }
-        }
+      if (signal.aborted || (error instanceof Error && error.name === "AbortError")) {
+        return { outcome: await settleCancellation(scope, id, claimId), notifications: [] };
       }
-      return { outcome: outcomeFailed(marketplace, error instanceof Error && error.message === "PROMOTION_FAILED" ? "PROMOTION_FAILED" : error instanceof Error && error.message === "STATE_STALE" ? "STATE_STALE" : "SOURCE_FAILED"), notifications: [] };
+      return { outcome: await settleFailure(scope, id, claimId, failureCode(error)), notifications: [] };
     } finally {
-      if (allocation !== undefined) {
-        try { await dependencies.content.discardStaging(allocation, new AbortController().signal); } catch { /* inert staging is recovery/GC input */ }
-      }
+      if (allocation !== undefined) await dependencies.content.discardStaging(allocation, new AbortController().signal).catch(() => undefined);
     }
+  }
+
+  async function activeScopes(signal: AbortSignal): Promise<Readonly<{ scopes: readonly ScopeContext[]; complete: boolean }>> {
+    const inventory = await dependencies.inventory.discover(signal);
+    const candidates = inventory.scopes.map((scope) => ScopeContextSchema.parse(scope));
+    const scopes = candidates.filter((scope) => scope.kind === "user" ||
+      dependencies.currentProject === undefined || sameScope(scope, dependencies.currentProject));
+    return { scopes: scopes.sort(scopeSort), complete: inventory.complete };
   }
 
   return {
     async refresh(request, signal) {
       const parsed = MarketplaceRefreshRequestSchema.parse(request);
-      const discovered = await dependencies.inventory.discover(signal);
-      const completeInventory = discovered.complete;
-      const scopes = discovered.scopes.map((scope) => ScopeContextSchema.parse(scope)).sort(scopeSort);
-      const jobs: Array<{ scope: ScopeContext; marketplace: MarketplaceName }> = [];
-      for (const scope of scopes) {
+      const inventory = await activeScopes(signal);
+      const jobs: Array<{ scope: ScopeContext; id: MarketplaceRegistrationId; record: MarketplaceRegistrationRecord }> = [];
+      const requested = parsed.registrationIds === undefined ? undefined : new Set(parsed.registrationIds);
+      for (const scope of inventory.scopes) {
+        if (parsed.scope !== "all-current" && parsed.scope !== scope.kind) continue;
         const loaded = await dependencies.state.read(scope, signal);
         if (!loaded.ok) continue;
-        for (const record of [...marketplaceUpdateRecords(loaded.snapshot)].sort((a, b) => a.marketplace.localeCompare(b.marketplace))) {
-          if (parsed.marketplace !== undefined && record.marketplace !== parsed.marketplace) continue;
-          jobs.push({ scope, marketplace: record.marketplace });
+        for (const record of marketplaceUpdateRecords(loaded.snapshot)) {
+          const id = registrationId(scope, record, dependencies.sha256);
+          if (requested !== undefined && !requested.has(id)) continue;
+          jobs.push({ scope, id, record });
         }
       }
+      jobs.sort((left, right) => scopeSort(left.scope, right.scope) || codePointCompare(left.record.marketplace, right.record.marketplace) || codePointCompare(left.id, right.id));
       const outcomes: MarketplaceRefreshOutcome[] = [];
       const notifications: NotificationIntent[] = [];
       for (const job of jobs) {
-        const result = await refreshOne(job.scope, job.marketplace, parsed.trigger, completeInventory, signal);
+        const result = await refreshOne(job.scope, job.id, parsed.trigger, inventory.complete, signal);
         outcomes.push(result.outcome);
         notifications.push(...result.notifications);
+      }
+      if (requested !== undefined) {
+        const seen = new Set(outcomes.map((outcome) => outcome.registrationId));
+        for (const id of [...requested].filter((candidate) => !seen.has(candidate)).sort(codePointCompare)) outcomes.push({ kind: "not-configured", registrationId: id });
       }
       return MarketplaceRefreshResultSchema.parse({ outcomes, notifications });
     },
     async nextScheduledAt(signal) {
-      const inventory = await dependencies.inventory.discover(signal);
+      const inventory = await activeScopes(signal);
       let earliest: number | undefined;
-      for (const scope of inventory.scopes.map((value) => ScopeContextSchema.parse(value))) {
+      for (const scope of inventory.scopes) {
         const loaded = await dependencies.state.read(scope, signal);
         if (!loaded.ok) continue;
         for (const record of marketplaceUpdateRecords(loaded.snapshot)) {
           if (record.source.kind === "local-git") continue;
-          const at = record.refresh.nextScheduledAt;
-          if (earliest === undefined || at < earliest) earliest = at;
+          if (earliest === undefined || record.refresh.nextScheduledAt < earliest) earliest = record.refresh.nextScheduledAt;
         }
       }
       return earliest;

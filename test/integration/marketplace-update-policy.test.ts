@@ -19,7 +19,8 @@ const scope = { kind: "user" as const };
 type FakeSnapshot = Readonly<{
   scope: typeof scope;
   generation: number;
-  config: Readonly<{ schemaVersion: 2; generation: number; records: readonly ReturnType<typeof createMarketplaceConfigurationRecord>[] }>;
+  config: Readonly<{ schemaVersion: 3; generation: number; records: readonly ReturnType<typeof createMarketplaceConfigurationRecord>[] }>;
+  installed: Readonly<{ schemaVersion: 2; generation: number; marketplaces: readonly unknown[]; plugins: readonly unknown[] }>;
 }>;
 
 function makeEnvironment(options: Readonly<{
@@ -75,7 +76,8 @@ function makeEnvironment(options: Readonly<{
   let current: FakeSnapshot = {
     scope,
     generation: 0,
-    config: { schemaVersion: 2, generation: 0, records: [record] },
+    config: { schemaVersion: 3, generation: 0, records: [record] },
+    installed: { schemaVersion: 2, generation: 0, marketplaces: [], plugins: [] },
   };
   let queue = Promise.resolve();
   let claimSequence = 0;
@@ -92,11 +94,13 @@ function makeEnvironment(options: Readonly<{
       try {
         if (request.expectedGeneration !== current.generation) return { kind: "stale-generation" as const, expected: request.expectedGeneration, actual: current.generation };
         const prepared = await prepare({ snapshot: current, assertOwned: async () => undefined });
-        const config = prepared.mutation.replace.config;
+        const config = prepared.mutation.replace.config ?? current.config;
+        const installed = prepared.mutation.replace.installed ?? current.installed;
         current = {
           ...current,
           generation: current.generation + 1,
           config: { ...config, generation: current.generation + 1 },
+          installed: { ...installed, generation: current.generation + 1 },
         };
         return { kind: "committed" as const, value: prepared.value, snapshot: current as any };
       } finally {
