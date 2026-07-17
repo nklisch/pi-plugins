@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createNativeLifecycleOperationService } from "../../src/application/native-lifecycle-operation-service.js";
+import { NativeLifecycleConfigurationRecoveryError } from "../../src/application/native-lifecycle-operation.js";
+import { CandidateContentCleanupError } from "../../src/application/ports/candidate-content-lease.js";
 
 const digest = (value: string) => `sha256:${value.repeat(64)}` as never;
 const request = {
@@ -14,12 +16,12 @@ const binding = {
 };
 const target = { binding, expectation: { generation: 0, plugin: binding.plugin, selectedRevision: binding.selectedRevision, activation: binding.activation, targetDigest: binding.targetDigest, pendingTransition: "none" }, scope: { kind: "user" }, record: {}, snapshot: {}, capabilityDigest: digest("5") } as any;
 
-function harness(execute?: any) {
+function harness(execute?: any, updates?: any) {
   let monotonic = 0;
   const executor = execute ?? vi.fn(async (context: any) => ({ kind: "current-state", operation: context.operation, previewId: context.previewId, progress: [], diagnostics: [], effects: { state: "unchanged", projectFile: "unchanged", completedActionIds: [], pendingActionIds: [] }, reason: "already-disabled", target: context.target.binding }));
   const composed = createNativeLifecycleOperationService({
     targets: { async resolve() { return { kind: "ready" as const, target }; }, async validate() { return { kind: "ready" as const, target }; } },
-    updates: { async acquire() { return { kind: "rejected" as const, reason: "candidate" as const }; }, async validate() { return { kind: "rejected" as const, reason: "candidate" as const }; } },
+    updates: updates ?? { async acquire() { return { kind: "rejected" as const, reason: "candidate" as const }; }, async validate() { return { kind: "rejected" as const, reason: "candidate" as const }; } },
     lifecycle: { execute: executor },
     sync: { async preview() { return { kind: "rejected" as const, code: "ADAPTER_FAILED" as const }; }, async apply() { throw new Error("not used"); } },
     clock: { nowEpochMilliseconds: () => 1_000 as never, monotonicMilliseconds: () => monotonic },
@@ -73,6 +75,71 @@ describe("native lifecycle operation facade", () => {
     expect(await value.application.cancel({ token: opened.session.token }, signal)).toMatchObject({ kind: "accepted", state: "applying" });
     resolve({ kind: "recovery-required", operation: "disable", previewId: opened.session.preview.previewId, progress: [], diagnostics: [], effects: { state: "unknown", projectFile: "unchanged", completedActionIds: [], pendingActionIds: [] }, code: "PENDING_TRANSITION", action: "run-recovery" });
     expect(await applying).toMatchObject({ kind: "recovery-required" });
+  });
+
+  it("classifies cancellation by the last safe phase and never cancels after a durable phase starts", async () => {
+    const runAt = async (phase: "authority-revalidation" | "lifecycle-transaction") => {
+      const value = harness(async (_context: unknown, _confirmation: unknown, options: any, executionSignal: AbortSignal) => {
+        await options.onProgress({ sequence: 0, operation: "disable", phase, state: "started", plugin: binding.plugin });
+        throw executionSignal.reason;
+      });
+      const opened = await value.application.preview(request, signal);
+      if (opened.kind !== "opened") throw new Error("preview fixture failed");
+      const controller = new AbortController();
+      controller.abort(new DOMException("cancelled", "AbortError"));
+      const result = await value.application.apply({
+        token: opened.session.token,
+        confirmation: { kind: "confirm", previewId: opened.session.preview.previewId, expectedVersion: 0, operation: "disable" },
+      }, {}, controller.signal);
+      await value.close();
+      return result;
+    };
+
+    expect(await runAt("authority-revalidation")).toMatchObject({ kind: "cancelled", phase: "authority-revalidation" });
+    expect(await runAt("lifecycle-transaction")).toMatchObject({ kind: "failed", code: "ADAPTER_FAILED" });
+  });
+
+  it("retains candidate cleanup authority from update preview and retries it on close", async () => {
+    const retry = vi.fn(async () => undefined);
+    const value = harness(undefined, {
+      async acquire() { return { kind: "cleanup-failed" as const, cleanup: { retry } as never }; },
+      async validate() { throw new Error("not used"); },
+    });
+    const result = await value.application.preview({ operation: "update", target: request.target, candidate: request.target }, signal);
+    expect(result).toEqual({ kind: "unavailable", code: "CLEANUP_FAILED", diagnostics: [] });
+    expect(retry).not.toHaveBeenCalled();
+    await value.close();
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it("classifies typed lifecycle cleanup failures and retains their retry capability", async () => {
+    const retry = vi.fn(async () => undefined);
+    const recovery = { retry } as never;
+    const value = harness(async () => { throw new CandidateContentCleanupError(recovery); });
+    const opened = await value.application.preview(request, signal);
+    if (opened.kind !== "opened") throw new Error("preview fixture failed");
+    const result = await value.application.apply({
+      token: opened.session.token,
+      confirmation: { kind: "confirm", previewId: opened.session.preview.previewId, expectedVersion: 0, operation: "disable" },
+    }, {}, signal);
+    expect(result).toMatchObject({ kind: "failed", code: "CLEANUP_FAILED" });
+    await value.close();
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it("retains unresolved configuration recovery authority for shutdown settlement", async () => {
+    const settle = vi.fn(async () => ({ kind: "settled" as const }));
+    const recovery = { settle } as never;
+    const value = harness(async () => { throw new NativeLifecycleConfigurationRecoveryError(recovery, "CLEANUP_FAILED"); });
+    const opened = await value.application.preview(request, signal);
+    if (opened.kind !== "opened") throw new Error("preview fixture failed");
+    const result = await value.application.apply({
+      token: opened.session.token,
+      confirmation: { kind: "confirm", previewId: opened.session.preview.previewId, expectedVersion: 0, operation: "disable" },
+    }, {}, signal);
+    expect(result).toMatchObject({ kind: "failed", code: "CLEANUP_FAILED" });
+    await value.close();
+    expect(settle).toHaveBeenCalledOnce();
   });
 
   it("reaps idle sessions and close waits for an admitted operation", async () => {

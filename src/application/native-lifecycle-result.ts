@@ -98,5 +98,6 @@ export function projectPluginLifecycleResult(input: Readonly<{
   }
   if (result.code === "PENDING_TRANSITION") return NativeLifecycleOperationResultSchema.parse({ kind: "conflict", ...base, reason: "pending-transition", effects: effects("unchanged") });
   if (result.code === "AVAILABLE_REVISION_CHANGED") return NativeLifecycleOperationResultSchema.parse({ kind: "stale", ...base, reason: "candidate", effects: effects("unchanged") });
+  if (result.code === "CONFIGURATION_STALE") return NativeLifecycleOperationResultSchema.parse({ kind: "stale", ...base, reason: "configuration", effects: effects("unchanged") });
   return NativeLifecycleOperationResultSchema.parse({ kind: "rejected", ...base, code: result.code, effects: effects("unchanged") });
 }

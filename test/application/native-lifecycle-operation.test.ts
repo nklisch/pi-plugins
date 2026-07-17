@@ -57,6 +57,63 @@ describe("native lifecycle operation orchestration", () => {
     expect(result.kind === "succeeded" && result.progress.some((event) => event.code === "PROGRESS_DELIVERY_FAILED")).toBe(true);
   });
 
+  it("carries the exact update configuration revision into prepared lifecycle", async () => {
+    const fixture = await target(true);
+    const configurationRevision = `sha256:${"7".repeat(64)}` as never;
+    const configurationRef = `plugin-configuration-v1:sha256:${"8".repeat(64)}` as never;
+    const consentId = `trusted-install-consent-v1:sha256:${"9".repeat(64)}` as never;
+    const updatePrepared = vi.fn(async () => ({
+      kind: "rejected" as const,
+      operation: "update" as const,
+      code: "CONFIGURATION_STALE" as const,
+    }));
+    const update = {
+      target: fixture.target,
+      candidate: {
+        binding: { plugin: fixture.target.binding.plugin, configurationRef },
+        consent: { consentId },
+        fields: [],
+        plugin: { configuration: { options: [] } },
+        resolved: {
+          scope: { kind: "user" },
+          entry: { source: { value: { kind: "github", repository: "example/plugin" } } },
+          marketplace: { source: {} },
+        },
+        lease: { async release() {} },
+        trust: {},
+        snapshotBinding: {},
+        detail: { compatibility: { components: { counts: { skills: 0, hooks: 0, mcpServers: 0 } } } },
+      },
+      binding: {},
+    } as any;
+    const base = dependencies(fixture, {});
+    const executor = createNativeLifecycleOperationExecutor({
+      ...base,
+      updates: { async acquire() { throw new Error("not used"); }, async validate() { return { kind: "ready" as const, update }; } },
+      lifecycle: {
+        ...base.lifecycle,
+        prepared: { ...base.lifecycle.prepared, updatePrepared },
+      },
+      configurationAuthority: {
+        async readCurrent() { return { kind: "current" as const, document: { revision: configurationRevision } }; },
+        async readExact(request: any) {
+          expect(request.expectedRevision).toBe(configurationRevision);
+          return { kind: "current" as const, document: { revision: configurationRevision } };
+        },
+      },
+      configurationInput() { return { pathContext: { scope: { kind: "user" } }, paths: {}, secretCustody: { status: "available" } }; },
+      trust: { async grant() { return { kind: "granted" as const }; } },
+    } as any);
+    const result = await executor.execute(
+      { operation: "update", previewId, target: fixture.target, update },
+      { kind: "confirm-update", previewId, expectedVersion: 0, input: { nonSensitive: [], sensitive: [], consent: { kind: "grant", consentId } } },
+      {},
+      signal,
+    );
+    expect(result).toMatchObject({ kind: "stale", reason: "configuration" });
+    expect(updatePrepared).toHaveBeenCalledWith(expect.objectContaining({ expectedConfigurationRevision: configurationRevision }), signal);
+  });
+
   it("preserves rollback truth instead of reporting cancellation or success", async () => {
     const fixture = await target(true);
     const disable = vi.fn(async () => ({ kind: "rolled-back", operation: "disable", failure: { kind: "reload-rejected", code: "RELOAD_REJECTED" }, snapshot: fixture.target.snapshot.states[0]!.snapshot, observation: { kind: "active" } }));

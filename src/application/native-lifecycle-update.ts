@@ -6,6 +6,7 @@ import { PreparedLifecycleCandidateBindingSchema } from "./trusted-install-contr
 import { decodeInspectionDetailId } from "./native-inspection-identifiers.js";
 import type { PreparedLifecycleCandidate, PreparedLifecycleCandidateService } from "./prepared-lifecycle-candidate.js";
 import type { VerifiedNativeLifecycleTarget, NativeLifecycleTargetService } from "./native-lifecycle-target.js";
+import type { CandidateContentCleanupRecovery } from "./ports/candidate-content-lease.js";
 import type { Sha256 } from "../domain/source.js";
 
 export const PreparedUpdateBindingSchema = z.object({
@@ -29,6 +30,7 @@ export type NativeLifecycleUpdatePreparationResult =
   | Readonly<{ kind: "current-state"; reason: "revision-current"; target: VerifiedNativeLifecycleTarget }>
   | Readonly<{ kind: "stale"; reason: "inspection" | "target" | "candidate" | "project" | "capability" }>
   | Readonly<{ kind: "blocked"; reason: "pending-transition" | "recovery-required" }>
+  | Readonly<{ kind: "cleanup-failed"; cleanup: CandidateContentCleanupRecovery }>
   | Readonly<{ kind: "unavailable" | "rejected"; reason: "candidate" | "target" }>;
 
 export interface NativeLifecycleUpdateService {
@@ -91,7 +93,12 @@ export function createNativeLifecycleUpdateService(input: Readonly<{
     if (subject === undefined || subject.subject !== "marketplace-candidate" || subject.plugin !== targetResult.target.binding.plugin ||
         JSON.stringify(subject.scope) !== JSON.stringify(targetResult.target.binding.scope)) return { kind: "stale", reason: "candidate" };
     const candidateResult = await input.candidates.acquire({ subject, snapshot: targetResult.target.snapshot }, signal);
-    if (candidateResult.kind !== "ready") return { kind: candidateResult.kind === "stale" ? "stale" : candidateResult.kind, reason: "candidate" } as NativeLifecycleUpdatePreparationResult;
+    if (candidateResult.kind === "cleanup-failed") return { kind: "cleanup-failed", cleanup: candidateResult.cleanup };
+    if (candidateResult.kind !== "ready") {
+      return candidateResult.kind === "stale"
+        ? { kind: "stale", reason: "candidate" }
+        : { kind: candidateResult.kind, reason: "candidate" };
+    }
     const candidate = candidateResult.candidate;
     if (candidate.binding.immutableRevision === targetResult.target.binding.selectedRevision) {
       await candidate.lease.release();

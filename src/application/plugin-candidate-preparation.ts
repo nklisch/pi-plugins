@@ -57,7 +57,7 @@ import {
   type CandidateContentCleanupRecovery,
   type CandidateContentLease,
 } from "./ports/candidate-content-lease.js";
-import type { TrustedInstallCandidateBinding } from "./trusted-install-contract.js";
+import type { PreparedLifecycleCandidateBinding } from "./trusted-install-contract.js";
 import { digestConfigurationDescriptors } from "../domain/configured-values.js";
 import { digestCompatibilityReport } from "./ports/runtime-projection.js";
 import type { PluginMaterializer, SourceContext } from "./source-materialization.js";
@@ -123,7 +123,7 @@ export type PluginCandidatePreparationRequest = Readonly<{
   expectedRevision?: import("../domain/content-manifest.js").ContentDigest;
   expectedConfigurationRevision?: import("../domain/content-manifest.js").ContentDigest;
   candidateLease?: CandidateContentLease;
-  expectedBinding?: TrustedInstallCandidateBinding;
+  expectedBinding?: PreparedLifecycleCandidateBinding;
   automaticAuthorization?: AutomaticUpdateAuthorizationEvidence;
 }>;
 

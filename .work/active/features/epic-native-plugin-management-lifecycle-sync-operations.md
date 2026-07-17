@@ -859,3 +859,12 @@ The feature deliberately reuses native inspection evidence, the candidate lease/
 ## Execution record
 
 Execution capability: one xhigh feature owner, selected because the ten stories share lifecycle transaction, target binding, project authority, session, recovery, and packaged-composition state. No delegated worker or nested agent was used. Implementation commits: `afaa479`, `e0102ce`, `20c2453`, `ee9cd13`, `727de2e`, `f2f8473`, `6b59af2`, `6524270`, `453140e`, `3d1f188`.
+
+## Trusted-install rebase integration
+
+- Rebased all eleven feature/workflow commits onto trusted-install review head `403d7eb`; the feature remains `stage: review` and every child remains `stage: done`.
+- Conflict resolution kept the shared prepared candidate/update target authority while retaining trusted install's exact configuration revision on install and enable, commit/pre-reload/post-observation guards, typed candidate cleanup failures, and opaque cleanup recovery.
+- The auto-merge audit removed stale pre-review assumptions: manual update now transfers its exact configuration revision into the shared prepared lifecycle executor, `CONFIGURATION_STALE` projects as configuration staleness, candidate/configuration recovery capabilities remain owned and retried by operation composition, and cancellation is reported only before a durable phase starts.
+- Native lifecycle composition now consumes the prepared-candidate aliases over the finalized trusted-install implementation rather than introducing another acquisition/materialization path.
+- Focused trusted-install, lifecycle-sync, configuration/lifecycle/recovery, project-file, and security verification: 47 files / 205 tests passed.
+- Full `npm test`: 260 files / 1,287 tests passed; typecheck green; dependency boundaries green (337 modules / 2,412 dependencies); package imports green (711 root exports / 3 Pi exports); isolated packed Pi startup passed.

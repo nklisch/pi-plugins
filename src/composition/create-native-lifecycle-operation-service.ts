@@ -4,7 +4,10 @@ import { createNativeLifecycleOperationService } from "../application/native-lif
 import { createNativeLifecycleTargetService } from "../application/native-lifecycle-target.js";
 import { createNativeLifecycleUpdateService } from "../application/native-lifecycle-update.js";
 import { createProjectSyncService } from "../application/project-sync-service.js";
-import { createTrustedInstallCandidateService, type TrustedInstallCandidate } from "../application/trusted-install-candidate.js";
+import {
+  createPreparedLifecycleCandidateService,
+  type PreparedLifecycleCandidate,
+} from "../application/prepared-lifecycle-candidate.js";
 import { createTrustedInstallConfigurationAuthority } from "../application/trusted-install-configuration.js";
 import type { BoundPluginConfigurationService } from "../application/configuration-service.js";
 import type { CandidateContentLeasePort } from "../application/ports/candidate-content-lease.js";
@@ -58,12 +61,12 @@ export function createComposedNativeLifecycleOperationService(input: Readonly<{
   hostEpoch: ContentDigest;
   sha256: Sha256;
 }>) {
-  const candidate = createTrustedInstallCandidateService({ catalog: input.catalog, content: input.candidateContent, inspector: input.inspector, readiness: input.readiness, sha256: input.sha256 });
+  const candidate = createPreparedLifecycleCandidateService({ catalog: input.catalog, content: input.candidateContent, inspector: input.inspector, readiness: input.readiness, sha256: input.sha256 });
   const configurationAuthority = createTrustedInstallConfigurationAuthority({ configurations: input.configurations, sha256: input.sha256 });
   const trust = createExactTrustGrantService({ state: input.state, mutations: input.mutations, projectTrust: input.projectTrust, projectRoots: input.projectRoots, sha256: input.sha256 });
   const targets = createNativeLifecycleTargetService({ evidence: input.evidence, sha256: input.sha256 });
   const updates = createNativeLifecycleUpdateService({ targets, candidates: candidate, sha256: input.sha256 });
-  const configurationInput = (candidateValue: TrustedInstallCandidate, projectRoot: TrustedProjectRoot | undefined) => {
+  const configurationInput = (candidateValue: PreparedLifecycleCandidate, projectRoot: TrustedProjectRoot | undefined) => {
     const scope = candidateValue.resolved.scope;
     const pathContext = scope.kind === "project"
       ? { scope, trustedProjectRoot: projectRoot! }

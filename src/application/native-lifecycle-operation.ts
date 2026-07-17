@@ -1,4 +1,7 @@
-import type { BoundPluginConfigurationService } from "./configuration-service.js";
+import type {
+  BoundPluginConfigurationService,
+  ConfigurationRecoveryCapability,
+} from "./configuration-service.js";
 import type { ExactTrustGrantService } from "./exact-trust-grant-service.js";
 import {
   NativeLifecycleOperationResultSchema,
@@ -17,6 +20,7 @@ import type { ProjectRootAuthorityPort, TrustedProjectRoot } from "./ports/proje
 import type { ConfigurationPathContext } from "./ports/configuration-path.js";
 import type { PluginLifecycleComposition } from "./plugin-lifecycle-service.js";
 import { validateTrustedInstallSubmission, type TrustedInstallConfigurationAuthority, type TrustedInstallConfigurationDependencies } from "./trusted-install-configuration.js";
+import type { ContentDigest } from "../domain/content-manifest.js";
 import type { Sha256 } from "../domain/source.js";
 
 export type NativeLifecycleOperationDependencies = Readonly<{
@@ -41,6 +45,18 @@ export type VerifiedNativeLifecycleOperationContext = Readonly<{
   update?: PreparedNativeLifecycleUpdate;
   diagnostics?: readonly NativeDiagnostic[];
 }>;
+
+/** Opaque configuration recovery remains owned by the operation composition. */
+export class NativeLifecycleConfigurationRecoveryError extends Error {
+  constructor(
+    readonly recovery: ConfigurationRecoveryCapability,
+    readonly code: "ADAPTER_FAILED" | "CLEANUP_FAILED",
+    options?: ErrorOptions,
+  ) {
+    super("native lifecycle configuration recovery is required", options);
+    this.name = "NativeLifecycleConfigurationRecoveryError";
+  }
+}
 
 function emptyEffects() { return { state: "unchanged" as const, projectFile: "unchanged" as const, completedActionIds: [], pendingActionIds: [] }; }
 
@@ -97,7 +113,7 @@ async function executeUpdate(
   const root = await currentProjectRoot(update.target, dependencies, signal).catch(() => undefined);
   if (update.target.scope.kind === "project" && root === undefined) return terminal({ kind: "stale", reason: "project" }, context, progress);
 
-  let configurationRevision: string | undefined;
+  let configurationRevision: ContentDigest | undefined;
   if (update.candidate.binding.configurationRef !== undefined) {
     await progress.emit({ phase: "configuration-custody", state: "started", plugin: update.target.binding.plugin });
     const authorityRequest = {
@@ -128,10 +144,41 @@ async function executeUpdate(
       }, signal);
       if (validation.kind === "invalid") return terminal({ kind: "rejected", code: "UNCONFIGURED" }, context, progress);
       const saved = await dependencies.configuration.save(validation.request, signal);
-      if (saved.kind === "stale" || saved.kind === "stale-with-cleanup-required") return terminal({ kind: "stale", reason: "configuration" }, context, progress);
-      if (saved.kind === "ambiguous-with-recovery-required" || saved.kind === "stored-with-cleanup-required") return terminal({ kind: "recovery-required", code: "ADAPTER_FAILED", action: "run-recovery" }, context, progress);
+      if (saved.kind === "stale") return terminal({ kind: "stale", reason: "configuration" }, context, progress);
       if (saved.kind === "secret-collision") return terminal({ kind: "rejected", code: "MALFORMED" }, context, progress);
-      configurationRevision = saved.document.revision;
+      if (saved.kind === "stored") {
+        configurationRevision = saved.document.revision;
+      } else {
+        const recovery = saved.kind === "ambiguous-with-recovery-required"
+          ? saved.recovery.recovery
+          : saved.cleanup.recovery;
+        let settlement: Awaited<ReturnType<ConfigurationRecoveryCapability["settle"]>>;
+        try {
+          settlement = await recovery.settle(signal);
+        } catch (error) {
+          throw new NativeLifecycleConfigurationRecoveryError(
+            recovery,
+            saved.kind === "ambiguous-with-recovery-required" ? "ADAPTER_FAILED" : "CLEANUP_FAILED",
+            { cause: error },
+          );
+        }
+        if (settlement.kind === "recovery-required") {
+          throw new NativeLifecycleConfigurationRecoveryError(
+            recovery,
+            saved.kind === "ambiguous-with-recovery-required" ? "ADAPTER_FAILED" : "CLEANUP_FAILED",
+          );
+        }
+        if (saved.kind === "stale-with-cleanup-required" || settlement.kind === "stale") {
+          return terminal({ kind: "stale", reason: "configuration" }, context, progress);
+        }
+        const document = settlement.kind === "stored"
+          ? settlement.document
+          : saved.kind === "stored-with-cleanup-required"
+            ? saved.document
+            : undefined;
+        if (document === undefined) throw new NativeLifecycleConfigurationRecoveryError(recovery, "ADAPTER_FAILED");
+        configurationRevision = document.revision;
+      }
     }
     await progress.emit({ phase: "configuration-custody", state: "completed", plugin: update.target.binding.plugin });
   } else if (confirmation.input.nonSensitive.length > 0 || confirmation.input.sensitive.length > 0) {
@@ -168,6 +215,7 @@ async function executeUpdate(
     sourceContext: sourceContext(update.candidate),
     lease: update.candidate.lease,
     expected: update.candidate.binding,
+    ...(configurationRevision === undefined ? {} : { expectedConfigurationRevision: configurationRevision }),
     configurationPathContext: dependencies.configurationInput(update.candidate, root).pathContext,
     expectedTarget: revalidated.update.target.expectation,
   }, signal);

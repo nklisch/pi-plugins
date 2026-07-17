@@ -83,6 +83,7 @@ export const NativeLifecycleStableCodeRegistry = Object.freeze({
   promotionFailed: { tag: "PROMOTION_FAILED" },
   aborted: { tag: "ABORTED" },
   availableRevisionChanged: { tag: "AVAILABLE_REVISION_CHANGED" },
+  configurationStale: { tag: "CONFIGURATION_STALE" },
   stateCorrupt: { tag: "STATE_CORRUPT" },
   projectUntrusted: { tag: "PROJECT_UNTRUSTED" },
   projectRootStale: { tag: "PROJECT_ROOT_STALE" },
