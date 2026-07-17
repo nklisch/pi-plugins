@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-deterministic-control-facade
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-trusted-installation, epic-native-plugin-management-lifecycle-sync-operations, epic-native-plugin-management-update-policy-offline-startup]
@@ -723,3 +723,12 @@ One feature owner should normally carry the graph because grammar, result classi
 The design fails if text parsing performs shell expansion, a typo executes another option, a control character spoofs help, a plugin in the wrong scope is selected, an old cursor/consent/token silently targets current evidence, a no-TTY command opens a hidden prompt, a secret reaches history/output, `--yes` grants broad trust, a one-shot path bypasses owner preview/apply, progress reorders or buffers without bound, SIGINT/EPIPE masks a committed transition, offline status triggers network, two commands share mutable control state, the TUI calls raw services, or host shutdown closes stores under an admitted reload.
 
 The chosen boundaries address those failures with an exact lexer/parser, one schema registry, coherent inspection selection, owner-verified IDs, explicit input/consent ports, strict channel/redaction policy, composition-only short forms, awaited monotonic progress, semantic-result precedence, local readiness gates, stateless concurrent dispatch, packaged raw-service removal, and operation-drain-aware disposal. When exact evidence is unavailable, the correct result is usage, input-required, not-found, stale, conflict, unavailable, rejected, partial, or recovery-required—never a guessed success.
+
+## Implementation summary
+
+- **Ownership/dispatch**: one GPT-5.6 Sol feature owner at xhigh carried all nine dependency-ordered checkpoints as one cohesive contract. No nested agents were used, per the explicit owner boundary. This avoided parser/registry/result/composition handoff drift.
+- **Delivered boundary**: 32-command `plugin-control/v1` registry; strict argv/text parser; schema-derived help/completion; explicit input/redaction ports and Node channels; exact inspection selection; thin read/mutation dispatch; ordered commit-aware progress/admission; stable envelopes/exits/human fields/JSON lines; one packaged `application.control` surface.
+- **Business authority**: marketplace, inspection, trusted install, lifecycle/project sync, update policy/notices/automatic updates, host readiness, owner tokens/cursors/sessions, and packaged Pi admission remain authoritative. The facade has no state store, transaction, lock, materializer, trust evaluator, configuration validator, retry, or alternate recovery path.
+- **Packaged simplification**: removed public packaged joins for marketplace, inspection, trusted install, lifecycle, updates, status, configuration, recovery, collection, capabilities, and resources. Runtime/startup composition retains them privately; management consumers receive only `control`.
+- **Verification**: full `npm test` passed 305 test files and 1,437 tests with no type errors; dependency boundaries passed; build and exact compiled allowlists passed (846 root runtime exports, 3 Pi runtime exports); isolated packed Pi startup/read/mutation acceptance passed.
+- **Review handoff**: advanced to feature review only after all nine child stories reached `done` and the integrated suite was green. Effective review weight is the project default `standard`; the invoking parent must provide the required one fresh-context pass because this owner was explicitly prohibited from nesting another agent.
