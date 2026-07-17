@@ -709,6 +709,6 @@ The maintained-fork and production-adapter items remain the production blocker. 
 - Full `npm test` pipeline: passed.
   - Typecheck: **0 errors**.
   - Dependency boundaries: **237 modules, 1,444 dependencies**, no violations.
-  - Vitest: **177 files, 967 tests passed, 0 failed; 0 type errors**.
+  - Vitest: **177 files, 968 tests passed, 0 failed; 0 type errors**.
   - Build and compiled package import: passed, **522 exports**.
 - Review boundary: advanced from `implementing` to `review` as requested. Independent review was not run because the caller prohibited nested agents.

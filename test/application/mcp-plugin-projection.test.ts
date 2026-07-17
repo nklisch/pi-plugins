@@ -9,6 +9,7 @@ import {
   deriveMcpRuntimeServerKey,
 } from "../../src/application/ports/mcp-runtime.js";
 import { createPluginRuntimeProjection } from "../../src/application/ports/runtime-projection.js";
+import { canonicalJson } from "../../src/domain/canonical-json.js";
 import { evaluateCompatibility } from "../../src/domain/compatibility-evaluator.js";
 import {
   CompatibilityPolicyRegistry,
@@ -16,7 +17,7 @@ import {
   RuntimeCapabilitySnapshotSchema,
 } from "../../src/domain/compatibility-policy.js";
 import { deriveComponentId } from "../../src/domain/component-identity.js";
-import { createContentManifest } from "../../src/domain/content-manifest.js";
+import { createContentManifest, hashContent } from "../../src/domain/content-manifest.js";
 import { DomainContractError } from "../../src/domain/errors.js";
 import { NormalizedPluginSchema } from "../../src/domain/plugin.js";
 import { claim } from "../../src/domain/provenance.js";
@@ -402,6 +403,30 @@ describe("plugin MCP projection", () => {
       runtimeCapabilities: runtime(),
       sha256,
     })).toThrow(DomainContractError);
+  });
+
+  it("rejects a forged outer projection digest when the nested registration digest was not recomputed", () => {
+    const valid = create();
+    if (valid.kind !== "source") throw new Error("expected source projection");
+    const [key, server] = Object.entries(valid.registration.source.servers)[0]!;
+    const registration = {
+      ...valid.registration,
+      source: {
+        ...valid.registration.source,
+        servers: { [key]: { ...server, nativeKey: "forged-native-key" } },
+      },
+    };
+    const withoutDigest = {
+      schemaVersion: 1 as const,
+      kind: "source" as const,
+      registration,
+      aliasOmissions: valid.aliasOmissions,
+    };
+    const digest = hashContent(
+      new TextEncoder().encode(`plugin-mcp-projection-v1\0${canonicalJson(withoutDigest)}`),
+      sha256,
+    );
+    expect(() => verifyPluginMcpProjection({ ...withoutDigest, digest }, sha256)).toThrow(DomainContractError);
   });
 
   it("fails closed with redacted domain errors for mismatched report, capability, component, and digest evidence", () => {

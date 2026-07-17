@@ -30,7 +30,10 @@ import {
   type McpRuntimeServerKey,
   type McpSourceIdentity,
 } from "./ports/mcp-runtime.js";
-import { createMcpSourceRegistration } from "./mcp-source-registration.js";
+import {
+  createMcpSourceRegistration,
+  verifyMcpSourceRegistration,
+} from "./mcp-source-registration.js";
 import {
   PluginRuntimeProjectionSchemaV1,
   createActiveProjectionExpectation,
@@ -387,6 +390,11 @@ export function verifyPluginMcpProjection(
     value = PluginMcpProjectionSchemaV1.parse(input);
   } catch {
     fail("INVALID_MCP_PROJECTION_SHAPE");
+  }
+  if (value.kind === "source") {
+    // The projection digest includes the claimed registration digest, so the
+    // registration must also be independently recomputed from its source.
+    verifyMcpSourceRegistration(value.registration, sha256);
   }
   const expected = digestProjection(canonicalWithoutDigest(value), sha256);
   if (value.digest !== expected) fail("MCP_PROJECTION_DIGEST_MISMATCH");
