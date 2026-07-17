@@ -1,8 +1,4 @@
-import {
-  createNativeControlEnvelope,
-  type NativeControlEnvelope,
-  type NativeControlExecutionId,
-} from "./native-control-contract.js";
+import type { NativeControlExecutionId } from "./native-control-contract.js";
 import { NativeControlCommandSchema, type NativeControlCommand } from "./native-control-registry.js";
 import { createNativeControlProgressController } from "./native-control-progress.js";
 import type {
@@ -13,6 +9,7 @@ import type {
   NativeControlTimeoutPort,
 } from "./ports/native-control-execution.js";
 import type { NativeControlDispatchResult } from "./native-control-projection.js";
+import { createNativeControlResultProjector, type NativeControlResultProjector } from "./native-control-result.js";
 
 export class NativeControlAdmissionError extends Error {
   readonly code = "CONTROL_QUIESCED";
@@ -40,37 +37,6 @@ export interface NativeControlExecutionCoordinator {
   activeCount(): number;
 }
 
-function abortEnvelope(executionId: NativeControlExecutionId, command: NativeControlCommand): NativeControlEnvelope {
-  return createNativeControlEnvelope({
-    executionId,
-    command: command.command,
-    status: "cancelled",
-    diagnostics: [{ code: "CONTROL_CANCELLED", severity: "error", action: "retry" }],
-  });
-}
-
-function internalEnvelope(executionId: NativeControlExecutionId, command: NativeControlCommand): NativeControlEnvelope {
-  return createNativeControlEnvelope({
-    executionId,
-    command: command.command,
-    status: "failed",
-    diagnostics: [{ code: "CONTROL_INTERNAL", severity: "error", action: "none" }],
-  });
-}
-
-function dispatchEnvelope(executionId: NativeControlExecutionId, command: NativeControlCommand, result: NativeControlDispatchResult): NativeControlEnvelope {
-  return createNativeControlEnvelope({
-    executionId,
-    command: command.command,
-    status: result.status,
-    ...(result.data === undefined ? {} : { data: result.data }),
-    ...(result.operation === undefined ? {} : { operation: result.operation }),
-    ...(result.page === undefined ? {} : { page: result.page }),
-    diagnostics: result.diagnostics,
-    human: result.human,
-  });
-}
-
 function operationSignal(parent: AbortSignal): Readonly<{ controller: AbortController; dispose(): void }> {
   const controller = new AbortController();
   const abort = () => controller.abort(parent.reason);
@@ -82,7 +48,9 @@ function operationSignal(parent: AbortSignal): Readonly<{ controller: AbortContr
 export function createNativeControlExecutionCoordinator(dependencies: Readonly<{
   ids: NativeControlExecutionIdPort;
   timeouts: NativeControlTimeoutPort;
+  results?: NativeControlResultProjector;
 }>): NativeControlExecutionCoordinator {
+  const results = dependencies.results ?? createNativeControlResultProjector();
   let accepting = true;
   let closePromise: Promise<void> | undefined;
   const active = new Set<Promise<unknown>>();
@@ -105,16 +73,17 @@ export function createNativeControlExecutionCoordinator(dependencies: Readonly<{
       signal: linked.controller.signal,
       abortDelivery: () => linked.controller.abort(new Error("native control output delivery failed")),
     });
-    let envelope: NativeControlEnvelope;
+    let envelope;
     try {
       await progress.accepted();
       try {
         const result = await dispatch(command, { executionId, command: command.command, progress: progress.progress }, linked.controller.signal);
-        envelope = dispatchEnvelope(executionId, command, result);
-      } catch {
-        envelope = linked.controller.signal.aborted || callerSignal.aborted || timeout?.signal.aborted === true
-          ? abortEnvelope(executionId, command)
-          : internalEnvelope(executionId, command);
+        envelope = results.project(command, result, executionId);
+      } catch (error) {
+        const classified = linked.controller.signal.aborted || callerSignal.aborted || timeout?.signal.aborted === true
+          ? new DOMException("native control execution cancelled", "AbortError")
+          : error;
+        envelope = results.classifyError(command, classified, executionId);
       }
       await progress.result(envelope);
     } finally {

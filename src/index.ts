@@ -2079,3 +2079,11 @@ export type {
   NativeControlProgressSink,
   NativeControlDispatchExecutionContext,
 } from "./application/ports/native-control-execution.js";
+export { classifyNativeControlError } from "./application/native-control-error.js";
+export type { NativeControlErrorClassification } from "./application/native-control-error.js";
+export { createNativeControlHumanProjector } from "./application/native-control-human.js";
+export type { NativeControlHumanProjector } from "./application/native-control-human.js";
+export { createNativeControlResultProjector } from "./application/native-control-result.js";
+export type { NativeControlResultProjector } from "./application/native-control-result.js";
+export { createNodeJsonLinesSink } from "./infrastructure/control/node-json-lines-sink.js";
+export type { NodeJsonLinesSinkOptions } from "./infrastructure/control/node-json-lines-sink.js";
