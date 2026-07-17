@@ -1,7 +1,7 @@
 ---
 id: derive-automatic-update-eligibility-contract-from-registry
 kind: story
-stage: implementing
+stage: review
 tags: [refactor, reliability]
 parent: null
 depends_on: []
@@ -86,6 +86,22 @@ export const AutomaticUpdateEligibilityReasonSchema = z.enum(
 ## Risk and Rollback
 
 The only implementation risk is an incorrect non-empty tuple assertion weakening TypeScript inference or changing the Zod enum input. Existing compiler and contract tests bound that risk. Revert the implementation commit to restore the duplicated literal list; no state, migration, or runtime data is affected.
+
+## Implementation notes
+
+- Execution capability: direct inline implementation; this is a one-file, behavior-preserving contract refactor, and the caller prohibited nested agents.
+- Review weight: standard from `.work/CONVENTIONS.md`; as a standalone story, review uses the bounded inline lane without an independent reviewer.
+- Files changed: `src/application/automatic-update-eligibility.ts`.
+- Tests added/removed: none; unchanged coordinator and lifecycle-adapter tests exercise eligibility routing, while typecheck protects the registry-derived union and schema tuple.
+- Simplification: removed the eleven duplicate schema literals; the registry now exclusively enumerates accepted reasons, and both the TypeScript type and Zod schema derive from it.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+
+## Verification
+
+- Focused automatic-update tests — passed (3 files, 18 tests).
+- `npm test` — passed: typecheck, boundaries, 275 test files / 1,351 tests, package build/import checks, and isolated packed extension startup.
+- Source diff after implementation: 9 insertions, 6 deletions (net +3 lines); duplicated eligibility literals decreased by eleven.
 
 ## Discovery Record
 

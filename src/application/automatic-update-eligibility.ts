@@ -15,12 +15,15 @@ export const AutomaticUpdateEligibilityReasonRegistry = Object.freeze({
   retryable: "retryable",
 } as const);
 
-export const AutomaticUpdateEligibilityReasonSchema = z.enum([
-  "eligible", "manual", "approval-required", "stale", "project-untrusted",
-  "recovery-required", "configuration-required", "secret-unavailable",
-  "capability-unavailable", "awaiting-host-context", "retryable",
-]);
-export type AutomaticUpdateEligibilityReason = z.infer<typeof AutomaticUpdateEligibilityReasonSchema>;
+export type AutomaticUpdateEligibilityReason =
+  (typeof AutomaticUpdateEligibilityReasonRegistry)[keyof typeof AutomaticUpdateEligibilityReasonRegistry];
+
+export const AutomaticUpdateEligibilityReasonSchema = z.enum(
+  Object.values(AutomaticUpdateEligibilityReasonRegistry) as [
+    AutomaticUpdateEligibilityReason,
+    ...AutomaticUpdateEligibilityReason[],
+  ],
+);
 
 export const AutomaticUpdateEligibilitySchema = z.object({
   noticeId: UpdateNoticeIdSchema,
