@@ -56,7 +56,7 @@ describe("state codecs", () => {
   });
 
   it("fails closed for version, generation, and digest corruption", () => {
-    expect(() => decodeStateDocument("hostConfig", { ...encodedWith([]), schemaVersion: 3 }, context))
+    expect(() => decodeStateDocument("hostConfig", { ...encodedWith([]), schemaVersion: 4 }, context))
       .toThrowError(StateCodecError);
     expect(() => decodeStateDocument("hostConfig", { ...encodedWith([]), generation: 1 }, context))
       .toThrowError(StateCodecError);
@@ -64,7 +64,7 @@ describe("state codecs", () => {
     const encoded = encodeStateDocument("hostConfig", valid, context);
     const digest = hashStateDocument(encoded, sha256);
     expect(decodeStateDocument("hostConfig", encoded, { ...context, expectedDigest: digest }).value).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       generation: valid.generation,
       records: [{ marketplace, updateApplication: "manual" }],
     });
@@ -78,7 +78,7 @@ describe("state codecs", () => {
     const other = HostConfigDocumentSchemaV1.parse({
       schemaVersion: 1,
       generation: 0,
-      records: [{ marketplace: MarketplaceNameSchema.parse("alpha"), source, updateApplication: "automatic" }],
+      records: [{ marketplace: MarketplaceNameSchema.parse("alpha"), source: { kind: "github", repository: "example/alpha" }, updateApplication: "automatic" }],
     }).records[0]!;
     const left = encodeStateDocument("hostConfig", { ...valid, records: [valid.records[0]!, other] }, context);
     const right = encodeStateDocument("hostConfig", { ...valid, records: [other, valid.records[0]!] }, context);

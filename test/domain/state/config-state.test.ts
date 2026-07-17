@@ -68,10 +68,11 @@ describe("host marketplace configuration state", () => {
     }).success).toBe(false);
   });
 
-  it("migrates deterministic v1 records into the current v2 family", () => {
-    expect(HostConfigSchemaFamily.latestVersion).toBe(2);
+  it("migrates deterministic v1 records into the current v3 family", () => {
+    expect(HostConfigSchemaFamily.latestVersion).toBe(3);
     const migrated = migrateVersionedDocument(HostConfigSchemaFamily, document());
-    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.schemaVersion).toBe(3);
+    expect(migrated.records[0]?.origin).toEqual({ kind: "legacy" });
     expect(migrated.records[0]?.refresh).toEqual({ nextScheduledAt: 0, consecutiveFailures: 0 });
     expect(migrated.records[0]?.notifications).toEqual([]);
     const local = migrateVersionedDocument(HostConfigSchemaFamily, document({
@@ -84,7 +85,7 @@ describe("host marketplace configuration state", () => {
     expect(local.records[0]?.updateApplication).toBe("manual");
     expect(() => migrateVersionedDocument(HostConfigSchemaFamily, {
       ...document(),
-      schemaVersion: 3,
+      schemaVersion: 4,
     })).toThrow(/newer/);
   });
 

@@ -361,14 +361,14 @@ describe("state contract integration", () => {
       generation: generation0,
       records: [
         { marketplace: "team", source: { kind: "github", repository: "example/plugins" }, updateApplication: "manual" },
-        { marketplace: "alpha", source: { kind: "github", repository: "example/plugins" }, updateApplication: "automatic" },
+        { marketplace: "alpha", source: { kind: "github", repository: "example/alpha" }, updateApplication: "automatic" },
       ],
     });
     const right = HostConfigDocumentSchemaV1.parse({
       schemaVersion: 1,
       generation: generation0,
       records: [
-        { updateApplication: "automatic", source: { repository: "example/plugins", kind: "github" }, marketplace: "alpha" },
+        { updateApplication: "automatic", source: { repository: "example/alpha", kind: "github" }, marketplace: "alpha" },
         { updateApplication: "manual", source: { repository: "example/plugins", kind: "github" }, marketplace: "team" },
       ],
     });

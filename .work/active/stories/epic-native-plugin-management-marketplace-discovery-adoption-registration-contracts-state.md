@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-marketplace-discovery-adoption-registration-contracts-state
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility]
 parent: epic-native-plugin-management-marketplace-discovery-adoption
 depends_on: []
@@ -41,3 +41,15 @@ Make the existing lifecycle-state generation the sole registration and selected-
 ## Ordering
 
 Root checkpoint. Registration, refresh, catalog, and adoption consume these contracts.
+
+## Implementation notes
+
+- Added source/scope-derived registration IDs, immutable snapshot tokens, exact candidate IDs, bounded cursors, strict management variants, registration origins, and refresh-attempt evidence.
+- Advanced host configuration and project-local state to v3 with adjacent lossless migrations. Legacy records receive explicit `legacy` origin; unmatched user legacy records remain representable without fabricated snapshots.
+- Added the paired registration/snapshot mutation constructor while retaining narrow policy/claim-only mutations. Current project state rejects local and duplicate source/name registrations.
+- Updated codecs, mutation reconciliation, defaults, and compatibility envelopes to preserve v1/v2 evidence through v3.
+
+## Verification
+
+- Focused state/contract suite: 29 passed, 0 failed.
+- TypeScript typecheck and dependency boundaries passed in the integrated feature run.

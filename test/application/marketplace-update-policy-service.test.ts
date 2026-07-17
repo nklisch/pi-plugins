@@ -7,7 +7,7 @@ import {
   deriveUpdateCandidateKey,
   type MarketplaceUpdateRecord,
 } from "../../src/domain/update-policy.js";
-import { HostConfigDocumentSchemaV2, GenerationSchema } from "../../src/domain/state/config-state.js";
+import { HostConfigDocumentSchemaV3, GenerationSchema } from "../../src/domain/state/config-state.js";
 import { InstalledUserStateDocumentSchemaV2 } from "../../src/domain/state/installed-state.js";
 import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
 import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
@@ -38,7 +38,7 @@ function snapshot(record: MarketplaceUpdateRecord): Extract<GenerationSnapshot, 
         digest: digest("a"),
       })),
     }),
-    config: HostConfigDocumentSchemaV2.parse({ schemaVersion: 2, generation, records: [record] }),
+    config: HostConfigDocumentSchemaV3.parse({ schemaVersion: 3, generation, records: [record] }),
     installed: InstalledUserStateDocumentSchemaV2.parse({ schemaVersion: 2, generation, marketplaces: [], plugins: [] }),
     trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation, records: [] }),
     corruptions: [],
@@ -111,7 +111,7 @@ describe("marketplace update policy service", () => {
     expect(result).toEqual({ kind: "changed", preference: "automatic" });
     expect(reads).toBe(1);
     const replacement = (mutation as { replace: { config: { schemaVersion: number; records: readonly MarketplaceUpdateRecord[] } } }).replace.config;
-    expect(replacement.schemaVersion).toBe(2);
+    expect(replacement.schemaVersion).toBe(3);
     expect(replacement.records[0]!.refresh).toEqual(record.refresh);
     expect(replacement.records[0]!.notifications).toEqual(record.notifications);
   });

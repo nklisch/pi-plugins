@@ -25,6 +25,34 @@ import {
 } from "./source.js";
 import { ScopeReferenceSchema, type ScopeReference } from "./state/scope.js";
 import { EpochMillisecondsSchema, type EpochMilliseconds } from "./time.js";
+import {
+  AdoptionCandidateIdSchema,
+} from "./adoption.js";
+
+export const MarketplaceRegistrationOriginSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("native") }).strict().readonly(),
+  z.object({
+    kind: z.literal("adoption"),
+    candidateId: AdoptionCandidateIdSchema,
+    documents: z.array(z.object({
+      host: z.enum(["claude", "codex"]),
+      document: z.enum(["claude-known-marketplaces", "claude-user-settings", "codex-user-config"]),
+      pointer: z.string().optional(),
+    }).strict().readonly()).nonempty().readonly(),
+  }).strict().readonly(),
+  z.object({ kind: z.literal("legacy") }).strict().readonly(),
+]);
+export type MarketplaceRegistrationOrigin = z.infer<typeof MarketplaceRegistrationOriginSchema>;
+
+export const MarketplaceRefreshAttemptSchema = z.object({
+  completedAt: EpochMillisecondsSchema,
+  outcome: z.enum(["succeeded", "unchanged", "cancelled", "unavailable", "failed"]),
+  code: z.enum([
+    "SOURCE_UNAVAILABLE", "CATALOG_INVALID", "CONTENT_INVALID", "PROMOTION_FAILED",
+    "STATE_STALE", "REMOVED_DURING_REFRESH", "ABORTED",
+  ]).optional(),
+}).strict().readonly();
+export type MarketplaceRefreshAttempt = z.infer<typeof MarketplaceRefreshAttemptSchema>;
 
 export const UpdateCandidateKeySchema = z
   .string()
@@ -60,6 +88,7 @@ export const MarketplaceRefreshMemorySchema = z.object({
     expiresAt: EpochMillisecondsSchema,
   }).strict().readonly().optional(),
   lastCompletedAt: EpochMillisecondsSchema.optional(),
+  lastAttempt: MarketplaceRefreshAttemptSchema.optional(),
   nextScheduledAt: EpochMillisecondsSchema.default(0),
   consecutiveFailures: z.number().int().nonnegative().safe().default(0),
 }).strict().readonly();
@@ -79,12 +108,20 @@ export const UpdateNotificationMemorySchema = z.object({
 }).strict().readonly();
 export type UpdateNotificationMemory = z.infer<typeof UpdateNotificationMemorySchema>;
 
-export const MarketplaceUpdateRecordSchema = z.object({
+/** Exact v2 persistence input, retained only for lossless v2→v3 migration. */
+const MarketplaceUpdateRecordShapeV2 = {
   marketplace: MarketplaceNameSchema,
   source: MarketplaceSourceSchema,
   updateApplication: z.enum(["manual", "automatic"]),
   refresh: MarketplaceRefreshMemorySchema.default(() => ({ nextScheduledAt: 0, consecutiveFailures: 0 })),
   notifications: z.array(UpdateNotificationMemorySchema).readonly().default([]),
+} as const;
+export const MarketplaceUpdateRecordSchemaV2 = z.object(MarketplaceUpdateRecordShapeV2).strict().readonly();
+export type MarketplaceUpdateRecordV2 = z.infer<typeof MarketplaceUpdateRecordSchemaV2>;
+
+export const MarketplaceRegistrationRecordSchema = z.object({
+  ...MarketplaceUpdateRecordShapeV2,
+  origin: MarketplaceRegistrationOriginSchema,
 }).strict().readonly().superRefine((record, context) => {
   if (record.source.kind === "local-git" && record.updateApplication === "automatic") {
     context.addIssue({ code: "custom", path: ["updateApplication"], message: "local marketplaces cannot use automatic updates" });
@@ -102,7 +139,10 @@ export const MarketplaceUpdateRecordSchema = z.object({
     seen.add(key);
   }
 });
-export type MarketplaceUpdateRecord = z.infer<typeof MarketplaceUpdateRecordSchema>;
+export type MarketplaceRegistrationRecord = z.infer<typeof MarketplaceRegistrationRecordSchema>;
+/** Source-compatible name; this is not a second schema or authority. */
+export const MarketplaceUpdateRecordSchema = MarketplaceRegistrationRecordSchema;
+export type MarketplaceUpdateRecord = MarketplaceRegistrationRecord;
 
 export const UpdateApplicationPreferenceSchema = z.enum(["manual", "automatic"]);
 export type UpdateApplicationPreference = z.infer<typeof UpdateApplicationPreferenceSchema>;
@@ -227,30 +267,45 @@ export function createMarketplaceConfigurationRecord(input: Readonly<{
   updateApplication?: UpdateApplicationPreference;
   refresh?: Partial<MarketplaceRefreshMemory>;
   notifications?: readonly UpdateNotificationMemory[];
+  origin?: MarketplaceRegistrationOrigin;
 }>): MarketplaceUpdateRecord {
   const source = MarketplaceSourceSchema.parse(input.source);
   const refresh = MarketplaceRefreshMemorySchema.parse({ nextScheduledAt: 0, consecutiveFailures: 0, ...input.refresh });
   const updateApplication = source.kind === "local-git" ? "manual" : input.updateApplication ?? "manual";
-  return MarketplaceUpdateRecordSchema.parse({ marketplace: MarketplaceNameSchema.parse(input.marketplace), source, updateApplication, refresh, notifications: input.notifications ?? [] });
+  return MarketplaceRegistrationRecordSchema.parse({
+    marketplace: MarketplaceNameSchema.parse(input.marketplace),
+    source,
+    origin: input.origin ?? { kind: "native" },
+    updateApplication,
+    refresh,
+    notifications: input.notifications ?? [],
+  });
 }
 
 /** Normalize a current or v1-compatible marketplace record before policy work. */
 export function parseMarketplaceUpdateRecord(input: unknown): MarketplaceUpdateRecord {
-  const current = MarketplaceUpdateRecordSchema.safeParse(input);
+  const current = MarketplaceRegistrationRecordSchema.safeParse(input);
   if (current.success) return current.data;
+  const legacy = MarketplaceUpdateRecordSchemaV2.safeParse(input);
+  if (legacy.success) return MarketplaceRegistrationRecordSchema.parse({ ...legacy.data, origin: { kind: "legacy" } });
   if (input === null || typeof input !== "object" || Array.isArray(input)) throw current.error;
   const value = input as Record<string, unknown>;
   return createMarketplaceConfigurationRecord({
     marketplace: MarketplaceNameSchema.parse(value.marketplace),
     source: MarketplaceSourceSchema.parse(value.source),
     updateApplication: UpdateApplicationPreferenceSchema.parse(value.updateApplication),
+    origin: { kind: "legacy" },
   });
 }
 
 export function replaceMarketplaceConfigurationSource(record: MarketplaceUpdateRecord, source: MarketplaceSource): MarketplaceUpdateRecord {
   const nextSource = MarketplaceSourceSchema.parse(source);
   if (JSON.stringify(record.source) === JSON.stringify(nextSource)) return MarketplaceUpdateRecordSchema.parse(record);
-  return createMarketplaceConfigurationRecord({ marketplace: record.marketplace, source: nextSource });
+  return createMarketplaceConfigurationRecord({
+    marketplace: record.marketplace,
+    source: nextSource,
+    origin: record.origin,
+  });
 }
 
 export type { ContentDigest, EpochMilliseconds, MarketplaceName, MarketplaceSource, PluginKey, PluginSource, ScopeReference, SourceHash };

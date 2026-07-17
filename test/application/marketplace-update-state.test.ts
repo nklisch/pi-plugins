@@ -18,10 +18,10 @@ import {
 } from "../../src/domain/source.js";
 import { ProjectIdentitySchema, deriveProjectKey } from "../../src/domain/state/scope.js";
 import {
-  HostConfigDocumentSchemaV2,
+  HostConfigDocumentSchemaV3,
   GenerationSchema,
 } from "../../src/domain/state/config-state.js";
-import { ProjectLocalStateDocumentSchemaV2 } from "../../src/domain/state/project-state.js";
+import { ProjectLocalStateDocumentSchemaV3 } from "../../src/domain/state/project-state.js";
 import { createMarketplaceSnapshotRecord } from "../../src/domain/state/installed-state.js";
 import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
 import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
@@ -92,8 +92,8 @@ function projectSnapshot(record: MarketplaceUpdateRecord): ProjectGenerationSnap
     source: resolvedSource,
     content,
   }, sha256);
-  const project = ProjectLocalStateDocumentSchemaV2.parse({
-    schemaVersion: 2,
+  const project = ProjectLocalStateDocumentSchemaV3.parse({
+    schemaVersion: 3,
     generation,
     projectKey,
     identity,
@@ -169,11 +169,11 @@ describe("marketplace update state projection", () => {
     }))).toThrow();
   });
 
-  it.each(["v1-compatible", "v2"] as const)("projects a %s user envelope to a verified frozen v2 mutation", (version) => {
+  it.each(["v1-compatible", "v3"] as const)("projects a %s user envelope to a verified frozen v3 mutation", (version) => {
     const rich = richRecord();
     const config = version === "v1-compatible"
       ? { schemaVersion: 1 as const, generation, records: [rich] }
-      : HostConfigDocumentSchemaV2.parse({ schemaVersion: 2, generation, records: [rich] });
+      : HostConfigDocumentSchemaV3.parse({ schemaVersion: 3, generation, records: [rich] });
     const snapshot = userSnapshot(config);
     const mutation = createMarketplaceUpdateRecordsMutation(snapshot, marketplaceUpdateRecords(snapshot), sha256);
 
@@ -183,7 +183,7 @@ describe("marketplace update state projection", () => {
     if (!("config" in mutation.replace)) throw new Error("expected config replacement");
     expect(mutation.scope).toEqual(snapshot.scope);
     expect(mutation.expectedGeneration).toBe(snapshot.generation);
-    expect(mutation.replace.config.schemaVersion).toBe(2);
+    expect(mutation.replace.config.schemaVersion).toBe(3);
     expect(mutation.replace.config.generation).toBe(snapshot.generation);
     expect(mutation.replace.config.records).toEqual([rich]);
     expect(Object.isFrozen(mutation.replace.config)).toBe(true);
@@ -204,7 +204,7 @@ describe("marketplace update state projection", () => {
     if (!("project" in mutation.replace)) throw new Error("expected project replacement");
     expect(mutation.scope).toEqual(snapshot.scope);
     expect(mutation.expectedGeneration).toBe(snapshot.generation);
-    expect(mutation.replace.project.schemaVersion).toBe(2);
+    expect(mutation.replace.project.schemaVersion).toBe(3);
     expect(mutation.replace.project.generation).toBe(snapshot.generation);
     expect(mutation.replace.project.projectKey).toBe(snapshot.project.projectKey);
     expect(mutation.replace.project.identity).toEqual(snapshot.project.identity);
