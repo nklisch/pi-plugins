@@ -754,8 +754,9 @@ No durable workflow/session/status/transaction/secret authority was added. Confi
 
 - Full `npm test` green.
 - TypeScript: green.
-- Dependency boundaries: 311 modules / 2,171 dependencies, no violations.
-- Vitest: 247 files / 1,182 tests passed.
+- Dependency boundaries: 312 modules / 2,174 dependencies, no violations.
+- Vitest: 247 files / 1,230 tests passed.
+- Post-rebase focused trusted-install, inspection, marketplace, host, lifecycle, and security selection: 204 tests passed.
 - Package build/import: 651 public root exports and 3 Pi exports exact.
 - Isolated packed Pi extension startup: passed.
 
@@ -764,5 +765,7 @@ No durable workflow/session/status/transaction/secret authority was added. Confi
 - Owner capability: GPT-5.6 Sol, xhigh, selected by explicit caller instruction for the security/concurrency/cross-module scope.
 - Review weight: `standard`, from project convention. Feature advanced to `review` only after every child reached `done` and the integrated full suite passed.
 - Completion hardening makes staging/session-ID cleanup failure explicit, releases acquisition when session creation fails, preserves committed trust evidence across project-return staleness, treats committed lock-cleanup ambiguity as recovery-required, filters resolved preflight diagnostics from success, and rejects activation after quiescence.
-- The pending inspection correction branch was not modified or worked around; integration uses narrow evidence/readiness/detail contracts so later rebase can reconcile that branch normally.
-- No command/TUI rendering, later lifecycle operation, fork/refactor, release, push, or `.work/bin/work-view` change was made.
+- After rebasing onto finalized inspection review `fa075ca`, the integration audit consumed the corrected scope-qualified catalog authority, safe display, snapshot/detail result, and diagnostic contracts directly; no deleted inspection-content wrapper or alternate result parser remains.
+- The post-rebase hardening rejects invalid inspection IDs distinctly, revalidates candidate publication/quarantine plus inspection and project-root authority before session publication and lifecycle transfer, preserves exact existing configuration/credential authority without plaintext access, returns partition and descriptor input issues together, and refuses truncated executable consent disclosure.
+- HTTP bearer credential environment names are now included in the shared safe MCP disclosure while values remain structurally absent and digest-bound.
+- No command/TUI rendering, later lifecycle operation, fork/refactor, release, push, stage transition, or `.work/bin/work-view` change was made.

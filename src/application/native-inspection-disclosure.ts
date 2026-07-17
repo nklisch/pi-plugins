@@ -228,7 +228,7 @@ export function projectSafeComponents(input: Readonly<{
           transport: template.transport,
           args: [],
           url: projectRedactedUrl(template.url),
-          environmentNames: [],
+          environmentNames: template.bearerToken?.kind === "environment" ? [safeLabel(template.bearerToken.name)] : [],
           headerNames: template.headers.slice(0, NativeDisplayLimits.maxArguments).map((entry) => safeLabel(entry.name)),
         };
       }

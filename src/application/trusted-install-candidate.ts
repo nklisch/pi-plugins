@@ -7,6 +7,7 @@ import { createInstalledRevisionRecord, type InstalledRevisionRecord } from "../
 import { toScopeReference } from "../domain/state/scope.js";
 import { createTrustCandidate, type TrustCandidate } from "../domain/trust-policy.js";
 import { deriveMarketplaceSourceIdentity, derivePluginSourceIdentity } from "../domain/update-policy.js";
+import { createMcpLaunchTemplate } from "../domain/mcp-launch-template.js";
 import { digestCompatibilityReport } from "./ports/runtime-projection.js";
 import type { CandidateContentLease, CandidateContentLeasePort } from "./ports/candidate-content-lease.js";
 import type { InspectionReadinessPort } from "./ports/inspection-readiness.js";
@@ -16,8 +17,17 @@ import type { MarketplaceCatalogService, ResolvedMarketplaceCandidate } from "./
 import { createNativeCandidateInspector } from "./native-candidate-inspection.js";
 import { projectSafeComponents, projectSafeSource } from "./native-inspection-disclosure.js";
 import { NativeDisplayLimits, toSafeDisplayField } from "./native-inspection-display.js";
-import type { CandidateInspectionDetailSubject } from "./native-inspection-identifiers.js";
-import type { NativeInspectionDetail } from "./native-inspection-contract.js";
+import {
+  deriveInspectionDetailId,
+  deriveInspectionEvidenceSnapshotId,
+  type CandidateInspectionDetailSubject,
+} from "./native-inspection-identifiers.js";
+import {
+  NativeInspectionDetailResultSchema,
+  type NativeComponentInventoryView,
+  type NativeInspectionDetail,
+  type NativeInspectionDetailResult,
+} from "./native-inspection-contract.js";
 import {
   TrustedInstallCandidateBindingSchema,
   TrustedInstallConfigurationFieldSchema,
@@ -70,6 +80,24 @@ function exactCandidate(candidate: ResolvedMarketplaceCandidate, subject: Candid
     sameScope(toScopeReference(candidate.scope), subject.scope);
 }
 
+function catalogAuthority(
+  snapshot: InspectionEvidenceSnapshot,
+  subject: CandidateInspectionDetailSubject,
+): "current" | "stale" | "unavailable" {
+  const scopes = snapshot.binding.scopes.filter((candidate) => sameScope(candidate.scope, subject.scope));
+  if (scopes.length !== 1) return scopes.length === 0 ? "stale" : "unavailable";
+  if (scopes[0]!.status !== "ready" || scopes[0]!.generation === undefined) return "unavailable";
+  const bindings = snapshot.binding.catalogs.filter((catalog) =>
+    catalog.registrationId === subject.registrationId && sameScope(catalog.scope, subject.scope));
+  if (bindings.length !== 1) return bindings.length === 0 ? "stale" : "unavailable";
+  const selected = bindings[0]!;
+  if (selected.snapshot !== subject.catalogSnapshot) return "stale";
+  if (selected.cache.kind === "corrupt" || selected.cache.kind === "unavailable" || selected.cache.kind === "not-materialized") {
+    return "unavailable";
+  }
+  return "current";
+}
+
 function safe(value: string, maxScalars: number = NativeDisplayLimits.labelScalars) {
   return toSafeDisplayField(value, { maxScalars });
 }
@@ -120,6 +148,49 @@ function subagentInterception(plugin: TrustedInstallCandidate["plugin"], snapsho
     ? "available" as const : "unavailable" as const;
 }
 
+function displayComplete(field: { truncated: boolean } | undefined): boolean {
+  return field === undefined || !field.truncated;
+}
+
+/** Consent never silently drops or truncates a launch-bearing declaration. */
+function executableDisclosureComplete(
+  plugin: TrustedInstallCandidate["plugin"],
+  components: NativeComponentInventoryView,
+): boolean {
+  if (components.skills.some((component) => !displayComplete(component.name) || !displayComplete(component.root))) return false;
+  for (const component of components.hooks) {
+    if (!displayComplete(component.event) || !displayComplete(component.matcher) || !displayComplete(component.handler.command)) return false;
+    if (component.handler.kind === "exec") {
+      const source = plugin.components.hooks.find((candidate) => candidate.id === component.componentId);
+      if (source?.handler.value.kind !== "exec" || source.handler.value.args.length !== component.handler.args.length ||
+          component.handler.args.some((argument) => !displayComplete(argument))) return false;
+    }
+  }
+  for (const component of components.mcpServers) {
+    if (!displayComplete(component.nativeKey) || !displayComplete(component.command) ||
+        component.args.some((argument) => !displayComplete(argument)) ||
+        component.environmentNames.some((name) => !displayComplete(name)) ||
+        component.headerNames.some((name) => !displayComplete(name)) ||
+        component.toolPolicy.allowed.some((name) => !displayComplete(name)) ||
+        component.toolPolicy.denied.some((name) => !displayComplete(name)) ||
+        !displayComplete(component.url?.host) || !displayComplete(component.url?.port) || !displayComplete(component.url?.path)) return false;
+    const source = plugin.components.mcpServers.find((candidate) => candidate.id === component.componentId);
+    if (source === undefined) return false;
+    try {
+      const template = createMcpLaunchTemplate(source, plugin.identity.key);
+      if (template.transport === "stdio") {
+        if (component.args.length !== template.args.length || component.environmentNames.length !== template.env.length) return false;
+      } else {
+        const authenticationEnvironmentCount = template.bearerToken?.kind === "environment" ? 1 : 0;
+        if (component.headerNames.length !== template.headers.length || component.environmentNames.length !== authenticationEnvironmentCount) return false;
+      }
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
 async function nativeDetail(
   subject: CandidateInspectionDetailSubject,
   snapshot: InspectionEvidenceSnapshot,
@@ -127,7 +198,7 @@ async function nativeDetail(
   lease: CandidateContentLease,
   dependencies: TrustedInstallCandidateDependencies,
   signal: AbortSignal,
-): Promise<NativeInspectionDetail | undefined> {
+): Promise<NativeInspectionDetailResult> {
   const inspector = createNativeCandidateInspector({
     catalog: { resolve: async () => ({ kind: "resolved" as const, candidate }) },
     content: { withMaterialized: async (_candidate, useSignal, use) => { useSignal.throwIfAborted(); return use(lease.materialized); } },
@@ -135,8 +206,7 @@ async function nativeDetail(
     readiness: dependencies.readiness,
     sha256: dependencies.sha256,
   });
-  const result = await inspector.inspect(subject, snapshot, signal);
-  return result.kind === "found" ? result.detail : undefined;
+  return NativeInspectionDetailResultSchema.parse(await inspector.inspect(subject, snapshot, signal));
 }
 
 export function createTrustedInstallCandidateService(dependencies: TrustedInstallCandidateDependencies): TrustedInstallCandidateService {
@@ -147,6 +217,13 @@ export function createTrustedInstallCandidateService(dependencies: TrustedInstal
     signal: AbortSignal,
   ): Promise<TrustedInstallCandidateResult> {
     signal.throwIfAborted();
+    const authority = catalogAuthority(request.snapshot, request.subject);
+    if (authority === "stale") return { kind: "stale", diagnostics: [] };
+    if (authority === "unavailable") return { kind: "unavailable", diagnostics: [] };
+    if (request.subject.scope.kind === "project" &&
+        (request.snapshot.binding.currentProject.projectKey !== request.subject.scope.projectKey || request.snapshot.binding.currentProject.trust.kind !== "trusted")) {
+      return { kind: "rejected", diagnostics: [] };
+    }
     const resolution = await dependencies.catalog.resolve({ candidateId: request.subject.candidateId, snapshot: request.subject.catalogSnapshot }, signal)
       .catch(() => ({ kind: "catalog-unavailable" as const }));
     if (resolution.kind === "candidate-stale" || resolution.kind === "candidate-missing") return { kind: "stale", diagnostics: [] };
@@ -193,7 +270,6 @@ export function createTrustedInstallCandidateService(dependencies: TrustedInstal
         pluginSourceIdentity: derivePluginSourceIdentity(resolution.candidate.entry.source.value, dependencies.sha256),
         ...(plugin.version?.value === undefined && resolution.candidate.entry.version?.value === undefined ? {} : { declaredVersion: plugin.version?.value ?? resolution.candidate.entry.version?.value }),
       }, dependencies.sha256);
-      const readiness = await dependencies.readiness.configuration({ plugin: plugin.identity.key, scope, descriptors: plugin.configuration, ...(revision.configurationRef === undefined ? {} : { configurationRef: revision.configurationRef }) }, signal);
       const binding = TrustedInstallCandidateBindingSchema.parse({
         scope,
         registrationId: resolution.candidate.registrationId,
@@ -211,18 +287,46 @@ export function createTrustedInstallCandidateService(dependencies: TrustedInstal
         capabilityDigest: request.snapshot.binding.capability.digest,
         ...(scope.kind === "project" ? { projectEpoch: request.snapshot.binding.currentProject.epoch } : {}),
       });
-      const detail = await nativeDetail(request.subject, request.snapshot, resolution.candidate, lease, dependencies, signal);
-      if (detail === undefined) {
+      const detailResult = await nativeDetail(request.subject, request.snapshot, resolution.candidate, lease, dependencies, signal);
+      if (detailResult.kind !== "found") {
         await lease.release();
-        return { kind: "rejected", diagnostics: [] };
+        if (detailResult.kind === "stale" || detailResult.kind === "missing" || detailResult.kind === "invalid-id") {
+          return { kind: "stale", diagnostics: [] };
+        }
+        return { kind: "unavailable", diagnostics: detailResult.diagnostics };
       }
-      const configurationFields = fields(plugin, readiness);
+      const detail = detailResult.detail;
+      const exactDetail = detail.snapshotId === deriveInspectionEvidenceSnapshotId(request.snapshot.binding, dependencies.sha256) &&
+        detail.summary.detailId === deriveInspectionDetailId(request.subject, dependencies.sha256) &&
+        detail.summary.subject === "marketplace-candidate" && detail.summary.plugin === binding.plugin &&
+        sameScope(detail.summary.scope, binding.scope) && detail.summary.revision.immutable === binding.immutableRevision &&
+        detail.source.identity === binding.sourceIdentity && detail.compatibility.status === "activatable" &&
+        detail.compatibility.reportFingerprint === binding.compatibilityFingerprint;
+      if (!exactDetail || detail.summary.condition === "unavailable" || detail.trust === "unavailable" || detail.trust === "project-untrusted") {
+        await lease.release();
+        return { kind: detail.summary.condition === "unavailable" || detail.trust === "unavailable" ? "unavailable" : "rejected", diagnostics: detail.diagnostics };
+      }
+      // Candidate inspection has no installed-revision reference. The install
+      // form does, so enrich its field state from that exact configuration
+      // authority without changing the parsed inspection result.
+      const configurationReadiness = await dependencies.readiness.configuration({
+        plugin: plugin.identity.key,
+        scope,
+        descriptors: plugin.configuration,
+        ...(revision.configurationRef === undefined ? {} : { configurationRef: revision.configurationRef }),
+      }, signal);
+      const configurationFields = fields(plugin, configurationReadiness);
+      const components = projectSafeComponents({ plugin, compatibility });
+      if (!executableDisclosureComplete(plugin, components)) {
+        await lease.release();
+        return { kind: "rejected", diagnostics: detail.diagnostics };
+      }
       const consent = TrustedInstallConsentDisclosureSchema.parse({
         consentId: deriveTrustedInstallConsentId(binding, dependencies.sha256),
         source: projectSafeSource(lease.materialized.source),
         immutableRevision: revision.revision,
         executableSurfaceDigest: trust.evidence.executableSurfaceDigest,
-        components: projectSafeComponents({ plugin, compatibility }),
+        components,
         requirements: detail.compatibility.requirements,
         persistentData: true,
         configurationEnvironmentNames: plugin.configuration.options.map((option) => safe(`CLAUDE_PLUGIN_OPTION_${option.key}`)).sort((left, right) => compareUtf8(left.text, right.text)),

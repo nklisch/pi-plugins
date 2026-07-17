@@ -5,6 +5,7 @@ import {
   TrustedInstallSessionViewSchema,
 } from "../../../src/application/trusted-install-contract.js";
 import { deriveInspectionDetailId, deriveInspectionSnapshotId } from "../../../src/application/native-inspection-identifiers.js";
+import { compileNativeDiagnostics } from "../../../src/application/native-diagnostic-compiler.js";
 
 const sha256 = (bytes: Uint8Array) => new Uint8Array(createHash("sha256").update(bytes).digest());
 const safe = (text: string) => ({ text, escaped: false, truncated: false });
@@ -17,6 +18,10 @@ const candidateId = `marketplace-candidate-v1:sha256:${"3".repeat(64)}` as never
 const catalogSnapshot = `marketplace-snapshot-v1:sha256:${"4".repeat(64)}` as never;
 const detailId = deriveInspectionDetailId({ version: 1, subject: "marketplace-candidate", scope, plugin, registrationId, candidateId, catalogSnapshot }, sha256);
 const snapshotId = deriveInspectionSnapshotId({ catalogSnapshot, capability: digest("5"), projectEpoch: digest("6") }, sha256);
+const inspectionDiagnostics = compileNativeDiagnostics({ findings: [
+  { key: "trustRequired", subjectId: detailId },
+  { key: "configurationRequired", subjectId: detailId },
+] }, sha256);
 const componentId = (kind: string, value: string) => `component-v1:${kind}:${value.repeat(64)}`;
 const components = {
   counts: { skills: 1, hooks: 1, mcpServers: 1, foreign: 0 },
@@ -48,10 +53,10 @@ const consent = TrustedInstallConsentDisclosureSchema.parse({
 });
 const detail = {
   snapshotId,
-  summary: { detailId, subject: "marketplace-candidate", scope, plugin, name: safe("bundle"), marketplace: safe("community"), revision: { available: safe("1.0.0"), immutable: revision, resolution: "exact" }, condition: "blocked", freshness: { status: "current", basis: "marketplace" }, diagnosticCounts: { error: 0, warning: 0, info: 0 } },
+  summary: { detailId, subject: "marketplace-candidate", scope, plugin, name: safe("bundle"), marketplace: safe("community"), revision: { available: safe("1.0.0"), immutable: revision, resolution: "exact" }, condition: "blocked", freshness: { status: "current", basis: "marketplace" }, diagnosticCounts: { error: 2, warning: 0, info: 0 } },
   source, provenance: [], compatibility: { status: "activatable", reportFingerprint: binding.compatibilityFingerprint, components, requirements: [] },
   trust: "required", configuration: fields.map((field) => ({ key: field.key, label: field.label, valueKind: field.kind, required: field.required, sensitive: field.sensitive, defaultPresent: field.defaultPresent, state: field.state })),
-  lifecycle: { installed: false, transition: "none", update: "not-applicable" }, diagnostics: [],
+  lifecycle: { installed: false, transition: "none", update: "not-applicable" }, diagnostics: inspectionDiagnostics,
 } as const;
 const token = `trusted-install-session-v1:2d6737b6-7482-4a50-9310-cd35ce7ddcad.${"f".repeat(64)}` as never;
 const candidateProgress = [{ sequence: 0, phase: "candidate-acquisition", state: "completed", plugin, scope, revision }] as const;

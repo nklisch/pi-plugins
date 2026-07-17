@@ -83,6 +83,26 @@ describe("native inspection disclosure", () => {
     expect(json).not.toMatch(/\u001b/u);
   });
 
+  it("discloses the bearer credential environment name without its value", () => {
+    const provenance = fixtureProvenance("mcp.json", "/servers/remote", "claude", "mcp");
+    const plugin = directPlugin({ components: { mcpServers: [{
+      kind: "mcp-server",
+      id: componentId("mcp-server", "d"),
+      nativeKey: claimFixture("remote", provenance),
+      declaration: claimFixture({
+        transport: "streamable-http",
+        url: "https://example.invalid/mcp",
+        bearerTokenEnv: "MCP_BEARER_TOKEN",
+      }, provenance),
+      metadata: [],
+    }] } });
+    const compatibility = evaluateCompatibility({ plugin, capabilities: capabilities() });
+    expect(projectSafeComponents({ plugin, compatibility }).mcpServers[0]).toMatchObject({
+      authentication: "bearer-environment",
+      environmentNames: [{ text: "MCP_BEARER_TOKEN" }],
+    });
+  });
+
   it("omits declarations and absolute provenance paths even for incompatible components", () => {
     const provenance = { location: { host: "claude" as const, documentKind: "mcp" as const, path: canaries.absolute, pointer: "/servers/x" }, declaration: { secret: canaries.declaration } };
     const projected = projectSafeProvenance([provenance]);

@@ -28,16 +28,17 @@ import {
 } from "./trusted-install-contract.js";
 import { deriveInspectionEvidenceSnapshotId, decodeInspectionDetailId } from "./native-inspection-identifiers.js";
 import { createTrustedInstallSessionRegistry, type TrustedInstallSessionEntry } from "./trusted-install-session.js";
-import { validateTrustedInstallSubmission, type TrustedInstallConfigurationDependencies } from "./trusted-install-configuration.js";
-import type { TrustedInstallConfigurationAuthorityResult } from "./trusted-install-configuration.js";
+import {
+  validateTrustedInstallSubmission,
+  type TrustedInstallConfigurationAuthority,
+  type TrustedInstallConfigurationDependencies,
+} from "./trusted-install-configuration.js";
 import { executeTrustedInstallLifecycle, type TrustedInstallLifecycleDependencies, type TrustedInstallLifecycleResult } from "./trusted-install-lifecycle.js";
 
 export type TrustedInstallationServiceDependencies = Readonly<{
   candidate: TrustedInstallCandidateService;
   configuration: BoundPluginConfigurationService;
-  configurationAuthority: Readonly<{
-    readExact(request: Readonly<{ configurationRef: import("../domain/state/references.js").PluginConfigurationRef; descriptors: import("../domain/configuration.js").PluginConfiguration; expectedRevision: string }>, signal: AbortSignal): Promise<TrustedInstallConfigurationAuthorityResult>;
-  }>;
+  configurationAuthority: TrustedInstallConfigurationAuthority;
   configurationInput(candidate: TrustedInstallCandidate, projectRoot: TrustedProjectRoot | undefined): Omit<TrustedInstallConfigurationDependencies, "configurationRef" | "plugin" | "scope" | "descriptors">;
   trust: ExactTrustGrantService;
   lifecycle: TrustedInstallLifecycleDependencies;
@@ -155,6 +156,8 @@ export function createTrustedInstallationService(dependencies: TrustedInstallati
     const result = lifecycle.result;
     if (result.kind === "changed") {
       if (lifecycle.enabledExisting) {
+        progress(entry, "activation-observation", "completed");
+        progress(entry, "completed", "completed");
         return finish(entry, { kind: "current-state", plugin: entry.candidate.binding.plugin, scope: entry.candidate.binding.scope, revision: entry.candidate.binding.immutableRevision, activation: "enabled", reason: "enabled-existing", progress: entry.progress, retained: safeRetained(entry) });
       }
       const observation = result.observation;
@@ -195,17 +198,48 @@ export function createTrustedInstallationService(dependencies: TrustedInstallati
     if (snapshot === undefined) return TrustedInstallOpenResultSchema.parse({ kind: "unavailable", code: "EVIDENCE_UNAVAILABLE", diagnostics: [] });
     if (deriveInspectionEvidenceSnapshotId(snapshot.binding, dependencies.sha256) !== request.inspectionSnapshotId) return TrustedInstallOpenResultSchema.parse({ kind: "stale", reason: "candidate" });
     const subject = decodeInspectionDetailId(request.detailId, dependencies.sha256);
-    if (subject === undefined || subject.subject !== "marketplace-candidate") return TrustedInstallOpenResultSchema.parse({ kind: "stale", reason: "candidate" });
+    if (subject === undefined) return TrustedInstallOpenResultSchema.parse({ kind: "rejected", code: "INSPECTION_ID_INVALID", diagnostics: [] });
+    if (subject.subject !== "marketplace-candidate") return TrustedInstallOpenResultSchema.parse({ kind: "rejected", code: "INSPECTION_SUBJECT_UNSUPPORTED", diagnostics: [] });
+    if (subject.scope.kind === "project") {
+      if (snapshot.binding.currentProject.projectKey !== subject.scope.projectKey) {
+        return TrustedInstallOpenResultSchema.parse({ kind: "stale", reason: "project" });
+      }
+      if (snapshot.binding.currentProject.trust.kind !== "trusted") {
+        return TrustedInstallOpenResultSchema.parse({ kind: "rejected", code: "PROJECT_UNTRUSTED", diagnostics: [] });
+      }
+    }
     const acquired = await dependencies.candidate.acquire({ subject, snapshot }, signal);
     if (acquired.kind !== "ready") {
       if (acquired.kind === "stale") return TrustedInstallOpenResultSchema.parse({ kind: "stale", reason: "candidate" });
       return TrustedInstallOpenResultSchema.parse({ kind: acquired.kind, code: acquired.kind === "unavailable" ? "CANDIDATE_UNAVAILABLE" : "CANDIDATE_REJECTED", diagnostics: acquired.diagnostics });
     }
+    const releaseAcquired = async (): Promise<boolean> => {
+      try { await acquired.candidate.lease.release(); return true; }
+      catch { return false; }
+    };
+    try {
+      if (await dependencies.candidate.validate(acquired.candidate, signal) !== "current" ||
+          await dependencies.evidence.validate(acquired.candidate.snapshotBinding, signal) !== "current") {
+        const released = await releaseAcquired();
+        return TrustedInstallOpenResultSchema.parse(released
+          ? { kind: "stale", reason: acquired.candidate.binding.scope.kind === "project" ? "project" : "candidate" }
+          : { kind: "unavailable", code: "CLEANUP_FAILED", diagnostics: [] });
+      }
+      // A project inspection token is not root authority. Prove the current
+      // canonical project independently before publishing a resumable session.
+      await projectRoot(acquired.candidate, signal);
+    } catch (error) {
+      const released = await releaseAcquired();
+      if (!released) return TrustedInstallOpenResultSchema.parse({ kind: "unavailable", code: "CLEANUP_FAILED", diagnostics: [] });
+      if (error instanceof ProjectAuthorityStale) return TrustedInstallOpenResultSchema.parse({ kind: "stale", reason: "project" });
+      if (signal.aborted) throw signal.reason ?? error;
+      return TrustedInstallOpenResultSchema.parse({ kind: "unavailable", code: "EVIDENCE_UNAVAILABLE", diagnostics: [] });
+    }
     let entry: TrustedInstallSessionEntry;
     try {
       entry = await registry.create(acquired.candidate, signal);
     } catch (error) {
-      await acquired.candidate.lease.release().catch(() => undefined);
+      await releaseAcquired();
       if (signal.aborted) throw signal.reason ?? error;
       return TrustedInstallOpenResultSchema.parse({ kind: "unavailable", code: "SESSION_UNAVAILABLE", diagnostics: [] });
     }
@@ -236,22 +270,41 @@ export function createTrustedInstallationService(dependencies: TrustedInstallati
 
       const issues: TrustedInstallInputIssue[] = [];
       if (submission.consent.consentId !== entry.candidate.consent.consentId) issues.push({ code: "CONSENT_STALE" });
-      if (submission.consent.kind === "grant" && submission.consent.consentId === entry.candidate.consent.consentId) {
-        // Configuration validation below supplies all field issues.
+      if (submission.consent.kind === "deny" && submission.consent.consentId === entry.candidate.consent.consentId) {
+        progress(entry, phase, "completed", options);
+        return finish(entry, cancelled(entry, phase));
       }
       const root = await projectRoot(entry.candidate, signal);
       let configurationRequest: import("./configuration-service.js").SavePluginConfigurationRequest | undefined;
       if (entry.candidate.binding.configurationRef !== undefined) {
-        const input = dependencies.configurationInput(entry.candidate, root);
-        const validation = await validateTrustedInstallSubmission(entry.candidate.fields, submission, {
-          ...input,
+        const authorityRequest = {
           configurationRef: entry.candidate.binding.configurationRef,
           plugin: entry.candidate.binding.plugin,
-          scope: entry.candidate.resolved.scope,
+          scope: entry.candidate.binding.scope,
           descriptors: entry.candidate.plugin.configuration,
-        }, signal);
-        if (validation.kind === "invalid") issues.push(...validation.issues);
-        else configurationRequest = validation.request;
+        };
+        const current = await dependencies.configurationAuthority.readCurrent(authorityRequest, signal);
+        if (current.kind === "stale" || current.kind === "unavailable") return finish(entry, stale(entry, "configuration"));
+        const noConfigurationInput = submission.nonSensitive.length === 0 && submission.sensitive.length === 0;
+        const currentSatisfiesFields = current.kind === "current" && entry.candidate.fields.every((field) =>
+          field.state !== "invalid" && field.state !== "unavailable" &&
+          (!field.required || field.state === "configured" || field.state === "defaulted"));
+        if (noConfigurationInput && currentSatisfiesFields) {
+          entry.configurationRevision = current.document.revision;
+          entry.retained.configuration = true;
+        } else {
+          const input = dependencies.configurationInput(entry.candidate, root);
+          const validation = await validateTrustedInstallSubmission(entry.candidate.fields, submission, {
+            ...input,
+            configurationRef: entry.candidate.binding.configurationRef,
+            plugin: entry.candidate.binding.plugin,
+            scope: entry.candidate.resolved.scope,
+            descriptors: entry.candidate.plugin.configuration,
+            ...(current.kind === "current" ? { existing: current.document } : {}),
+          }, signal);
+          if (validation.kind === "invalid") issues.push(...validation.issues);
+          else configurationRequest = validation.request;
+        }
       } else if (submission.nonSensitive.length > 0 || submission.sensitive.length > 0) {
         for (const key of [...submission.nonSensitive, ...submission.sensitive].map((item) => item.key)) issues.push({ code: "CONFIG_UNKNOWN_KEY", key });
       }
@@ -261,13 +314,13 @@ export function createTrustedInstallationService(dependencies: TrustedInstallati
         return TrustedInstallActivationResultSchema.parse({ kind: "needs-input", issues: sortedIssues(issues), session: view(entry) });
       }
       progress(entry, phase, "completed", options);
-      if (submission.consent.kind === "deny") return finish(entry, cancelled(entry, phase));
       signal.throwIfAborted();
 
-      if (configurationRequest !== undefined) {
+      if (entry.candidate.binding.configurationRef !== undefined) {
         phase = "configuration-custody";
         progress(entry, phase, "started", options);
         if (entry.configurationRevision === undefined) {
+          if (configurationRequest === undefined) throw new Error("configuration authority was not established");
           const saved = await dependencies.configuration.save(configurationRequest, signal);
           if (saved.kind === "stale" || saved.kind === "stale-with-cleanup-required") return finish(entry, stale(entry, "configuration"));
           if (saved.kind === "ambiguous-with-recovery-required" || saved.kind === "stored-with-cleanup-required") {
@@ -305,6 +358,9 @@ export function createTrustedInstallationService(dependencies: TrustedInstallati
       signal.throwIfAborted();
 
       if (await dependencies.candidate.validate(entry.candidate, signal) !== "current") return finish(entry, stale(entry, "candidate"));
+      if (await dependencies.evidence.validate(entry.candidate.snapshotBinding, signal) !== "current") {
+        return finish(entry, stale(entry, entry.candidate.binding.scope.kind === "project" ? "project" : "capability"));
+      }
       if (root !== undefined && dependencies.projectRoots.revalidate !== undefined) {
         try { await dependencies.projectRoots.revalidate(root, entry.candidate.resolved.scope, signal); }
         catch (error) {
@@ -313,7 +369,13 @@ export function createTrustedInstallationService(dependencies: TrustedInstallati
         }
       }
       if (entry.candidate.binding.configurationRef !== undefined && entry.configurationRevision !== undefined) {
-        const authority = await dependencies.configurationAuthority.readExact({ configurationRef: entry.candidate.binding.configurationRef, descriptors: entry.candidate.plugin.configuration, expectedRevision: entry.configurationRevision }, signal);
+        const authority = await dependencies.configurationAuthority.readExact({
+          configurationRef: entry.candidate.binding.configurationRef,
+          plugin: entry.candidate.binding.plugin,
+          scope: entry.candidate.binding.scope,
+          descriptors: entry.candidate.plugin.configuration,
+          expectedRevision: entry.configurationRevision,
+        }, signal);
         if (authority.kind !== "current") return finish(entry, stale(entry, "configuration"));
       }
 

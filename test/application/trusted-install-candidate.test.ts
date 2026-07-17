@@ -23,9 +23,11 @@ function setup() {
   } as never;
   const release = vi.fn(async () => undefined);
   const lease = { candidate, materialized, claim: vi.fn(), release } as never;
+  const resolve = vi.fn(async () => ({ kind: "resolved" as const, candidate }));
+  const acquire = vi.fn(async () => lease);
   const service = createTrustedInstallCandidateService({
-    catalog: { resolve: vi.fn(async () => ({ kind: "resolved" as const, candidate })) },
-    content: { acquire: vi.fn(async () => lease), withMaterialized: vi.fn() },
+    catalog: { resolve },
+    content: { acquire, withMaterialized: vi.fn() },
     inspector: { inspect: vi.fn(async () => ({ ok: true as const, value: plugin, diagnostics: [] })) },
     readiness: { trust: vi.fn(async () => "required" as const), configuration: vi.fn(async () => []), secretCustody: () => ({ status: "available" as const, explanation: "ready" }) },
     sha256,
@@ -35,7 +37,7 @@ function setup() {
       capturedAt: 1,
       scopes: [{ scope: { kind: "user" }, generation: 0, status: "ready", corruptionCodes: [] }],
       currentProject: { projectKey: `project-v1:sha256:${"44".repeat(32)}`, trust: { kind: "trusted" }, epoch: `sha256:${"55".repeat(32)}` },
-      catalogs: [{ registrationId, snapshot: catalogSnapshot, cache: { kind: "ready", validator: { kind: "git-commit", revision: "a".repeat(40) }, etag: { kind: "not-applicable" } } }],
+      catalogs: [{ scope: { kind: "user" }, registrationId, snapshot: catalogSnapshot, cache: { kind: "ready", validator: { kind: "git-commit", revision: "a".repeat(40) }, etag: { kind: "not-applicable" } } }],
       capability: { status: "ready", digest: `sha256:${"66".repeat(32)}`, capturedBy: "fixture" },
       runtimeEpoch: `sha256:${"77".repeat(32)}`, recoveryDigest: `sha256:${"88".repeat(32)}`, updateDigest: `sha256:${"99".repeat(32)}`,
     },
@@ -44,7 +46,7 @@ function setup() {
     capabilities: capabilities(), runtime: [], recovery: { results: [], deferred: false, processed: 0 },
     startup: { status: "ready", blocked: [], capabilities: { mcp: { status: "available", explanation: "yes" }, subagents: { status: "available", explanation: "yes" }, piReload: { status: "available", explanation: "yes" }, secrets: { status: "available", explanation: "yes" } } },
   } as never;
-  return { service, snapshot, release };
+  return { service, snapshot, release, resolve, acquire };
 }
 
 describe("trusted-install candidate", () => {
@@ -60,6 +62,24 @@ describe("trusted-install candidate", () => {
     expect(publicEvidence).not.toContain("/private/candidate");
     expect(publicEvidence).not.toContain("/private/market");
     expect(release).not.toHaveBeenCalled();
+  });
+
+  it("rejects cross-scope inspection authority before catalog resolution or acquisition", async () => {
+    const { service, snapshot, resolve, acquire } = setup();
+    snapshot.binding.catalogs[0]!.scope = { kind: "project", projectKey: `project-v1:sha256:${"44".repeat(32)}` };
+    const result = await service.acquire({ subject, snapshot }, new AbortController().signal);
+    expect(result.kind).toBe("stale");
+    expect(resolve).not.toHaveBeenCalled();
+    expect(acquire).not.toHaveBeenCalled();
+  });
+
+  it("honors inspection quarantine before candidate acquisition", async () => {
+    const { service, snapshot, resolve, acquire } = setup();
+    snapshot.binding.catalogs[0]!.cache = { kind: "corrupt" };
+    const result = await service.acquire({ subject, snapshot }, new AbortController().signal);
+    expect(result.kind).toBe("unavailable");
+    expect(resolve).not.toHaveBeenCalled();
+    expect(acquire).not.toHaveBeenCalled();
   });
 
   it("releases bytes when capability evidence is unavailable", async () => {

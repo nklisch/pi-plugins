@@ -8,7 +8,7 @@ import type { SavePluginConfigurationRequest } from "./configuration-service.js"
 import { collectConfigurationValidation } from "./configuration-validation.js";
 import type { Sha256 } from "../domain/source.js";
 import type { PluginKey } from "../domain/identity.js";
-import type { ScopeContext } from "../domain/state/scope.js";
+import type { ScopeContext, ScopeReference } from "../domain/state/scope.js";
 import {
   TrustedInstallConfigurationFieldSchema,
   TrustedInstallInputIssueSchema,
@@ -26,6 +26,7 @@ export type TrustedInstallConfigurationDependencies = Readonly<{
   pathContext: ConfigurationPathContext;
   paths: ConfigurationPathPort;
   secretCustody: HostCapabilityStatus;
+  existing?: PluginConfigurationDocument;
 }>;
 
 export type TrustedInstallConfigurationValidationResult =
@@ -82,50 +83,76 @@ export async function validateTrustedInstallSubmission(
     }
   }
 
-  const partitionIssues = sortedIssues(issues);
-  if (partitionIssues.length > 0) return { kind: "invalid", issues: partitionIssues };
-  const request: SavePluginConfigurationRequest = {
+  const request: SavePluginConfigurationRequest & Readonly<{ existing?: PluginConfigurationDocument }> = {
     configurationRef: dependencies.configurationRef,
     plugin: dependencies.plugin,
     scope: dependencies.scope,
     descriptors: dependencies.descriptors,
     values,
     pathContext: dependencies.pathContext,
+    ...(dependencies.existing === undefined ? {} : { existing: dependencies.existing }),
   };
   const validation = await collectConfigurationValidation(request, dependencies.paths, signal);
   if (validation.kind === "invalid") {
-    return {
-      kind: "invalid",
-      issues: sortedIssues(validation.issues.map((issue) => TrustedInstallInputIssueSchema.parse(issue))),
-    };
+    issues.push(...validation.issues.map((issue) => TrustedInstallInputIssueSchema.parse(issue)));
   }
-  return { kind: "valid", request };
+  const allIssues = sortedIssues(issues);
+  if (allIssues.length > 0) return { kind: "invalid", issues: allIssues };
+  const { existing: _existing, ...saveRequest } = request;
+  return { kind: "valid", request: saveRequest };
 }
 
 export type TrustedInstallConfigurationAuthorityResult =
   | Readonly<{ kind: "current"; document: PluginConfigurationDocument }>
   | Readonly<{ kind: "missing" | "stale" | "unavailable" }>;
 
-/** Exact read-only authority check used immediately before lifecycle transfer. */
+export type TrustedInstallConfigurationAuthorityRequest = Readonly<{
+  configurationRef: PluginConfigurationRef;
+  plugin: PluginKey;
+  scope: ScopeReference;
+  descriptors: PluginConfiguration;
+}>;
+
+export interface TrustedInstallConfigurationAuthority {
+  readCurrent(request: TrustedInstallConfigurationAuthorityRequest, signal: AbortSignal): Promise<TrustedInstallConfigurationAuthorityResult>;
+  readExact(request: TrustedInstallConfigurationAuthorityRequest & Readonly<{ expectedRevision: string }>, signal: AbortSignal): Promise<TrustedInstallConfigurationAuthorityResult>;
+}
+
+function sameScope(left: PluginConfigurationDocument["scope"], right: ScopeReference): boolean {
+  return left.kind === right.kind && (left.kind === "user" || (right.kind === "project" && left.projectKey === right.projectKey));
+}
+
+/** Exact read-only authority checks used for reuse and lifecycle transfer. */
 export function createTrustedInstallConfigurationAuthority(dependencies: Readonly<{
   configurations: PluginConfigurationStore;
   sha256: Sha256;
-}>): Readonly<{
-  readExact(request: Readonly<{ configurationRef: PluginConfigurationRef; descriptors: PluginConfiguration; expectedRevision: string }>, signal: AbortSignal): Promise<TrustedInstallConfigurationAuthorityResult>;
-}> {
-  return Object.freeze({
-    async readExact(request, signal) {
-      try {
-        const result = await dependencies.configurations.read(request.configurationRef, signal);
-        if (result.kind === "missing") return { kind: "missing" as const };
-        const document = verifyPluginConfigurationDocument(result.document, request.descriptors, dependencies.sha256);
-        return document.revision === request.expectedRevision
-          ? { kind: "current" as const, document }
-          : { kind: "stale" as const };
-      } catch (error) {
-        if (signal.aborted) throw signal.reason ?? error;
-        return { kind: "unavailable" as const };
+}>): TrustedInstallConfigurationAuthority {
+  async function readCurrent(
+    request: TrustedInstallConfigurationAuthorityRequest,
+    signal: AbortSignal,
+  ): Promise<TrustedInstallConfigurationAuthorityResult> {
+    try {
+      const result = await dependencies.configurations.read(request.configurationRef, signal);
+      if (result.kind === "missing") return { kind: "missing" };
+      const document = verifyPluginConfigurationDocument(result.document, request.descriptors, dependencies.sha256);
+      if (document.configurationRef !== request.configurationRef || document.plugin !== request.plugin || !sameScope(document.scope, request.scope)) {
+        return { kind: "stale" };
       }
+      return { kind: "current", document };
+    } catch (error) {
+      if (signal.aborted) throw signal.reason ?? error;
+      return { kind: "unavailable" };
+    }
+  }
+
+  const authority: TrustedInstallConfigurationAuthority = {
+    readCurrent,
+    async readExact(request, signal) {
+      const current = await readCurrent(request, signal);
+      return current.kind === "current" && current.document.revision !== request.expectedRevision
+        ? { kind: "stale" }
+        : current;
     },
-  });
+  };
+  return Object.freeze(authority);
 }

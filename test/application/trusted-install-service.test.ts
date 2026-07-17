@@ -47,7 +47,7 @@ function makeCandidate(releaseError = false) {
   } as never;
 }
 
-function setup(options: { trustGate?: Promise<void>; releaseError?: boolean; sessionIdFailure?: boolean } = {}) {
+function setup(options: { trustGate?: Promise<void>; releaseError?: boolean; sessionIdFailure?: boolean; evidenceValidation?: "current" | "stale" } = {}) {
   let id = 0;
   const candidates: ReturnType<typeof makeCandidate>[] = [];
   const candidateService = {
@@ -55,10 +55,11 @@ function setup(options: { trustGate?: Promise<void>; releaseError?: boolean; ses
     validate: vi.fn(async () => "current" as const),
   };
   const trustGrant = vi.fn(async () => { await options.trustGate; return { kind: "recorded" as const, subject: binding.trustSubject, generation: 1 }; });
+  const evidenceValidate = vi.fn(async () => options.evidenceValidation ?? "current" as const);
   const composition = createTrustedInstallationService({
     candidate: candidateService,
     configuration: { save: vi.fn(), remove: vi.fn() } as never,
-    configurationAuthority: { readExact: vi.fn() },
+    configurationAuthority: { readCurrent: vi.fn(), readExact: vi.fn() },
     configurationInput: () => ({ pathContext: { scope: { kind: "user" }, trustedBaseDirectory: "/session/cwd" }, paths: { normalizeAndInspect: vi.fn() }, secretCustody: { status: "available", explanation: "ready" } }) as never,
     trust: { grant: trustGrant },
     lifecycle: {
@@ -66,7 +67,7 @@ function setup(options: { trustGate?: Promise<void>; releaseError?: boolean; ses
       prepared: { installPrepared: vi.fn(async () => ({ kind: "changed", operation: "install", snapshot: {}, observation: { kind: "active", scope: binding.scope, plugin: binding.plugin, revision, projectionDigest } })) } as never,
       publicLifecycle: { enable: vi.fn() } as never,
     },
-    evidence: { capture: vi.fn(async () => ({ binding: snapshotBinding })), validate: vi.fn(async () => "current") } as never,
+    evidence: { capture: vi.fn(async () => ({ binding: snapshotBinding })), validate: evidenceValidate } as never,
     projectRoots: { acquire: vi.fn(), verify: vi.fn() } as never,
     clock: { nowEpochMilliseconds: () => 1000 as never, monotonicMilliseconds: () => 0 },
     sessionIds: { create: async () => {
@@ -77,7 +78,7 @@ function setup(options: { trustGate?: Promise<void>; releaseError?: boolean; ses
   });
   const openRequest = { inspectionSnapshotId: snapshotId, detailId };
   const submission = { expectedVersion: 0, nonSensitive: [], sensitive: [], consent: { kind: "grant" as const, consentId: `trusted-install-consent-v1:sha256:${"2".repeat(64)}` as never } };
-  return { composition, candidateService, trustGrant, candidates, openRequest, submission };
+  return { composition, candidateService, trustGrant, evidenceValidate, candidates, openRequest, submission };
 }
 
 describe("trusted installation service", () => {
@@ -90,6 +91,22 @@ describe("trusted installation service", () => {
     expect(result).toMatchObject({ kind: "succeeded", revision, projectionDigest });
     expect(JSON.stringify(result)).not.toContain("CANARY_CALLBACK");
     expect(value.trustGrant).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a checksum-invalid inspection detail instead of treating it as stale authority", async () => {
+    const value = setup();
+    const last = value.openRequest.detailId.at(-1);
+    const invalidDetailId = `${value.openRequest.detailId.slice(0, -1)}${last === "0" ? "1" : "0"}` as never;
+    await expect(value.composition.application.open({ ...value.openRequest, detailId: invalidDetailId }, new AbortController().signal))
+      .resolves.toMatchObject({ kind: "rejected", code: "INSPECTION_ID_INVALID" });
+    expect(value.candidateService.acquire).not.toHaveBeenCalled();
+  });
+
+  it("revalidates inspection authority after acquisition and releases stale bytes", async () => {
+    const value = setup({ evidenceValidation: "stale" });
+    await expect(value.composition.application.open(value.openRequest, new AbortController().signal))
+      .resolves.toMatchObject({ kind: "stale", reason: "candidate" });
+    expect(value.candidates[0]!.release).toHaveBeenCalledTimes(1);
   });
 
   it("returns complete missing input without trust or lifecycle mutation", async () => {
