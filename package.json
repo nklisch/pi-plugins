@@ -45,6 +45,7 @@
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "0.80.8",
+    "@earendil-works/pi-tui": "0.80.8",
     "@swc/core": "^1.15.43",
     "@types/node": "^24.0.0",
     "@types/semver": "^7.7.1",
@@ -53,6 +54,7 @@
     "vitest": "^4.0.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
   }
 }

@@ -58,6 +58,7 @@ export const NativeControlCompletionRequestSchema = z.object({
   }).strict().readonly()).max(512).readonly().default([]),
 }).strict().readonly();
 export type NativeControlCompletionRequest = z.infer<typeof NativeControlCompletionRequestSchema>;
+export type NativeControlDynamicCandidate = NativeControlCompletionRequest["dynamic"][number];
 
 export const NativeControlCompletionResultSchema = z.object({
   grammarVersion: NativeControlGrammarVersionSchema,

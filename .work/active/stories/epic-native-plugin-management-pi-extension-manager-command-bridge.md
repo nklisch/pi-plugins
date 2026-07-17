@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-pi-extension-manager-command-bridge
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, tui]
 parent: epic-native-plugin-management-pi-extension-manager
 depends_on: []
@@ -28,3 +28,9 @@ The adapter must invoke only `host.runWithPiOperationContext(... application.con
 - Collision tests retain Pi suffix behavior and report the extension's actual invocation.
 - RPC/JSON framing has no raw stdout; print output is bounded, terminal-safe, and facade-derived.
 - Static completion has no startup/service effect; dynamic completion uses safe cached rows only.
+
+## Implementation notes
+
+Implemented the raw-text `/plugin` adapter and mode-safe control channel. The adapter delegates parsing, completion, execution, input, progress, diagnostics, and envelopes to `application.control`; it never tokenizes or rebuilds Pi's argument string. Empty TUI input opens the manager while RPC/JSON/print remain on the facade fallback. Structured modes emit Pi custom entries, print emits bounded non-ANSI facade fields, collisions report Pi's assigned suffix, and reload-causing subcommands publish only their safe final envelope to the process-local successor handoff.
+
+Pi and Pi TUI are pinned to exact 0.80.8 development contracts with `*` runtime peers. Focused command tests cover byte preservation, all mode branches, completion, collisions, bounded print, structured framing, and predecessor-safe reload succession. Full repository verification passed before this checkpoint advanced directly to done.

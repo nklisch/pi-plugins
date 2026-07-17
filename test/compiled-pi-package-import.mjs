@@ -14,5 +14,11 @@ const metadata = JSON.parse(await readFile(new URL("../package.json", import.met
 if (!metadata.keywords?.includes("pi-package") || JSON.stringify(metadata.pi?.extensions) !== JSON.stringify(["./dist/pi/extension.js"])) {
   throw new Error("Pi package discovery metadata is invalid");
 }
+if (metadata.devDependencies?.["@earendil-works/pi-coding-agent"] !== "0.80.8" || metadata.devDependencies?.["@earendil-works/pi-tui"] !== "0.80.8") {
+  throw new Error("Pi 0.80.8 development contracts are not exact");
+}
+if (metadata.peerDependencies?.["@earendil-works/pi-coding-agent"] !== "*" || metadata.peerDependencies?.["@earendil-works/pi-tui"] !== "*") {
+  throw new Error("Pi runtime peer contracts are invalid");
+}
 await import(new URL("../dist/pi/extension.js", import.meta.url));
 console.log(`compiled Pi package import passed (${actual.length} exports)`);
