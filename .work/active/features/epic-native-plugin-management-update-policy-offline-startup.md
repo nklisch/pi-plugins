@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-update-policy-offline-startup
 kind: feature
-stage: review
+stage: done
 tags: [compatibility, reliability]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-lifecycle-sync-operations]
@@ -558,3 +558,17 @@ All nine child checkpoints are done. The implementation landed as a single autho
 Verification at review entry: `npm test` passed typecheck, dependency boundaries (358 modules / 2,599 dependencies), 274 test files / 1,333 tests, build, 783 exact public exports, 3 Pi exports, and isolated packed Pi startup. Feature is ready for integrated review.
 
 The owner pre-review found and fixed four integration gaps before this transition: post-refresh ledger/automatic maintenance now runs on the existing scheduler cycle; an initially disabled background owner can be awakened after policy/registration changes; persisted automatic retry backoff is honored and lifecycle completion preserves concurrent acknowledgment; and marketplace policy can be set before its first plugin is installed. Live facade reads/actions now also refresh host unread/unresolved counts.
+
+## Review (2026-07-17)
+
+**Verdict**: Approve after fixes
+
+**Blockers**: Eight sole-review blockers were accepted and fixed inline: current-project-only historical scope authority; one cadence-independent wakeable maintenance owner and ordered reconciliation/application/publication; project policy CAS bound to live root/trust epoch; internally derived exact candidate revision/configuration custody; fresh-signal post-lifecycle ledger settlement; detached locally ready startup; one shared safe scheduler projection; and real SQLite child-process/packaged-startup acceptance.
+
+**Important**: Parked `idea-prune-update-notifications-per-scope` and `idea-report-local-source-update-policy-guard` as unbound follow-up ideas.
+
+**Nits**: none
+
+**Rejected**: none
+
+**Notes**: Effective review weight was `standard`. This record closes the sole independent pass after receiver-adjudicated blocker fixes; no repeat review, nested agent, or second review pass ran. All nine child stories remain `done`. Focused update/state/lifecycle/project/process/startup/security verification passed. Final `npm test` passed typecheck, dependency boundaries (359 modules / 2,627 dependencies), 275 test files / 1,367 tests, build, 785 exact public exports, 3 Pi exports, and isolated packed Pi extension startup.
