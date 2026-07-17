@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-pi-extension-manager
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, tui]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-deterministic-control-facade]
@@ -533,3 +533,30 @@ One feature owner should normally carry this graph. Stories are durable design/v
 The feature fails if Pi loads two hosts, `/plugin` silently collides, command text is re-tokenized differently, non-TUI mode opens a prompt, a manager row bypasses the facade, stale list text selects current authority, async reads overwrite newer queries, a secret reaches editor history or terminal output, a color-only state disappears on a reduced terminal, long/untrusted text breaks width or injects controls, Escape hides a committed transition, an overlay steals focus permanently, a reload successor cannot show the true result, a predecessor uses stale context, update notifications repeat noisily, or session shutdown leaves a controller/overlay/background resource alive.
 
 The design counters those failures with existing composition claims, collision disclosure, byte-preserving facade parsing, strict mode gates, dependency boundaries, exact hidden IDs, request generations, isolated masked input, semantic text plus Pi theme tokens, width/control projection, owner-result cancellation precedence, focus restoration, exact reload handoff, successor refresh, authoritative notice state, and idempotent lifecycle disposal.
+
+## Implementation summary
+
+Delivered all seven child checkpoints as one cohesive xhigh feature-owner bundle with direct local grounding and no nested agents. The extension remains a thin outer adapter: default composition creates the existing packaged host, one `/plugin` registration, one facade-only manager family, one update publisher, and one process-local reload handoff. The manager reducer owns only ephemeral presentation state; the controller and action runner call canonical `application.control` requests, retain exact facade evidence, and never import lower management services.
+
+The signed split inspector and three-step install hierarchy were translated without new mocks or palette/font ownership. Wide, medium, and narrow layouts share one semantic-theme renderer and focus model. Configuration and exact executable trust use facade-requested values and expandable disclosure; secrets use a fresh masked TUI component and fail closed everywhere else. Progress/result/cancellation, stale refresh without replay, update notices/badges, command collisions, session replacement, broken render fallback, and reload succession retain facade/host truth.
+
+### Implementation discovery
+
+Pi 0.80.8 gives `session_start` only `ExtensionContext`, while the packaged host deliberately admits control execution only with `ExtensionCommandContext`. The reload successor therefore opens the transferred schema-validated result immediately but does not lie to the type system or reuse the predecessor command context to run an eager facade refresh. It displays no cached authoritative list in that result view; the next `/plugin` manager command creates a fresh controller and refreshes installed/update authority before rendering the manager. This preserves the stricter public-API and no-stale-context invariants instead of using a cast, deep import, or private command dispatch.
+
+## Verification
+
+- `npm test`: passed.
+- TypeScript: zero errors.
+- Dependency boundaries: 413 modules / 2,950 dependencies, zero violations.
+- Vitest: 322 files / 1,549 tests passed, including 70 new focused manager/Pi tests.
+- Package acceptance: build, 847-source-export allowlist, 3-export Pi subpath allowlist, exact Pi/Pi TUI 0.80.8 metadata, and isolated offline packed consumer all passed.
+- Working tree was clean after logical story and corrective commits; no push or release was performed.
+
+## Implementation run notes
+
+- Ownership: one feature owner for the full seven-story DAG; shared Pi/facade/TUI context made a split less safe and more expensive.
+- Capability: GPT-5.6 Sol, xhigh, explicitly requested by the caller.
+- Review weight: `standard` from `.work/CONVENTIONS.md`.
+- Child stories advanced directly from `implementing` to `done` after green verification.
+- Feature advanced from `implementing` to `review`; independent feature review remains the receiving orchestrator's next lifecycle step because the caller prohibited nested agents in this owner run.
