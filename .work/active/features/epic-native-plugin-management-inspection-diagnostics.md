@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-inspection-diagnostics
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-marketplace-discovery-adoption]
@@ -779,3 +779,13 @@ The feature remains one cohesive implementation/review bundle. Stories are durab
 This design fails if a list combines evidence from different generations, a stale runtime status becomes activation proof, a remote MCP failure makes a compatible plugin “incompatible,” a project-scope duplicate resolves to user scope, a renderer receives raw control text, a diagnostic echoes a secret/native cause, candidate inspection leaves authoritative or scratch residue, or clean/offline startup triggers network work.
 
 The countermeasures are snapshot validation, strict authority precedence, activation/health separation, scope-qualified IDs, schema-enforced safe fields, whitelist diagnostics, callback-scoped candidate acquisition, and local-only default reads. If evidence cannot meet those contracts, the correct output is stale, unavailable, or blocked—never guessed readiness or partial activation.
+
+## Implementation summary
+
+- **Ownership/dispatch**: one cohesive GPT-5.6 Sol xhigh owner implemented the eight-story DAG sequentially. Shared context and overlapping application/composition boundaries made a split less safe; no nested agent or peer mechanism ran, per the explicit caller boundary.
+- **Architecture**: `NativeInspectionService` is the sole packaged management read surface. It composes strict snapshot-bound identifiers/cursors, one display/disclosure boundary, registry-owned diagnostics, exact candidate and installed projectors, and private evidence/readiness adapters over existing state/catalog/trust/compatibility/runtime/recovery/update authorities.
+- **Coherence**: state generations, project trust, catalog tokens/cache status, one packaged capability capture, monotonic runtime selections, local skill/hook observations, MCP local/live status, recovery, and update memory bind each result. Capture-time metadata is excluded from authority identity; any authority change returns stale rather than retrying or mixing.
+- **Safety/read-only behavior**: candidate acquisition is callback-scoped disposable staging; all other reads remain local/offline. Public schemas cannot contain raw declarations, configuration/secret values or locators, custody/project paths, URL query/fragment/userinfo values, native messages/causes, command output, or remote bodies. Hostile display text is escaped before rendering.
+- **Packaged composition**: capabilities are captured once per host epoch and reused by compatibility, desired runtime, and inspection. `PackagedPluginHostApplication.inspection` exposes only `list/detail/diagnose`; the low-level bundle inspector and all raw adapters remain private. Classifiable local runtime reconstruction failure retains a blocked read-only container.
+- **Verification**: focused native/public suites passed 64 tests. Full `npm test` passed typecheck, 301-module dependency boundaries, 230 Vitest files / 1,124 tests, package build, exact 623 root exports, exact 3 Pi exports, and isolated packed extension startup.
+- **Review readiness**: all eight child checkpoints are `done`; integrated verification is green. Effective review weight is project-default `standard`. Independent feature review is intentionally left to the invoking orchestrator because this owner was explicitly forbidden from nesting agents.
