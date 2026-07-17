@@ -1,15 +1,14 @@
-import { access, cp, lstat, mkdir, mkdtemp, open, readFile, readdir, readlink, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { access, cp, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import {
   E2E_CHECKOUT_ROOT,
   E2E_PI_VERSION,
-  E2E_SECRET_CANARY,
   E2E_TIMEOUTS,
 } from "./constants.js";
 import { runChecked } from "./process.js";
+import { assertAllSqliteIntegrity } from "./state-inspector.js";
 
 export type E2ECapabilities = Readonly<{
   node: string;
@@ -116,22 +115,6 @@ export async function diagnoseE2ECapabilities(): Promise<E2ECapabilities> {
     shell: shell!, ...(script === undefined ? {} : { script }), ...(stty === undefined ? {} : { stty }),
     tar: tar!, cp: copy!, chmod: chmod!, ...(libfaketime === undefined ? {} : { libfaketime }),
   });
-}
-
-async function inventory(root: string): Promise<readonly string[]> {
-  const files: string[] = [];
-  async function visit(path: string): Promise<void> {
-    for (const name of (await readdir(path)).sort()) {
-      const child = join(path, name);
-      const info = await lstat(child);
-      if (info.isSymbolicLink()) {
-        files.push(`${relative(root, child)} -> ${await readlink(child)}`);
-      } else if (info.isDirectory()) await visit(child);
-      else files.push(relative(root, child));
-    }
-  }
-  await visit(root);
-  return Object.freeze(files);
 }
 
 async function auditIsolatedTree(root: string): Promise<void> {
@@ -323,23 +306,12 @@ async function makeWritable(path: string, chmod: string): Promise<void> {
   await runChecked(chmod, ["-R", "u+w", path], { timeoutMs: E2E_TIMEOUTS.shutdown }).catch(() => undefined);
 }
 
-export async function assertSandboxDatabasesHealthy(sandbox: CleanE2ESandbox): Promise<void> {
-  const files = await inventory(sandbox.agentDir);
-  for (const file of files.filter((entry) => entry.endsWith(".sqlite"))) {
-    const database = new DatabaseSync(join(sandbox.agentDir, file), { readOnly: true });
-    try {
-      const rows = database.prepare("PRAGMA integrity_check").all() as Array<{ integrity_check: string }>;
-      if (rows.length !== 1 || rows[0]?.integrity_check !== "ok") throw new Error(`SQLite integrity failed for ${file}: ${JSON.stringify(rows)}`);
-    } finally { database.close(); }
-  }
-}
-
 export async function cleanupSandbox(sandbox: CleanE2ESandbox): Promise<void> {
   const failures: unknown[] = [];
   for (const cleanup of [...sandbox.cleanups].reverse()) {
     try { await cleanup(); } catch (error) { failures.push(error); }
   }
-  try { await assertSandboxDatabasesHealthy(sandbox); } catch (error) { failures.push(error); }
+  try { await assertAllSqliteIntegrity(sandbox.agentDir); } catch (error) { failures.push(error); }
   if (process.env.PI_PLUGIN_HOST_E2E_KEEP === "1") {
     console.error(`PI Plugin Host E2E sandbox retained: ${sandbox.root}`);
   } else {
@@ -367,18 +339,6 @@ export async function acquireExclusiveFile(path: string, contents: string): Prom
   await handle.writeFile(contents, "utf8");
   await handle.close();
   return async () => { await rm(path, { force: true }); };
-}
-
-export async function assertNoForeignResidue(sandbox: CleanE2ESandbox): Promise<void> {
-  const textFiles = await inventory(sandbox.root);
-  for (const entry of textFiles) {
-    if (entry.includes(" -> ")) continue;
-    const path = join(sandbox.root, entry);
-    const info = await stat(path).catch(() => undefined);
-    if (info === undefined || !info.isFile() || info.size > 2_000_000) continue;
-    const bytes = await readFile(path);
-    if (bytes.includes(Buffer.from(E2E_SECRET_CANARY))) throw new Error(`secret canary retained in ${entry}`);
-  }
 }
 
 export function fixturePath(...parts: readonly string[]): string {

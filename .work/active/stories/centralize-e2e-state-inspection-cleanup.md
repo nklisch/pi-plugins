@@ -1,7 +1,7 @@
 ---
 id: centralize-e2e-state-inspection-cleanup
 kind: story
-stage: implementing
+stage: review
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -95,12 +95,12 @@ export async function cleanupSandbox(sandbox: CleanE2ESandbox): Promise<void> {
 
 ## Acceptance Criteria
 
-- [ ] `cleanupSandbox` still verifies every `.sqlite` file under `sandbox.agentDir` and aggregates integrity failures with cleanup failures before returning.
-- [ ] Exactly one recursive E2E filesystem inventory implementation and one SQLite integrity-check implementation remain.
-- [ ] The unreferenced `assertNoForeignResidue` export and obsolete imports are removed; `scanForbiddenValues` remains unchanged and live.
-- [ ] `npm run test:e2e:infrastructure` passes without changing its assertions.
-- [ ] E2E TypeScript compilation and `npm run typecheck` pass.
-- [ ] The implementation is a net deletion and changes no production source or observable product behavior.
+- [x] `cleanupSandbox` still verifies every `.sqlite` file under `sandbox.agentDir` and aggregates integrity failures with cleanup failures before returning.
+- [x] Exactly one recursive E2E filesystem inventory implementation and one SQLite integrity-check implementation remain.
+- [x] The unreferenced `assertNoForeignResidue` export and obsolete imports are removed; `scanForbiddenValues` remains unchanged and live.
+- [x] `npm run test:e2e:infrastructure` passes without changing its assertions.
+- [x] E2E TypeScript compilation and `npm run typecheck` pass.
+- [x] The implementation is a net deletion and changes no production source or observable product behavior.
 
 ## Risk and Rollback
 
@@ -111,3 +111,21 @@ Risk is low: the only live callsite changes from a sandbox-shaped wrapper to the
 - Scope: direct-read scan of relevant Pi manager source/review fixes and packed E2E infrastructure/golden journeys changed in `4b044f4..6483375`, verified against the current branch.
 - Dispatch: direct-read only, per caller instruction; no nested agents or advisory pass.
 - Rejected: repeated manager selected-row/input/render shapes because they are TUI-sensitive; four identical golden-test teardown blocks because extracting them would be test-only helper churn; active xfail/review correctness; reload, security, public API, and platform-semantic paths.
+
+## Implementation notes
+
+- Execution capability: direct inline GPT-5.6 Sol; the low-risk, one-callsite refactor had a fully specified two-file boundary, and the caller prohibited nested agents.
+- Review weight: standard, from `.work/CONVENTIONS.md`; standalone-story policy requires one bounded inline review without an independent reviewer.
+- Files changed: `test/e2e/harness/environment.ts`; `test/e2e/harness/state-inspector.ts` remained unchanged as the canonical owner.
+- Tests added/removed: none; existing infrastructure teardown, full E2E journeys, xfail contracts, typecheck, boundaries, unit, package, and packed-Pi tests cover the preserved seam.
+- Simplification: removed the private recursive `inventory`, private `assertSandboxDatabasesHealthy`, dead `assertNoForeignResidue`, and obsolete filesystem/SQLite/canary imports; the harness source change is 3 insertions and 43 deletions (net -40 lines).
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+
+## Verification evidence
+
+- `npm run typecheck` passed.
+- `npm run test:e2e:infrastructure` passed unchanged (2 tests); an initial run encountered a transient external fixed-port lock collision, and the immediate clean rerun passed without code or fixture changes.
+- `npm run test:e2e` passed: 12 files, 22 passing tests, and all 21 expected failures retained.
+- `npm test` passed: typecheck, dependency boundaries, 325 unit files / 1,589 tests, package build/import checks, and isolated packed Pi 0.80.8 RPC/JSON/PTY acceptance.
+- Static symbol inspection confirms one recursive E2E inventory implementation, one `PRAGMA integrity_check` implementation, no residue-check export, and unchanged live `scanForbiddenValues` callsites.
