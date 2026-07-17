@@ -275,11 +275,9 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         } });
 
         await recovery.recover({ requiredScopes: [{ kind: "user" }, project.scope] }, new AbortController().signal);
-        const observations = successor === undefined
-          ? await reload.reconcileCurrent(new AbortController().signal)
-          : await reload.acceptSuccessor(successor, new AbortController().signal);
+        if (successor === undefined) await reload.reconcileCurrent(new AbortController().signal);
+        else await reload.acceptSuccessor(successor, new AbortController().signal);
         if (successor !== undefined) reloadSuccessor = Object.freeze({ ticket: successor, reload });
-        void observations;
         const application: PackagedPluginHostApplication = Object.freeze({
           lifecycle,
           compatibility,

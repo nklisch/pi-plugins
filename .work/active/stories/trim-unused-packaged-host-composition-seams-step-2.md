@@ -1,7 +1,7 @@
 ---
 id: trim-unused-packaged-host-composition-seams-step-2
 kind: story
-stage: implementing
+stage: done
 tags: [refactor, infra]
 parent: trim-unused-packaged-host-composition-seams
 depends_on: [trim-unused-packaged-host-composition-seams-step-1]
@@ -104,3 +104,14 @@ else await reload.acceptSuccessor(successor, signal);
 ## Risk and Rollback
 
 Risk is low because all removed values are internal, have no production reader, and change no package export or persisted path/schema. Revert this story's commit to restore the dead surface.
+
+## Implementation Notes
+
+- Execution capability: direct inline implementation; all removals were explicit dead values at four bounded composition/test sites.
+- Review weight: not applicable; this child story is a verification checkpoint and does not enter review.
+- Files changed: `src/composition/plugin-host-paths.ts`, `src/composition/runtime-desired-state.ts`, `src/composition/create-packaged-plugin-host.ts`, and `test/composition/packaged-plugin-host-contract.test.ts`.
+- Tests updated: removed only the contract assertion for the deleted unused `journalRoot` output; path authority, project digest, collision, desired-state, rollback, and startup/recovery coverage remain.
+- Simplification: removed nine path-plan fields and computations, the ignored desired-state `scopes` input and `GenerationSnapshot` import plumbing, and the discarded startup observation binding (net 25 lines deleted for this step).
+- Verification: focused packaged-host path, desired-state, selection rollback, SQLite state, startup/recovery, disposal, and complete-reload coverage passed (15 tests); typecheck and dependency boundaries passed.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.

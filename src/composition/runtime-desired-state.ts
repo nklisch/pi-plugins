@@ -22,7 +22,6 @@ import type { PiProjectContextAdapters } from "../pi/pi-project-context.js";
 import { digestSkillHookContribution, type RuntimeProjectionSelection } from "../runtime/skill-hook/runtime-snapshot.js";
 import type { SkillHookRuntimeSetRequest } from "../runtime/skill-hook/runtime-catalog.js";
 import type { McpLifecycleState } from "../runtime/mcp/lifecycle-participant.js";
-import type { GenerationSnapshot } from "../application/state-contract.js";
 import type { RuntimeSelection } from "./runtime-selection-catalog.js";
 
 export type HostBlockedPlugin = Readonly<{
@@ -70,7 +69,6 @@ function selected(record: InstalledPluginRecord) {
 
 /** Rebuild exact desired runtime state from authority; caches are replaceable. */
 export async function buildRuntimeDesiredState(input: Readonly<{
-  scopes?: readonly GenerationSnapshot[];
   installed: InstalledPluginLoader;
   compatibility: CompatibilityService;
   projections: RuntimeProjectionCachePort;
@@ -82,16 +80,14 @@ export async function buildRuntimeDesiredState(input: Readonly<{
 }>, signal: AbortSignal): Promise<RuntimeDesiredState> {
   signal.throwIfAborted();
   const currentProject = input.project.current();
-  const authoritative: GenerationSnapshot[] = [];
   const user = await input.state.read({ kind: "user" }, signal);
   if (!user.ok) throw new Error("authoritative user state is corrupt");
-  authoritative.push(user.snapshot);
+  const authoritative = [user.snapshot];
   if (currentProject.trust.kind === "trusted") {
     const project = await input.state.read(input.project.scope, signal);
     if (!project.ok) throw new Error("authoritative current-project state is corrupt");
     authoritative.push(project.snapshot);
   }
-  void input.scopes;
 
   const trustRecords = authoritative.find((snapshot) => "trust" in snapshot && snapshot.scope.kind === "user");
   const records: Array<{ scope: ScopeContext; record: InstalledPluginRecord }> = [];

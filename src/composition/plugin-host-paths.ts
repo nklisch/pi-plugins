@@ -9,15 +9,6 @@ export type PluginHostPathPlan = Readonly<{
   stateRoot: string;
   lockRoot: string;
   configurationRoot: string;
-  configurationDatabase: string;
-  stagingRoot: string;
-  storesRoot: string;
-  dataRoot: string;
-  generatedRoot: string;
-  recoveryRoot: string;
-  journalRoot: string;
-  leaseRoot: string;
-  retentionRoot: string;
   stateDatabase(scope: ScopeReference): string;
 }>;
 
@@ -51,15 +42,6 @@ export function createPluginHostPathPlan(agentDir: string): PluginHostPathPlan {
     stateRoot,
     lockRoot,
     configurationRoot,
-    configurationDatabase: join(configurationRoot, "configuration.sqlite"),
-    stagingRoot: join(hostRoot, "staging", "v1"),
-    storesRoot: join(hostRoot, "stores", "v1"),
-    dataRoot: join(hostRoot, "data", "v1"),
-    generatedRoot: join(hostRoot, "generated", "v1"),
-    recoveryRoot: join(hostRoot, "recovery"),
-    journalRoot: join(hostRoot, "recovery", "journal", "v1"),
-    leaseRoot: join(hostRoot, "recovery", "leases", "v1"),
-    retentionRoot: join(hostRoot, "recovery", "retention", "v1"),
     stateDatabase(scopeInput): string {
       const scope = ScopeReferenceSchema.parse(scopeInput);
       return join(

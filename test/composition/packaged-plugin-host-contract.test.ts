@@ -35,7 +35,6 @@ describe("packaged host construct-only contract", () => {
       `/agent/plugin-host/state/v1/project-${"ab".repeat(32)}.sqlite`,
     );
     expect(plan.lockRoot).toBe("/agent/plugin-host/locks/v1");
-    expect(plan.journalRoot).toBe("/agent/plugin-host/recovery/journal/v1");
     expect(JSON.stringify(plan)).not.toContain("workspace");
     expect(() => createPluginHostPathPlan("relative")).toThrowError(expect.objectContaining({ code: "HOST_INVALID_OPTIONS" }));
   });
