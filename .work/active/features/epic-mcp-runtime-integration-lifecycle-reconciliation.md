@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-lifecycle-reconciliation
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration
 depends_on: [epic-mcp-runtime-integration-plugin-projections, epic-mcp-runtime-integration-launch-context]
@@ -684,3 +684,31 @@ The stories are durable correctness checkpoints for one cohesive feature owner. 
 The design fails if an omitted CAS precondition overwrites a concurrent source, an adapter's return is accepted without inspection, a failed update destroys the prior process set, inactive observation ignores leaked source/process leases, remote health becomes activation authority, no-MCP plugins require a package they do not use, project trust drifts, or recovery creates an MCP-specific replay engine. Required absent/exact CAS, canonical registration evidence, independent local inspection, runtime revision leases, strict absence cleanup, health separation, explicit none states, current-project checks, and reuse of the existing lifecycle/recovery authority address each failure.
 
 When evidence is uncertain, the rule is simple: do not emit exact MCP contribution evidence. Let the existing lifecycle restore what it can; otherwise retain the pending transition for recovery. Availability for one plugin never outranks proof of the active whole-plugin projection.
+
+## Implementation summary
+
+All five child checkpoints are implemented and verified in the designed DAG order by one cohesive xhigh feature owner:
+
+1. Portable contracts now use canonical complete-source registrations, required absent/exact CAS, one launch/lease binding, strict registration status, and execution-lease capability/cleanup semantics.
+2. The stateless MCP participant plugs into the existing whole-plugin transition/reload/observation seams. It owns no state, transaction, journal, commit, settlement, retry, or recovery policy.
+3. Runtime execution lifetime adapts exact active-selection evidence to the existing `RevisionLeaseStore`; opaque tokens pin only plugin/projection artifacts and remain retryable on cleanup failure.
+4. The fake and reusable conformance contract cover partial/lost effects, cancellation ownership, stale writers, strict cleanup, and runtime leases. Real transition-reconciler integration proves exact finalization, compensation, recovery-required retention, and crash replay without an MCP recovery engine.
+5. Public/package/boundary integration proves offline local registration and observation, explicit no-MCP behavior, remote-health separation, project and owner isolation, redaction, and the absence of production package claims.
+
+The implementation consumes the exact complete plugin projection and the existing `McpRuntimePort`. There is no `pi-mcp-adapter` dependency, production wrapper, Pi reload implementation, settings/config writer, concrete credential/root/state adapter, or native composition branch.
+
+## Native-management handoff
+
+`epic-native-plugin-management` remains responsible for loading the authoritative current/pending transition and installed revision pair; constructing previous/candidate complete projections; supplying current-project trust and active-selection authority; composing concrete state, credential, configuration, root, lease, and Pi adapters; selecting a qualified runtime package; passing all initial sources before tool registration with file discovery isolated; invoking Pi reload; and composing strict skill/hook plus MCP evidence into `LifecycleReloadPort`.
+
+The maintained-fork and production-adapter items remain the production blocker. They must implement the unchanged exact registration/CAS/runtime-lease/cleanup/inspection/initial-source contract and pass both the reusable conformance suite and package-specific published-byte, Node/Pi, source-isolation, source-before-tools, process/cache/tool cleanup, and provenance qualification. Portable fake success does not make MCP production-available.
+
+## Implementation verification
+
+- Child stories: **5 done**, none entered review.
+- Full `npm test` pipeline: passed.
+  - Typecheck: **0 errors**.
+  - Dependency boundaries: **237 modules, 1,444 dependencies**, no violations.
+  - Vitest: **177 files, 967 tests passed, 0 failed; 0 type errors**.
+  - Build and compiled package import: passed, **522 exports**.
+- Review boundary: advanced from `implementing` to `review` as requested. Independent review was not run because the caller prohibited nested agents.
