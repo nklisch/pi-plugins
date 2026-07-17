@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-lifecycle-sync-operations-project-sync-application
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility]
 parent: epic-native-plugin-management-lifecycle-sync-operations
 depends_on: [epic-native-plugin-management-lifecycle-sync-operations-whole-plugin-operation-orchestration, epic-native-plugin-management-lifecycle-sync-operations-uninstall-cleanup-recovery, epic-native-plugin-management-lifecycle-sync-operations-project-sync-diff-merge-planner]
@@ -28,3 +28,11 @@ No batch transaction or reverse replay is added. Each plugin action owns compens
 - Enable/disable/uninstall use exact complete lifecycle paths; direct record edits never impersonate activation.
 - Crash/cancel after file write or any action reports exact effects and retries idempotently.
 - Digest advances only after file, registrations, constraints, installed set, and activation intent independently converge.
+
+## Implementation notes
+
+- Added project-sync preview/apply over an unforgeable in-process context containing the trusted root, exact project generation/document, file observation, planner evidence, and plan digest. Root/trust/epoch, full project state, and file identity are revalidated before the first effect and before each action.
+- Apply performs only the planner's local actions: optional file CAS, exact expected-target lifecycle enable/disable/uninstall, registration removal after dependents, and declaration-digest CAS. Its dependency surface contains no materializer, marketplace add/refresh, install/update, trust/config write, scheduler, adoption, or foreign-file port.
+- Added deterministic completed/pending action effects, cancellation between actions, partial-change/recovery evidence, and one-use context admission. File publication precedes machine convergence for publish/merge; the baseline advances only after independent file and machine projection rereads match the desired digest.
+- Added a project-state digest commit helper using the existing generation coordinator, scope lock, verified state mutation, and state store rather than a batch journal or second transaction engine.
+- Verification: strict typecheck; 10 focused sync-service/planner/codec tests passed.
