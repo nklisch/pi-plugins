@@ -360,6 +360,25 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
   },
 ];
 
+export const mcpProjectionConformanceVectors = {
+  stdio: {
+    transport: "stdio",
+    command: "CANARY_STDIO_COMMAND",
+    args: ["CANARY_STDIO_ARG"],
+    env: { TOKEN: "CANARY_STDIO_ENV" },
+    cwd: "/CANARY_STDIO_PATH",
+    timeoutMs: 1200,
+    allowTools: ["read"],
+  },
+  streamableHttp: {
+    transport: "streamable-http",
+    url: "https://example.invalid/CANARY_HTTP_PATH",
+    headers: { Authorization: "${CANARY_HEADER_ENV}" },
+    bearerTokenEnv: "CANARY_BEARER_ENV",
+    resources: ["docs"],
+  },
+} as const;
+
 export const mcpIngestionFixtures = {
   stdio: {
     local: {

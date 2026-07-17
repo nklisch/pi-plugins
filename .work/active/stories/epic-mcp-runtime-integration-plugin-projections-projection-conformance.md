@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-plugin-projections-projection-conformance
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-plugin-projections
 depends_on: [epic-mcp-runtime-integration-plugin-projections-source-projection]
@@ -49,3 +49,15 @@ Exercise generated sources through the completed package-neutral `FakeMcpRuntime
 ## Ordering and boundary
 
 Depends on the deterministic source projection. This is the final feature checkpoint and remains fully implementable against the portable fake while the parent bridge's production-adapter story is externally blocked.
+
+## Implementation notes
+
+- Added one package-neutral integration matrix that feeds generated non-empty sources through `FakeMcpRuntime.validateSource` and atomic replacement, while `kind: none` performs no runtime call.
+- Proved exact source-qualified inspection/removal, equal native-key isolation across user/project scopes and plugins, stable local replacement keys, stale ownership handling, sorted status provenance, alias capability on/off, native-first collision handling, and omit-all claimant behavior.
+- Provider resolve/dispose counters remain zero because this feature never enters launch/connect ownership. Status and result serialization omit declaration, command, argument, working-directory, environment, URL, header, bearer, provider, options, and launch-template canaries.
+- Integration uses only the portable projection contracts, package-internal resolver, test fixture, and fake. No production dependency/adapter, package claim, lifecycle mutation, reload, projection persistence, or `pi-mcp-adapter` coupling was added.
+
+## Verification
+
+- `npm run typecheck` — passed.
+- `npx vitest run test/integration/mcp-plugin-projection.test.ts` — 1 file, 4 tests passed.
