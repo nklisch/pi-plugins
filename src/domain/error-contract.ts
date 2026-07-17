@@ -29,6 +29,13 @@ export const ErrorCodeRegistry = {
   collectionDeferred: "COLLECTION_DEFERRED",
   adapterFailed: "ADAPTER_FAILED",
   foreignStateRootInvalid: "FOREIGN_STATE_ROOT_INVALID",
+  mcpLaunchAuthorityRejected: "MCP_LAUNCH_AUTHORITY_REJECTED",
+  mcpLaunchConfigurationFailed: "MCP_LAUNCH_CONFIGURATION_FAILED",
+  mcpLaunchEnvironmentFailed: "MCP_LAUNCH_ENVIRONMENT_FAILED",
+  mcpLaunchValueInvalid: "MCP_LAUNCH_VALUE_INVALID",
+  mcpLaunchCancelled: "MCP_LAUNCH_CANCELLED",
+  mcpLaunchTimeout: "MCP_LAUNCH_TIMEOUT",
+  mcpLaunchCleanupFailed: "MCP_LAUNCH_CLEANUP_FAILED",
 } as const;
 
 type ErrorCodeValue =

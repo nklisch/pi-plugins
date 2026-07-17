@@ -136,7 +136,7 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
         transport: "stdio",
         command: "server",
         args: ["--safe"],
-        env: { TOKEN: "CANARY_ENV_VALUE" },
+        env: { TOKEN: "${CANARY_ENV_VALUE}" },
         cwd: "/CANARY_RUNTIME_PATH",
         timeout: 1000,
         allowTools: ["search"],
@@ -149,7 +149,7 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
       mcp({
         transport: "streamable-http",
         url: "https://example.invalid/bearer-only",
-        headers: { Authorization: "CANARY_HEADER_VALUE" },
+        headers: { "X-Trace": "CANARY_HEADER_VALUE" },
         auth: { type: "bearer", env: "MCP_BEARER_TOKEN" },
       }, "b2"),
     ] } }),
@@ -384,7 +384,7 @@ export const mcpIngestionFixtures = {
     local: {
       command: "node",
       args: ["server.js"],
-      env: { TOKEN: "CANARY_ENV_VALUE" },
+      env: { TOKEN: "${CANARY_ENV_VALUE}" },
       cwd: "/CANARY_RUNTIME_PATH",
     },
   },
@@ -392,7 +392,7 @@ export const mcpIngestionFixtures = {
     remote: {
       type: "http",
       url: "https://example.invalid/mcp",
-      headers: { Authorization: "CANARY_HEADER_VALUE" },
+      headers: { "X-Trace": "CANARY_HEADER_VALUE" },
       auth: { type: "bearer", env: "CANARY_BEARER_ENV" },
     },
   },

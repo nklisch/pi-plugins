@@ -52,8 +52,15 @@ export function createResolvedConfiguration(entries: readonly ResolvedEntry[]): 
     },
     environment(prefix = "CLAUDE_PLUGIN_OPTION_"): Readonly<Record<string, string>> {
       assertLive();
-      const result: Record<string, string> = {};
-      for (const key of [...values.keys()].sort()) result[`${prefix}${key}`] = get(key);
+      const result = Object.create(null) as Record<string, string>;
+      for (const key of [...values.keys()].sort()) {
+        Object.defineProperty(result, `${prefix}${key}`, {
+          value: get(key),
+          enumerable: true,
+          configurable: false,
+          writable: false,
+        });
+      }
       return Object.freeze(result);
     },
     redact(text: string): string {

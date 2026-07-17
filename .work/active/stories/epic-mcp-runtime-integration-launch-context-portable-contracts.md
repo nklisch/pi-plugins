@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-launch-context-portable-contracts
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra, security]
 parent: epic-mcp-runtime-integration-launch-context
 depends_on: []
@@ -72,3 +72,19 @@ The risk is creating a launch-field vocabulary that drifts from compatibility po
 ## Production boundary
 
 This checkpoint proves only serializable/template and callback-port contracts. It does not register a source, read `process.env`, launch a process, connect HTTP, or qualify `pi-mcp-adapter`.
+
+## Implementation notes
+
+- Added the strict schema-derived `McpLaunchTemplate` union and one deterministic `createMcpLaunchTemplate` mapper over the compatibility registry. Standard-I/O environment and HTTP header ordering are canonical; transport/type, cwd, and authentication aliases fail closed on conflicts.
+- Added one shared structured sensitive-field classifier. Compatibility, canonical template creation, and infrastructure redaction now agree that credential-looking environment/header/query fields require a supported late-value reference; static non-secret declarations remain valid.
+- Extracted the five launch-root names into `PluginLaunchRootRegistry` and reused it from guarded hooks without changing hook shell/unknown-placeholder semantics.
+- Added exact callback-only launch binding/context/environment ports and stable MCP launch codes derived from the common error registry. `McpConfigSource` now accepts only the canonical typed launch-template union.
+- Hardened resolved configuration environment output with frozen null-prototype maps and own-property semantics, including `__proto__` and `constructor` keys.
+- Execution capability: GPT-5.6 Sol, xhigh, direct host ownership. The four checkpoints share one security boundary and write set, so cohesive sequential ownership was safer than story-level delegation; nested agents were explicitly prohibited.
+
+## Verification
+
+- Risk-first portable/template tests were written before implementation and initially exercised 14 assertions across template, callback, configuration, and hook behavior.
+- Focused final check: `npx vitest run test/domain/mcp-launch-template.test.ts test/domain/compatibility-evaluator.test.ts test/domain/compatibility-table-contract.test.ts test/application/mcp-launch-contract.test.ts test/application/resolved-configuration.test.ts test/application/mcp-runtime-contract.test.ts test/runtime/hooks/hook-launch-contract.test.ts test/integration/compatibility-reporting.test.ts` — **43 passed, 0 failed**.
+- `npm run typecheck` — passed.
+- No process environment, file/settings mutation, secret store, transport, auth, process, lifecycle, reload, or package adapter was added.

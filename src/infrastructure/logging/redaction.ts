@@ -1,9 +1,9 @@
+import { isSensitiveFieldName } from "../../domain/sensitive-fields.js";
+
 export type RedactedCommand = Readonly<{
   executable: string;
   args: readonly string[];
 }>;
-
-const SECRET_KEY = /(authorization|auth|credential|key|password|secret|token|passphrase)/i;
 const URL_CREDENTIAL = /(\b[a-z][a-z0-9+.-]*:\/\/[^\s/@:]+:)[^\s/@]+(@)/gi;
 const URL_USERINFO = /(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi;
 const BEARER = /(\bBearer\s+)[^\s,;]+/gi;
@@ -58,7 +58,7 @@ export function redactEnvironment(
   for (const [key, value] of Object.entries(environment)) {
     result[key] = value === undefined
       ? undefined
-      : SECRET_KEY.test(key)
+      : isSensitiveFieldName(key)
         ? "[REDACTED]"
         : redactText(value, secrets);
   }

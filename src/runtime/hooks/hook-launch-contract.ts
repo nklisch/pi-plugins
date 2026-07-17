@@ -5,15 +5,13 @@ import {
 } from "../../domain/hook-runtime-limits.js";
 import type { ResolvedConfiguration } from "../../application/resolved-configuration.js";
 import type { HookExecutableIdentity } from "../../application/ports/hook-executable-resolver.js";
+import {
+  isPluginLaunchRootName,
+  type PluginLaunchRootValues,
+} from "../plugin-launch-roots.js";
 export type { HookExecutableIdentity } from "../../application/ports/hook-executable-resolver.js";
 
-export type HookLaunchPathValues = Readonly<{
-  CLAUDE_PLUGIN_ROOT: string;
-  PLUGIN_ROOT: string;
-  CLAUDE_PLUGIN_DATA: string;
-  PLUGIN_DATA: string;
-  CLAUDE_PROJECT_DIR: string;
-}>;
+export type HookLaunchPathValues = PluginLaunchRootValues;
 
 export type HookLaunchEnvironment = Readonly<Record<string, string | undefined>>;
 
@@ -33,10 +31,7 @@ export type HookTemplateResolutionContext = Readonly<{
 }>;
 
 function exactToken(body: string): keyof HookLaunchPathValues | undefined {
-  if (body === "CLAUDE_PLUGIN_ROOT" || body === "PLUGIN_ROOT" ||
-      body === "CLAUDE_PLUGIN_DATA" || body === "PLUGIN_DATA" ||
-      body === "CLAUDE_PROJECT_DIR") return body;
-  return undefined;
+  return isPluginLaunchRootName(body) ? body : undefined;
 }
 
 function matchingBrace(value: string, start: number): number {

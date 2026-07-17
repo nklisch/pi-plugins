@@ -25,6 +25,7 @@ import {
 } from "../../domain/provenance-location.js";
 import { JsonValueSchema, type JsonValue } from "../../domain/schema.js";
 import { hasLoneSurrogate } from "../../domain/canonical-json.js";
+import { McpLaunchTemplateSchemaV1 } from "../../domain/mcp-launch-template.js";
 
 /** The only transports that the Plugin Host source bridge may claim. */
 export const McpBridgeTransportSchema = z.enum(["stdio", "streamable-http"]);
@@ -95,7 +96,7 @@ export const McpSourceServerSchemaV1 = z
     nativeKey: z.string().min(1),
     transport: McpBridgeTransportSchema,
     options: SecretFreeJsonRecordSchema,
-    launchTemplate: SecretFreeJsonRecordSchema,
+    launchTemplate: McpLaunchTemplateSchemaV1,
     toolAliases: z.array(McpToolAliasTemplateSchemaV1).max(1).readonly(),
     provenance: z.array(SourceLocationSchema).min(1).readonly(),
   })

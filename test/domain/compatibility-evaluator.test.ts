@@ -183,6 +183,35 @@ describe("pure compatibility evaluator", () => {
     expect(JSON.stringify(report)).not.toContain("secret-helper");
   });
 
+  it("rejects literal structured credentials and authorization/bearer ambiguity", () => {
+    const declarations = [
+      { transport: "stdio", command: "server", env: { API_TOKEN: "CANARY_STATIC_ENV" } },
+      { type: "http", url: "https://example.invalid/mcp", headers: { Authorization: "Bearer CANARY_STATIC_HEADER" } },
+      { type: "http", url: "https://example.invalid/mcp", headers: { Authorization: "Bearer ${TOKEN}" }, bearerTokenEnv: "TOKEN" },
+    ];
+    const value = plugin({
+      components: {
+        skills: [],
+        hooks: [],
+        mcpServers: declarations.map((declaration, index) => ({
+          kind: "mcp-server" as const,
+          id: componentId("mcp-server", String(index + 5)),
+          nativeKey: claim(`server-${index}`, manifest),
+          declaration: claim(declaration, manifest),
+          metadata: [],
+        })),
+        foreign: [],
+      },
+    });
+    const report = evaluateCompatibility({ plugin: value, capabilities: capabilities() });
+    expect(report.components.map((item) => item.verdict.kind)).toEqual([
+      "incompatible",
+      "incompatible",
+      "incompatible",
+    ]);
+    expect(JSON.stringify(report)).not.toMatch(/CANARY_STATIC_(?:ENV|HEADER)/);
+  });
+
   it("reproduces fail-open hook conditions, ambiguous OAuth, and malformed feature flags", () => {
     const arbitraryCondition = evaluateCompatibility({
       plugin: plugin({
