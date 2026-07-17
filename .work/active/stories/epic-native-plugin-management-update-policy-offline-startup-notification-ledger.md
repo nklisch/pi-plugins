@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-update-policy-offline-startup-notification-ledger
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, reliability]
 parent: epic-native-plugin-management-update-policy-offline-startup
 depends_on: [epic-native-plugin-management-update-policy-offline-startup-contracts-state]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Implement Durable Update Notices and Idempotent Publication
@@ -33,3 +33,15 @@ Replace loose emitted-memory semantics with the existing scope-local registratio
 - Missing/failing publisher retains pending/unread state and never blocks startup, refresh siblings, active revisions, or status/list access.
 - Acknowledgment is idempotent and cannot resolve/install; only exact installed/catalog authority produces installed/superseded/removed resolution.
 - Unread or unresolved notices never prune; acknowledged resolved records prune by stable time/ID under declared per-plugin/scope limits.
+
+## Implementation notes
+
+- Marketplace refresh now commits exact candidate/snapshot/registration notice evidence before returning and never invokes lifecycle or Pi reload. Automatic policy produces durable pending work for the separate coordinator.
+- Added one CAS-backed notification service for exact record, list/count, idempotent acknowledgment, authority-only reconciliation, dispatch, and deterministic tombstone pruning.
+- Added an idempotent publisher port keyed by stable notice ID. Lost responses remain pending; retry may return `already-published` before the ledger marks delivery complete.
+- Unread and unresolved are independent fields/counts. Only installed/catalog authority resolves; acknowledgment never changes availability or active revision.
+
+## Verification
+
+- `npx vitest run test/application/update-notification-service.test.ts test/application/marketplace-refresh-service.test.ts test/integration/marketplace-update-policy.test.ts` — 10 tests passed.
+- `npx tsc -p tsconfig.json --noEmit` — passed.

@@ -1578,6 +1578,22 @@ export type {
   NativeUpdatePolicyServiceDependencies,
 } from "./application/native-update-policy-service.js";
 export type { UpdatePolicyAuthorityPort } from "./application/ports/update-policy-authority.js";
+export {
+  UpdateNoticeRetentionPolicy,
+  pruneUpdateNotices,
+  createUpdateNotificationService,
+} from "./application/update-notification-service.js";
+export type {
+  ExactUpdateDiscovery,
+  UpdateNotificationDispatchResult,
+  NativeUpdateNoticeReconciliationResult,
+  UpdateNotificationService,
+  UpdateNotificationServiceDependencies,
+} from "./application/update-notification-service.js";
+export type {
+  UpdateNotificationEvent,
+  UpdateNotificationPublisherPort,
+} from "./application/ports/update-notification-publisher.js";
 
 export type { RefreshClaimIdPort } from "./application/ports/refresh-claim-id.js";
 export type { UpdateDelayPort } from "./application/ports/update-delay.js";

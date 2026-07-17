@@ -131,7 +131,7 @@ function makeEnvironment(options: Readonly<{
         current = {
           ...current,
           generation,
-          config: { ...current.config, generation, records: [{ ...latest, updateApplication: "automatic" }] },
+          config: { ...current.config, generation, records: [{ ...latest, applicationOverride: "automatic" }] },
           installed: { ...current.installed, generation },
         };
       }
@@ -177,7 +177,7 @@ describe("marketplace update policy integration", () => {
     expect(later.notifications).toHaveLength(0);
   });
 
-  it("keeps inventory completeness local to each concurrent invocation", async () => {
+  it("keeps inventory completeness local without allowing refresh to run lifecycle", async () => {
     let calls = 0;
     let releaseFirst!: () => void;
     const firstDiscovery = new Promise<void>((resolve) => { releaseFirst = resolve; });
@@ -198,22 +198,22 @@ describe("marketplace update policy integration", () => {
     releaseFirst();
     await first;
     expect(second.notifications).toHaveLength(1);
-    expect(environment.lifecycleCalls).toBe(1);
+    expect(environment.lifecycleCalls).toBe(0);
   });
 
-  it("keeps a moved revision retryable without losing the discovery intent", async () => {
+  it("keeps a moved revision as durable discovery without calling lifecycle", async () => {
     const environment = makeEnvironment({ automatic: true, movedRevision: true });
     const result = await environment.service.refresh({ trigger: "explicit" }, new AbortController().signal);
-    expect(environment.lifecycleCalls).toBe(1);
-    expect(result.notifications).toMatchObject([{ plugin: "first@community", disposition: "automatic-retryable" }]);
+    expect(environment.lifecycleCalls).toBe(0);
+    expect(result.notifications).toMatchObject([{ plugin: "first@community", disposition: "discovered" }]);
   });
 
   it("rebases refresh fields onto the latest policy authority", async () => {
     const environment = makeEnvironment({ automatic: false, changePolicyDuringMaterialization: true });
     const result = await environment.service.refresh({ trigger: "explicit" }, new AbortController().signal);
     expect(result.outcomes).toMatchObject([{ kind: "refreshed" }]);
-    expect(environment.state().config.records[0]!.updateApplication).toBe("automatic");
-    expect(environment.lifecycleCalls).toBe(1);
+    expect(environment.state().config.records[0]!.applicationOverride).toBe("automatic");
+    expect(environment.lifecycleCalls).toBe(0);
   });
 
   it("schedules active persisted claims no earlier than their expiry", async () => {
@@ -221,12 +221,12 @@ describe("marketplace update policy integration", () => {
     await expect(environment.service.nextScheduledAt(new AbortController().signal)).resolves.toBe(5_000);
   });
 
-  it("routes automatic application through lifecycle and keeps earlier intents when a later plugin throws", async () => {
+  it("records automatic candidates for the separate coordinator without lifecycle calls", async () => {
     const environment = makeEnvironment({ automatic: true, pluginCount: 2 });
     const result = await environment.service.refresh({ trigger: "explicit" }, new AbortController().signal);
-    expect(environment.lifecycleCalls).toBe(2);
+    expect(environment.lifecycleCalls).toBe(0);
     expect(result.notifications).toHaveLength(2);
     expect(result.notifications[0]?.plugin).toBe("first@community");
-    expect(result.notifications[1]?.disposition).toBe("automatic-retryable");
+    expect(result.notifications[1]?.disposition).toBe("discovered");
   });
 });
