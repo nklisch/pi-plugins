@@ -100,6 +100,11 @@ export const NativeMcpComponentViewSchema = NativeComponentBaseSchema.extend({
   environmentNames: z.array(SafeDisplayFieldSchema).max(256).readonly(),
   headerNames: z.array(SafeDisplayFieldSchema).max(256).readonly(),
   authentication: z.enum(["none", "bearer-environment", "oauth-authorization-code", "oauth-client-credentials", "unavailable"]),
+  toolPolicy: z.object({
+    allowed: z.array(SafeDisplayFieldSchema).readonly(),
+    denied: z.array(SafeDisplayFieldSchema).readonly(),
+    approval: z.enum(["default", "required", "not-applicable"]),
+  }).strict().readonly(),
   startupTimeoutMs: z.number().positive().optional(),
   toolTimeoutMs: z.number().positive().optional(),
 }).strict().readonly();

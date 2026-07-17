@@ -3,7 +3,7 @@ import { createNativeInstalledInspector } from "../application/native-installed-
 import { createNativeInspectionService } from "../application/native-inspection-service.js";
 import { createNativeInspectionEvidence } from "./native-inspection-evidence.js";
 import { createNativeInspectionReadiness } from "./native-inspection-readiness.js";
-import type { InspectionCandidateContentPort } from "../application/ports/inspection-candidate-content.js";
+import type { CandidateContentLeasePort } from "../application/ports/candidate-content-lease.js";
 import type { InstalledPluginLoader } from "../application/ports/installed-plugin-loader.js";
 import type { LifecycleClock } from "../application/ports/lifecycle-clock.js";
 import type { LifecycleStateStore } from "../application/ports/lifecycle-state-store.js";
@@ -39,7 +39,7 @@ export function createComposedNativeInspectionService(input: Readonly<{
   projectTrust: ProjectTrustPort;
   secretCustody: HostCapabilityStatus;
   installed: InstalledPluginLoader;
-  candidateContent: InspectionCandidateContentPort;
+  candidateContent: Pick<CandidateContentLeasePort, "withMaterialized">;
   bundleInspector: PluginInspectionService;
   marketplace: NativeInspectionMarketplaceServices;
   clock: LifecycleClock;

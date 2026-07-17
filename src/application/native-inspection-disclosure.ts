@@ -247,6 +247,11 @@ export function projectSafeComponents(input: Readonly<{
       nativeKey: safeLabel(component.nativeKey.value),
       ...disclosure,
       authentication: authentication(component),
+      toolPolicy: {
+        allowed: [...(options?.allowedTools ?? [])].sort(compareUtf8).map(safeLabel),
+        denied: [...(options?.deniedTools ?? [])].sort(compareUtf8).map(safeLabel),
+        approval: options === undefined ? "not-applicable" : options.toolApproval === true ? "required" : "default",
+      },
       ...(options?.startupTimeoutMs === undefined ? {} : { startupTimeoutMs: options.startupTimeoutMs }),
       ...(options?.toolTimeoutMs === undefined ? {} : { toolTimeoutMs: options.toolTimeoutMs }),
     };

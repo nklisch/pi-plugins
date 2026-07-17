@@ -6,7 +6,7 @@ import { createTrustCandidate } from "../domain/trust-policy.js";
 import { digestCompatibilityReport } from "./ports/runtime-projection.js";
 import type { PluginInspectionService } from "./inspection-service.js";
 import type { MarketplaceCatalogService } from "./marketplace-catalog-service.js";
-import type { InspectionCandidateContentPort } from "./ports/inspection-candidate-content.js";
+import type { CandidateContentLeasePort } from "./ports/candidate-content-lease.js";
 import type { InspectionReadinessPort } from "./ports/inspection-readiness.js";
 import type { InspectionEvidenceSnapshot } from "./ports/native-inspection-evidence.js";
 import type { Sha256 } from "../domain/source.js";
@@ -37,7 +37,7 @@ export type CandidateInspectionSubject = CandidateInspectionDetailSubject;
 
 export type CandidateInspectionDependencies = Readonly<{
   catalog: MarketplaceCatalogResolverPort;
-  content: InspectionCandidateContentPort;
+  content: Pick<CandidateContentLeasePort, "withMaterialized">;
   inspector: PluginInspectionService;
   readiness: InspectionReadinessPort;
   sha256: Sha256;

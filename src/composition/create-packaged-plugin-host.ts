@@ -28,7 +28,7 @@ import { readCodexMarketplace } from "../formats/codex/marketplace-reader.js";
 import { mergeMarketplaces } from "../formats/marketplace-merger.js";
 import { createNodePluginInspector } from "./create-plugin-inspector.js";
 import { createNodeMarketplaceDiscoveryComposition } from "./create-marketplace-discovery-services.js";
-import { createInspectionCandidateContent } from "./inspection-candidate-content.js";
+import { createCandidateContentLeasePort } from "./candidate-content-lease.js";
 import { createComposedNativeInspectionService } from "./create-native-inspection-service.js";
 import { createHostConfigurationServices } from "./create-host-configuration.js";
 import { createNodePiRuntimeCapabilityProbe } from "./node-pi-runtime-capability-probe.js";
@@ -376,7 +376,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           projectTrust: project.trust,
           secretCustody: startup.capabilities.secrets,
           installed: content.installed,
-          candidateContent: createInspectionCandidateContent({ content: content.content, materializer: materializers.plugins }),
+          candidateContent: createCandidateContentLeasePort({ content: content.content, materializer: materializers.plugins }),
           bundleInspector: inspection,
           marketplace: marketplaceComposition.inspection,
           clock,
