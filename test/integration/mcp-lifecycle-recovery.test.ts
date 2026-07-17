@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createLifecycleTransitionReconciler } from "../../src/application/lifecycle-transition-reconciler.js";
+import { createLifecycleRecoveryService } from "../../src/application/recovery-service.js";
 import { createPluginMcpProjection } from "../../src/application/mcp-plugin-projection.js";
 import { createMcpLifecycleParticipant, type McpLifecycleState } from "../../src/runtime/mcp/lifecycle-participant.js";
 import {
@@ -17,6 +18,8 @@ import {
 } from "../../src/application/ports/runtime-projection.js";
 import {
   createLifecycleTransitionRecord,
+  LifecycleTransitionJournalEntrySchemaV1,
+  type LifecycleTransitionJournalEntry,
   type LifecycleTransitionStore,
 } from "../../src/application/ports/lifecycle-transition-store.js";
 import type { GenerationMutationCoordinator } from "../../src/application/generation-mutation-coordinator.js";
@@ -272,7 +275,10 @@ class Reload implements LifecycleReloadPort {
   readonly leaseProviders = new Map<string, FakeMcpRuntimeLeaseProvider>();
   readonly participant;
 
-  constructor(runtime?: FakeMcpRuntime) {
+  constructor(
+    runtime?: FakeMcpRuntime,
+    private readonly durablePlan?: () => Plan,
+  ) {
     this.participant = createMcpLifecycleParticipant({
       runtime,
       launchValues: () => ({
@@ -290,6 +296,12 @@ class Reload implements LifecycleReloadPort {
 
   setPlan(from: McpLifecycleState, to: McpLifecycleState): void {
     this.plan = { from, to, expectation: to.expectation };
+  }
+
+  private currentPlan(): Plan {
+    const plan = this.durablePlan?.() ?? this.plan;
+    if (plan === undefined) throw new Error("reload plan missing");
+    return plan;
   }
 
   private skillsHooks(expectation: ProjectionExpectation) {
@@ -321,10 +333,10 @@ class Reload implements LifecycleReloadPort {
   }
 
   async reload(_request: Parameters<LifecycleReloadPort["reload"]>[0], signal: AbortSignal) {
-    if (this.plan === undefined) throw new Error("reload plan missing");
+    const plan = this.currentPlan();
     const result = await this.participant.reconcile({
-      from: this.plan.from,
-      to: this.plan.to,
+      from: plan.from,
+      to: plan.to,
       currentProject,
     }, signal);
     return result.kind === "applied" || result.kind === "unchanged"
@@ -333,16 +345,16 @@ class Reload implements LifecycleReloadPort {
   }
 
   async observe(_request: Parameters<LifecycleReloadPort["observe"]>[0], signal: AbortSignal): Promise<ActivationObservation> {
-    if (this.plan === undefined) throw new Error("observation plan missing");
+    const plan = this.currentPlan();
     const mcp = await this.participant.observe({
-      from: this.plan.from,
-      to: this.plan.to,
+      from: plan.from,
+      to: plan.to,
       currentProject,
     }, signal);
     if (mcp.kind !== "ready") throw new Error("MCP observation unavailable");
     return composeActivationObservation({
-      expectation: this.plan.expectation,
-      skillsHooks: this.skillsHooks(this.plan.expectation),
+      expectation: plan.expectation,
+      skillsHooks: this.skillsHooks(plan.expectation),
       mcp: mcp.observation,
     });
   }
@@ -361,7 +373,11 @@ class Reload implements LifecycleReloadPort {
   }
 }
 
-function reconciler(state: State, reload: Reload, transitions: Transitions) {
+function reconciler(
+  state: State,
+  reload: Reload,
+  transitions: LifecycleTransitionStore,
+) {
   return createLifecycleTransitionReconciler({
     mutations: coordinator(state),
     state,
@@ -369,6 +385,136 @@ function reconciler(state: State, reload: Reload, transitions: Transitions) {
     transitions,
     sha256,
   });
+}
+
+function disableBundleFixture() {
+  const base = bundleFixture();
+  const disabled = createInstalledPluginRecord({
+    scope,
+    plugin: base.old.projection.plugin,
+    activation: "disabled",
+    selectedRevision: base.old.revision.revision,
+    revisions: [base.old.revision],
+  }, sha256);
+  const record = createLifecycleTransitionRecord({
+    operationId: "00000000-0000-4000-8000-000000000010",
+    operation: "disable",
+    origin: "manual",
+    scope,
+    plugin: base.old.projection.plugin,
+    startingGeneration: GenerationSchema.parse(1),
+    previous: base.previousRecord,
+    candidate: disabled,
+    final: disabled,
+    previousProjection: base.old.expectation,
+    candidateProjection: base.inactive.expectation,
+    retainedData: "keep",
+    sha256,
+  });
+  return {
+    ...base,
+    candidateRecord: disabled,
+    pendingCandidate: InstalledPluginRecordSchema.parse({
+      ...disabled,
+      pendingTransition: record.reference,
+    }),
+    record,
+  };
+}
+
+function pendingRecord(
+  record: InstalledPluginRecord,
+  reference: ReturnType<typeof createLifecycleTransitionRecord>["reference"],
+): InstalledPluginRecord {
+  return InstalledPluginRecordSchema.parse({ ...record, pendingTransition: reference });
+}
+
+function withoutPending(record: InstalledPluginRecord): InstalledPluginRecord {
+  const { pendingTransition: _pendingTransition, ...value } = record;
+  return InstalledPluginRecordSchema.parse(value);
+}
+
+function sameRecord(left: InstalledPluginRecord | null, right: InstalledPluginRecord | null): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+class DurableTransitions implements LifecycleTransitionStore {
+  entry: LifecycleTransitionJournalEntry;
+  owner: "live" | "dead" | "unknown" | "released" = "dead";
+  ownerReads = 0;
+  readonly outcomes: string[] = [];
+
+  constructor(record: ReturnType<typeof createLifecycleTransitionRecord>) {
+    this.entry = LifecycleTransitionJournalEntrySchemaV1.parse({
+      schemaVersion: 1,
+      record,
+      status: { kind: "prepared" },
+      preparedAt: 1_700_000_000_000,
+      statusAt: 1_700_000_000_000,
+    });
+  }
+
+  async prepare() { return "already-present" as const; }
+
+  async settle(request: Parameters<LifecycleTransitionStore["settle"]>[0]) {
+    this.outcomes.push(request.outcome);
+    this.entry = LifecycleTransitionJournalEntrySchemaV1.parse({
+      ...this.entry,
+      status: {
+        kind: request.outcome,
+        ...(request.generation === undefined ? {} : { generation: request.generation }),
+      },
+      statusAt: 1_700_000_000_100 + this.outcomes.length,
+    });
+  }
+
+  async list() {
+    return { entries: [this.entry], complete: true, diagnostics: [] };
+  }
+
+  async ownerStatus() {
+    this.ownerReads += 1;
+    return this.owner;
+  }
+
+  async markRecoveryRequired(
+    request: Parameters<NonNullable<LifecycleTransitionStore["markRecoveryRequired"]>>[0],
+  ) {
+    if (["completed", "rolled-back", "abandoned"].includes(this.entry.status.kind)) {
+      return "terminal" as const;
+    }
+    if (this.entry.status.kind === "recovery-required") return "already-present" as const;
+    this.entry = LifecycleTransitionJournalEntrySchemaV1.parse({
+      ...this.entry,
+      status: {
+        kind: "recovery-required",
+        ...(request.generation === undefined ? {} : { generation: request.generation }),
+      },
+      statusAt: request.at,
+    });
+    return "stored" as const;
+  }
+}
+
+function durableReloadPlan(input: Readonly<{
+  state: State;
+  transitions: DurableTransitions;
+  previous: McpLifecycleState;
+  candidate: McpLifecycleState;
+}>): Plan {
+  const record = input.transitions.entry.record;
+  const current = input.state.current.installed.plugins.find((plugin) => plugin.plugin === record.plugin);
+  if (current === undefined || current.pendingTransition !== record.reference) {
+    throw new Error("durable pending transition is unavailable");
+  }
+  const authoritative = withoutPending(current);
+  if (record.previous !== null && sameRecord(authoritative, record.previous)) {
+    return { from: input.candidate, to: input.previous, expectation: record.previousProjection };
+  }
+  if (sameRecord(authoritative, record.candidate)) {
+    return { from: input.previous, to: input.candidate, expectation: record.candidateProjection };
+  }
+  throw new Error("durable pending transition does not select a reload target");
 }
 
 describe("MCP lifecycle and recovery integration", () => {
@@ -532,51 +678,113 @@ describe("MCP lifecycle and recovery integration", () => {
     expect(transitions.outcomes).toEqual(["recovery-required"]);
   });
 
-  it("replays crash-after-publication by finalizing exact candidate observation", async () => {
-    const fixture = bundleFixture();
+  it.each([
+    { crashPoint: "candidate publication", transition: "update", durableTarget: "candidate", outcome: "completed" },
+    { crashPoint: "partial replacement", transition: "update", durableTarget: "candidate", outcome: "rolled-back" },
+    { crashPoint: "partial removal", transition: "disable", durableTarget: "candidate", outcome: "rolled-back" },
+    { crashPoint: "post-removal/pre-finalization", transition: "disable", durableTarget: "candidate", outcome: "rolled-back" },
+    { crashPoint: "compensation crash", transition: "update", durableTarget: "previous", outcome: "rolled-back" },
+    { crashPoint: "post-restore/pre-settlement", transition: "update", durableTarget: "previous", outcome: "rolled-back" },
+  ] as const)("recovers $crashPoint from durable pending authority after owner death", async ({
+    crashPoint,
+    transition,
+    durableTarget,
+    outcome,
+  }) => {
+    const fixture = transition === "disable" ? disableBundleFixture() : bundleFixture();
+    const previousState = fixture.old.mcpState;
+    const candidateState = transition === "disable"
+      ? fixture.inactive
+      : fixture.candidate.mcpState;
     const runtime = new FakeMcpRuntime();
-    const reload = new Reload(runtime);
+    const setupReload = new Reload(runtime);
     const signal = new AbortController().signal;
-    await reload.activate(fixture.inactive, fixture.old.mcpState, signal);
-    await reload.activate(fixture.old.mcpState, fixture.candidate.mcpState, signal);
-    reload.setPlan(fixture.old.mcpState, fixture.candidate.mcpState);
-    const observation = await reload.observe({ scope, plugin: fixture.old.projection.plugin }, signal);
+    expect((await setupReload.activate(fixture.inactive, previousState, signal)).ok).toBe(true);
 
-    const state = new State(snapshot(2, [fixture.pendingCandidate]));
-    const transitions = new Transitions();
-    const result = await reconciler(state, reload, transitions).recoverInterruptedTransition({
-      scope,
-      plugin: fixture.old.projection.plugin,
-      record: fixture.record,
-      current: fixture.pendingCandidate,
-      observation,
-    }, signal);
-    expect(result.kind).toBe("completed");
-    expect(state.current.installed.plugins[0]?.pendingTransition).toBeUndefined();
-    expect(transitions.outcomes).toEqual(["completed"]);
-  });
+    if (crashPoint === "candidate publication") {
+      expect((await setupReload.activate(previousState, candidateState, signal)).ok).toBe(true);
+    } else if (crashPoint === "partial replacement") {
+      runtime.partiallyApplyNextReplacement();
+      expect((await setupReload.activate(previousState, candidateState, signal)).ok).toBe(false);
+    } else if (crashPoint === "partial removal") {
+      if (previousState.kind !== "source") throw new Error("source state required");
+      const provider = setupReload.leaseProviders.get(previousState.projection.registration.digest);
+      if (provider === undefined) throw new Error("runtime lease provider missing");
+      const serverKey = Object.keys(previousState.projection.registration.source.servers)[0]!;
+      await runtime.openExecution(previousState.projection.registration.source.identity, serverKey, signal);
+      expect(provider.activeCount).toBe(1);
+      runtime.failNextRemoval(true);
+      expect((await setupReload.activate(previousState, candidateState, signal)).ok).toBe(false);
+      expect(runtime.executionCount(previousState.projection.registration.source.identity)).toBe(1);
+    } else if (crashPoint === "post-removal/pre-finalization") {
+      expect((await setupReload.activate(previousState, candidateState, signal)).ok).toBe(true);
+      expect(await runtime.inspectSources(signal)).toEqual([]);
+    } else if (crashPoint === "compensation crash") {
+      expect((await setupReload.activate(previousState, candidateState, signal)).ok).toBe(true);
+    }
 
-  it("replays crash-during-partial-publication through existing compensation", async () => {
-    const fixture = bundleFixture();
-    const runtime = new FakeMcpRuntime();
-    const reload = new Reload(runtime);
-    const signal = new AbortController().signal;
-    await reload.activate(fixture.inactive, fixture.old.mcpState, signal);
-    runtime.partiallyApplyNextReplacement();
-    await reload.activate(fixture.old.mcpState, fixture.candidate.mcpState, signal);
+    const durableRecord = durableTarget === "candidate"
+      ? fixture.pendingCandidate
+      : pendingRecord(fixture.previousRecord, fixture.record.reference);
+    const state = new State(snapshot(2, [durableRecord]));
+    const transitions = new DurableTransitions(fixture.record);
+    const reload = new Reload(runtime, () => durableReloadPlan({
+      state,
+      transitions,
+      previous: previousState,
+      candidate: candidateState,
+    }));
+    const recovery = () => createLifecycleRecoveryService({
+      state,
+      transitions: () => transitions,
+      reconciler: reconciler(state, reload, transitions),
+      reload,
+      clock: {
+        nowEpochMilliseconds: () => 1_700_000_000_500,
+        monotonicMilliseconds: () => 0,
+      },
+    });
 
-    const state = new State(snapshot(2, [fixture.pendingCandidate]));
-    const transitions = new Transitions();
-    reload.setPlan(fixture.candidate.mcpState, fixture.old.mcpState);
-    const result = await reconciler(state, reload, transitions).recoverInterruptedTransition({
-      scope,
-      plugin: fixture.old.projection.plugin,
-      record: fixture.record,
-      current: fixture.pendingCandidate,
-    }, signal);
-    expect(result.kind).toBe("rolled-back");
-    expect(state.current.installed.plugins[0]?.selectedRevision).toBe(fixture.old.revision.revision);
-    expect(transitions.outcomes).toEqual(["rolled-back"]);
+    transitions.owner = "live";
+    const deferred = await recovery().recover({ requiredScopes: [{ kind: "user" }] }, signal);
+    expect(deferred).toMatchObject({
+      deferred: true,
+      processed: 1,
+      results: [{ kind: "deferred", code: "OWNER_LIVE" }],
+    });
+    expect(state.current.installed.plugins[0]?.pendingTransition).toBe(fixture.record.reference);
+    expect(transitions.entry.status.kind).toBe("prepared");
+
+    transitions.owner = "dead";
+    const result = await recovery().recover({ requiredScopes: [{ kind: "user" }] }, signal);
+    expect(result.deferred).toBe(false);
+    expect(result.processed).toBe(1);
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]?.kind).toBe(outcome === "completed" ? "finalized" : "rolled-back");
+    expect(transitions.ownerReads).toBe(2);
+
+    const authoritative = state.current.installed.plugins[0];
+    const expectedState = outcome === "completed" ? fixture.candidate.mcpState : previousState;
+    const expectedRevision = outcome === "completed"
+      ? fixture.candidateRecord.selectedRevision
+      : fixture.previousRecord.selectedRevision;
+    expect(authoritative?.selectedRevision).toBe(expectedRevision);
+    expect(authoritative?.pendingTransition).toBeUndefined();
+    expect(transitions.entry.status.kind).toBe(outcome);
+    expect(transitions.outcomes.at(-1)).toBe(outcome);
+
+    if (expectedState.kind !== "source") throw new Error("recovery should leave an active source");
+    const statuses = await runtime.inspectSources(signal);
+    expect(statuses).toHaveLength(1);
+    expect(statuses[0]?.identity).toEqual(expectedState.projection.registration.source.identity);
+    expect(statuses[0]?.registrationDigest).toBe(expectedState.projection.registration.digest);
+    expect(runtime.executionCount()).toBe(0);
+    for (const provider of [
+      ...setupReload.leaseProviders.values(),
+      ...reload.leaseProviders.values(),
+    ]) {
+      expect(provider.activeCount).toBe(0);
+    }
   });
 
   it("keeps complete no-MCP bundles explicit and offline through finalization", async () => {
