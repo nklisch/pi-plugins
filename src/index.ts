@@ -554,6 +554,27 @@ export { classifyMcpLaunchFailure } from "./runtime/mcp/launch-error.js";
 export { PluginLaunchRootRegistry } from "./runtime/plugin-launch-roots.js";
 export type { PluginLaunchRootName, PluginLaunchRootValues } from "./runtime/plugin-launch-roots.js";
 
+export {
+  AutomaticUpdateEligibilityReasonRegistry,
+  AutomaticUpdateEligibilityReasonSchema,
+  AutomaticUpdateEligibilitySchema,
+} from "./application/automatic-update-eligibility.js";
+export type {
+  AutomaticUpdateEligibilityReason,
+  AutomaticUpdateEligibility,
+} from "./application/automatic-update-eligibility.js";
+export { createAutomaticUpdateCoordinator } from "./application/automatic-update-coordinator.js";
+export type {
+  AutomaticUpdateCoordinator,
+  AutomaticUpdateCoordinatorDependencies,
+} from "./application/automatic-update-coordinator.js";
+export type {
+  AutomaticUpdateAuthoritySnapshot,
+  AutomaticUpdateLifecycleResult,
+  AutomaticUpdateLifecyclePort,
+} from "./application/ports/automatic-update-lifecycle.js";
+export type { UpdateActivationContextPort } from "./application/ports/update-activation-context.js";
+
 export { authorizeTrustCandidate } from "./application/trust-service.js";
 export type { TrustAuthorizationResult } from "./application/trust-service.js";
 export {

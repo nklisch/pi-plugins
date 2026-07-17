@@ -10,6 +10,7 @@ import type { LoadedInstalledPlugin } from "./ports/installed-plugin-loader.js";
 import type { ProjectTrustPort } from "./ports/project-trust.js";
 import type { Sha256 } from "../domain/source.js";
 import type { MarketplaceUpdateRecord } from "../domain/update-policy.js";
+import type { EffectiveUpdatePolicy } from "./native-update-contract.js";
 
 export type AutomaticUpdateAuthorizationResult =
   | Readonly<{ kind: "authorized"; subject: import("../domain/state/references.js").TrustSubjectRef }>
@@ -72,6 +73,7 @@ export async function authorizeAutomaticUpdateCandidate(
     candidatePluginSourceIdentity: StableSourceIdentity;
     expectedRevision: ContentDigest;
     policyRecord: MarketplaceUpdateRecord;
+    effectivePolicy?: EffectiveUpdatePolicy;
     trustRecords: readonly TrustStateRecord[];
     projectDeclarationDigest?: ContentDigest;
   }>,
@@ -84,7 +86,10 @@ export async function authorizeAutomaticUpdateCandidate(
   const candidate = verifyTrustCandidate(request.candidate, dependencies.sha256);
   const expectedRevision = ContentDigestSchema.parse(request.expectedRevision);
   const policy = request.policyRecord;
-  if (policy.applicationOverride !== "automatic") return denied("POLICY_MANUAL");
+  if ((request.effectivePolicy?.application ?? (policy.applicationOverride === "automatic" ? "automatic" : "manual")) !== "automatic") return denied("POLICY_MANUAL");
+  if (request.effectivePolicy !== undefined && request.effectivePolicy.sourceGuard !== "none") {
+    return denied(request.effectivePolicy.sourceGuard === "marketplace-source-changed" ? "MARKETPLACE_SOURCE_CHANGED" : request.effectivePolicy.sourceGuard === "plugin-source-changed" ? "PLUGIN_SOURCE_CHANGED" : request.effectivePolicy.sourceGuard === "legacy-source" ? "LEGACY_SOURCE_IDENTITY" : "LOCAL_SOURCE");
+  }
   if (policy.source.kind === "local-git") return denied("LOCAL_SOURCE");
   const marketplaceIdentity = StableSourceIdentitySchema.parse(request.candidateMarketplaceSourceIdentity);
   const pluginIdentity = StableSourceIdentitySchema.parse(request.candidatePluginSourceIdentity);

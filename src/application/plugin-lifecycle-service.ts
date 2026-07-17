@@ -31,6 +31,7 @@ import {
 import type { LifecycleOperationIdPort } from "./ports/lifecycle-operation-id.js";
 import type { InstalledPluginLoader, LoadedInstalledPlugin } from "./ports/installed-plugin-loader.js";
 import { authorizeAutomaticUpdateCandidate, createAutomaticUpdateAuthorizationEvidence, type AutomaticUpdateAuthorizationEvidence } from "./automatic-update-authorization.js";
+import { resolveEffectiveUpdatePolicy } from "./update-policy-resolution.js";
 import type {
   CandidatePreparationCode,
   EnableCandidatePreparationRequest,
@@ -663,6 +664,26 @@ function createPluginLifecycleImplementation(
           content: loadedPrevious.content,
           materializationBinding: loadedPrevious.binding,
         }, dependencies.sha256);
+        let globalPolicy: "manual" | "automatic";
+        let scopedPolicy: "manual" | "automatic" | undefined;
+        if ("config" in initial) {
+          globalPolicy = initial.config.global.application;
+          scopedPolicy = initial.config.scope.application;
+        } else {
+          const userPolicy = await dependencies.state.read({ kind: "user" }, signal);
+          if (!userPolicy.ok || !("config" in userPolicy.snapshot)) return rejected(operation, "UNTRUSTED");
+          globalPolicy = userPolicy.snapshot.config.global.application;
+          scopedPolicy = initial.project.scope.application;
+        }
+        const effectivePolicy = resolveEffectiveUpdatePolicy({
+          plugin,
+          record: MarketplaceUpdateRecordSchema.parse(policyRecord),
+          global: globalPolicy,
+          ...(scopedPolicy === undefined ? {} : { scope: scopedPolicy }),
+          marketplaceSourceIdentity: selected.evidence.source.marketplaceSourceIdentity ?? "legacy-unavailable",
+          registeredMarketplaceSourceIdentity: deriveMarketplaceSourceIdentity(policyRecord.source, dependencies.sha256),
+          pluginSourceIdentity: selected.evidence.source.pluginSourceIdentity ?? "legacy-unavailable",
+        });
         const authority = await authorizeAutomaticUpdateCandidate({
           scope,
           previous: loadedPrevious,
@@ -672,6 +693,7 @@ function createPluginLifecycleImplementation(
           candidatePluginSourceIdentity: derivePluginSourceIdentity(automaticRequest.entry.source.value, dependencies.sha256),
           expectedRevision: automaticRequest.expectedRevision,
           policyRecord: MarketplaceUpdateRecordSchema.parse(policyRecord),
+          effectivePolicy,
           trustRecords,
           ...(scope.kind === "project" && "project" in initial ? { projectDeclarationDigest: initial.project.declarationDigest } : {}),
         }, { projectTrust: dependencies.projectTrust, sha256: dependencies.sha256 }, signal);

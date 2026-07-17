@@ -80,7 +80,7 @@ function request(overrides: Readonly<Record<string, unknown>> = {}) {
 
 describe("automatic update authority", () => {
   it("requires current manual policy and unchanged source identities", async () => {
-    const manual = await authorizeAutomaticUpdateCandidate({ ...request(), policyRecord: { ...policy, updateApplication: "manual" } }, { projectTrust: { async assess() { return { kind: "trusted" as const }; } }, sha256 }, new AbortController().signal);
+    const manual = await authorizeAutomaticUpdateCandidate({ ...request(), policyRecord: { ...policy, applicationOverride: "manual" } }, { projectTrust: { async assess() { return { kind: "trusted" as const }; } }, sha256 }, new AbortController().signal);
     expect(manual).toEqual({ kind: "denied", code: "POLICY_MANUAL" });
 
     const changed = await authorizeAutomaticUpdateCandidate({ ...request(), candidateMarketplaceSourceIdentity: deriveMarketplaceSourceIdentity({ kind: "github", repository: "other/community" }, sha256) }, { projectTrust: { async assess() { return { kind: "trusted" as const }; } }, sha256 }, new AbortController().signal);
