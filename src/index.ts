@@ -2031,3 +2031,24 @@ export {
 } from "./application/native-control-redaction.js";
 export { createNodeControlInput } from "./infrastructure/control/node-control-input.js";
 export type { NodeControlInputOptions } from "./infrastructure/control/node-control-input.js";
+export {
+  NativeControlScopeSchema,
+  NativeControlPluginSelectorSchema,
+  NativeControlCandidateSelectorSchema,
+  NativeControlUpdateSelectorSchema,
+  createNativeControlSelectionService,
+} from "./application/native-control-selection.js";
+export type {
+  NativeControlScope,
+  NativeControlPluginSelector,
+  NativeControlCandidateSelector,
+  NativeControlUpdateSelector,
+  NativeControlSelectionFailure,
+  NativeControlInstalledSelectionResult,
+  NativeControlCandidateSelectionResult,
+  NativeControlUpdateSelectionResult,
+  NativeControlCurrentProjectResult,
+  NativeControlCurrentProjectPort,
+  NativeControlSelectionService,
+} from "./application/native-control-selection.js";
+export type { NativeControlDispatchResult } from "./application/native-control-projection.js";

@@ -111,15 +111,9 @@ export const NativeControlEnvelopeSchema = z.object({
   if (envelope.page !== undefined && envelope.data === undefined) {
     context.addIssue({ code: "custom", path: ["page"], message: "page metadata requires data" });
   }
-  if (envelope.data !== undefined && ["ok", "no-change", "input-required", "not-found", "stale", "conflict", "unavailable", "rejected", "partial", "recovery-required", "cancelled"].includes(envelope.status)) {
-    const response = definition.response.safeParse(envelope.data);
-    // Error/needs-input projections are sometimes a strict safe subset rather
-    // than an owner response. Only successful payloads must be complete owner
-    // contract values; all other payloads remain strict JSON values.
-    if (["ok", "no-change"].includes(envelope.status) && !response.success) {
-      context.addIssue({ code: "custom", path: ["data"], message: "successful data does not match the command response schema" });
-    }
-  }
+  // Command-specific owner schemas are enforced immediately before structural
+  // disclosure projection. Envelope data is the projected JSON contract, so it
+  // must not be reparsed as the path-bearing/private owner DTO here.
 });
 export type NativeControlEnvelope = z.infer<typeof NativeControlEnvelopeSchema>;
 
