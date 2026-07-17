@@ -1,7 +1,7 @@
 ---
 id: derive-automatic-update-eligibility-contract-from-registry
 kind: story
-stage: review
+stage: done
 tags: [refactor, reliability]
 parent: null
 depends_on: []
@@ -106,3 +106,17 @@ The only implementation risk is an incorrect non-empty tuple assertion weakening
 ## Discovery Record
 
 Direct-read discovery covered update notification, scheduler ownership, automatic eligibility/application, startup orchestration, inspection integration, their composition seams, and the current packaged-host integration around commits `611ecf8..651d292`. No nested agent or advisory review was used. Broader ownership, scheduler/state authority, public-contract, test-only, correctness, and facade-overlap candidates were deliberately excluded.
+
+## Review (2026-07-17)
+
+**Verdict**: Approve
+
+**Blockers**: none
+
+**Important**: none
+
+**Nits**: none
+
+**Rejected**: none
+
+**Notes**: Bounded inline standalone-story review; no independent, fresh-context, cross-model, or nested agent ran. Confirmed `Object.values` preserves the registry's declaration order, the registry-derived union is the same eleven-value TypeScript contract, and Zod receives the same ordered values, preserving acceptance and error behavior. The diff changes no eligibility coordinator branch, scheduler/state authority, public export, or facade. Focused and full verification are green.
