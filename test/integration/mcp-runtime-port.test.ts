@@ -6,6 +6,7 @@ defineMcpRuntimeContract("FakeMcpRuntime", () => {
   return {
     runtime,
     launch: (identity, serverKey, signal, consume) => runtime.launch(identity, serverKey, signal, consume),
+    openExecution: (identity, serverKey, signal) => runtime.openExecution(identity, serverKey, signal),
     failNextReplacement: () => runtime.failNextReplacement(),
   };
 });

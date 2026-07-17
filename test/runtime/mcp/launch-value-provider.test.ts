@@ -134,7 +134,13 @@ function setup(options: Readonly<{
     environment,
     platform: options.platform ?? "posix",
   });
-  const request = { source: identity, serverKey, transport: template.transport } as const;
+  const request = {
+    schemaVersion: 1 as const,
+    source: identity,
+    serverKey,
+    componentId,
+    transport: template.transport,
+  } as const;
   return { provider, request, source, context, environment, get callbacks() { return callbacks; } };
 }
 

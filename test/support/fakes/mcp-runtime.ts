@@ -1,25 +1,27 @@
+import { createHash } from "node:crypto";
 import {
-  McpConfigSourceSchemaV1,
   McpLaunchValueRequestSchema,
   McpRuntimeCapabilitiesSchemaV1,
+  McpRuntimeServerBindingSchemaV1,
   McpSourceIdentitySchemaV1,
   McpSourceRemoveResultSchema,
   McpSourceReplaceResultSchema,
   McpSourceStatusSchema,
   McpSourceValidationResultSchema,
-  type McpConfigSource,
   type McpLaunchValues,
   type McpRuntimeCapabilities,
+  type McpRuntimeLease,
   type McpRuntimePort,
   type McpSourceIdentity,
+  type McpSourceRegistration,
   type McpSourceReplaceRequest,
   type McpSourceStatus,
 } from "../../../src/application/ports/mcp-runtime.js";
+import { verifyMcpSourceRegistration } from "../../../src/application/mcp-source-registration.js";
 import {
   DiagnosticSchema,
   ErrorCodeRegistry,
   ErrorCodeSchema,
-  diagnosticFromZodError,
   type ErrorCode,
 } from "../../../src/domain/errors.js";
 import {
@@ -34,20 +36,84 @@ export type FakeMcpRuntimeOptions = Readonly<{
 type StoredServerRuntimeStatus = {
   state: "registered" | "idle" | "connecting" | "connected" | "needs-auth" | "failed";
   errorCode?: ErrorCode;
+  toolCount?: number;
 };
 
-type StoredSource = Readonly<{
-  source: McpConfigSource;
+type StoredSource = {
+  registration: McpSourceRegistration;
   launchValues: McpSourceReplaceRequest["launchValues"];
+  runtimeLeases: McpSourceReplaceRequest["runtimeLeases"];
   serverStatus: Map<string, StoredServerRuntimeStatus>;
-}>;
+  executions: Set<ExecutionState>;
+  inspectionServerKeys?: ReadonlySet<string>;
+};
 
-class FakeMcpLaunchError extends Error {
-  constructor(readonly code: ErrorCode) {
-    super("MCP launch failed");
-    this.name = "FakeMcpLaunchError";
+type ExecutionState = {
+  record: StoredSource;
+  lease: McpRuntimeLease;
+  closed: boolean;
+};
+
+export interface FakeMcpExecution {
+  close(signal?: AbortSignal): Promise<void>;
+}
+
+const inspectSymbol = Symbol.for("nodejs.util.inspect.custom");
+
+export class FakeMcpRuntimeLeaseProvider {
+  readonly acquired: object[] = [];
+  readonly released: object[] = [];
+  private readonly active = new WeakSet<object>();
+  private failAcquireOnce = false;
+  private failReleaseOnce = false;
+
+  failNextAcquire(): void { this.failAcquireOnce = true; }
+  failNextRelease(): void { this.failReleaseOnce = true; }
+  get activeCount(): number { return this.acquired.length - this.released.length; }
+
+  async acquire(
+    _binding: ReturnType<typeof McpRuntimeServerBindingSchemaV1.parse>,
+    signal: AbortSignal,
+  ): Promise<McpRuntimeLease> {
+    signal.throwIfAborted();
+    if (this.failAcquireOnce) {
+      this.failAcquireOnce = false;
+      throw new Error("runtime lease acquisition failed");
+    }
+    const token = Object.create(null) as Record<PropertyKey, unknown>;
+    Object.defineProperties(token, {
+      toString: { value: () => "[REDACTED]" },
+      toJSON: { value: () => "[REDACTED]" },
+      [inspectSymbol]: { value: () => "[REDACTED]" },
+    });
+    Object.freeze(token);
+    this.active.add(token);
+    this.acquired.push(token);
+    return token as McpRuntimeLease;
+  }
+
+  async release(lease: McpRuntimeLease, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    if (this.failReleaseOnce) {
+      this.failReleaseOnce = false;
+      throw new Error("runtime lease release failed");
+    }
+    const token = lease as object;
+    if (!this.active.has(token)) throw new Error("runtime lease ownership mismatch");
+    this.active.delete(token);
+    this.released.push(token);
   }
 }
+
+class FakeMcpRuntimeFailure extends Error {
+  constructor(readonly code: ErrorCode) {
+    super("MCP runtime operation failed");
+    this.name = "FakeMcpRuntimeFailure";
+  }
+}
+
+const sha256 = (bytes: Uint8Array): Uint8Array =>
+  new Uint8Array(createHash("sha256").update(bytes).digest());
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -83,6 +149,7 @@ function defaultCapabilities(): McpRuntimeCapabilities {
       inspect: true,
       cancellable: true,
       lateLaunchValues: true,
+      runtimeLeases: true,
     },
     transports: {
       stdio: true,
@@ -124,8 +191,12 @@ function copyIdentity(identity: McpSourceIdentity): McpSourceIdentity {
   return McpSourceIdentitySchemaV1.parse(clone(identity));
 }
 
-function statusFor(record: StoredSource, state: "registered" | "replacing" | "removing" | "failed" = "registered"): McpSourceStatus {
-  const servers = Object.entries(record.source.servers)
+function statusFor(
+  record: StoredSource,
+  state: "registered" | "replacing" | "removing" | "failed" = "registered",
+): McpSourceStatus {
+  const servers = Object.entries(record.registration.source.servers)
+    .filter(([key]) => record.inspectionServerKeys?.has(key) ?? true)
     .sort(([left], [right]) => compareText(left, right))
     .map(([key, server]) => {
       const runtime = record.serverStatus.get(key) ?? { state: "registered" as const };
@@ -135,11 +206,13 @@ function statusFor(record: StoredSource, state: "registered" | "replacing" | "re
         nativeKey: server.nativeKey,
         provenance: clone(server.provenance),
         state: runtime.state,
+        ...(runtime.toolCount === undefined ? {} : { toolCount: runtime.toolCount }),
         ...(runtime.errorCode === undefined ? {} : { errorCode: runtime.errorCode }),
       };
     });
   return McpSourceStatusSchema.parse({
-    identity: clone(record.source.identity),
+    identity: clone(record.registration.source.identity),
+    registrationDigest: record.registration.digest,
     state,
     servers,
   });
@@ -149,15 +222,26 @@ function copyStatus(status: McpSourceStatus): McpSourceStatus {
   return McpSourceStatusSchema.parse(clone(status));
 }
 
+function providerShapeIsValid(request: McpSourceReplaceRequest): boolean {
+  return request.launchValues !== null && typeof request.launchValues === "object" &&
+    typeof request.launchValues.resolve === "function" &&
+    typeof request.launchValues.dispose === "function" &&
+    request.runtimeLeases !== null && typeof request.runtimeLeases === "object" &&
+    typeof request.runtimeLeases.acquire === "function" &&
+    typeof request.runtimeLeases.release === "function";
+}
+
 /**
- * Test-only runtime authority. It intentionally models the source lifecycle,
- * not MCP transport behavior: launch is the sole hook that invokes late
- * values, and inspection exposes local registration separately from health.
+ * Test-only source authority with deterministic failure seams. Registration is
+ * local and offline; launch health and execution cleanup are separate.
  */
 export class FakeMcpRuntime implements McpRuntimePort {
   private readonly records = new Map<string, StoredSource>();
+  private readonly cleanupResidue = new Map<string, Set<ExecutionState>>();
   private readonly runtimeCapabilities: McpRuntimeCapabilities;
   private nextReplacementFailure: ErrorCode | undefined;
+  private nextReplacementEffect: "partial" | "lost-response" | undefined;
+  private nextRemovalFailure: "before-effect" | "after-unregister" | undefined;
 
   constructor(options: FakeMcpRuntimeOptions = {}) {
     this.runtimeCapabilities = McpRuntimeCapabilitiesSchemaV1.parse(
@@ -170,22 +254,21 @@ export class FakeMcpRuntime implements McpRuntimePort {
     return Promise.resolve(clone(this.runtimeCapabilities));
   }
 
-  async validateSource(source: McpConfigSource, signal: AbortSignal) {
+  async validateSource(registration: McpSourceRegistration, signal: AbortSignal) {
     signal.throwIfAborted();
-    const result = McpConfigSourceSchemaV1.safeParse(source);
-    if (!result.success) {
-      const diagnostic = diagnosticFromZodError(result.error, {
-        operation: "validateMcpSource",
-      });
+    let verified: McpSourceRegistration;
+    try {
+      verified = verifyMcpSourceRegistration(registration, sha256);
+    } catch {
       return McpSourceValidationResultSchema.parse({
         ok: false,
-        diagnostics: [diagnostic],
+        diagnostics: [rejection(ErrorCodeRegistry.sourceInvalid, "validateMcpSource")],
       });
     }
     signal.throwIfAborted();
     return McpSourceValidationResultSchema.parse({
       ok: true,
-      value: clone(result.data),
+      value: clone(verified),
       diagnostics: [],
     });
   }
@@ -194,43 +277,94 @@ export class FakeMcpRuntime implements McpRuntimePort {
     this.nextReplacementFailure = safeCode(code);
   }
 
-  async replaceSource(
+  partiallyApplyNextReplacement(): void {
+    this.nextReplacementEffect = "partial";
+  }
+
+  loseNextReplacementResponse(): void {
+    this.nextReplacementEffect = "lost-response";
+  }
+
+  failNextRemoval(afterUnregister = false): void {
+    this.nextRemovalFailure = afterUnregister ? "after-unregister" : "before-effect";
+  }
+
+  setServerHealth(
+    identity: McpSourceIdentity,
+    serverKey: string,
+    health: StoredServerRuntimeStatus,
+  ): void {
+    const record = this.records.get(ownerKey(identity));
+    if (record === undefined || exactIdentityKey(record.registration.source.identity) !== exactIdentityKey(identity) ||
+        record.registration.source.servers[serverKey] === undefined) {
+      throw new Error("MCP source server is not registered");
+    }
+    record.serverStatus.set(serverKey, { ...health });
+  }
+
+  executionCount(identity?: McpSourceIdentity): number {
+    if (identity === undefined) {
+      return [...this.records.values()].reduce((count, record) => count + record.executions.size, 0) +
+        [...this.cleanupResidue.values()].reduce((count, executions) => count + executions.size, 0);
+    }
+    const exact = exactIdentityKey(identity);
+    const record = this.records.get(ownerKey(identity));
+    const active = record !== undefined && exactIdentityKey(record.registration.source.identity) === exact
+      ? record.executions.size
+      : 0;
+    return active + (this.cleanupResidue.get(exact)?.size ?? 0);
+  }
+
+  private async closeExecution(state: ExecutionState, signal: AbortSignal): Promise<void> {
+    if (state.closed) return;
+    await state.record.runtimeLeases.release(state.lease, signal);
+    state.closed = true;
+    state.record.executions.delete(state);
+    this.cleanupResidue.get(exactIdentityKey(state.record.registration.source.identity))?.delete(state);
+  }
+
+  private async closeAll(record: StoredSource): Promise<void> {
+    const cleanupSignal = new AbortController().signal;
+    for (const execution of [...record.executions]) {
+      await this.closeExecution(execution, cleanupSignal);
+    }
+  }
+
+  private expectedMatches(
+    current: StoredSource | undefined,
     request: McpSourceReplaceRequest,
-    signal: AbortSignal,
-  ) {
+  ): boolean {
+    if (request.expected.kind === "absent") return current === undefined;
+    return current !== undefined &&
+      exactIdentityKey(current.registration.source.identity) === exactIdentityKey(request.expected.identity);
+  }
+
+  async replaceSource(request: McpSourceReplaceRequest, signal: AbortSignal) {
     signal.throwIfAborted();
-    const validation = await this.validateSource(request.source, signal);
+    const validation = await this.validateSource(request.registration, signal);
     if (!validation.ok) {
       return McpSourceReplaceResultSchema.parse({
         kind: "rejected",
         diagnostics: clone(validation.diagnostics),
       });
     }
-    if (
-      request.launchValues === null ||
-      typeof request.launchValues !== "object" ||
-      typeof request.launchValues.resolve !== "function" ||
-      typeof request.launchValues.dispose !== "function"
-    ) {
+    if (!providerShapeIsValid(request)) {
       return McpSourceReplaceResultSchema.parse({
         kind: "rejected",
         diagnostics: [rejection(ErrorCodeRegistry.sourceInvalid, "replaceMcpSource")],
       });
     }
 
-    // Everything above is staged. The single map mutation below is the fake's
-    // atomic publication point; no provider is called on this path.
-    const source = McpConfigSourceSchemaV1.parse(clone(validation.value));
-    const key = ownerKey(source.identity);
+    const registration = validation.value;
+    const key = ownerKey(registration.source.identity);
     const previous = this.records.get(key);
-    if (previous !== undefined && request.expectedProjectionDigest !== undefined &&
-        request.expectedProjectionDigest !== previous.source.identity.projectionDigest) {
-      return McpSourceReplaceResultSchema.parse({
-        kind: "stale",
-        currentIdentity: copyIdentity(previous.source.identity),
-      });
-    }
-    if (previous === undefined && request.expectedProjectionDigest !== undefined) {
+    if (!this.expectedMatches(previous, request)) {
+      if (previous !== undefined) {
+        return McpSourceReplaceResultSchema.parse({
+          kind: "stale",
+          currentIdentity: copyIdentity(previous.registration.source.identity),
+        });
+      }
       return McpSourceReplaceResultSchema.parse({
         kind: "rejected",
         diagnostics: [rejection(ErrorCodeRegistry.sourceInvalid, "replaceMcpSource")],
@@ -245,40 +379,82 @@ export class FakeMcpRuntime implements McpRuntimePort {
       });
     }
 
+    // Cleanup is part of the runtime's atomic source publication contract.
+    if (previous !== undefined) {
+      try {
+        await this.closeAll(previous);
+      } catch {
+        return McpSourceReplaceResultSchema.parse({
+          kind: "rejected",
+          diagnostics: [rejection(ErrorCodeRegistry.mcpLaunchCleanupFailed, "replaceMcpSource")],
+        });
+      }
+    }
+    signal.throwIfAborted();
     const replacement: StoredSource = {
-      source,
+      registration: clone(registration),
       launchValues: request.launchValues,
-      serverStatus: new Map(Object.keys(source.servers).map((key) => [key, { state: "registered" as const }])),
+      runtimeLeases: request.runtimeLeases,
+      serverStatus: new Map(Object.keys(registration.source.servers).map((serverKey) => [serverKey, { state: "registered" as const }])),
+      executions: new Set(),
     };
+    const effect = this.nextReplacementEffect;
+    this.nextReplacementEffect = undefined;
+    if (effect === "partial") {
+      replacement.inspectionServerKeys = new Set(Object.keys(registration.source.servers).slice(1));
+    }
     this.records.set(key, replacement);
+    if (effect === "lost-response") throw new FakeMcpRuntimeFailure(ErrorCodeRegistry.adapterFailed);
     const status = statusFor(replacement);
     return McpSourceReplaceResultSchema.parse({
       kind: "applied",
       status: copyStatus(status),
-      ...(previous === undefined ? {} : { previousIdentity: copyIdentity(previous.source.identity) }),
+      ...(previous === undefined ? {} : {
+        previousIdentity: copyIdentity(previous.registration.source.identity),
+      }),
     });
   }
 
-  async removeSource(
-    identity: McpSourceIdentity,
-    signal: AbortSignal,
-  ) {
+  async removeSource(identity: McpSourceIdentity, signal: AbortSignal) {
     signal.throwIfAborted();
     const requested = McpSourceIdentitySchemaV1.parse(clone(identity));
     const key = ownerKey(requested);
     const current = this.records.get(key);
-    if (current === undefined) {
-      return McpSourceRemoveResultSchema.parse({ kind: "absent" });
-    }
-    if (exactIdentityKey(current.source.identity) !== exactIdentityKey(requested)) {
+    if (current !== undefined && exactIdentityKey(current.registration.source.identity) !== exactIdentityKey(requested)) {
       return McpSourceRemoveResultSchema.parse({
         kind: "ownership-mismatch",
         requestedIdentity: requested,
-        currentIdentity: copyIdentity(current.source.identity),
+        currentIdentity: copyIdentity(current.registration.source.identity),
       });
     }
+    if (this.nextRemovalFailure === "before-effect") {
+      this.nextRemovalFailure = undefined;
+      throw new FakeMcpRuntimeFailure(ErrorCodeRegistry.adapterFailed);
+    }
+
+    const exact = exactIdentityKey(requested);
+    const residue = this.cleanupResidue.get(exact);
+    if (current === undefined && residue === undefined) {
+      return McpSourceRemoveResultSchema.parse({ kind: "absent" });
+    }
+    const executions = current?.executions ?? residue!;
+    if (current !== undefined && this.nextRemovalFailure === "after-unregister") {
+      this.nextRemovalFailure = undefined;
+      this.records.delete(key);
+      this.cleanupResidue.set(exact, executions);
+      throw new FakeMcpRuntimeFailure(ErrorCodeRegistry.mcpLaunchCleanupFailed);
+    }
+    try {
+      const cleanupSignal = new AbortController().signal;
+      for (const execution of [...executions]) await this.closeExecution(execution, cleanupSignal);
+    } catch {
+      // The registered record still owns its executions. Residue is used only
+      // after an intentionally partial unregister-before-cleanup effect.
+      throw new FakeMcpRuntimeFailure(ErrorCodeRegistry.mcpLaunchCleanupFailed);
+    }
+    this.cleanupResidue.delete(exact);
     this.records.delete(key);
-    return McpSourceRemoveResultSchema.parse({ kind: "removed" });
+    return McpSourceRemoveResultSchema.parse({ kind: current === undefined ? "absent" : "removed" });
   }
 
   async inspectSource(
@@ -288,7 +464,7 @@ export class FakeMcpRuntime implements McpRuntimePort {
     signal.throwIfAborted();
     const requested = McpSourceIdentitySchemaV1.parse(clone(identity));
     const record = this.records.get(ownerKey(requested));
-    if (record === undefined || exactIdentityKey(record.source.identity) !== exactIdentityKey(requested)) {
+    if (record === undefined || exactIdentityKey(record.registration.source.identity) !== exactIdentityKey(requested)) {
       return undefined;
     }
     return copyStatus(statusFor(record));
@@ -301,45 +477,46 @@ export class FakeMcpRuntime implements McpRuntimePort {
       .map(([, record]) => copyStatus(statusFor(record)));
   }
 
-  /** Test-only launch boundary; no production adapter uses this method. */
-  async launch(
+  async openExecution(
     identity: McpSourceIdentity,
     serverKey: string,
     signal: AbortSignal,
     consume: (values: McpLaunchValues) => void | Promise<void> = () => undefined,
-  ): Promise<void> {
+  ): Promise<FakeMcpExecution> {
     signal.throwIfAborted();
     const requested = McpSourceIdentitySchemaV1.parse(clone(identity));
     const record = this.records.get(ownerKey(requested));
-    if (record === undefined || exactIdentityKey(record.source.identity) !== exactIdentityKey(requested)) {
+    if (record === undefined || exactIdentityKey(record.registration.source.identity) !== exactIdentityKey(requested)) {
       throw new Error("MCP source is not registered for launch");
     }
-    const server = record.source.servers[serverKey];
+    const server = record.registration.source.servers[serverKey];
     if (server === undefined) throw new Error("MCP server is not registered for launch");
-
-    const request = McpLaunchValueRequestSchema.parse({
+    const binding = McpRuntimeServerBindingSchemaV1.parse({
+      schemaVersion: 1,
       source: requested,
       serverKey,
+      componentId: server.componentId,
       transport: server.transport,
     });
+
+    let lease: McpRuntimeLease | undefined;
     let values: McpLaunchValues | undefined;
     let failure: unknown;
     record.serverStatus.set(serverKey, { state: "connecting" });
     try {
+      lease = await record.runtimeLeases.acquire(binding, signal);
+      const request = McpLaunchValueRequestSchema.parse(binding);
       values = await record.launchValues.resolve(request, signal);
       signal.throwIfAborted();
       if (values.transport !== server.transport) {
-        throw new FakeMcpLaunchError(McpLaunchErrorCodes.valueInvalid);
+        throw new FakeMcpRuntimeFailure(McpLaunchErrorCodes.valueInvalid);
       }
       await consume(values);
       signal.throwIfAborted();
     } catch (error) {
       const code = classifyMcpLaunchFailure(error, signal);
       record.serverStatus.set(serverKey, { state: "failed", errorCode: code });
-      // Caller-owned cancellation/timeout identity propagates unchanged. Every
-      // other failure becomes a static code-only fake error with no native
-      // cause, message, template, or consumed value retained.
-      failure = signal.aborted ? signal.reason : new FakeMcpLaunchError(code);
+      failure = signal.aborted ? signal.reason : new FakeMcpRuntimeFailure(code);
     } finally {
       if (values !== undefined) {
         try {
@@ -352,12 +529,45 @@ export class FakeMcpRuntime implements McpRuntimePort {
               state: "failed",
               errorCode: McpLaunchErrorCodes.cleanupFailed,
             });
-            failure = new FakeMcpLaunchError(McpLaunchErrorCodes.cleanupFailed);
+            failure = new FakeMcpRuntimeFailure(McpLaunchErrorCodes.cleanupFailed);
+          }
+        }
+      }
+      if (failure !== undefined && lease !== undefined) {
+        try {
+          await record.runtimeLeases.release(lease, new AbortController().signal);
+        } catch {
+          if (!signal.aborted) {
+            record.serverStatus.set(serverKey, {
+              state: "failed",
+              errorCode: McpLaunchErrorCodes.cleanupFailed,
+            });
+            failure = new FakeMcpRuntimeFailure(McpLaunchErrorCodes.cleanupFailed);
           }
         }
       }
     }
     if (failure !== undefined) throw failure;
+    if (lease === undefined) throw new FakeMcpRuntimeFailure(McpLaunchErrorCodes.cleanupFailed);
+
+    const state: ExecutionState = { record, lease, closed: false };
+    record.executions.add(state);
     record.serverStatus.set(serverKey, { state: "connected" });
+    return Object.freeze({
+      close: async (closeSignal = new AbortController().signal) => {
+        await this.closeExecution(state, closeSignal);
+      },
+    });
+  }
+
+  /** Test-only one-shot execution; no production adapter uses this method. */
+  async launch(
+    identity: McpSourceIdentity,
+    serverKey: string,
+    signal: AbortSignal,
+    consume: (values: McpLaunchValues) => void | Promise<void> = () => undefined,
+  ): Promise<void> {
+    const execution = await this.openExecution(identity, serverKey, signal, consume);
+    await execution.close(new AbortController().signal);
   }
 }

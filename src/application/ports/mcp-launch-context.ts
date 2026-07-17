@@ -1,5 +1,4 @@
-import { z } from "zod";
-import { ComponentIdSchema, type McpServerComponent } from "../../domain/components.js";
+import type { McpServerComponent } from "../../domain/components.js";
 import { ErrorCodeRegistry, DomainContractError, type ErrorCode } from "../../domain/errors.js";
 import type { PluginConfiguration } from "../../domain/configuration.js";
 import type { InstalledRevisionRecord } from "../../domain/state/installed-state.js";
@@ -9,39 +8,17 @@ import type { ConfigurationPathContext } from "./configuration-path.js";
 import type { CurrentProjectRuntimeContext } from "./project-trust.js";
 import type { ProjectionExpectation } from "./runtime-projection.js";
 import {
-  McpBridgeTransportSchema,
-  McpRuntimeServerKeySchemaV1,
-  McpSourceIdentitySchemaV1,
-  deriveMcpRuntimeServerKey,
+  McpRuntimeServerBindingSchemaV1,
   type McpBridgeTransport,
+  type McpRuntimeServerBinding,
   type McpSourceIdentity,
   type McpSourceProjectionBinding,
 } from "./mcp-runtime.js";
 import type { ResolvedConfiguration } from "../resolved-configuration.js";
 import type { McpLaunchTemplate } from "../../domain/mcp-launch-template.js";
 
-export const McpLaunchBindingSchemaV1 = z.object({
-  schemaVersion: z.literal(1),
-  source: McpSourceIdentitySchemaV1,
-  serverKey: McpRuntimeServerKeySchemaV1,
-  componentId: ComponentIdSchema,
-  transport: McpBridgeTransportSchema,
-}).strict().readonly().superRefine((binding, context) => {
-  let expectedKey: string | undefined;
-  try {
-    expectedKey = deriveMcpRuntimeServerKey(binding.componentId);
-  } catch {
-    // Report one static issue rather than preserving malformed input.
-  }
-  if (binding.serverKey !== expectedKey) {
-    context.addIssue({
-      code: "custom",
-      path: ["serverKey"],
-      message: "launch server key must be derived from the component id",
-    });
-  }
-});
-export type McpLaunchBinding = z.infer<typeof McpLaunchBindingSchemaV1>;
+export const McpLaunchBindingSchemaV1 = McpRuntimeServerBindingSchemaV1;
+export type McpLaunchBinding = McpRuntimeServerBinding;
 
 export type McpLaunchActiveSelection = Readonly<{
   expectation: Extract<ProjectionExpectation, { kind: "active" }>;

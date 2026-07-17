@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createMcpLaunchContextPort } from "../../src/application/mcp-launch-context.js";
+import { createMcpSourceRegistration } from "../../src/application/mcp-source-registration.js";
 import { deriveMcpRuntimeServerKey } from "../../src/application/ports/mcp-runtime.js";
 import { withResolvedPluginConfiguration } from "../../src/application/configuration-resolver.js";
 import type { McpLaunchActiveSelectionPort } from "../../src/application/ports/mcp-launch-context.js";
@@ -27,7 +28,10 @@ import { createTrustCandidate, grantTrust } from "../../src/domain/trust-policy.
 import { createActiveProjectionExpectation, createPluginRuntimeProjection } from "../../src/application/ports/runtime-projection.js";
 import { McpConfigSourceSchemaV1 } from "../../src/application/ports/mcp-runtime.js";
 import { createTrustedMcpLaunchValueProvider } from "../../src/runtime/mcp/launch-value-provider.js";
-import { FakeMcpRuntime } from "../support/fakes/mcp-runtime.js";
+import {
+  FakeMcpRuntime,
+  FakeMcpRuntimeLeaseProvider,
+} from "../support/fakes/mcp-runtime.js";
 import { FakeMcpLaunchEnvironment } from "../support/fakes/mcp-launch-context.js";
 import { capabilities, claimFixture, directPlugin } from "../fixtures/compatibility/common.js";
 import { mcp } from "../fixtures/compatibility/mcp.js";
@@ -118,6 +122,7 @@ function integratedFixture() {
       provenance: component.declaration.provenance.map((entry: { location: unknown }) => entry.location),
     }])),
   });
+  const registration = createMcpSourceRegistration({ source, sha256 });
   const configurationRef = revision.configurationRef;
   const secretLocator = deriveSecretLocator({
     scope,
@@ -211,6 +216,7 @@ function integratedFixture() {
   const provider = createTrustedMcpLaunchValueProvider({ source, context, environment, platform: "posix" });
   return {
     source,
+    registration,
     projection,
     configurationDocument: document,
     context,
@@ -246,7 +252,12 @@ describe("MCP launch trusted-context integration", () => {
     }, signal, async (resolved) => {
       expect(resolved.configuration.substitute("${user_config.TOKEN}")).toBe("CANARY_SECRET_V1");
     });
-    await runtime.replaceSource({ source: fixture.source, launchValues: fixture.provider }, signal);
+    await runtime.replaceSource({
+      registration: fixture.registration,
+      expected: { kind: "absent" },
+      launchValues: fixture.provider,
+      runtimeLeases: new FakeMcpRuntimeLeaseProvider(),
+    }, signal);
     const stdioKey = Object.keys(fixture.source.servers).find((key) => fixture.source.servers[key]!.transport === "stdio")!;
     const httpKey = Object.keys(fixture.source.servers).find((key) => fixture.source.servers[key]!.transport === "streamable-http")!;
     let retained: McpLaunchValues | undefined;
@@ -306,7 +317,12 @@ describe("MCP launch trusted-context integration", () => {
     });
     const runtime = new FakeMcpRuntime();
     const signal = new AbortController().signal;
-    await runtime.replaceSource({ source: fixture.source, launchValues: provider }, signal);
+    await runtime.replaceSource({
+      registration: fixture.registration,
+      expected: { kind: "absent" },
+      launchValues: provider,
+      runtimeLeases: new FakeMcpRuntimeLeaseProvider(),
+    }, signal);
     const stdioKey = Object.keys(fixture.source.servers).find((key) => fixture.source.servers[key]!.transport === "stdio")!;
     const observed = new Map<string, string>();
     const first = runtime.launch(fixture.source.identity, stdioKey, signal, (values) => {
@@ -331,7 +347,12 @@ describe("MCP launch trusted-context integration", () => {
     const fixture = integratedFixture();
     const runtime = new FakeMcpRuntime();
     const signal = new AbortController().signal;
-    await runtime.replaceSource({ source: fixture.source, launchValues: fixture.provider }, signal);
+    await runtime.replaceSource({
+      registration: fixture.registration,
+      expected: { kind: "absent" },
+      launchValues: fixture.provider,
+      runtimeLeases: new FakeMcpRuntimeLeaseProvider(),
+    }, signal);
     const stdioKey = Object.keys(fixture.source.servers).find((key) => fixture.source.servers[key]!.transport === "stdio")!;
     const observed: string[] = [];
     await runtime.launch(fixture.source.identity, stdioKey, signal, (values) => {

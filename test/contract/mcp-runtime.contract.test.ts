@@ -29,6 +29,7 @@ function baseHarness(runtime: McpRuntimePort, fake: FakeMcpRuntime): Harness {
   return {
     runtime,
     launch: (identity, serverKey, signal, consume) => fake.launch(identity, serverKey, signal, consume),
+    openExecution: (identity, serverKey, signal) => fake.openExecution(identity, serverKey, signal),
     failNextReplacement: () => fake.failNextReplacement(),
   };
 }
@@ -61,12 +62,14 @@ describe("MCP runtime conformance suite negative evidence", () => {
     const fake = new FakeMcpRuntime();
     const runtime = delegated(fake, {
       replaceSource: async (request, signal) => {
-        const serverKey = Object.keys(request.source.servers)[0]!;
-        const server = request.source.servers[serverKey]!;
+        const serverKey = Object.keys(request.registration.source.servers)[0]!;
+        const server = request.registration.source.servers[serverKey]!;
         const values = await request.launchValues.resolve(
           McpLaunchValueRequestSchema.parse({
-            source: request.source.identity,
+            schemaVersion: 1,
+            source: request.registration.source.identity,
             serverKey,
+            componentId: server.componentId,
             transport: server.transport,
           }),
           signal,

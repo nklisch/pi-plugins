@@ -21,6 +21,7 @@ import {
   McpRuntimeServerKeySchemaV1,
   deriveMcpRuntimeServerKey,
   McpSourceIdentitySchemaV1,
+  McpSourceRegistrationSchemaV1,
   McpSourceProjectionBindingSchemaV1,
   McpToolAliasSegmentSchema,
   McpToolAliasTemplateSchemaV1,
@@ -29,6 +30,7 @@ import {
   type McpRuntimeServerKey,
   type McpSourceIdentity,
 } from "./ports/mcp-runtime.js";
+import { createMcpSourceRegistration } from "./mcp-source-registration.js";
 import {
   PluginRuntimeProjectionSchemaV1,
   createActiveProjectionExpectation,
@@ -63,7 +65,7 @@ const PluginMcpProjectionNoneSchemaV1 = z.object({
 const PluginMcpProjectionSourceSchemaV1 = z.object({
   schemaVersion: z.literal(1),
   kind: z.literal("source"),
-  source: McpConfigSourceSchemaV1,
+  registration: McpSourceRegistrationSchemaV1,
   aliasOmissions: z.array(PluginMcpAliasOmissionSchema).readonly(),
   digest: ContentDigestSchema,
 }).strict().readonly();
@@ -362,10 +364,11 @@ export function createPluginMcpProjection(input: Readonly<{
   });
   const aliasOmissions = rows.flatMap((row) => row.omission === undefined ? [] : [row.omission])
     .sort((left, right) => compareUtf8(left.serverKey, right.serverKey) || compareUtf8(left.code, right.code));
+  const registration = createMcpSourceRegistration({ source, sha256: input.sha256 });
   const withoutDigest = {
     schemaVersion: 1 as const,
     kind: "source" as const,
-    source,
+    registration,
     aliasOmissions,
   };
   const digest = digestProjection(withoutDigest, input.sha256);

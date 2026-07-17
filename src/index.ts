@@ -407,6 +407,9 @@ export {
   McpSourceProjectionBindingSchemaV1,
   McpSourceServerSchemaV1,
   McpConfigSourceSchemaV1,
+  McpSourceRegistrationSchemaV1,
+  McpSourcePreconditionSchemaV1,
+  McpRuntimeServerBindingSchemaV1,
   McpLaunchValueRequestSchema,
   McpSourceServerStatusSchema,
   McpSourceStatusSchema,
@@ -424,9 +427,14 @@ export type {
   McpSourceProjectionBinding,
   McpSourceServer,
   McpConfigSource,
+  McpSourceRegistration,
+  McpSourcePrecondition,
+  McpRuntimeServerBinding,
   McpLaunchValueRequest,
   McpLaunchValues,
   McpLaunchValueProvider,
+  McpRuntimeLease,
+  McpRuntimeLeaseProvider,
   McpSourceServerStatus,
   McpSourceStatus,
   McpRuntimeCapabilities,
@@ -436,6 +444,10 @@ export type {
   McpSourceReplaceRequest,
   McpRuntimePort,
 } from "./application/ports/mcp-runtime.js";
+export {
+  createMcpSourceRegistration,
+  verifyMcpSourceRegistration,
+} from "./application/mcp-source-registration.js";
 
 export {
   PluginMcpLaunchTemplateSchemaV1,

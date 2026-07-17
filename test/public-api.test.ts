@@ -121,6 +121,9 @@ import {
   McpCompatibilityPlanSchemaV1,
   analyzeMcpCompatibility,
   McpConfigSourceSchemaV1,
+  McpSourceRegistrationSchemaV1,
+  McpSourcePreconditionSchemaV1,
+  McpRuntimeServerBindingSchemaV1,
   McpLaunchValueRequestSchema,
   McpRuntimeCapabilitiesSchemaV1,
   McpRuntimeServerKeySchemaV1,
@@ -141,6 +144,8 @@ import {
   deriveMcpRuntimeServerKey,
   createPluginMcpProjection,
   verifyPluginMcpProjection,
+  createMcpSourceRegistration,
+  verifyMcpSourceRegistration,
   RuntimeCapabilityAvailabilitySchema,
   RuntimeCapabilityIdSchema,
   RuntimeCapabilityRegistry,
@@ -432,6 +437,10 @@ import {
   type McpCompatibilityPlan,
   type McpCompatibilityAnalysis,
   type McpConfigSource,
+  type McpSourceRegistration,
+  type McpSourcePrecondition,
+  type McpRuntimeServerBinding,
+  type McpRuntimeLeaseProvider,
   type McpLaunchValueProvider,
   type McpLaunchValueRequest,
   type McpLaunchValues,
@@ -616,6 +625,9 @@ describe("explicit package API", () => {
       McpCompatibilityPlanSchemaV1,
       analyzeMcpCompatibility,
       McpConfigSourceSchemaV1,
+      McpSourceRegistrationSchemaV1,
+      McpSourcePreconditionSchemaV1,
+      McpRuntimeServerBindingSchemaV1,
       McpLaunchValueRequestSchema,
       McpRuntimeCapabilitiesSchemaV1,
       McpRuntimeServerKeySchemaV1,
@@ -636,6 +648,8 @@ describe("explicit package API", () => {
       deriveMcpRuntimeServerKey,
       createPluginMcpProjection,
       verifyPluginMcpProjection,
+      createMcpSourceRegistration,
+      verifyMcpSourceRegistration,
       RuntimeCapabilityAvailabilitySchema,
       RuntimeCapabilityIdSchema,
       RuntimeCapabilityRegistry,
@@ -870,6 +884,11 @@ describe("explicit package API", () => {
   it("exports portable trusted MCP launch contracts without a production capability claim", () => {
     expect(sourceApi.McpLaunchTemplateSchemaV1).toBeDefined();
     expect(sourceApi.McpLaunchBindingSchemaV1).toBeDefined();
+    expect(sourceApi.McpSourceRegistrationSchemaV1).toBeDefined();
+    expect(sourceApi.McpSourcePreconditionSchemaV1).toBeDefined();
+    expect(sourceApi.McpRuntimeServerBindingSchemaV1).toBeDefined();
+    expect(sourceApi.createMcpSourceRegistration).toBeDefined();
+    expect(sourceApi.verifyMcpSourceRegistration).toBeDefined();
     expect(sourceApi.createMcpLaunchTemplate).toBeDefined();
     expect(sourceApi.createMcpLaunchContextPort).toBeDefined();
     expect(sourceApi.createTrustedMcpLaunchValueProvider).toBeDefined();
@@ -921,6 +940,9 @@ describe("explicit package API", () => {
     expectTypeOf<McpCompatibilityPlan>().toEqualTypeOf<z.infer<typeof McpCompatibilityPlanSchemaV1>>();
     expectTypeOf<McpCompatibilityAnalysis>().toMatchTypeOf<{ kind: "supported" | "incompatible" }>();
     expectTypeOf<McpConfigSource>().toEqualTypeOf<z.infer<typeof McpConfigSourceSchemaV1>>();
+    expectTypeOf<McpSourceRegistration>().toEqualTypeOf<z.infer<typeof McpSourceRegistrationSchemaV1>>();
+    expectTypeOf<McpSourcePrecondition>().toEqualTypeOf<z.infer<typeof McpSourcePreconditionSchemaV1>>();
+    expectTypeOf<McpRuntimeServerBinding>().toEqualTypeOf<z.infer<typeof McpRuntimeServerBindingSchemaV1>>();
     expectTypeOf<McpRuntimeCapabilities>().toEqualTypeOf<z.infer<typeof McpRuntimeCapabilitiesSchemaV1>>();
     expectTypeOf<McpRuntimeServerKey>().toEqualTypeOf<z.infer<typeof McpRuntimeServerKeySchemaV1>>();
     expectTypeOf<McpToolAliasSegment>().toEqualTypeOf<z.infer<typeof McpToolAliasSegmentSchema>>();
@@ -940,7 +962,13 @@ describe("explicit package API", () => {
     expectTypeOf<McpLaunchValueRequest>().toEqualTypeOf<z.infer<typeof McpLaunchValueRequestSchema>>();
     expectTypeOf<McpLaunchValues>().not.toEqualTypeOf<McpConfigSource>();
     expectTypeOf<McpLaunchValueProvider>().toMatchTypeOf<{ resolve: Function; dispose: Function }>();
-    expectTypeOf<McpSourceReplaceRequest>().toMatchTypeOf<{ source: McpConfigSource; launchValues: McpLaunchValueProvider }>();
+    expectTypeOf<McpRuntimeLeaseProvider>().toMatchTypeOf<{ acquire: Function; release: Function }>();
+    expectTypeOf<McpSourceReplaceRequest>().toMatchTypeOf<{
+      registration: McpSourceRegistration;
+      expected: McpSourcePrecondition;
+      launchValues: McpLaunchValueProvider;
+      runtimeLeases: McpRuntimeLeaseProvider;
+    }>();
     expectTypeOf<McpRuntimePort>().toMatchTypeOf<{ capabilities: Function; replaceSource: Function }>();
     expectTypeOf<RuntimeCapabilityAvailability>().toEqualTypeOf<z.infer<typeof RuntimeCapabilityAvailabilitySchema>>();
     expectTypeOf<RuntimeCapabilityId>().toEqualTypeOf<z.infer<typeof RuntimeCapabilityIdSchema>>();

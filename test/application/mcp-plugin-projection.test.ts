@@ -58,6 +58,7 @@ function runtime(overrides: Record<string, unknown> = {}) {
       inspect: true,
       cancellable: true,
       lateLaunchValues: true,
+      runtimeLeases: true,
     },
     transports: { stdio: true, streamableHttp: true, legacySse: false, websocket: false },
     oauth: { authorizationCode: true, clientCredentials: true },
@@ -188,15 +189,15 @@ describe("plugin MCP projection", () => {
     if (first.kind !== "source") throw new Error("expected source projection");
     const component = f.projection.components.mcpServers[0]!;
     const key = deriveMcpRuntimeServerKey(component.id);
-    expect(first.source.identity).toEqual({
+    expect(first.registration.source.identity).toEqual({
       schemaVersion: 1,
       scope: f.projection.scope,
       plugin: f.projection.plugin,
       revision: f.projection.revision,
       projectionDigest: f.projection.digest,
     });
-    expect(Object.keys(first.source.servers)).toEqual([key]);
-    expect(first.source.servers[key]).toMatchObject({
+    expect(Object.keys(first.registration.source.servers)).toEqual([key]);
+    expect(first.registration.source.servers[key]).toMatchObject({
       componentId: component.id,
       nativeKey: "search/../opaque",
       transport: "stdio",
@@ -228,7 +229,7 @@ describe("plugin MCP projection", () => {
         preserveNativeDiscovery: true,
       }],
     });
-    expect(first.source.servers[key]!.provenance.map((entry) => entry.host)).toEqual(["claude", "codex"]);
+    expect(first.registration.source.servers[key]!.provenance.map((entry) => entry.host)).toEqual(["claude", "codex"]);
     expect(verifyPluginMcpProjection(first, sha256)).toEqual(first);
     expect(JSON.stringify(first)).not.toMatch(/CANARY_/u);
 
@@ -258,7 +259,7 @@ describe("plugin MCP projection", () => {
       expect(added.compatibility.components[0]?.verdict.kind).toBe("supported");
       const projected = create(added);
       if (projected.kind !== "source") throw new Error("expected source");
-      expect(Object.values(projected.source.servers)[0]?.options).toMatchObject({ startupTimeoutMs: 37.5 });
+      expect(Object.values(projected.registration.source.servers)[0]?.options).toMatchObject({ startupTimeoutMs: 37.5 });
 
       aliases.splice(aliases.indexOf("runtimeStartupTimeout"), 1);
       const removed = evaluateCompatibility({ plugin: added.plugin, capabilities: capabilities() });
@@ -296,7 +297,7 @@ describe("plugin MCP projection", () => {
     expect(JSON.stringify(secondMcp)).toBe(JSON.stringify(firstMcp));
     expect(secondMcp.digest).toBe(firstMcp.digest);
     if (firstMcp.kind !== "source" || secondMcp.kind !== "source") throw new Error("expected sources");
-    expect(secondMcp.source.identity).toEqual(firstMcp.source.identity);
+    expect(secondMcp.registration.source.identity).toEqual(firstMcp.registration.source.identity);
   });
 
   it("keeps composed and decomposed Unicode distinct in complete and MCP identities", () => {
@@ -313,7 +314,7 @@ describe("plugin MCP projection", () => {
     const decomposedMcp = create(decomposed);
     expect(composedMcp.digest).not.toBe(decomposedMcp.digest);
     if (composedMcp.kind !== "source" || decomposedMcp.kind !== "source") throw new Error("expected sources");
-    expect(Object.keys(composedMcp.source.servers)).not.toEqual(Object.keys(decomposedMcp.source.servers));
+    expect(Object.keys(composedMcp.registration.source.servers)).not.toEqual(Object.keys(decomposedMcp.registration.source.servers));
   });
 
   it("returns an explicit deterministic none projection without an empty source", () => {
@@ -325,7 +326,7 @@ describe("plugin MCP projection", () => {
       identity: { plugin: "demo@community", projectionDigest: f.projection.digest },
       aliasOmissions: [],
     });
-    expect(result).not.toHaveProperty("source");
+    expect(result).not.toHaveProperty("registration");
     expect(verifyPluginMcpProjection(result, sha256)).toEqual(result);
   });
 
@@ -339,8 +340,9 @@ describe("plugin MCP projection", () => {
     const first = create(firstFixture);
     const second = create(secondFixture);
     if (first.kind !== "source" || second.kind !== "source") throw new Error("expected sources");
-    expect(Object.keys(first.source.servers)).toEqual(Object.keys(second.source.servers));
-    expect(first.source.identity).not.toEqual(second.source.identity);
+    expect(Object.keys(first.registration.source.servers)).toEqual(Object.keys(second.registration.source.servers));
+    expect(first.registration.source.identity).not.toEqual(second.registration.source.identity);
+    expect(first.registration.digest).not.toBe(second.registration.digest);
   });
 
   it("omits unsafe or unavailable aliases without rewriting canonical identity", () => {
@@ -351,9 +353,9 @@ describe("plugin MCP projection", () => {
     }] });
     const unsafeResult = create(unsafe);
     if (unsafeResult.kind !== "source") throw new Error("expected source");
-    const key = Object.keys(unsafeResult.source.servers)[0]!;
-    expect(unsafeResult.source.servers[key]!.nativeKey).toBe("server\u0001name");
-    expect(unsafeResult.source.servers[key]!.toolAliases).toEqual([]);
+    const key = Object.keys(unsafeResult.registration.source.servers)[0]!;
+    expect(unsafeResult.registration.source.servers[key]!.nativeKey).toBe("server\u0001name");
+    expect(unsafeResult.registration.source.servers[key]!.toolAliases).toEqual([]);
     expect(unsafeResult.aliasOmissions[0]?.code).toBe("UNREPRESENTABLE_ALIAS_SEGMENT");
 
     const aliasDisabled = create(fixture(), runtime({
@@ -367,7 +369,7 @@ describe("plugin MCP projection", () => {
       },
     }));
     if (aliasDisabled.kind !== "source") throw new Error("expected source");
-    expect(Object.values(aliasDisabled.source.servers)[0]!.toolAliases).toEqual([]);
+    expect(Object.values(aliasDisabled.registration.source.servers)[0]!.toolAliases).toEqual([]);
     expect(aliasDisabled.aliasOmissions[0]?.code).toBe("RUNTIME_ALIAS_UNAVAILABLE");
   });
 
@@ -375,7 +377,7 @@ describe("plugin MCP projection", () => {
     const named = fixture({ manifestName: "bound-manifest" });
     const namedProjection = create(named);
     if (namedProjection.kind !== "source") throw new Error("expected source");
-    expect(Object.values(namedProjection.source.servers)[0]?.toolAliases[0]?.pluginName).toBe("bound-manifest");
+    expect(Object.values(namedProjection.registration.source.servers)[0]?.toolAliases[0]?.pluginName).toBe("bound-manifest");
 
     const manifestOnlyMismatch = {
       ...named.compatibility,

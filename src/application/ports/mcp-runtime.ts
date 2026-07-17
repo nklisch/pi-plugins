@@ -205,15 +205,60 @@ export const McpConfigSourceSchemaV1 = z
   });
 export type McpConfigSource = z.infer<typeof McpConfigSourceSchemaV1>;
 
-export const McpLaunchValueRequestSchema = z
+/** Canonical, secret-free bytes registered with one MCP runtime source. */
+export const McpSourceRegistrationSchemaV1 = z
   .object({
-    source: McpSourceIdentitySchemaV1,
-    serverKey: McpRuntimeServerKeySchemaV1,
-    transport: McpBridgeTransportSchema,
+    schemaVersion: z.literal(1),
+    source: McpConfigSourceSchemaV1,
+    digest: ContentDigestSchema,
   })
   .strict()
   .readonly();
-export type McpLaunchValueRequest = z.infer<typeof McpLaunchValueRequestSchema>;
+export type McpSourceRegistration = z.infer<typeof McpSourceRegistrationSchemaV1>;
+
+/** Every source publication is an exact owner-local compare-and-replace. */
+export const McpSourcePreconditionSchemaV1 = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("absent") }).strict().readonly(),
+  z.object({
+    kind: z.literal("exact"),
+    identity: McpSourceIdentitySchemaV1,
+  }).strict().readonly(),
+]);
+export type McpSourcePrecondition = z.infer<typeof McpSourcePreconditionSchemaV1>;
+
+/**
+ * One binding vocabulary is shared by launch-value and execution-lease
+ * providers so a runtime cannot ask either callback about another component.
+ */
+export const McpRuntimeServerBindingSchemaV1 = z
+  .object({
+    schemaVersion: z.literal(1),
+    source: McpSourceIdentitySchemaV1,
+    serverKey: McpRuntimeServerKeySchemaV1,
+    componentId: ComponentIdSchema,
+    transport: McpBridgeTransportSchema,
+  })
+  .strict()
+  .readonly()
+  .superRefine((binding, context) => {
+    let expectedKey: McpRuntimeServerKey | undefined;
+    try {
+      expectedKey = deriveMcpRuntimeServerKey(binding.componentId);
+    } catch {
+      // Report one static issue rather than preserving malformed input.
+    }
+    if (binding.serverKey !== expectedKey) {
+      context.addIssue({
+        code: "custom",
+        path: ["serverKey"],
+        message: "runtime server key must be derived from the component id",
+      });
+    }
+  });
+export type McpRuntimeServerBinding = z.infer<typeof McpRuntimeServerBindingSchemaV1>;
+
+export const McpLaunchValueRequestSchema = McpRuntimeServerBindingSchemaV1;
+export type McpLaunchValueRequest = McpRuntimeServerBinding;
 
 /**
  * Plaintext launch values intentionally cannot be represented by a serialized
@@ -241,6 +286,20 @@ export interface McpLaunchValueProvider {
     signal: AbortSignal,
   ): Promise<McpLaunchValues>;
   dispose(values: McpLaunchValues): void | Promise<void>;
+}
+
+// Opaque and intentionally absent from every serializable schema.
+declare const mcpRuntimeLeaseBrand: unique symbol;
+export type McpRuntimeLease = Readonly<{
+  readonly [mcpRuntimeLeaseBrand]: true;
+}>;
+
+export interface McpRuntimeLeaseProvider {
+  acquire(
+    binding: McpRuntimeServerBinding,
+    signal: AbortSignal,
+  ): Promise<McpRuntimeLease>;
+  release(lease: McpRuntimeLease, signal: AbortSignal): Promise<void>;
 }
 
 function compareText(left: string, right: string): number {
@@ -283,6 +342,7 @@ export type McpSourceServerStatus = z.infer<typeof McpSourceServerStatusSchema>;
 export const McpSourceStatusSchema = z
   .object({
     identity: McpSourceIdentitySchemaV1,
+    registrationDigest: ContentDigestSchema,
     state: McpSourceStateSchema,
     servers: z.array(McpSourceServerStatusSchema).readonly(),
   })
@@ -334,6 +394,7 @@ export const McpRuntimeCapabilitiesSchemaV1 = z
         inspect: z.boolean(),
         cancellable: z.boolean(),
         lateLaunchValues: z.boolean(),
+        runtimeLeases: z.boolean(),
       })
       .strict()
       .readonly(),
@@ -369,8 +430,8 @@ export const McpRuntimeCapabilitiesSchemaV1 = z
   .readonly();
 export type McpRuntimeCapabilities = z.infer<typeof McpRuntimeCapabilitiesSchemaV1>;
 
-export const McpSourceValidationResultSchema = ReadResultSchema(McpConfigSourceSchemaV1);
-export type McpSourceValidationResult = ReadResult<McpConfigSource>;
+export const McpSourceValidationResultSchema = ReadResultSchema(McpSourceRegistrationSchemaV1);
+export type McpSourceValidationResult = ReadResult<McpSourceRegistration>;
 
 const McpSourceReplaceResultSchemaRegistry = {
   applied: z
@@ -433,16 +494,17 @@ export const McpSourceRemoveResultSchema = z.discriminatedUnion(
 export type McpSourceRemoveResult = z.infer<typeof McpSourceRemoveResultSchema>;
 
 export type McpSourceReplaceRequest = Readonly<{
-  source: McpConfigSource;
-  expectedProjectionDigest?: ContentDigest;
+  registration: McpSourceRegistration;
+  expected: McpSourcePrecondition;
   launchValues: McpLaunchValueProvider;
+  runtimeLeases: McpRuntimeLeaseProvider;
 }>;
 
 /** Package-independent MCP runtime lifecycle boundary. */
 export interface McpRuntimePort {
   capabilities(signal: AbortSignal): Promise<McpRuntimeCapabilities>;
   validateSource(
-    source: McpConfigSource,
+    registration: McpSourceRegistration,
     signal: AbortSignal,
   ): Promise<McpSourceValidationResult>;
   replaceSource(

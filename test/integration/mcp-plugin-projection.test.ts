@@ -22,7 +22,10 @@ import { NormalizedPluginSchema } from "../../src/domain/plugin.js";
 import { createResolvedPluginSource } from "../../src/domain/source.js";
 import { createInstalledRevisionRecord } from "../../src/domain/state/installed-state.js";
 import { mcpProjectionConformanceVectors } from "../fixtures/compatibility/mcp.js";
-import { FakeMcpRuntime } from "../support/fakes/mcp-runtime.js";
+import {
+  FakeMcpRuntime,
+  FakeMcpRuntimeLeaseProvider,
+} from "../support/fakes/mcp-runtime.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array =>
   new Uint8Array(createHash("sha256").update(bytes).digest());
@@ -51,6 +54,7 @@ function runtimeCapabilities(pluginToolAliases: boolean) {
       inspect: true,
       cancellable: true,
       lateLaunchValues: true,
+      runtimeLeases: true,
     },
     transports: { stdio: true, streamableHttp: true, legacySse: false, websocket: false },
     oauth: { authorizationCode: true, clientCredentials: true },
@@ -143,9 +147,14 @@ function providerCounters() {
 async function register(runtime: FakeMcpRuntime, projection: PluginMcpProjection, provider: McpLaunchValueProvider) {
   if (projection.kind === "none") return undefined;
   const signal = new AbortController().signal;
-  const validation = await runtime.validateSource(projection.source, signal);
+  const validation = await runtime.validateSource(projection.registration, signal);
   expect(validation.ok).toBe(true);
-  return runtime.replaceSource({ source: projection.source, launchValues: provider }, signal);
+  return runtime.replaceSource({
+    registration: projection.registration,
+    expected: { kind: "absent" },
+    launchValues: provider,
+    runtimeLeases: new FakeMcpRuntimeLeaseProvider(),
+  }, signal);
 }
 
 describe("MCP plugin projection through the portable fake", () => {
@@ -159,10 +168,11 @@ describe("MCP plugin projection through the portable fake", () => {
     if (generated.mcp.kind !== "source") throw new Error("expected source");
 
     const signal = new AbortController().signal;
-    const status = await runtime.inspectSource(generated.mcp.source.identity, signal);
-    expect(status?.identity).toEqual(generated.mcp.source.identity);
+    const status = await runtime.inspectSource(generated.mcp.registration.source.identity, signal);
+    expect(status?.identity).toEqual(generated.mcp.registration.source.identity);
+    expect(status?.registrationDigest).toBe(generated.mcp.registration.digest);
     expect(status?.servers.map((server) => server.key)).toEqual(
-      Object.keys(generated.mcp.source.servers).sort(),
+      Object.keys(generated.mcp.registration.source.servers).sort(),
     );
     expect(status?.servers.map((server) => server.nativeKey).sort()).toEqual([
       "shared/../server",
@@ -173,10 +183,10 @@ describe("MCP plugin projection through the portable fake", () => {
     expect(serialized).not.toContain("launchTemplate");
     expect(serialized).not.toContain("options");
 
-    const wrong = { ...generated.mcp.source.identity, revision: `sha256:${"0".repeat(64)}` } as never;
+    const wrong = { ...generated.mcp.registration.source.identity, revision: `sha256:${"0".repeat(64)}` } as never;
     expect(await runtime.removeSource(wrong, signal)).toMatchObject({ kind: "ownership-mismatch" });
-    expect(await runtime.inspectSource(generated.mcp.source.identity, signal)).toBeDefined();
-    expect(await runtime.removeSource(generated.mcp.source.identity, signal)).toEqual({ kind: "removed" });
+    expect(await runtime.inspectSource(generated.mcp.registration.source.identity, signal)).toBeDefined();
+    expect(await runtime.removeSource(generated.mcp.registration.source.identity, signal)).toEqual({ kind: "removed" });
     expect(counters).toEqual({ resolved: 0, disposed: 0 });
   });
 
@@ -205,12 +215,19 @@ describe("MCP plugin projection through the portable fake", () => {
     });
     if (replacement.mcp.kind !== "source" || user.mcp.kind !== "source") throw new Error("expected sources");
     const stale = await runtime.replaceSource({
-      source: replacement.mcp.source,
-      expectedProjectionDigest: `sha256:${"9".repeat(64)}` as never,
+      registration: replacement.mcp.registration,
+      expected: {
+        kind: "exact",
+        identity: {
+          ...user.mcp.registration.source.identity,
+          revision: `sha256:${"9".repeat(64)}` as never,
+        },
+      },
       launchValues: providerCounters().provider,
+      runtimeLeases: new FakeMcpRuntimeLeaseProvider(),
     }, signal);
-    expect(stale).toMatchObject({ kind: "stale", currentIdentity: user.mcp.source.identity });
-    expect(await runtime.inspectSource(user.mcp.source.identity, signal)).toBeDefined();
+    expect(stale).toMatchObject({ kind: "stale", currentIdentity: user.mcp.registration.source.identity });
+    expect(await runtime.inspectSource(user.mcp.registration.source.identity, signal)).toBeDefined();
   });
 
   it("keeps none and report-mismatch paths offline and aliases optional", async () => {
@@ -226,7 +243,7 @@ describe("MCP plugin projection through the portable fake", () => {
       host: "claude",
     }] });
     if (aliasDisabled.mcp.kind !== "source") throw new Error("expected source");
-    expect(Object.values(aliasDisabled.mcp.source.servers)[0]!.toolAliases).toEqual([]);
+    expect(Object.values(aliasDisabled.mcp.registration.source.servers)[0]!.toolAliases).toEqual([]);
     expect(aliasDisabled.mcp.aliasOmissions[0]?.code).toBe("RUNTIME_ALIAS_UNAVAILABLE");
 
     const incompatibleReport = fixture({ declarations: [] }).compatibility;
@@ -254,10 +271,10 @@ describe("MCP plugin projection through the portable fake", () => {
     if (first.mcp.kind !== "source" || second.mcp.kind !== "source") throw new Error("expected sources");
     const claims: McpToolAliasClaim[] = [first, second].map((fixtureValue) => {
       if (fixtureValue.mcp.kind !== "source") throw new Error("expected source");
-      const [serverKey, server] = Object.entries(fixtureValue.mcp.source.servers)[0]!;
+      const [serverKey, server] = Object.entries(fixtureValue.mcp.registration.source.servers)[0]!;
       const template = server.toolAliases[0]!;
       return {
-        source: fixtureValue.mcp.source.identity,
+        source: fixtureValue.mcp.registration.source.identity,
         serverKey: serverKey as never,
         componentId: server.componentId,
         nativeToolName: "read",
@@ -265,10 +282,10 @@ describe("MCP plugin projection through the portable fake", () => {
       };
     });
     const nativeAlias = (() => {
-      const [serverKey, server] = Object.entries(first.mcp.source.servers)[0]!;
+      const [serverKey, server] = Object.entries(first.mcp.registration.source.servers)[0]!;
       const template = server.toolAliases[0]!;
       return {
-        source: first.mcp.source.identity,
+        source: first.mcp.registration.source.identity,
         serverKey: serverKey as never,
         componentId: server.componentId,
         nativeToolName: "write",

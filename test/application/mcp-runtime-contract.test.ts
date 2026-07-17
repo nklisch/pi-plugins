@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
@@ -5,11 +6,14 @@ import {
   McpConfigSourceSchemaV1,
   McpLaunchValueRequestSchema,
   McpRuntimeCapabilitiesSchemaV1,
+  McpRuntimeServerBindingSchemaV1,
   McpRuntimeServerKeySchemaV1,
   deriveMcpRuntimeServerKey,
   McpToolAliasSegmentSchema,
   McpToolAliasTemplateSchemaV1,
   McpSourceIdentitySchemaV1,
+  McpSourcePreconditionSchemaV1,
+  McpSourceRegistrationSchemaV1,
   McpSourceRemoveResultSchema,
   McpSourceReplaceResultSchema,
   McpSourceServerSchemaV1,
@@ -20,6 +24,10 @@ import {
   type McpRuntimeCapabilities,
   type McpRuntimePort,
 } from "../../src/application/ports/mcp-runtime.js";
+import {
+  createMcpSourceRegistration,
+  verifyMcpSourceRegistration,
+} from "../../src/application/mcp-source-registration.js";
 import { ContentDigestSchema } from "../../src/domain/content-manifest.js";
 import { ComponentIdSchema } from "../../src/domain/components.js";
 import { PluginKeySchema } from "../../src/domain/identity.js";
@@ -35,6 +43,8 @@ const componentId = ComponentIdSchema.parse(`component-v1:mcp-server:${"a".repea
 const serverKey = `mcp-server-v1:${"a".repeat(64)}`;
 const plugin = PluginKeySchema.parse("demo@community");
 const digest = (hex: string) => ContentDigestSchema.parse(`sha256:${hex.repeat(64).slice(0, 64)}`);
+const sha256 = (bytes: Uint8Array): Uint8Array =>
+  new Uint8Array(createHash("sha256").update(bytes).digest());
 
 function identity(overrides: Record<string, unknown> = {}) {
   return McpSourceIdentitySchemaV1.parse({
@@ -90,6 +100,7 @@ function capabilities(): McpRuntimeCapabilities {
       inspect: true,
       cancellable: true,
       lateLaunchValues: true,
+      runtimeLeases: true,
     },
     transports: {
       stdio: true,
@@ -228,6 +239,34 @@ describe("portable MCP runtime contract", () => {
     }).success).toBe(false);
   });
 
+  it("binds exact canonical source bytes and rejects supplied digest drift", () => {
+    const registration = createMcpSourceRegistration({ source: source(), sha256 });
+    expect(McpSourceRegistrationSchemaV1.parse(registration)).toEqual(registration);
+    expect(verifyMcpSourceRegistration(registration, sha256)).toEqual(registration);
+
+    const server = source().servers[serverKey]!;
+    const mutations = [
+      { ...source(), identity: identity({ revision: digest("9") }) },
+      { ...source(), servers: { [serverKey]: { ...server, nativeKey: "changed" } } },
+      { ...source(), servers: { [serverKey]: { ...server, options: { ...server.options, toolTimeoutMs: 2000 } } } },
+      { ...source(), servers: { [serverKey]: { ...server, transport: "streamable-http", launchTemplate: { schemaVersion: 1, transport: "streamable-http", url: "https://changed.invalid", headers: [] } } } },
+      { ...source(), servers: { [serverKey]: { ...server, toolAliases: [{ schemaVersion: 1, kind: "claude-plugin", pluginName: "demo", nativeServerKey: "search", collisionPolicy: "omit-all", preserveNativeDiscovery: true }] } } },
+      { ...source(), servers: { [serverKey]: { ...server, provenance: [{ ...location, pointer: "/changed" }] } } },
+    ];
+    for (const candidate of mutations) {
+      const changed = createMcpSourceRegistration({
+        source: McpConfigSourceSchemaV1.parse(candidate),
+        sha256,
+      });
+      expect(changed.digest).not.toBe(registration.digest);
+      expect(() => createMcpSourceRegistration({
+        source: changed.source,
+        digest: registration.digest,
+        sha256,
+      })).toThrow();
+    }
+  });
+
   it("keeps exact scope, plugin, revision, and projection identity", () => {
     const project = identity({
       scope: { kind: "project", projectKey: `project-v1:sha256:${"f".repeat(64)}` },
@@ -244,8 +283,10 @@ describe("portable MCP runtime contract", () => {
   });
 
   it("round-trips redacted status and typed operation outcomes", () => {
+    const registration = createMcpSourceRegistration({ source: source(), sha256 });
     const status = McpSourceStatusSchema.parse({
       identity: identity(),
+      registrationDigest: registration.digest,
       state: "registered",
       servers: [{
         key: serverKey,
@@ -259,7 +300,7 @@ describe("portable MCP runtime contract", () => {
     });
     expect(McpSourceStatusSchema.parse(status)).toEqual(status);
     expect(JSON.stringify(status)).not.toContain("commandRef");
-    expect(McpSourceValidationResultSchema.parse({ ok: true, value: source(), diagnostics: [] }).ok).toBe(true);
+    expect(McpSourceValidationResultSchema.parse({ ok: true, value: registration, diagnostics: [] }).ok).toBe(true);
     expect(McpSourceValidationResultSchema.safeParse({ ok: false, diagnostics: [] }).success).toBe(false);
     expect(McpSourceReplaceResultSchema.parse({ kind: "stale", currentIdentity: identity() }).kind).toBe("stale");
     expect(McpSourceReplaceResultSchema.parse({
@@ -280,7 +321,7 @@ describe("portable MCP runtime contract", () => {
     expect(JSON.stringify(mismatch)).not.toContain("secret");
   });
 
-  it("requires cancellation at every asynchronous lifecycle seam and mandatory disposal", () => {
+  it("requires exact CAS, one runtime binding, cancellation, and mandatory cleanup callbacks", () => {
     const methods = [
       "capabilities",
       "validateSource",
@@ -290,11 +331,17 @@ describe("portable MCP runtime contract", () => {
       "inspectSources",
     ] as const;
     for (const method of methods) expect(method).toBeTypeOf("string");
+    expect(McpSourcePreconditionSchemaV1.parse({ kind: "absent" })).toEqual({ kind: "absent" });
+    expect(McpSourcePreconditionSchemaV1.parse({ kind: "exact", identity: identity() })).toMatchObject({ kind: "exact" });
+    expect(McpSourcePreconditionSchemaV1.safeParse({ kind: "exact" }).success).toBe(false);
     const request = McpLaunchValueRequestSchema.parse({
+      schemaVersion: 1,
       source: identity(),
       serverKey,
+      componentId,
       transport: "stdio",
     });
+    expect(McpRuntimeServerBindingSchemaV1.parse(request)).toEqual(request);
     expect(request.transport).toBe("stdio");
   });
 });

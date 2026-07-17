@@ -41,6 +41,7 @@ function runtimeCapabilities(overrides: Readonly<{
       inspect: true,
       cancellable: true,
       lateLaunchValues: true,
+      runtimeLeases: true,
       ...overrides.sourceLifecycle,
     },
     transports: {
@@ -120,7 +121,7 @@ describe("MCP runtime capability probe", () => {
       base: { snapshot: vi.fn(async () => baseSnapshot()) },
       runtime: {
         capabilities: vi.fn(async () => runtimeCapabilities({
-          sourceLifecycle: { exactRemove: false },
+          sourceLifecycle: { runtimeLeases: false },
         })),
       },
       capturedBy: "incomplete-runtime",

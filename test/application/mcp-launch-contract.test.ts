@@ -9,6 +9,10 @@ import {
   type McpLaunchContextPort,
 } from "../../src/application/ports/mcp-launch-context.js";
 import type { McpLaunchEnvironmentPort } from "../../src/application/ports/mcp-launch-environment.js";
+import {
+  McpRuntimeServerBindingSchemaV1,
+  type McpRuntimeServerBinding,
+} from "../../src/application/ports/mcp-runtime.js";
 import { ErrorCodeSchema } from "../../src/domain/errors.js";
 import { ComponentIdSchema } from "../../src/domain/components.js";
 import { ContentDigestSchema } from "../../src/domain/content-manifest.js";
@@ -35,6 +39,8 @@ function binding(): McpLaunchBinding {
 describe("portable MCP launch callback contracts", () => {
   it("derives binding types from one strict schema and error codes from the common registry", () => {
     expectTypeOf<McpLaunchBinding>().toEqualTypeOf<z.infer<typeof McpLaunchBindingSchemaV1>>();
+    expectTypeOf<McpLaunchBinding>().toEqualTypeOf<McpRuntimeServerBinding>();
+    expect(McpLaunchBindingSchemaV1).toBe(McpRuntimeServerBindingSchemaV1);
     expect(McpLaunchBindingSchemaV1.safeParse({ ...binding(), extra: true }).success).toBe(false);
     for (const code of Object.values(McpLaunchErrorCodes)) {
       expect(ErrorCodeSchema.parse(code)).toBe(code);

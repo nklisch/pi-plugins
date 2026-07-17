@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { createMcpSourceRegistration } from "../../../src/application/mcp-source-registration.js";
 import {
   McpConfigSourceSchemaV1,
   McpSourceIdentitySchemaV1,
@@ -6,13 +8,19 @@ import {
   type McpLaunchValueProvider,
   type McpLaunchValues,
   type McpSourceIdentity,
+  type McpSourcePrecondition,
 } from "../../../src/application/ports/mcp-runtime.js";
 import { ContentDigestSchema } from "../../../src/domain/content-manifest.js";
 import { ComponentIdSchema } from "../../../src/domain/components.js";
 import { PluginKeySchema } from "../../../src/domain/identity.js";
 import { SourceLocationSchema } from "../../../src/domain/provenance-location.js";
-import { FakeMcpRuntime } from "./mcp-runtime.js";
+import {
+  FakeMcpRuntime,
+  FakeMcpRuntimeLeaseProvider,
+} from "./mcp-runtime.js";
 
+const sha256 = (bytes: Uint8Array): Uint8Array =>
+  new Uint8Array(createHash("sha256").update(bytes).digest());
 const location = SourceLocationSchema.parse({
   host: "claude",
   documentKind: "mcp",
@@ -72,33 +80,51 @@ function provider(
       counters.resolved += 1;
       return resolve === undefined ? values : resolve(request, signal);
     },
-    async dispose() {
-      counters.disposed += 1;
-    },
+    async dispose() { counters.disposed += 1; },
+  };
+}
+
+function request(
+  sourceValue: ReturnType<typeof source>,
+  launchValues: McpLaunchValueProvider,
+  runtimeLeases = new FakeMcpRuntimeLeaseProvider(),
+  expected: McpSourcePrecondition = { kind: "absent" },
+) {
+  return {
+    registration: createMcpSourceRegistration({ source: sourceValue, sha256 }),
+    expected,
+    launchValues,
+    runtimeLeases,
   };
 }
 
 describe("FakeMcpRuntime", () => {
-  it("exposes complete capabilities and validates locally without invoking launch values", async () => {
+  it("validates canonical registrations and registers locally without launch or lease effects", async () => {
     const counters = { resolved: 0, disposed: 0 };
-    const launchValues = provider(counters);
+    const runtimeLeases = new FakeMcpRuntimeLeaseProvider();
     const runtime = new FakeMcpRuntime();
-    const current = identity();
-    const valid = await runtime.validateSource(source(current), new AbortController().signal);
+    const current = source(identity());
+    const replacement = request(current, provider(counters), runtimeLeases);
+    const valid = await runtime.validateSource(replacement.registration, new AbortController().signal);
     expect(valid.ok).toBe(true);
     expect(await runtime.capabilities(new AbortController().signal)).toMatchObject({
-      sourceLifecycle: expect.objectContaining({ atomicReplace: true, lateLaunchValues: true }),
+      sourceLifecycle: expect.objectContaining({
+        atomicReplace: true,
+        lateLaunchValues: true,
+        runtimeLeases: true,
+      }),
     });
-    const replaced = await runtime.replaceSource({ source: source(current), launchValues }, new AbortController().signal);
-    expect(replaced.kind).toBe("applied");
+    expect((await runtime.replaceSource(replacement, new AbortController().signal)).kind).toBe("applied");
     expect(counters).toEqual({ resolved: 0, disposed: 0 });
+    expect(runtimeLeases.activeCount).toBe(0);
   });
 
-  it("rejects secret-bearing public sources before storage without reflecting plaintext", async () => {
+  it("rejects secret-bearing public registrations before storage without reflecting plaintext", async () => {
     const runtime = new FakeMcpRuntime();
     const counters = { resolved: 0, disposed: 0 };
     const current = identity();
-    const unsafe = JSON.parse(JSON.stringify(source(current))) as {
+    const validSource = source(current);
+    const unsafe = JSON.parse(JSON.stringify(validSource)) as {
       servers: Record<string, {
         options: Record<string, unknown>;
         launchTemplate: unknown;
@@ -113,15 +139,19 @@ describe("FakeMcpRuntime", () => {
       args: [],
       env: [{ name: "SESSION_ID", value: "CANARY_DURABLE_TEMPLATE" }],
     };
+    const unsafeRegistration = {
+      ...createMcpSourceRegistration({ source: validSource, sha256 }),
+      source: unsafe,
+    };
 
     const validation = await runtime.validateSource(
-      unsafe as never,
+      unsafeRegistration as never,
       new AbortController().signal,
     );
     expect(validation.ok).toBe(false);
     const replacement = await runtime.replaceSource({
-      source: unsafe as never,
-      launchValues: provider(counters),
+      ...request(validSource, provider(counters)),
+      registration: unsafeRegistration as never,
     }, new AbortController().signal);
     expect(replacement.kind).toBe("rejected");
     const statuses = await runtime.inspectSources(new AbortController().signal);
@@ -131,132 +161,121 @@ describe("FakeMcpRuntime", () => {
     expect(counters).toEqual({ resolved: 0, disposed: 0 });
   });
 
-  it("isolates colliding server keys by exact scope and plugin ownership", async () => {
+  it("enforces absent and exact CAS while isolating equal native keys by scope and plugin", async () => {
     const runtime = new FakeMcpRuntime();
     const first = identity();
-    const project = identity({
-      scope: { kind: "project", projectKey: `project-v1:sha256:${"f".repeat(64)}` },
-    });
+    const project = identity({ scope: { kind: "project", projectKey: `project-v1:sha256:${"f".repeat(64)}` } });
     const otherPlugin = identity({ plugin: PluginKeySchema.parse("other@community") });
     const signal = new AbortController().signal;
-    await runtime.replaceSource({ source: source(first), launchValues: provider({ resolved: 0, disposed: 0 }) }, signal);
-    await runtime.replaceSource({ source: source(project), launchValues: provider({ resolved: 0, disposed: 0 }) }, signal);
-    await runtime.replaceSource({ source: source(otherPlugin), launchValues: provider({ resolved: 0, disposed: 0 }) }, signal);
+    for (const current of [first, project, otherPlugin]) {
+      expect((await runtime.replaceSource(request(source(current), provider({ resolved: 0, disposed: 0 })), signal)).kind).toBe("applied");
+    }
+    expect((await runtime.inspectSources(signal)).map((status) => status.identity)).toEqual([project, first, otherPlugin]);
 
-    expect((await runtime.inspectSources(signal)).map((status) => status.identity)).toEqual([
-      project,
-      first,
-      otherPlugin,
-    ]);
-    expect((await runtime.inspectSource(first, signal))?.servers[0]?.key).toBe(sharedKey);
-    expect(await runtime.removeSource(first, signal)).toEqual({ kind: "removed" });
+    const concurrent = identity({ revision: digest("3"), projectionDigest: digest("4") });
+    expect(await runtime.replaceSource(request(source(concurrent), provider({ resolved: 0, disposed: 0 })), signal))
+      .toMatchObject({ kind: "stale", currentIdentity: first });
+    const stale = identity({ revision: digest("5"), projectionDigest: digest("6") });
+    expect(await runtime.replaceSource(request(
+      source(concurrent),
+      provider({ resolved: 0, disposed: 0 }),
+      new FakeMcpRuntimeLeaseProvider(),
+      { kind: "exact", identity: stale },
+    ), signal)).toMatchObject({ kind: "stale", currentIdentity: first });
+
+    expect(await runtime.replaceSource(request(
+      source(concurrent),
+      provider({ resolved: 0, disposed: 0 }),
+      new FakeMcpRuntimeLeaseProvider(),
+      { kind: "exact", identity: first },
+    ), signal)).toMatchObject({ kind: "applied", previousIdentity: first });
+    expect(await runtime.removeSource(first, signal)).toMatchObject({ kind: "ownership-mismatch", currentIdentity: concurrent });
     expect(await runtime.inspectSource(project, signal)).toBeDefined();
     expect(await runtime.inspectSource(otherPlugin, signal)).toBeDefined();
   });
 
-  it("publishes replacement atomically and preserves prior evidence on stale, injected, and cancelled writes", async () => {
-    const runtime = new FakeMcpRuntime();
-    const original = identity();
-    const replacement = identity({ revision: digest("3"), projectionDigest: digest("4") });
-    const signal = new AbortController().signal;
-    const originalProvider = provider({ resolved: 0, disposed: 0 });
-    await runtime.replaceSource({ source: source(original), launchValues: originalProvider }, signal);
-
-    runtime.failNextReplacement("ADAPTER_FAILED");
-    expect((await runtime.replaceSource({
-      source: source(replacement),
-      launchValues: provider({ resolved: 0, disposed: 0 }),
-      expectedProjectionDigest: original.projectionDigest,
-    }, signal)).kind).toBe("rejected");
-    expect((await runtime.inspectSource(original, signal))?.identity).toEqual(original);
-
-    const stale = await runtime.replaceSource({
-      source: source(replacement),
-      launchValues: provider({ resolved: 0, disposed: 0 }),
-      expectedProjectionDigest: digest("9"),
-    }, signal);
-    expect(stale).toMatchObject({ kind: "stale", currentIdentity: original });
-    expect((await runtime.inspectSource(original, signal))?.identity).toEqual(original);
-
-    const controller = new AbortController();
-    controller.abort(new Error("cancelled replacement"));
-    await expect(runtime.replaceSource({
-      source: source(replacement),
-      launchValues: provider({ resolved: 0, disposed: 0 }),
-    }, controller.signal)).rejects.toThrow("cancelled replacement");
-    expect((await runtime.inspectSource(original, signal))?.identity).toEqual(original);
-  });
-
-  it("removes only the exact current identity and makes repeated removal idempotent", async () => {
+  it("holds runtime leases after plaintext disposal and cleans exact executions before replace/remove success", async () => {
     const runtime = new FakeMcpRuntime();
     const first = identity();
-    const newer = identity({ revision: digest("3"), projectionDigest: digest("4") });
+    const launch = { resolved: 0, disposed: 0 };
+    const firstLeases = new FakeMcpRuntimeLeaseProvider();
     const signal = new AbortController().signal;
-    await runtime.replaceSource({ source: source(first), launchValues: provider({ resolved: 0, disposed: 0 }) }, signal);
-    await runtime.replaceSource({
-      source: source(newer),
-      expectedProjectionDigest: first.projectionDigest,
-      launchValues: provider({ resolved: 0, disposed: 0 }),
-    }, signal);
+    await runtime.replaceSource(request(source(first), provider(launch), firstLeases), signal);
+    const execution = await runtime.openExecution(first, sharedKey, signal);
+    expect(launch).toEqual({ resolved: 1, disposed: 1 });
+    expect(firstLeases.activeCount).toBe(1);
+    expect(runtime.executionCount(first)).toBe(1);
 
-    expect(await runtime.removeSource(first, signal)).toMatchObject({
-      kind: "ownership-mismatch",
-      currentIdentity: newer,
-    });
-    expect(await runtime.inspectSource(newer, signal)).toBeDefined();
-    expect(await runtime.removeSource(newer, signal)).toEqual({ kind: "removed" });
-    expect(await runtime.removeSource(newer, signal)).toEqual({ kind: "absent" });
+    const next = identity({ revision: digest("3"), projectionDigest: digest("4") });
+    await runtime.replaceSource(request(
+      source(next),
+      provider({ resolved: 0, disposed: 0 }),
+      new FakeMcpRuntimeLeaseProvider(),
+      { kind: "exact", identity: first },
+    ), signal);
+    expect(firstLeases.activeCount).toBe(0);
+    expect(runtime.executionCount(first)).toBe(0);
+    await execution.close();
+
+    const nextLeases = new FakeMcpRuntimeLeaseProvider();
+    const nextLaunch = { resolved: 0, disposed: 0 };
+    const third = identity({ revision: digest("5"), projectionDigest: digest("6") });
+    await runtime.replaceSource(request(
+      source(third),
+      provider(nextLaunch),
+      nextLeases,
+      { kind: "exact", identity: next },
+    ), signal);
+    await runtime.openExecution(third, sharedKey, signal);
+    expect(await runtime.removeSource(third, signal)).toEqual({ kind: "removed" });
+    expect(nextLeases.activeCount).toBe(0);
+    expect(await runtime.removeSource(third, signal)).toEqual({ kind: "absent" });
   });
 
-  it("resolves launch values only at launch and disposes them after success, failure, and cancellation", async () => {
+  it("does not claim cleanup when runtime lease release fails and lets exact replay finish", async () => {
     const runtime = new FakeMcpRuntime();
     const current = identity();
-    const counters = { resolved: 0, disposed: 0 };
-    const launchValues = provider(counters);
+    const leases = new FakeMcpRuntimeLeaseProvider();
     const signal = new AbortController().signal;
-    await runtime.replaceSource({ source: source(current), launchValues }, signal);
-    expect(counters).toEqual({ resolved: 0, disposed: 0 });
+    await runtime.replaceSource(request(source(current), provider({ resolved: 0, disposed: 0 }), leases), signal);
+    await runtime.openExecution(current, sharedKey, signal);
+    leases.failNextRelease();
+    await expect(runtime.removeSource(current, signal)).rejects.toMatchObject({ code: "MCP_LAUNCH_CLEANUP_FAILED" });
+    expect(runtime.executionCount(current)).toBe(1);
+    expect(await runtime.removeSource(current, signal)).toEqual({ kind: "removed" });
+    expect(leases.activeCount).toBe(0);
+  });
 
-    await runtime.launch(current, sharedKey, signal);
-    expect(counters).toEqual({ resolved: 1, disposed: 1 });
-
-    const mismatchCounters = { resolved: 0, disposed: 0 };
-    const mismatchProvider = provider(mismatchCounters, {
-      transport: "streamable-http",
-      url: "https://CANARY_URL",
-    });
-    const mismatchIdentity = identity({ revision: digest("5"), projectionDigest: digest("6") });
-    await runtime.replaceSource({
-      source: source(mismatchIdentity),
-      launchValues: mismatchProvider,
-    }, signal);
-    await expect(runtime.launch(mismatchIdentity, sharedKey, signal)).rejects.toMatchObject({
-      code: "MCP_LAUNCH_VALUE_INVALID",
-    });
-    expect(mismatchCounters).toEqual({ resolved: 1, disposed: 1 });
-
+  it("disposes plaintext and releases runtime leases on launch failure and cancellation", async () => {
+    const runtime = new FakeMcpRuntime();
+    const signal = new AbortController().signal;
+    const failedIdentity = identity();
     const failedCounters = { resolved: 0, disposed: 0 };
-    const failedIdentity = identity({ revision: digest("6"), projectionDigest: digest("7") });
-    const failedProvider = provider(failedCounters, undefined, async () => {
+    const failedLeases = new FakeMcpRuntimeLeaseProvider();
+    await runtime.replaceSource(request(source(failedIdentity), provider(failedCounters, undefined, async () => {
       throw new Error("CANARY_CALLBACK_FAILURE");
-    });
-    await runtime.replaceSource({ source: source(failedIdentity), launchValues: failedProvider }, signal);
+    }), failedLeases), signal);
     const failure = await runtime.launch(failedIdentity, sharedKey, signal).catch((error: unknown) => error);
-    expect(failure).toBeInstanceOf(Error);
-    expect(String(failure)).not.toContain("CANARY_CALLBACK_FAILURE");
     expect(JSON.stringify(failure)).not.toContain("CANARY_CALLBACK_FAILURE");
     expect(failedCounters).toEqual({ resolved: 1, disposed: 0 });
+    expect(failedLeases.activeCount).toBe(0);
 
-    const cancelCounters = { resolved: 0, disposed: 0 };
     const controller = new AbortController();
-    const cancelProvider = provider(cancelCounters, undefined, async (_request, _signal) => {
-      controller.abort(new Error("cancelled launch"));
-      return { transport: "stdio", command: "CANARY_COMMAND", args: [] };
-    });
-    const cancelIdentity = identity({ revision: digest("7"), projectionDigest: digest("8") });
-    await runtime.replaceSource({ source: source(cancelIdentity), launchValues: cancelProvider }, signal);
-    await expect(runtime.launch(cancelIdentity, sharedKey, controller.signal)).rejects.toThrow("cancelled launch");
-    expect(cancelCounters).toEqual({ resolved: 1, disposed: 1 });
+    const cancelledIdentity = identity({ revision: digest("3"), projectionDigest: digest("4") });
+    const cancelledCounters = { resolved: 0, disposed: 0 };
+    const cancelledLeases = new FakeMcpRuntimeLeaseProvider();
+    await runtime.replaceSource(request(
+      source(cancelledIdentity),
+      provider(cancelledCounters, undefined, async () => {
+        controller.abort(new Error("cancelled launch"));
+        return { transport: "stdio", command: "CANARY_COMMAND", args: [] };
+      }),
+      cancelledLeases,
+      { kind: "exact", identity: failedIdentity },
+    ), signal);
+    await expect(runtime.launch(cancelledIdentity, sharedKey, controller.signal)).rejects.toThrow("cancelled launch");
+    expect(cancelledCounters).toEqual({ resolved: 1, disposed: 1 });
+    expect(cancelledLeases.activeCount).toBe(0);
   });
 
   it("disposes before rejecting and keeps signal classification when cleanup also fails", async () => {
@@ -276,7 +295,10 @@ describe("FakeMcpRuntime", () => {
         throw new Error("CANARY_CLEANUP_FAILURE");
       },
     };
-    await runtime.replaceSource({ source: source(current), launchValues }, new AbortController().signal);
+    await runtime.replaceSource(
+      request(source(current), launchValues),
+      new AbortController().signal,
+    );
     const failure = await runtime.launch(current, sharedKey, controller.signal)
       .catch((error: unknown) => {
         events.push("rejected");
@@ -289,25 +311,25 @@ describe("FakeMcpRuntime", () => {
     expect(JSON.stringify(status)).not.toMatch(/CANARY_(?:TIMEOUT_SIGNAL|CLEANUP_FAILURE)/u);
   });
 
-  it("keeps inspection and errors redacted, copied, and deterministically ordered", async () => {
+  it("keeps inspection, lease tokens, and errors redacted and deterministically ordered", async () => {
     const runtime = new FakeMcpRuntime();
-    const first = identity();
-    const mutable = source(first, [runtimeKey("f"), runtimeKey("1")]);
-    await runtime.replaceSource({ source: mutable, launchValues: provider({ resolved: 0, disposed: 0 }) }, new AbortController().signal);
+    const current = identity();
+    const leases = new FakeMcpRuntimeLeaseProvider();
+    const registrationRequest = request(
+      source(current, [runtimeKey("f"), runtimeKey("1")]),
+      provider({ resolved: 0, disposed: 0 }),
+      leases,
+    );
+    await runtime.replaceSource(registrationRequest, new AbortController().signal);
     const inspected = await runtime.inspectSources(new AbortController().signal);
+    expect(inspected[0]?.registrationDigest).toBe(registrationRequest.registration.digest);
     expect(inspected[0]?.servers.map((server) => server.key)).toEqual([runtimeKey("1"), runtimeKey("f")]);
-    expect(JSON.stringify(inspected)).not.toContain("CANARY_SOURCE_DEFINITION");
-    expect(JSON.stringify(inspected)).not.toContain("CANARY_TEMPLATE");
-    expect(JSON.stringify(inspected)).not.toContain("CANARY_COMMAND");
+    expect(JSON.stringify(inspected)).not.toMatch(/CANARY_SOURCE_DEFINITION|CANARY_TEMPLATE|CANARY_COMMAND/);
     expect(JSON.stringify(McpSourceStatusSchema.parse(inspected[0]))).not.toContain("secret");
 
-    const replacement = identity({ revision: digest("9"), projectionDigest: digest("a") });
-    runtime.failNextReplacement("CANARY_ERROR");
-    const result = await runtime.replaceSource({
-      source: source(replacement),
-      launchValues: provider({ resolved: 0, disposed: 0 }),
-    }, new AbortController().signal);
-    expect(JSON.stringify(result)).not.toContain("CANARY_ERROR");
-    expect(JSON.stringify(result)).not.toContain("CANARY_SOURCE_DEFINITION");
+    const execution = await runtime.openExecution(current, runtimeKey("1"), new AbortController().signal);
+    expect(String(leases.acquired[0])).toBe("[REDACTED]");
+    expect(JSON.stringify(leases.acquired[0])).toBe('"[REDACTED]"');
+    await execution.close();
   });
 });

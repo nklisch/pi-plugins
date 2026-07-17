@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-lifecycle-reconciliation-portable-contracts
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-lifecycle-reconciliation
 depends_on: []
@@ -61,3 +61,17 @@ This is a package-neutral pre-production contract change. It does not add a runt
 ## Ordering constraint
 
 Foundation checkpoint. The reconciliation participant and runtime-lease cleanup stories depend on this contract.
+
+## Implementation notes
+
+- Added canonical `McpSourceRegistration` construction and verification over the complete secret-free source, with required absent/exact source preconditions and one shared runtime server binding for launch and execution-lease callbacks.
+- Replaced the development-only optional projection-digest path in `McpRuntimePort` with exact registration, CAS, runtime-lease, registration-status, and runtime-lease capability contracts. `PluginMcpProjection` now carries the verified registration.
+- Migrated the package-neutral fake and reusable conformance harness in one break. The fake validates registration digests, rejects concurrent absent/stale exact writers, keeps native keys owner-local, and treats process/connection lease cleanup as part of successful replace/remove/absent semantics.
+- Exported only portable schemas, types, and registration factories. No package adapter, Pi integration, settings writer, state/journal path, or production capability claim was added.
+
+## Verification
+
+- Focused MCP contract/projection/launch/fake/conformance/integration suites: **47 passed, 0 failed**.
+- Full Vitest suite at this checkpoint: **937 passed, 0 failed**.
+- `npm run typecheck`: passed.
+- `npm run boundaries`: passed (**235 modules, 1,418 dependencies**, no violations).
