@@ -271,8 +271,6 @@ export function createUpdateNotificationService(dependencies: UpdateNotification
       }, signal);
       if (committed !== undefined) published.push(committed);
     }
-    const remaining = (await list({ scope: "all-current", limit: 1 }, signal)).notices;
-    void remaining;
     const pendingCount = (await snapshots(signal)).flatMap((snapshot) => records(snapshot).flatMap((record) => record.notices)).filter((notice) => notice.publication === "pending").length;
     return { published, pending: pendingCount, failed };
   }

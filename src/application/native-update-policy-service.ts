@@ -191,7 +191,13 @@ export function createNativeUpdatePolicyService(dependencies: NativeUpdatePolicy
       return NativeUpdatePolicyPreviewResultSchema.parse({ kind: "rejected", code: "TARGET_MISSING" });
     }
     const rows = authority.scopes.flatMap((snapshot) => installedRows(snapshot, dependencies.sha256));
-    if (change.kind === "application" && (change.target.kind === "marketplace" || change.target.kind === "plugin") && !rows.some((row) => targetMatches(change, row, dependencies.sha256))) {
+    if (change.kind === "application" && change.target.kind === "marketplace") {
+      const target = change.target;
+      const configured = authority.scopes.some((snapshot) => sameScope(toScopeReference(snapshot.scope), target.scope) &&
+        marketplaceUpdateRecords(snapshot).some((record) => deriveMarketplaceRegistrationId({ scope: target.scope, source: record.source }, dependencies.sha256) === target.registrationId));
+      if (!configured) return NativeUpdatePolicyPreviewResultSchema.parse({ kind: "rejected", code: "TARGET_MISSING" });
+    }
+    if (change.kind === "application" && change.target.kind === "plugin" && !rows.some((row) => targetMatches(change, row, dependencies.sha256))) {
       return NativeUpdatePolicyPreviewResultSchema.parse({ kind: "rejected", code: "TARGET_MISSING" });
     }
     const globalBefore = authority.user.config.global.application;

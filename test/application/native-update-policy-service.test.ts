@@ -2,18 +2,20 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createNativeUpdatePolicyService } from "../../src/application/native-update-policy-service.js";
 import { GenerationSchema, HostConfigDocumentSchemaV4 } from "../../src/domain/state/config-state.js";
+import { createMarketplaceConfigurationRecord } from "../../src/domain/update-policy.js";
+import { deriveMarketplaceRegistrationId } from "../../src/domain/marketplace-registration.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(bytes).digest());
 const signal = new AbortController().signal;
 
-function environment() {
+function environment(records: readonly unknown[] = []) {
   let generation = 0;
   let config = HostConfigDocumentSchemaV4.parse({
     schemaVersion: 4,
     generation: GenerationSchema.parse(0),
     global: { application: "manual", cadence: "balanced" },
     scope: {},
-    records: [],
+    records,
   });
   const snapshot = () => ({
     scope: { kind: "user" as const },
@@ -54,6 +56,20 @@ describe("native update policy service", () => {
     await expect(env.service.apply({ change, expectedPreviewId: result.preview.previewId }, signal)).resolves.toMatchObject({ kind: "rejected", code: "CONSENT_REQUIRED" });
     await expect(env.service.apply({ change, expectedPreviewId: result.preview.previewId, consent: { kind: "grant", consentId: result.preview.consent.consentId! } }, signal)).resolves.toMatchObject({ kind: "changed" });
     expect(env.config().global.application).toBe("automatic");
+  });
+
+  it("allows marketplace policy before any plugin from that marketplace is installed", async () => {
+    const source = { kind: "github" as const, repository: "example/community" };
+    const env = environment([createMarketplaceConfigurationRecord({ marketplace: "community", source })]);
+    const change = {
+      kind: "application" as const,
+      target: { kind: "marketplace" as const, scope: { kind: "user" as const }, registrationId: deriveMarketplaceRegistrationId({ scope: { kind: "user" }, source }, sha256) },
+      mode: "manual" as const,
+    };
+    const preview = await env.service.preview(change, signal);
+    expect(preview.kind).toBe("previewed");
+    if (preview.kind !== "previewed") return;
+    await expect(env.service.apply({ change, expectedPreviewId: preview.preview.previewId }, signal)).resolves.toMatchObject({ kind: "changed" });
   });
 
   it("makes a reused preview stale after another process commits", async () => {

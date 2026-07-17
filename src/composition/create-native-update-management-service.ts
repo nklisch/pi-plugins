@@ -26,6 +26,7 @@ export function createNativeUpdateManagementComposition(input: Readonly<{
   currentProject?: Extract<ScopeContext, { kind: "project" }>;
   projectTrust?: ProjectTrustPort;
   publisher?: UpdateNotificationPublisherPort;
+  onCounts?: (counts: Readonly<{ unreadCount: number; unresolvedCount: number }>) => void;
 }>) {
   const policy = createNativeUpdatePolicyService({
     state: input.state,
@@ -54,6 +55,12 @@ export function createNativeUpdateManagementComposition(input: Readonly<{
     clock: input.clock,
     sha256: input.sha256,
   });
-  const application = createNativeUpdateManagementService({ policy, notifications, automatic, scheduler: input.scheduler });
+  const application = createNativeUpdateManagementService({
+    policy,
+    notifications,
+    automatic,
+    scheduler: input.scheduler,
+    ...(input.onCounts === undefined ? {} : { onCounts: input.onCounts }),
+  });
   return Object.freeze({ application, policy, notifications, automatic });
 }

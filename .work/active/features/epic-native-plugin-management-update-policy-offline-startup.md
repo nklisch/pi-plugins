@@ -555,4 +555,6 @@ The chosen boundaries address each failure directly: explicit post-readiness sta
 
 All nine child checkpoints are done. The implementation landed as a single authority chain: v4 durable state → hierarchical policy and notice ledger → lease-fenced scheduler → eligibility/lifecycle coordinator → recovery-first packaged startup → inspection/status → admitted `application.updates` facade. The packaged marketplace surface no longer exposes the lower-level policy setter.
 
-Verification at review entry: `npm test` passed typecheck, dependency boundaries (358 modules / 2,599 dependencies), 274 test files / 1,328 tests, build, 783 exact public exports, 3 Pi exports, and isolated packed Pi startup. Feature is ready for integrated review.
+Verification at review entry: `npm test` passed typecheck, dependency boundaries (358 modules / 2,599 dependencies), 274 test files / 1,333 tests, build, 783 exact public exports, 3 Pi exports, and isolated packed Pi startup. Feature is ready for integrated review.
+
+The owner pre-review found and fixed four integration gaps before this transition: post-refresh ledger/automatic maintenance now runs on the existing scheduler cycle; an initially disabled background owner can be awakened after policy/registration changes; persisted automatic retry backoff is honored and lifecycle completion preserves concurrent acknowledgment; and marketplace policy can be set before its first plugin is installed. Live facade reads/actions now also refresh host unread/unresolved counts.

@@ -35,12 +35,13 @@ function environment() {
   let context: "available" | "unavailable" = "unavailable";
   let lifecycleResult: any = { kind: "changed" };
   let applyCalls = 0;
+  let onApply: (() => void) | undefined;
   const dependencies = {
     state: { async read() { return { ok: true as const, snapshot: snapshot() }; } },
     inventory: { async discover() { return { scopes: [scope], complete: true }; } },
     mutations: { async runPreparedMutation(_request: any, prepare: any) { const prepared = await prepare({ snapshot: snapshot(), assertOwned: async () => undefined }); record = prepared.mutation.replace.config.records[0]; generation += 1; return { kind: "committed", value: prepared.value, snapshot: snapshot() }; } },
     policy: { async resolve() { return { application: "automatic" as const, winningLevel: "marketplace" as const, sourceGuard: "none" as const }; } },
-    lifecycle: { async inspect() { return authority; }, async apply() { applyCalls += 1; return lifecycleResult; } },
+    lifecycle: { async inspect() { return authority; }, async apply() { applyCalls += 1; onApply?.(); return lifecycleResult; } },
     activation: { availability: () => context },
     clock: { nowEpochMilliseconds: () => 100, monotonicMilliseconds: () => 100 }, sha256,
   } as any;
@@ -49,6 +50,8 @@ function environment() {
     setAuthority(value: Partial<typeof authority>) { authority = { ...authority, ...value }; },
     setContext(value: typeof context) { context = value; },
     setResult(value: any) { lifecycleResult = value; },
+    setRetryAt(retryAt: number) { record = { ...record, notices: [{ ...record.notices[0], disposition: "automatic-retryable", automatic: { state: "retryable", reason: "retryable", attemptedAt: 50, retryAt } }] }; },
+    acknowledgeDuringApply() { onApply = () => { record = { ...record, notices: [{ ...record.notices[0], unread: false, acknowledgedAt: 99 }] }; }; },
     notice: () => record.notices[0], applyCalls: () => applyCalls,
   };
 }
@@ -80,12 +83,29 @@ describe("automatic update coordinator", () => {
     expect(env.applyCalls()).toBe(0);
   });
 
+  it("honors persisted retry backoff before inspecting or applying lifecycle", async () => {
+    const env = environment();
+    env.setContext("available");
+    env.setRetryAt(200);
+    await expect(env.service.run({ noticeIds: [env.id], limit: 1 }, signal)).resolves.toMatchObject({ outcomes: [{ kind: "retryable" }] });
+    expect(env.applyCalls()).toBe(0);
+    expect(env.notice()).toMatchObject({ automatic: { retryAt: 200 } });
+  });
+
   it("applies through lifecycle only in admitted context and resolves without acknowledging", async () => {
     const env = environment();
     env.setContext("available");
     await expect(env.service.run({ noticeIds: [env.id], limit: 1 }, signal)).resolves.toMatchObject({ outcomes: [{ kind: "applied" }] });
     expect(env.applyCalls()).toBe(1);
     expect(env.notice()).toMatchObject({ disposition: "automatic-applied", unread: true, resolution: { kind: "installed" } });
+  });
+
+  it("does not revert a concurrent acknowledgment when lifecycle completion commits", async () => {
+    const env = environment();
+    env.setContext("available");
+    env.acknowledgeDuringApply();
+    await env.service.run({ noticeIds: [env.id], limit: 1 }, signal);
+    expect(env.notice()).toMatchObject({ unread: false, acknowledgedAt: 99, resolution: { kind: "installed" } });
   });
 
   it("preserves unresolved state on concurrent stale/rollback and reports recovery authority", async () => {

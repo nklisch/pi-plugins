@@ -32,6 +32,7 @@ export function createNativeUpdateManagementService(dependencies: Readonly<{
   notifications: UpdateNotificationService;
   automatic: AutomaticUpdateCoordinator;
   scheduler: MarketplaceUpdateScheduler;
+  onCounts?: (counts: Readonly<{ unreadCount: number; unresolvedCount: number }>) => void;
 }>): NativeUpdateManagementService {
   return Object.freeze({
     previewPolicy: dependencies.policy.preview.bind(dependencies.policy),
@@ -45,10 +46,24 @@ export function createNativeUpdateManagementService(dependencies: Readonly<{
         dependencies.scheduler.status(signal),
         dependencies.notifications.list({ scope: request.scope, ...(request.plugin === undefined ? {} : { plugin: request.plugin }), limit: 1 }, signal),
       ]);
+      dependencies.onCounts?.({ unreadCount: notices.unreadCount, unresolvedCount: notices.unresolvedCount });
       return NativeUpdateStatusSchema.parse({ policy, scheduler, unreadCount: notices.unreadCount, unresolvedCount: notices.unresolvedCount });
     },
-    notifications: dependencies.notifications.list.bind(dependencies.notifications),
-    acknowledge: dependencies.notifications.acknowledge.bind(dependencies.notifications),
-    runAutomatic: dependencies.automatic.run.bind(dependencies.automatic),
+    async notifications(request: NativeUpdateNotificationListRequest, signal: AbortSignal) {
+      const page = await dependencies.notifications.list(request, signal);
+      dependencies.onCounts?.({ unreadCount: page.unreadCount, unresolvedCount: page.unresolvedCount });
+      return page;
+    },
+    async acknowledge(request: NativeUpdateAcknowledgmentRequest, signal: AbortSignal) {
+      const result = await dependencies.notifications.acknowledge(request, signal);
+      dependencies.onCounts?.({ unreadCount: result.unreadCount, unresolvedCount: result.unresolvedCount });
+      return result;
+    },
+    async runAutomatic(request: NativeAutomaticUpdateRunRequest, signal: AbortSignal) {
+      const result = await dependencies.automatic.run(request, signal);
+      const page = await dependencies.notifications.list({ scope: "all-current", limit: 1 }, signal);
+      dependencies.onCounts?.({ unreadCount: page.unreadCount, unresolvedCount: page.unresolvedCount });
+      return result;
+    },
   });
 }

@@ -431,6 +431,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           activation: { availability: () => operationContexts.getStore() === undefined ? "unavailable" : "available" },
           currentProject: project.scope,
           projectTrust: project.trust,
+          onCounts: (counts) => hostStatus.update(counts),
         });
         const hostEpochId = await identifiers.operationIds.create(startupSignal);
         const hostEpoch = hashContent(new TextEncoder().encode(`native-operation-host-epoch-v1\0${hostEpochId}`), sha256);
@@ -559,19 +560,34 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         });
         stopBackground = background.close;
         own(() => background.close());
+        const applyPolicyAndWake: typeof updates.application.applyPolicy = async (request, signal) => {
+          const result = await updates.application.applyPolicy(request, signal);
+          if (result.kind === "changed") await background.start();
+          return result;
+        };
+        const addMarketplaceAndWake: typeof marketplace.registration.add = async (request, signal) => {
+          const result = await marketplace.registration.add(request, signal);
+          if (result.kind === "added" || result.kind === "unchanged") await background.start();
+          return result;
+        };
+        const importMarketplaceAndWake: typeof marketplace.adoption.import = async (request, signal) => {
+          const result = await marketplace.adoption.import(request, signal);
+          if (result.outcomes.some((outcome) => outcome.outcome.kind === "added" || outcome.outcome.kind === "unchanged")) await background.start();
+          return result;
+        };
         const updateApplication = Object.freeze({
           previewPolicy: requireOperationContext(updates.application.previewPolicy),
-          applyPolicy: requireOperationContext(updates.application.applyPolicy),
+          applyPolicy: requireOperationContext(applyPolicyAndWake),
           status: requireOperationContext(updates.application.status),
           notifications: requireOperationContext(updates.application.notifications),
           acknowledge: requireOperationContext(updates.application.acknowledge),
           runAutomatic: requireOperationContext(updates.application.runAutomatic),
         });
         const publicMarketplace = Object.freeze({
-          registration: marketplace.registration,
+          registration: Object.freeze({ ...marketplace.registration, add: addMarketplaceAndWake }),
           refresh: marketplace.refresh,
           catalog: marketplace.catalog,
-          adoption: marketplace.adoption,
+          adoption: Object.freeze({ ...marketplace.adoption, import: importMarketplaceAndWake }),
         });
         const application: PackagedPluginHostApplication = Object.freeze({
           operations: operationApplication,

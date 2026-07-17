@@ -50,5 +50,5 @@ Add feature-boundary acceptance for policy precedence/consent, notice restart/de
 
 ## Verification
 
-- `npm test` — passed: typecheck, dependency boundaries (358 modules / 2,599 dependencies), 274 test files / 1,328 tests, 783 public exports, 3 Pi exports, isolated packed Pi startup.
+- `npm test` — passed: typecheck, dependency boundaries (358 modules / 2,599 dependencies), 274 test files / 1,333 tests, 783 public exports, 3 Pi exports, isolated packed Pi startup.
 - No network, command/TUI renderer, alternate lifecycle path, recovery store, scheduler, secret custody, or fork capability was introduced.

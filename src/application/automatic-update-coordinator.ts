@@ -70,6 +70,9 @@ export function createAutomaticUpdateCoordinator(dependencies: AutomaticUpdateCo
       pluginSourceIdentity: notice.available.pluginSourceIdentity,
     }, signal);
     if (policy.application !== "automatic") return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: policy.sourceGuard === "none" ? "manual" : "approval-required" });
+    if (notice.automatic?.state === "retryable" && notice.automatic.retryAt! > dependencies.clock.nowEpochMilliseconds()) {
+      return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: "retryable", retryAt: notice.automatic.retryAt });
+    }
     // Without a live reload-capable context, defer before candidate materialization
     // or lifecycle inspection. Every authority is reread on the admitted call.
     if (dependencies.activation.availability() !== "available") return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: "awaiting-host-context" });
@@ -180,7 +183,9 @@ export function createAutomaticUpdateCoordinator(dependencies: AutomaticUpdateCo
       }
       const result = await dependencies.lifecycle.apply(latest.notice, signal);
       const projected = lifecycleOutcome(latest.notice, result);
-      await updateNotice(latest.context, latest.notice.id, () => projected.notice, signal);
+      // Re-project onto the CAS-authoritative notice so a concurrent
+      // acknowledgment/publication is never reverted by lifecycle completion.
+      await updateNotice(latest.context, latest.notice.id, (notice) => lifecycleOutcome(notice, result).notice, signal);
       outcomes.push({ noticeId: latest.notice.id, kind: projected.kind, ...(projected.reason === undefined ? {} : { reason: projected.reason }) });
     }
     return NativeAutomaticUpdateRunResultSchema.parse({ outcomes });

@@ -24,9 +24,11 @@ export type MarketplaceUpdateSchedulerDependencies = Readonly<{
   leaseMs?: number;
 }>;
 
+export type MarketplaceUpdateSchedulerCycle = (signal: AbortSignal) => Promise<void>;
+
 export interface MarketplaceUpdateScheduler {
   /** Run until the caller aborts. Construction never starts this loop. */
-  run(signal: AbortSignal): Promise<void>;
+  run(signal: AbortSignal, afterRefresh?: MarketplaceUpdateSchedulerCycle): Promise<void>;
   status(signal: AbortSignal): Promise<UpdateSchedulerStatus>;
 }
 
@@ -45,11 +47,12 @@ export function createMarketplaceUpdateScheduler(dependencies: MarketplaceUpdate
   let status: UpdateSchedulerStatus = Object.freeze({ state: "standby", scopes: Object.freeze([]) });
   let running = false;
 
-  async function legacyRun(signal: AbortSignal): Promise<void> {
+  async function legacyRun(signal: AbortSignal, afterRefresh?: MarketplaceUpdateSchedulerCycle): Promise<void> {
     for (;;) {
       signal.throwIfAborted();
       try {
         await dependencies.refresh.refresh({ trigger: "scheduled", scope: "all-current" }, signal);
+        await afterRefresh?.(signal);
         signal.throwIfAborted();
       } catch (error) {
         if (signal.aborted) throw signal.reason ?? error;
@@ -66,12 +69,12 @@ export function createMarketplaceUpdateScheduler(dependencies: MarketplaceUpdate
   }
 
   return Object.freeze({
-    async run(signal: AbortSignal): Promise<void> {
+    async run(signal: AbortSignal, afterRefresh?: MarketplaceUpdateSchedulerCycle): Promise<void> {
       if (signal === null || typeof signal !== "object") throw new TypeError("scheduler signal is required");
       if (running) throw new Error("marketplace update scheduler is already running");
       running = true;
       if (dependencies.leases === undefined || dependencies.leaseIds === undefined) {
-        try { await legacyRun(signal); }
+        try { await legacyRun(signal, afterRefresh); }
         finally { running = false; status = Object.freeze({ state: "stopped", scopes: status.scopes }); }
         return;
       }
@@ -117,6 +120,7 @@ export function createMarketplaceUpdateScheduler(dependencies: MarketplaceUpdate
                   } else {
                     await dependencies.refresh.refresh({ trigger: "scheduled", scope: plan.scope.kind, registrationIds: plan.registrationIds }, signal);
                   }
+                  await afterRefresh?.(signal);
                 } catch (error) {
                   if (signal.aborted) throw signal.reason ?? error;
                 }
