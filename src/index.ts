@@ -1599,6 +1599,7 @@ export {
   TrustedInstallCancellationResultSchema,
 } from "./application/trusted-install-contract.js";
 export type {
+  TrustedInstallSessionState,
   TrustedInstallSessionToken,
   TrustedInstallConsentId,
   TrustedInstallCandidateBinding,
@@ -1623,3 +1624,5 @@ export {
   verifyTrustedInstallSessionToken,
   deriveTrustedInstallConsentId,
 } from "./application/trusted-install-identifiers.js";
+export { createTrustedInstallationService } from "./application/trusted-install-service.js";
+export type { TrustedInstallationServiceDependencies } from "./application/trusted-install-service.js";

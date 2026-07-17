@@ -6,7 +6,8 @@ import { createGenerationMutationCoordinator } from "../application/generation-m
 import { createLifecycleTransitionReconciler } from "../application/lifecycle-transition-reconciler.js";
 import { createMarketplaceInspectionService } from "../application/marketplace-inspection-service.js";
 import { createMarketplacePluginProbe } from "../application/marketplace-plugin-probe.js";
-import { createPluginLifecycleService } from "../application/plugin-lifecycle-service.js";
+import { createPluginLifecycleComposition } from "../application/plugin-lifecycle-service.js";
+import { hashContent } from "../domain/content-manifest.js";
 import { createRuntimeProjectionCache } from "../infrastructure/filesystem/runtime-projection-cache.js";
 import { createKeyedMutationScheduler } from "../infrastructure/state/keyed-mutation-scheduler.js";
 import { createSqliteScopeLockManager } from "../infrastructure/state/sqlite-scope-lock.js";
@@ -29,7 +30,8 @@ import { mergeMarketplaces } from "../formats/marketplace-merger.js";
 import { createNodePluginInspector } from "./create-plugin-inspector.js";
 import { createNodeMarketplaceDiscoveryComposition } from "./create-marketplace-discovery-services.js";
 import { createCandidateContentLeasePort } from "./candidate-content-lease.js";
-import { createComposedNativeInspectionService } from "./create-native-inspection-service.js";
+import { createNativeInspectionComposition } from "./create-native-inspection-service.js";
+import { createComposedTrustedInstallationService } from "./create-trusted-installation-service.js";
 import { createHostConfigurationServices } from "./create-host-configuration.js";
 import { createNodePiRuntimeCapabilityProbe } from "./node-pi-runtime-capability-probe.js";
 import { buildRuntimeDesiredState, type HostBlockedPlugin, type RuntimeDesiredState } from "./runtime-desired-state.js";
@@ -118,6 +120,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
   let finalClosePromise: Promise<void> | undefined;
   let sessionStartDispatch: Promise<void> | undefined;
   let sessionEndPromise: Promise<void> | undefined;
+  let quiesceTrustedInstallation: (() => void) | undefined;
 
   async function start(_event: SessionStartEvent, context: ExtensionContext): Promise<StartedPackagedPluginHost> {
     if (terminal) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.terminal, "packaged plugin host is terminal");
@@ -164,10 +167,11 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         own(() => secrets.close());
         const identifiers = createNodeHostIdentifiers();
         const clock = createNodeLifecycleClock();
+        const configurationPaths = createNodeConfigurationPathPort({ binding, projectRoots: project.authority });
         const configuration = createHostConfigurationServices({
           configurations,
           secrets: secrets.store,
-          paths: createNodeConfigurationPathPort({ binding, projectRoots: project.authority }),
+          paths: configurationPaths,
           projectRoots: project.authority,
           projectTrust: project.trust,
           writeIds: identifiers.configurationWriteIds,
@@ -270,7 +274,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         const mutations = createGenerationMutationCoordinator({ scheduler: createKeyedMutationScheduler(), locks, state: state.state });
         const reconciler = createLifecycleTransitionReconciler({ mutations, state: state.state, reload, transitions: recoveryAdapters.transitionStore, sha256 });
         const materializers = createNodeSourceMaterializers(options.source);
-        const lifecycle = createPluginLifecycleService({
+        const lifecycleComposition = createPluginLifecycleComposition({
           state: state.state,
           mutations,
           content: content.content,
@@ -286,9 +290,10 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           projectRoots: project.authority,
           configurations,
           secrets: secrets.store,
-          paths: createNodeConfigurationPathPort({ binding, projectRoots: project.authority }),
+          paths: configurationPaths,
           sha256,
         });
+        const lifecycle = lifecycleComposition.application;
         const recovery = recoveryAdapters.createRecoveryService({
           state: state.state,
           inventory: state.inventory,
@@ -361,7 +366,8 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           piReload: qualification.hostApi,
           secrets: secrets.availability.status,
         });
-        const nativeInspection = createComposedNativeInspectionService({
+        const candidateContent = createCandidateContentLeasePort({ content: content.content, materializer: materializers.plugins });
+        const nativeInspection = createNativeInspectionComposition({
           state: state.state,
           scopes: [{ kind: "user" }, project.scope],
           revalidateProject: project.revalidate,
@@ -376,16 +382,42 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           projectTrust: project.trust,
           secretCustody: startup.capabilities.secrets,
           installed: content.installed,
-          candidateContent: createCandidateContentLeasePort({ content: content.content, materializer: materializers.plugins }),
+          candidateContent,
           bundleInspector: inspection,
           marketplace: marketplaceComposition.inspection,
           clock,
           sha256,
         });
+        const hostEpochId = await identifiers.operationIds.create(startupSignal);
+        const hostEpoch = hashContent(new TextEncoder().encode(`trusted-install-host-epoch-v1\0${hostEpochId}`), sha256);
+        const trustedInstallation = createComposedTrustedInstallationService({
+          catalog: marketplaceComposition.inspection.catalog,
+          candidateContent,
+          inspector: inspection,
+          readiness: nativeInspection.readiness,
+          evidence: nativeInspection.evidence,
+          configuration: configuration.application,
+          configurations,
+          configurationPaths,
+          secretCustody: startup.capabilities.secrets,
+          userBaseDirectory: binding.current().cwd,
+          state: state.state,
+          mutations,
+          projectTrust: project.trust,
+          projectRoots: project.authority,
+          lifecycle: lifecycleComposition,
+          clock,
+          sessionIds: identifiers.operationIds,
+          hostEpoch,
+          sha256,
+        });
+        quiesceTrustedInstallation = trustedInstallation.quiesce;
+        own(() => trustedInstallation.close());
         const application: PackagedPluginHostApplication = Object.freeze({
           lifecycle,
+          trustedInstallation: trustedInstallation.application,
           compatibility,
-          inspection: nativeInspection,
+          inspection: nativeInspection.application,
           configuration: configuration.application,
           recovery,
           collection,
@@ -456,6 +488,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
   ): Promise<void> {
     terminal = true;
     operationAdmission = false;
+    quiesceTrustedInstallation?.();
     started = undefined;
     if (event !== undefined && context !== undefined) {
       sessionEndPromise ??= delegates.dispatchSessionEnd(event, context);

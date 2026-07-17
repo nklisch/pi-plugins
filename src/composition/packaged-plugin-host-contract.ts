@@ -10,6 +10,7 @@ import type { SubagentLifecyclePort } from "../application/ports/subagent-lifecy
 import type { PluginLifecycleService } from "../application/plugin-lifecycle-service.js";
 import type { CompatibilityService } from "../application/compatibility-service.js";
 import type { NativeInspectionService } from "../application/native-inspection-contract.js";
+import type { TrustedInstallationService } from "../application/trusted-install-contract.js";
 import type { BoundPluginConfigurationService } from "./create-host-configuration.js";
 import type { LifecycleRecoveryService } from "../application/recovery-service.js";
 import type { createRevisionCollectionService } from "../application/revision-collection-service.js";
@@ -79,6 +80,7 @@ export interface PiSessionBindingPort {
 /** Safe application services; raw stores, handles, codecs, catalogs, and brokers stay private. */
 export type PackagedPluginHostApplication = Readonly<{
   lifecycle: PluginLifecycleService;
+  trustedInstallation: TrustedInstallationService;
   compatibility: CompatibilityService;
   inspection: NativeInspectionService;
   configuration: BoundPluginConfigurationService;

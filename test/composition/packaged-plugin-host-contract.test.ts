@@ -3,6 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { deriveProjectKey, type ProjectIdentity } from "../../src/domain/state/scope.js";
 import { createPluginHostPathPlan } from "../../src/composition/plugin-host-paths.js";
 import type { NativeInspectionService } from "../../src/application/native-inspection-contract.js";
+import type { TrustedInstallationService } from "../../src/application/trusted-install-contract.js";
 import type { PackagedPluginHostApplication } from "../../src/composition/packaged-plugin-host-contract.js";
 import {
   claimPackagedPluginHostComposition,
@@ -25,6 +26,7 @@ describe("packaged host construct-only contract", () => {
   it("exposes only the unified native inspection read surface", () => {
     expectTypeOf<PackagedPluginHostApplication["inspection"]>().toEqualTypeOf<NativeInspectionService>();
     expectTypeOf<PackagedPluginHostApplication["inspection"]>().not.toHaveProperty("inspect");
+    expectTypeOf<PackagedPluginHostApplication["trustedInstallation"]>().toEqualTypeOf<TrustedInstallationService>();
   });
 
   it("plans collision-free paths using only the verified project digest", () => {

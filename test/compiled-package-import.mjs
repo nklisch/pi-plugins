@@ -27,6 +27,7 @@ const expectedExports = [
   "createTrustedInstallSessionToken",
   "verifyTrustedInstallSessionToken",
   "deriveTrustedInstallConsentId",
+  "createTrustedInstallationService",
   "NativeRuntimeRequirementViewSchema",
   "CandidateInspectionDetailSubjectSchema",
   "InspectionCursorPayloadSchema",

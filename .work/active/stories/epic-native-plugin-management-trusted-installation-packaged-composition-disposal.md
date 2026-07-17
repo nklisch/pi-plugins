@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-trusted-installation-packaged-composition-disposal
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, security, infra]
 parent: epic-native-plugin-management-trusted-installation
 depends_on: [epic-native-plugin-management-trusted-installation-session-orchestration]
@@ -39,3 +39,17 @@ Wire one private candidate lease/evidence/readiness/lifecycle/trust/configuratio
 - Startup performs no candidate acquisition or network work; only `open` materializes.
 - Shutdown rejects new admission while an admitted install/reload settles, then releases every unclaimed lease in reverse dependency order.
 - Partial startup, reload successor, repeated close, expired sessions, and cleanup failure retain existing aggregate cleanup semantics and layer boundaries.
+
+## Implementation notes
+
+- Added one private trusted-install composition that shares the native inspection evidence/readiness, candidate lease port, packaged capability capture, configuration/path/credential authority, generation coordinator, exact trust service, and lifecycle composition.
+- Packaged application callers now receive `application.trustedInstallation`; raw catalog resolution, materializer, lease, trust mutation, prepared lifecycle, stores, roots, and session registry remain private.
+- Construction remains inert: candidate bytes are acquired only by `open`.
+- The host derives a fresh nondurable host epoch at start. Session shutdown quiesces new trusted-install admission immediately without aborting an admitted lifecycle reload; session cleanup joins reverse application disposal only after the existing operation drain.
+- Shared configuration paths and the native inspection composition remove duplicate authority wiring while preserving the existing read-only service wrapper.
+- Public root exports the strict workflow contracts and application factory; `./pi` remains packaged-host-only.
+
+## Verification
+
+- `npm run typecheck`
+- `npx vitest run test/composition/create-trusted-installation-service.test.ts test/composition/packaged-plugin-host-contract.test.ts test/integration/packaged-host-disposal.test.ts test/tooling/boundaries.test.ts test/public-api.test.ts` — 22 passed.

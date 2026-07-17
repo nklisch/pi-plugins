@@ -24,7 +24,7 @@ import type { HostCapabilityStatus, HostStartupResult } from "../application/hos
 import type { NativeInspectionMarketplaceServices } from "./create-marketplace-discovery-services.js";
 
 /** Wire the read model from narrow existing-evidence ports; no mutation service enters. */
-export function createComposedNativeInspectionService(input: Readonly<{
+export function createNativeInspectionComposition(input: Readonly<{
   state: LifecycleStateStore;
   scopes: readonly ScopeContext[];
   revalidateProject(signal: AbortSignal): Promise<CurrentProjectRuntimeContext>;
@@ -44,7 +44,7 @@ export function createComposedNativeInspectionService(input: Readonly<{
   marketplace: NativeInspectionMarketplaceServices;
   clock: LifecycleClock;
   sha256: Sha256;
-}>): NativeInspectionService {
+}>) {
   const evidence = createNativeInspectionEvidence({
     state: input.state,
     catalog: input.marketplace.catalog,
@@ -75,7 +75,7 @@ export function createComposedNativeInspectionService(input: Readonly<{
     readiness,
     sha256: input.sha256,
   });
-  return createNativeInspectionService({
+  const application = createNativeInspectionService({
     evidence,
     installed,
     candidates,
@@ -84,4 +84,12 @@ export function createComposedNativeInspectionService(input: Readonly<{
     clock: input.clock,
     sha256: input.sha256,
   });
+  return Object.freeze({ application, evidence, readiness });
+}
+
+/** Source-compatible read-only composition wrapper. */
+export function createComposedNativeInspectionService(
+  input: Parameters<typeof createNativeInspectionComposition>[0],
+): NativeInspectionService {
+  return createNativeInspectionComposition(input).application;
 }
