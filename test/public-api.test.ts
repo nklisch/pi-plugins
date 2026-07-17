@@ -836,6 +836,11 @@ describe("explicit package API", () => {
   });
 
   it("exposes one lifecycle facade and narrow evidence ports", () => {
+    expect(sourceApi.createNativeInspectionService).toBeDefined();
+    expect(sourceApi.NativeInspectionPageSchema).toBeDefined();
+    expect(sourceApi.NativeInspectionDetailResultSchema).toBeDefined();
+    expect(sourceApi.NativeDiagnosticRegistry).toBeDefined();
+    expect(sourceApi.toSafeDisplayField).toBeDefined();
     expect(sourceApi.createPluginLifecycleService).toBeDefined();
     expect(sourceApi.createLifecycleRecoveryService).toBe(createLifecycleRecoveryService);
     expect(sourceApi.createLifecycleTransitionReconciler).toBe(createLifecycleTransitionReconciler);

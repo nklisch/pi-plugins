@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-inspection-diagnostics-integrated-acceptance
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, security, testing]
 parent: epic-native-plugin-management-inspection-diagnostics
 depends_on: [epic-native-plugin-management-inspection-diagnostics-packaged-service-composition]
@@ -39,3 +39,11 @@ Add packaged integration coverage and schema-valid split-inspector data for clea
 - MCP local activation versus remote health is proven without contacting a server.
 - Terminal/control/Unicode/path/URL/command/header/environment/secret/native-cause canaries cannot leak or alter output structure.
 - Full `npm test` passes typecheck, boundaries, focused suites, build, and compiled export checks.
+
+## Implementation notes
+
+- Added schema-validated split-inspector page/detail fixtures for active-with-update, disabled, marketplace candidate, incompatible, recovery-required, project-untrusted, MCP remote failure, stale/offline, and hostile-display scenarios. They contain data only.
+- Integrated race tests prove return-boundary and replay rejection; runtime tests prove activation/health separation and recovery/trust precedence; security tests scan every serialized fixture string and all leakage canaries.
+- A real packaged-host clean-environment test starts without optional MCP/subagent packages, lists both subject kinds offline, diagnoses locally, confirms the three-method native inspection surface, and disposes all host resources.
+- Public API and compiled-package allowlists now cover the intended native schemas, identifiers, display/disclosure helpers, diagnostic compiler/registry, and unified service factory. The packaged Pi entry remains three exports.
+- Final verification: focused native/public suites 64 tests; full `npm test` green with 230 files and 1,124 Vitest tests, dependency boundaries, build, 623 root exports, 3 Pi exports, and isolated packed Pi startup.
