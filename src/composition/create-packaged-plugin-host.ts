@@ -135,6 +135,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
   let quiesceTrustedInstallation: (() => void) | undefined;
   let quiesceOperations: (() => void) | undefined;
   let stopBackground: (() => Promise<void>) | undefined;
+  let wakeBackground: (() => void) | undefined;
 
   async function start(_event: SessionStartEvent, context: ExtensionContext): Promise<StartedPackagedPluginHost> {
     if (terminal) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.terminal, "packaged plugin host is terminal");
@@ -388,6 +389,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           startup,
           recovery: unresolvedRecovery.length === 0 ? "settled" : "degraded",
           runtime: [...(latestDesired?.blocked ?? []), ...runtimeStartupBlocked].length === 0 ? "reconciled" : "degraded",
+          schedulerStatus: marketplaceComposition.updates.schedulerStatus,
         });
         const candidateContent = createCandidateContentLeasePort({ content: content.content, materializer: materializers.plugins });
         const nativeInspection = createNativeInspectionComposition({
@@ -431,12 +433,15 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           clock,
           sha256,
           scheduler: marketplaceComposition.updates.scheduler,
+          schedulerStatus: marketplaceComposition.updates.schedulerStatus,
           lifecycle: automaticLifecycle,
           // A Pi command frame can fund exactly one reload. Once lifecycle
           // consumes that context, remaining automatic candidates stay pending.
           activation: { availability: () => operationContexts.getStore()?.reloadContext === undefined ? "unavailable" : "available" },
           currentProject: project.scope,
           projectTrust: project.trust,
+          revalidateCurrentProject: project.revalidate,
+          ...(options.update?.publisher === undefined ? {} : { publisher: options.update.publisher }),
           onCounts: (counts) => hostStatus.update(counts),
         });
         const hostEpochId = await identifiers.operationIds.create(startupSignal);
@@ -554,31 +559,27 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         });
         const background = createBackgroundUpdateCoordinator({
           scheduler: marketplaceComposition.updates.scheduler,
+          schedulerStatus: marketplaceComposition.updates.schedulerStatus,
           notifications: updates.notifications,
           automatic: updates.automatic,
           status: hostStatus,
-          async enabled(signal) {
-            const leases = marketplaceComposition.updates.schedulerLeases;
-            if (leases === undefined) return false;
-            const inventory = await leases.inventory(signal);
-            return inventory.plans.some((plan) => plan.enabled);
-          },
         });
         stopBackground = background.close;
+        wakeBackground = background.wake;
         own(() => background.close());
         const applyPolicyAndWake: typeof updates.application.applyPolicy = async (request, signal) => {
           const result = await updates.application.applyPolicy(request, signal);
-          if (result.kind === "changed") await background.start();
+          if (result.kind === "changed") background.wake();
           return result;
         };
         const addMarketplaceAndWake: typeof marketplace.registration.add = async (request, signal) => {
           const result = await marketplace.registration.add(request, signal);
-          if (result.kind === "added" || result.kind === "unchanged") await background.start();
+          if (result.kind === "added" || result.kind === "unchanged") background.wake();
           return result;
         };
         const importMarketplaceAndWake: typeof marketplace.adoption.import = async (request, signal) => {
           const result = await marketplace.adoption.import(request, signal);
-          if (result.outcomes.some((outcome) => outcome.outcome.kind === "added" || outcome.outcome.kind === "unchanged")) await background.start();
+          if (result.outcomes.some((outcome) => outcome.outcome.kind === "added" || outcome.outcome.kind === "unchanged")) background.wake();
           return result;
         };
         const updateApplication = Object.freeze({
@@ -589,9 +590,14 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           acknowledge: requireOperationContext(updates.application.acknowledge),
           runAutomatic: requireOperationContext(updates.application.runAutomatic),
         });
+        const refreshAndWake: typeof marketplace.refresh.refresh = async (request, signal) => {
+          const result = await marketplace.refresh.refresh(request, signal);
+          background.wake();
+          return result;
+        };
         const publicMarketplace = Object.freeze({
           registration: Object.freeze({ ...marketplace.registration, add: addMarketplaceAndWake }),
-          refresh: marketplace.refresh,
+          refresh: Object.freeze({ ...marketplace.refresh, refresh: refreshAndWake }),
           catalog: marketplace.catalog,
           adoption: Object.freeze({ ...marketplace.adoption, import: importMarketplaceAndWake }),
         });
@@ -623,7 +629,9 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           close: () => dispose("quit"),
         });
         started = value;
-        await background.start();
+        // Background maintenance is detached: session_start returns from local
+        // recovery/reconciliation even if a remote adapter or publisher hangs.
+        void background.start();
         return value;
       } catch (error) {
         terminal = true;
@@ -719,6 +727,9 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
       try {
         return await operationContexts.run(frame, () => use(current.application));
       } finally {
+        // Lifecycle/local operations may settle installed state and notices.
+        // Wake the one owner without coupling the foreground result to it.
+        wakeBackground?.();
         admittedOperations -= 1;
         if (admittedOperations === 0) {
           resolveOperationDrain?.();

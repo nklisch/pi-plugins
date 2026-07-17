@@ -16,7 +16,7 @@ import type { ContentStorePort } from "../application/ports/content-store.js";
 import type { LifecycleClock } from "../application/ports/lifecycle-clock.js";
 import type { LifecycleStateInventoryPort } from "../application/ports/lifecycle-state-inventory.js";
 import type { LifecycleStateStore } from "../application/ports/lifecycle-state-store.js";
-import type { ProjectTrustPort } from "../application/ports/project-trust.js";
+import type { CurrentProjectRuntimeContext, ProjectTrustPort } from "../application/ports/project-trust.js";
 import type { RefreshClaimIdPort } from "../application/ports/refresh-claim-id.js";
 import type { MarketplaceMaterializer, PluginMaterializer } from "../application/source-materialization.js";
 import type { ScopeContext } from "../domain/state/scope.js";
@@ -74,7 +74,7 @@ export type NodeMarketplaceDiscoveryServicesOptions = Readonly<{
   currentProject?: Extract<ScopeContext, { kind: "project" }>;
   projectTrust?: ProjectTrustPort;
   /** Packaged hosts re-resolve the bound project before every public operation. */
-  revalidateCurrentProject?: (signal: AbortSignal) => Promise<unknown>;
+  revalidateCurrentProject?: (signal: AbortSignal) => Promise<CurrentProjectRuntimeContext>;
   sha256: Sha256;
   probe?: MarketplacePluginProbePort;
   lifecycle?: PluginLifecycleService;
@@ -112,6 +112,7 @@ export function createNodeMarketplaceDiscoveryComposition(
     sha256: options.sha256,
     ...(options.currentProject === undefined ? {} : { currentProject: options.currentProject }),
     ...(options.projectTrust === undefined ? {} : { projectTrust: options.projectTrust }),
+    ...(options.revalidateCurrentProject === undefined ? {} : { revalidateCurrentProject: options.revalidateCurrentProject }),
   });
   const updates = createNodeMarketplaceUpdateServices({
     refresh: {
@@ -125,6 +126,7 @@ export function createNodeMarketplaceDiscoveryComposition(
       content: options.content,
       ...(options.currentProject === undefined ? {} : { currentProject: options.currentProject }),
       ...(options.projectTrust === undefined ? {} : { projectTrust: options.projectTrust }),
+      ...(options.revalidateCurrentProject === undefined ? {} : { revalidateCurrentProject: options.revalidateCurrentProject }),
       sha256: options.sha256,
       ...(options.probe === undefined ? {} : { probe: options.probe }),
       ...(options.lifecycle === undefined ? {} : { lifecycle: options.lifecycle }),

@@ -11,6 +11,7 @@ import {
 import type { UpdateDelayPort } from "../application/ports/update-delay.js";
 import type { UpdateSchedulerLeasePort } from "../application/ports/update-scheduler-lease.js";
 import type { UpdateSchedulerLeaseIdPort } from "../application/ports/update-scheduler-lease-id.js";
+import { createUpdateSchedulerStatusProjection, type MutableUpdateSchedulerStatusProjection } from "../application/update-scheduler-status.js";
 import {
   createMarketplaceUpdatePolicyService,
   type MarketplaceUpdatePolicyService,
@@ -33,6 +34,7 @@ export type NodeMarketplaceUpdateServices = Readonly<{
   refresh: MarketplaceRefreshService;
   policy: MarketplaceUpdatePolicyService;
   scheduler: MarketplaceUpdateScheduler;
+  schedulerStatus: MutableUpdateSchedulerStatusProjection;
   schedulerLeases?: UpdateSchedulerLeasePort;
 }>;
 
@@ -52,10 +54,12 @@ export function createNodeMarketplaceUpdateServices(
     mutations: options.refresh.mutations,
     sha256: options.refresh.sha256,
   });
+  const schedulerStatus = createUpdateSchedulerStatusProjection();
   const scheduler = createMarketplaceUpdateScheduler({
     refresh,
     clock: options.refresh.clock,
     delay: options.delay ?? nodeDelay,
+    status: schedulerStatus,
     ...(options.schedulerLeases === undefined ? {} : { leases: options.schedulerLeases }),
     ...(options.leaseIds === undefined ? {} : { leaseIds: options.leaseIds }),
   });
@@ -63,6 +67,7 @@ export function createNodeMarketplaceUpdateServices(
     refresh,
     policy,
     scheduler,
+    schedulerStatus,
     ...(options.schedulerLeases === undefined ? {} : { schedulerLeases: options.schedulerLeases }),
   });
 }

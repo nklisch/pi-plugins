@@ -106,6 +106,26 @@ describe("marketplace update scheduler", () => {
     expect(waits).toBe(1);
   });
 
+  it("runs maintenance while cadence is paused and sleeps to automatic retry deadline", async () => {
+    const controller = new AbortController();
+    const waits: number[] = [];
+    let cycles = 0;
+    const scheduler = createMarketplaceUpdateScheduler({
+      refresh: refreshStub(() => undefined, { refresh: 0, next: 0 }),
+      leases: {
+        async inventory() { return { plans: [{ context: { kind: "user" }, scope: { kind: "user" }, registrationIds: [], enabled: false, clock: "current" as const }], complete: true }; },
+        async acquire() { return "self" as const; }, async renew() { return true; }, async release() {}, async validate() { return true; },
+      },
+      leaseIds: { async create() { return `update-scheduler-lease-v1:uuid:123e4567-e89b-42d3-a456-426614174000` as never; } },
+      clock: { nowEpochMilliseconds: () => 100 },
+      delay: { async wait(milliseconds) { waits.push(milliseconds); controller.abort(new Error("done")); throw controller.signal.reason; } },
+      inventoryPollMs: 1_000, leaseMs: 2_000,
+    });
+    await expect(scheduler.run(controller.signal, async () => { cycles += 1; return 250; })).rejects.toThrow("done");
+    expect(cycles).toBe(1);
+    expect(waits).toEqual([150]);
+  });
+
   it("constructs both Node compositions without starting work", () => {
     let calls = 0;
     const dependencies = {
@@ -129,7 +149,7 @@ describe("marketplace update scheduler", () => {
     const updateServices = createNodeMarketplaceUpdateServices(options);
     for (const services of [refreshServices, updateServices]) {
       expect(Object.isFrozen(services)).toBe(true);
-      expect(Object.keys(services)).toEqual(["refresh", "policy", "scheduler"]);
+      expect(Object.keys(services)).toEqual(["refresh", "policy", "scheduler", "schedulerStatus"]);
       expect(services.refresh).toBeDefined();
       expect(services.policy).toBeDefined();
       expect(services.scheduler).toBeDefined();

@@ -72,6 +72,6 @@ describe("lease-owned marketplace scheduler", () => {
     const env = schedulerEnvironment({ dueAt: 5_000, regressed: true });
     await expect(env.scheduler.run(env.controller.signal)).rejects.toThrow("waited");
     expect(env.refreshes()).toBe(0);
-    await expect(env.scheduler.status(new AbortController().signal)).resolves.toMatchObject({ state: "stopped", scopes: [{ ownership: "self" }] });
+    await expect(env.scheduler.status(new AbortController().signal)).resolves.toMatchObject({ state: "stopped", scopes: [{ ownership: "none" }] });
   });
 });

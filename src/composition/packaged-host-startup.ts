@@ -35,8 +35,9 @@ export function createPackagedHostStartup(dependencies: Readonly<{
           capabilities,
         });
         dependencies.publish(result);
-        // Remote work begins only after immutable local status publication.
-        await dependencies.startBackground();
+        // Remote work begins only after immutable local status publication and
+        // is deliberately detached from session readiness.
+        void dependencies.startBackground().catch(() => undefined);
         return result;
       })();
       return started;

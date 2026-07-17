@@ -13,6 +13,8 @@ import type { UpdateNotificationPublisherPort } from "../application/ports/updat
 import type { GenerationMutationCoordinator } from "../application/generation-mutation-coordinator.js";
 import type { ScopeContext } from "../domain/state/scope.js";
 import type { Sha256 } from "../domain/source.js";
+import type { CurrentProjectRuntimeContext } from "../application/ports/project-trust.js";
+import type { UpdateSchedulerStatusProjection } from "../application/update-scheduler-status.js";
 
 export function createNativeUpdateManagementComposition(input: Readonly<{
   state: LifecycleStateStore;
@@ -21,10 +23,12 @@ export function createNativeUpdateManagementComposition(input: Readonly<{
   clock: LifecycleClock;
   sha256: Sha256;
   scheduler: MarketplaceUpdateScheduler;
+  schedulerStatus?: UpdateSchedulerStatusProjection;
   lifecycle: AutomaticUpdateLifecyclePort;
   activation: UpdateActivationContextPort;
   currentProject?: Extract<ScopeContext, { kind: "project" }>;
   projectTrust?: ProjectTrustPort;
+  revalidateCurrentProject?: (signal: AbortSignal) => Promise<CurrentProjectRuntimeContext>;
   publisher?: UpdateNotificationPublisherPort;
   onCounts?: (counts: Readonly<{ unreadCount: number; unresolvedCount: number }>) => void;
 }>) {
@@ -36,6 +40,8 @@ export function createNativeUpdateManagementComposition(input: Readonly<{
     sha256: input.sha256,
     ...(input.currentProject === undefined ? {} : { currentProject: input.currentProject }),
     ...(input.projectTrust === undefined ? {} : { projectTrust: input.projectTrust }),
+    ...(input.revalidateCurrentProject === undefined ? {} : { revalidateCurrentProject: input.revalidateCurrentProject }),
+    ...(input.schedulerStatus === undefined ? {} : { schedulerStatus: input.schedulerStatus }),
   });
   const notifications = createUpdateNotificationService({
     state: input.state,
@@ -44,6 +50,9 @@ export function createNativeUpdateManagementComposition(input: Readonly<{
     clock: input.clock,
     sha256: input.sha256,
     ...(input.publisher === undefined ? {} : { publisher: input.publisher }),
+    ...(input.currentProject === undefined ? {} : { currentProject: input.currentProject }),
+    ...(input.projectTrust === undefined ? {} : { projectTrust: input.projectTrust }),
+    ...(input.revalidateCurrentProject === undefined ? {} : { revalidateCurrentProject: input.revalidateCurrentProject }),
   });
   const automatic = createAutomaticUpdateCoordinator({
     state: input.state,
@@ -54,6 +63,9 @@ export function createNativeUpdateManagementComposition(input: Readonly<{
     activation: input.activation,
     clock: input.clock,
     sha256: input.sha256,
+    ...(input.currentProject === undefined ? {} : { currentProject: input.currentProject }),
+    ...(input.projectTrust === undefined ? {} : { projectTrust: input.projectTrust }),
+    ...(input.revalidateCurrentProject === undefined ? {} : { revalidateCurrentProject: input.revalidateCurrentProject }),
   });
   const application = createNativeUpdateManagementService({
     policy,

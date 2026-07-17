@@ -18,6 +18,7 @@ import type { createRevisionCollectionService } from "../application/revision-co
 import type { MarketplaceDiscoveryServices } from "./create-marketplace-discovery-services.js";
 import type { RuntimeCapabilityProbe } from "../application/ports/runtime-capability-probe.js";
 import type { SkillResourceDiscoveryPort } from "../runtime/skills/resource-discovery.js";
+import type { UpdateNotificationPublisherPort } from "../application/ports/update-notification-publisher.js";
 import type { HostCapabilityStatus, HostStartupResult } from "../application/host-observation-contract.js";
 import type { HostStatusService } from "./host-status-service.js";
 export type { HostCapabilityStatus, HostStartupResult } from "../application/host-observation-contract.js";
@@ -63,6 +64,7 @@ export type PackagedPluginHostOptions = Readonly<{
   agentDir?: string;
   source?: PackagedPluginHostSourceOptions;
   runtime?: PackagedPluginHostRuntimeParticipants;
+  update?: Readonly<{ publisher?: UpdateNotificationPublisherPort }>;
 }>;
 
 export type PiSessionBinding = Readonly<{

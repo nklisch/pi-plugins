@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PluginKeySchema } from "../domain/identity.js";
+import { ScopeReferenceSchema } from "../domain/state/scope.js";
 
 /** Redacted, read-only packaged-host capability evidence. */
 export const HostCapabilityStatusSchema = z.object({
@@ -43,6 +44,11 @@ export const HostStatusSnapshotSchema = z.object({
     state: z.enum(["disabled", "standby", "running", "clock-regressed", "degraded", "stopped"]),
     unresolvedCount: z.number().int().nonnegative(),
     unreadCount: z.number().int().nonnegative(),
+    scopes: z.array(z.object({
+      scope: ScopeReferenceSchema,
+      ownership: z.enum(["self", "other", "none"]),
+      nextAt: z.number().int().nonnegative().optional(),
+    }).strict().readonly()).readonly().default([]),
   }).strict().readonly(),
   blocked: z.array(HostBlockedPluginSchema).readonly(),
   capabilities: HostCapabilitiesSchema,

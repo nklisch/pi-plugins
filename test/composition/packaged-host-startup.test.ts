@@ -26,6 +26,22 @@ describe("explicit packaged host startup", () => {
     await startup.close();
   });
 
+  it("returns local readiness before detached background adapters settle", async () => {
+    let backgroundStarted = false;
+    const startup = createPackagedHostStartup({
+      async open() {}, async capabilities() { return capabilities; },
+      async recover() { return { blocked: [] }; }, async reconcile() { return { blocked: [] }; },
+      publish() {},
+      async startBackground() {
+        backgroundStarted = true;
+        await new Promise<void>(() => undefined);
+      },
+      async closeResources() {},
+    });
+    await expect(startup.start(new AbortController().signal)).resolves.toMatchObject({ status: "ready" });
+    expect(backgroundStarted).toBe(true);
+  });
+
   it("publishes plugin-local recovery failure as degraded rather than host blocked", async () => {
     let published = false;
     const startup = createPackagedHostStartup({

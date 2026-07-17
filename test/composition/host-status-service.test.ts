@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHostStatusService } from "../../src/composition/host-status-service.js";
+import { createUpdateSchedulerStatusProjection } from "../../src/application/update-scheduler-status.js";
 
 const startup = {
   status: "ready" as const,
@@ -16,6 +17,15 @@ describe("host status service", () => {
   it("keeps optional absent runtimes ready on a clean host", () => {
     const status = createHostStatusService({ startup });
     expect(status.snapshot()).toMatchObject({ status: "ready", local: { recovery: "settled", runtime: "reconciled" } });
+  });
+
+  it("projects the scheduler's safe ownership without lease identifiers", () => {
+    const schedulerStatus = createUpdateSchedulerStatusProjection();
+    const status = createHostStatusService({ startup, schedulerStatus });
+    schedulerStatus.publish({ state: "standby", scopes: [{ scope: { kind: "user" }, ownership: "other", nextAt: 10 }] });
+    const snapshot = status.snapshot();
+    expect(snapshot.update).toMatchObject({ state: "standby", scopes: [{ ownership: "other", nextAt: 10 }] });
+    expect(JSON.stringify(snapshot)).not.toContain("lease-v1");
   });
 
   it("reports background failure as degraded while preserving local readiness", () => {
