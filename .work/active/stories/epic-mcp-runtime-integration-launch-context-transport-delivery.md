@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-launch-context-transport-delivery
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra, security]
 parent: epic-mcp-runtime-integration-launch-context
 depends_on: [epic-mcp-runtime-integration-launch-context-trusted-context]
@@ -86,3 +86,19 @@ The irreducible risk is that a trusted runtime copies a JavaScript string before
 ## Production boundary
 
 Returning values through `FakeMcpRuntime.launch` is not evidence of real standard-I/O or HTTP support. No executable resolver, child process, HTTP client, auth implementation, or package adapter is added here.
+
+## Implementation notes
+
+- Added `createTrustedMcpLaunchValueProvider`, bound at construction to a parsed deep copy of one canonical source. Every resolve requires an exact source/server/component/transport binding and compares the callback's freshly recreated canonical component template with the registered template.
+- Added a strict, single-pass placeholder parser for the five roots, `${user_config.KEY}`, and portable `${NAME}` references. Unknown namespaces, empty/nested/unclosed/NUL tokens fail; inserted values are never reparsed. Ambient custody receives only sorted explicitly referenced names, and `CLAUDE_PLUGIN_OPTION_*` can never fall through to process state.
+- Standard-I/O rendering preserves literal exec-form command/arguments, trusted-template cwd, all five roots, current configured options, and declared entries in frozen null-prototype maps. POSIX exact and Windows ASCII case-insensitive collisions reject across all layers.
+- Streamable HTTP rendering enforces HTTP(S), no userinfo/control characters, case-insensitive header uniqueness, CR/LF/NUL rejection, configured/ambient bearer selectors, no authorization/bearer ambiguity, and no empty/control/whitespace bearer material.
+- Every resolve issues fresh accessor-backed arrays/maps and a provider-owned WeakMap lease. String/JSON/inspection are redacted; duplicate valid disposal is idempotent, foreign-provider disposal fails safely, and all access after disposal fails. The final abort check is the exact ownership-transfer point.
+- Added code/name-only cancellation and timeout classification; native messages and causes are not retained.
+
+## Verification
+
+- Focused transport/lifetime matrix: `npx vitest run test/runtime/mcp/launch-value-provider.test.ts test/application/resolved-configuration.test.ts` — **26 passed, 0 failed**.
+- Coverage includes literalness, non-recursion, hostile prototype keys, ambient allowlists, POSIX/Windows collisions, URL/header/bearer rejection, source copying, concurrent lease independence, pre/mid/post-issue cancellation, environment failures, wrong-provider cleanup, and dispose-once behavior.
+- `npm run typecheck` — passed.
+- No shell, executable resolver, process, HTTP client, OAuth implementation, environment mutation, process cleanup, cache, or package adapter was introduced.
