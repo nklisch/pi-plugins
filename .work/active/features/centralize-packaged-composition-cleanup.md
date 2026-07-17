@@ -1,7 +1,7 @@
 ---
 id: centralize-packaged-composition-cleanup
 kind: feature
-stage: review
+stage: done
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -10,7 +10,7 @@ gate_origin: refactor-design
 research_refs: []
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-17
 ---
 
 # Centralize Packaged Composition Cleanup
@@ -138,3 +138,15 @@ Each owner continues to prepare its exact ordered disposer sequence and passes i
 - Verification: focused composition/reload/startup/recovery/disposal coverage passed (7 files, 14 tests); typecheck passed; dependency boundaries passed over 285 modules and 1,855 dependencies; full `npm test` passed 214 test files and 1,068 tests with no type errors, followed by build, 562-export root import, 3-export Pi import, and isolated packed-consumer startup.
 - Discrepancies from design: none.
 - Adjacent issues parked: none.
+
+## Review (2026-07-17)
+
+**Weight**: standard — one independent pass, followed by accepted-blocker remediation and verification without re-review
+**Verdict**: Approve
+
+**Blockers**: none unresolved. The accepted blocker was fixed in `334101f`: MCP inactive-expectation preparation again occurs outside the caught async disposer, so a synchronous setup failure stops cleanup immediately, rejects with the original error object and message, and does not drain lease providers.
+**Important**: none. Direct helper regression coverage now distinguishes synchronous disposer throws from asynchronous disposer rejections while retaining attempt-all aggregation.
+**Nits**: none
+**Rejected**: none
+
+Per the standard single-pass closure policy and the explicit caller instruction, no independent re-review ran. Focused verification passed 3 files / 6 tests. Full `npm test` passed typecheck, dependency boundaries over 285 modules and 1,855 dependencies, 215 test files / 1,071 tests, build, 562-export root import, 3-export Pi import, and isolated packed-consumer startup.
