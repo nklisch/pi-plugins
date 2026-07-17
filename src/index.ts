@@ -1935,3 +1935,47 @@ export { createBackgroundUpdateCoordinator } from "./composition/background-upda
 export type { BackgroundUpdateCoordinator } from "./composition/background-update-coordinator.js";
 export { createPackagedHostStartup } from "./composition/packaged-host-startup.js";
 export type { PackagedHostStartup } from "./composition/packaged-host-startup.js";
+
+export {
+  NativeControlGrammarVersionSchema,
+  NativeControlInputChannelSchema,
+  NativeControlInvocationSchema,
+  NativeControlCommandRegistry,
+  NativeControlCommandIdSchema,
+  NativeControlCommandSchema,
+  nativeControlCommandIds,
+} from "./application/native-control-registry.js";
+export type {
+  NativeControlGrammarVersion,
+  NativeControlInputChannel,
+  NativeControlInvocation,
+  NativeControlOptionKind,
+  NativeControlOptionDefinition,
+  NativeControlPositionalDefinition,
+  NativeControlCommandDefinition,
+  NativeControlCommandId,
+  NativeControlCommand,
+} from "./application/native-control-registry.js";
+export {
+  NativeControlEnvelopeVersionSchema,
+  NativeControlExecutionIdSchema,
+  NativeControlExitRegistry,
+  NativeControlExitSchema,
+  NativeControlStatusSchema,
+  NativeControlDiagnosticSchema,
+  NativeControlOperationHandleSchema,
+  NativeControlPageSchema,
+  NativeControlEnvelopeSchema,
+  nativeControlExit,
+  nativeControlStatusExit,
+  createNativeControlEnvelope,
+} from "./application/native-control-contract.js";
+export type {
+  NativeControlExecutionId,
+  NativeControlExitKey,
+  NativeControlExit,
+  NativeControlStatus,
+  NativeControlDiagnostic,
+  NativeControlOperationHandle,
+  NativeControlEnvelope,
+} from "./application/native-control-contract.js";
