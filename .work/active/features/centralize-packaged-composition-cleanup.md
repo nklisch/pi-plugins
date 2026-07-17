@@ -1,7 +1,7 @@
 ---
 id: centralize-packaged-composition-cleanup
 kind: feature
-stage: implementing
+stage: review
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -88,13 +88,13 @@ Each owner continues to prepare its exact ordered disposer sequence and passes i
 
 **Acceptance Criteria**:
 
-- [ ] Exactly one private composition helper implements serial attempt-all aggregation for the four cleanup-only paths.
-- [ ] The four callers contain no local `const errors: unknown[] = []` cleanup loop.
-- [ ] Cleanup order, attempted disposer count, error identity/order, and aggregate messages remain unchanged.
-- [ ] Repeated close/dispose remains coalesced and idempotent at each current owner.
-- [ ] Startup primary-error wrapping and recovery-adapter cleanup remain unchanged.
-- [ ] No public export, package contract, state/schema, path, runtime selection, marketplace behavior, or lifecycle guarantee changes.
-- [ ] Focused MCP composition, skill/hook composition, packaged-host startup/recovery/disposal, typecheck, and dependency-boundary verification pass.
+- [x] Exactly one private composition helper implements serial attempt-all aggregation for the four cleanup-only paths.
+- [x] The four callers contain no local `const errors: unknown[] = []` cleanup loop.
+- [x] Cleanup order, attempted disposer count, error identity/order, and aggregate messages remain unchanged.
+- [x] Repeated close/dispose remains coalesced and idempotent at each current owner.
+- [x] Startup primary-error wrapping and recovery-adapter cleanup remain unchanged.
+- [x] No public export, package contract, state/schema, path, runtime selection, marketplace behavior, or lifecycle guarantee changes.
+- [x] Focused MCP composition, skill/hook composition, packaged-host startup/recovery/disposal, typecheck, and dependency-boundary verification pass.
 
 **Rollback**: Revert the implementation commit to inline the four loops again. No public or persisted contract changes.
 
@@ -125,3 +125,16 @@ Each owner continues to prepare its exact ordered disposer sequence and passes i
 2. Verify the helper is not package-exported and introduces no forbidden dependency edge.
 3. Run focused MCP composition, skill/hook composition, complete reload, packaged startup/recovery, and packaged disposal tests.
 4. Run typecheck and dependency boundaries; run the full suite after focused checks are green.
+
+## Integrated implementation notes
+
+- Execution capability: inline, direct-read only; the child story was implemented as one cohesive low-risk refactor without nested agents.
+- Review weight: standard from `.work/CONVENTIONS.md`; the feature is intentionally left at `stage: review` for the feature-level review boundary.
+- Implementation commit: `1a791f7` (`implement: centralize-packaged-composition-cleanup-step-1`). The feature transition is committed separately as `implement: centralize-packaged-composition-cleanup`.
+- Files changed: one new private helper, three composition callers, one focused helper test, this feature record, and the child story record. No package entry point or marketplace file changed.
+- Totals: production source changed by 45 insertions and 48 deletions (net 3-line deletion); caller files alone changed by 38 insertions and 48 deletions (net 10-line deletion); focused helper coverage added 43 test lines.
+- Semantics retained: cleanup remains strictly serial and attempt-all; exact error objects, encounter order, and all four messages are preserved; owner-held collections/references detach at their prior points; all existing close promises continue to coalesce repeated calls.
+- Exclusions retained: packaged startup primary-plus-cleanup wrapping and recovery-adapter cleanup remain inline and unchanged; no public exports, marketplace behavior, state/schema, recovery, reload, or lifecycle policy changed.
+- Verification: focused composition/reload/startup/recovery/disposal coverage passed (7 files, 14 tests); typecheck passed; dependency boundaries passed over 285 modules and 1,855 dependencies; full `npm test` passed 214 test files and 1,068 tests with no type errors, followed by build, 562-export root import, 3-export Pi import, and isolated packed-consumer startup.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
