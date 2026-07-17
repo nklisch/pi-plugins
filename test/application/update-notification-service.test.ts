@@ -96,6 +96,32 @@ describe("update notification service", () => {
     expect(env.record().notices[0]?.publication).toBe("published");
   });
 
+  it("never reads or exposes a historical project when another project is bound", async () => {
+    const identityA = { kind: "path-only" as const, canonicalRoot: "file:///project-a/" as never, limitation: "identity-changes-with-canonical-root" as const };
+    const identityB = { kind: "path-only" as const, canonicalRoot: "file:///project-b/" as never, limitation: "identity-changes-with-canonical-root" as const };
+    const projectA = { kind: "project" as const, identity: identityA, projectKey: `project-v1:sha256:${"a".repeat(64)}` as never };
+    const projectB = { kind: "project" as const, identity: identityB, projectKey: `project-v1:sha256:${"b".repeat(64)}` as never };
+    const reads: string[] = [];
+    const service = createUpdateNotificationService({
+      state: { async read(context: typeof scope | typeof projectA | typeof projectB) {
+        reads.push(context.kind === "user" ? "user" : context.projectKey);
+        if (context.kind === "project" && context.projectKey === projectA.projectKey) throw new Error("historical project must not be read");
+        return context.kind === "user"
+          ? { ok: true as const, snapshot: { scope, config: { records: [] }, installed: { plugins: [] } } as never }
+          : { ok: true as const, snapshot: { scope: projectB, project: { marketplaceUpdates: [], plugins: [] } } as never };
+      }, async commit() { throw new Error("must not commit"); } },
+      inventory: { async discover() { return { scopes: [scope, projectA, projectB], complete: true }; } },
+      mutations: {} as never,
+      clock: { nowEpochMilliseconds: () => 1, monotonicMilliseconds: () => 1 },
+      sha256,
+      currentProject: projectB,
+      projectTrust: { async assess(key) { return { kind: key === projectB.projectKey ? "trusted" as const : "untrusted" as const }; } },
+      async revalidateCurrentProject() { return { identity: identityB, projectKey: projectB.projectKey, trust: { kind: "trusted" as const } }; },
+    });
+    await expect(service.list({ scope: "all-current", limit: 10 }, signal)).resolves.toMatchObject({ notices: [] });
+    expect(reads).toEqual(["user", projectB.projectKey]);
+  });
+
   it("never prunes unread or unresolved notices and bounds acknowledged tombstones", () => {
     const exact = discovery();
     const notices = Array.from({ length: 70 }, (_, index) => {

@@ -3,6 +3,7 @@ import { CompatibilityReportSchema } from "../domain/compatibility.js";
 import { compareUtf8 } from "../domain/canonical-json.js";
 import { parsePluginKey } from "../domain/identity.js";
 import { createTrustCandidate } from "../domain/trust-policy.js";
+import { toScopeReference } from "../domain/state/scope.js";
 import { digestCompatibilityReport } from "./ports/runtime-projection.js";
 import type { PluginInspectionService } from "./inspection-service.js";
 import type { MarketplaceCatalogService } from "./marketplace-catalog-service.js";
@@ -51,6 +52,18 @@ function sourceRevision(source: import("../domain/source.js").ResolvedPluginSour
   if (source.kind === "npm") return source.version;
   if (source.kind === "marketplace-path") return source.marketplaceRevision;
   return source.revision;
+}
+
+function selectedConfigurationRef(
+  subject: CandidateInspectionSubject,
+  snapshot: InspectionEvidenceSnapshot,
+): import("../domain/configured-values.js").PluginConfigurationRef | undefined {
+  const state = snapshot.states.find((result) => result.ok &&
+    JSON.stringify(toScopeReference(result.snapshot.scope)) === JSON.stringify(subject.scope));
+  if (state === undefined || !state.ok) return undefined;
+  const plugins = "installed" in state.snapshot ? state.snapshot.installed.plugins : state.snapshot.project.plugins;
+  const record = plugins.find((plugin) => plugin.plugin === subject.plugin);
+  return record?.revisions.find((revision) => revision.revision === record.selectedRevision)?.configurationRef;
 }
 
 function finding(key: NativeDiagnosticInput["findings"][number]["key"], subjectId: import("./native-inspection-contract.js").InspectionDetailId, componentId?: import("../domain/components.js").ComponentId): NativeDiagnosticInput["findings"][number] {
@@ -153,10 +166,12 @@ export function createNativeCandidateInspector(dependencies: CandidateInspection
           let configuration: Awaited<ReturnType<InspectionReadinessPort["configuration"]>> = [];
           let configurationUnavailable = false;
           try {
+            const configurationRef = selectedConfigurationRef(subject, snapshot);
             configuration = await dependencies.readiness.configuration({
               plugin: subject.plugin,
               scope: subject.scope,
               descriptors: plugin.configuration,
+              ...(configurationRef === undefined ? {} : { configurationRef }),
             }, signal);
           } catch (error) {
             if (signal.aborted) throw signal.reason ?? error;

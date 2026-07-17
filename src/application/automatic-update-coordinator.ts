@@ -14,12 +14,14 @@ import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
 import type { UpdateActivationContextPort } from "./ports/update-activation-context.js";
 import type { UpdatePolicyAuthorityPort } from "./ports/update-policy-authority.js";
 import type { GenerationSnapshot } from "./state-contract.js";
+import { authorizeCurrentScope, type CurrentScopeAuthorityDependencies } from "./current-scope-authority.js";
 
 const AUTOMATIC_RETRY_BASE_MS = 5 * 60_000;
 
 export interface AutomaticUpdateCoordinator {
   evaluate(request: Readonly<{ noticeId: UpdateNoticeId }>, signal: AbortSignal): Promise<AutomaticUpdateEligibility>;
   run(request: NativeAutomaticUpdateRunRequest, signal: AbortSignal): Promise<NativeAutomaticUpdateRunResult>;
+  nextRetryAt(signal: AbortSignal): Promise<number | undefined>;
 }
 
 export type AutomaticUpdateCoordinatorDependencies = Readonly<{
@@ -31,21 +33,31 @@ export type AutomaticUpdateCoordinatorDependencies = Readonly<{
   activation: UpdateActivationContextPort;
   clock: LifecycleClock;
   sha256: Sha256;
-}>;
+}> & CurrentScopeAuthorityDependencies;
 
 type LocatedNotice = Readonly<{ context: ScopeContext; snapshot: GenerationSnapshot; notice: UpdateNotice }>;
 
 export function createAutomaticUpdateCoordinator(dependencies: AutomaticUpdateCoordinatorDependencies): AutomaticUpdateCoordinator {
   if (dependencies === null || typeof dependencies !== "object" || typeof dependencies.sha256 !== "function") throw new TypeError("automatic update coordinator dependencies are required");
 
+  async function authorized(context: ScopeContext, signal: AbortSignal): Promise<boolean> {
+    return (await authorizeCurrentScope(context, dependencies, signal)).kind === "trusted";
+  }
+
   async function contexts(signal: AbortSignal): Promise<readonly ScopeContext[]> {
     const inventory = await dependencies.inventory.discover(signal);
-    return inventory.scopes.map((scope) => ScopeContextSchema.parse(scope));
+    const contexts: ScopeContext[] = [];
+    for (const value of inventory.scopes) {
+      const context = ScopeContextSchema.parse(value);
+      if (await authorized(context, signal)) contexts.push(context);
+    }
+    return contexts;
   }
 
   async function locate(idInput: UpdateNoticeId, signal: AbortSignal): Promise<LocatedNotice | undefined> {
     const id = UpdateNoticeIdSchema.parse(idInput);
     for (const context of await contexts(signal)) {
+      if (!await authorized(context, signal)) continue;
       const loaded = await dependencies.state.read(context, signal);
       if (!loaded.ok) continue;
       for (const record of marketplaceUpdateRecords(loaded.snapshot)) {
@@ -95,6 +107,7 @@ export function createAutomaticUpdateCoordinator(dependencies: AutomaticUpdateCo
     signal: AbortSignal,
   ): Promise<boolean> {
     for (let attempt = 0; attempt < 4; attempt += 1) {
+      if (!await authorized(context, signal)) return false;
       const loaded = await dependencies.state.read(context, signal);
       if (!loaded.ok) return false;
       const records = marketplaceUpdateRecords(loaded.snapshot);
@@ -107,6 +120,9 @@ export function createAutomaticUpdateCoordinator(dependencies: AutomaticUpdateCo
             notices: record.notices.map((notice) => notice.id === id ? update(notice) : notice),
           })), dependencies.sha256),
           value: undefined,
+          beforeCommit: async () => {
+            if (!await authorized(context, signal)) throw new Error("PROJECT_AUTHORITY_STALE");
+          },
         }),
         signal,
       );
@@ -161,6 +177,7 @@ export function createAutomaticUpdateCoordinator(dependencies: AutomaticUpdateCo
     const wanted = parsed.noticeIds === undefined ? undefined : new Set(parsed.noticeIds);
     const candidates: LocatedNotice[] = [];
     for (const context of await contexts(signal)) {
+      if (!await authorized(context, signal)) continue;
       const loaded = await dependencies.state.read(context, signal);
       if (!loaded.ok) continue;
       for (const notice of marketplaceUpdateRecords(loaded.snapshot).flatMap((record) => record.notices)) {
@@ -190,13 +207,28 @@ export function createAutomaticUpdateCoordinator(dependencies: AutomaticUpdateCo
       }
       const result = await dependencies.lifecycle.apply(latest.notice, signal);
       const projected = lifecycleOutcome(latest.notice, result);
-      // Re-project onto the CAS-authoritative notice so a concurrent
-      // acknowledgment/publication is never reverted by lifecycle completion.
-      await updateNotice(latest.context, latest.notice.id, (notice) => lifecycleOutcome(notice, result).notice, signal);
+      // Once lifecycle may have committed, rollback/recovery truth outranks the
+      // caller's cancellation. Settle the durable ledger with fresh authority.
+      const settlementSignal = new AbortController().signal;
+      await updateNotice(latest.context, latest.notice.id, (notice) => lifecycleOutcome(notice, result).notice, settlementSignal);
       outcomes.push({ noticeId: latest.notice.id, kind: projected.kind, ...(projected.reason === undefined ? {} : { reason: projected.reason }) });
     }
     return NativeAutomaticUpdateRunResultSchema.parse({ outcomes });
   }
 
-  return Object.freeze({ evaluate, run });
+  async function nextRetryAt(signal: AbortSignal): Promise<number | undefined> {
+    let earliest: number | undefined;
+    for (const context of await contexts(signal)) {
+      if (!await authorized(context, signal)) continue;
+      const loaded = await dependencies.state.read(context, signal);
+      if (!loaded.ok) continue;
+      for (const notice of marketplaceUpdateRecords(loaded.snapshot).flatMap((record) => record.notices)) {
+        const retryAt = notice.resolution === undefined && notice.automatic?.state === "retryable" ? notice.automatic.retryAt : undefined;
+        if (retryAt !== undefined && (earliest === undefined || retryAt < earliest)) earliest = retryAt;
+      }
+    }
+    return earliest;
+  }
+
+  return Object.freeze({ evaluate, run, nextRetryAt });
 }

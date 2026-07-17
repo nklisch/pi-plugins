@@ -14,7 +14,7 @@ import type { ContentStorePort } from "./ports/content-store.js";
 import type { LifecycleClock } from "./ports/lifecycle-clock.js";
 import type { LifecycleStateInventoryPort } from "./ports/lifecycle-state-inventory.js";
 import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
-import type { ProjectTrustPort } from "./ports/project-trust.js";
+import type { CurrentProjectRuntimeContext, ProjectTrustPort } from "./ports/project-trust.js";
 import type { UpdateSchedulerLeasePort } from "./ports/update-scheduler-lease.js";
 import type { UpdateSchedulerLeaseId } from "../domain/update-policy.js";
 import type { MarketplaceMaterializer, MaterializedMarketplace, PluginMaterializer, SourceContext } from "./source-materialization.js";
@@ -54,6 +54,7 @@ import {
   codePointCompare,
 } from "./marketplace-state.js";
 import type { MarketplaceCacheStatus } from "./marketplace-management-contract.js";
+import { authorizeCurrentScope } from "./current-scope-authority.js";
 
 export const DefaultMarketplaceUpdatePolicy = Object.freeze({
   successIntervalMs: 6 * 60 * 60 * 1_000,
@@ -150,11 +151,7 @@ async function assertScopeAuthority(
   scope: ScopeContext,
   signal: AbortSignal,
 ): Promise<void> {
-  if (scope.kind === "user") return;
-  if (dependencies.currentProject === undefined || !sameScope(scope, dependencies.currentProject) || dependencies.projectTrust === undefined ||
-      (await dependencies.projectTrust.assess(scope.projectKey, signal)).kind !== "trusted") {
-    throw new Error("PROJECT_REVOKED");
-  }
+  if ((await authorizeCurrentScope(scope, dependencies, signal)).kind !== "trusted") throw new Error("PROJECT_REVOKED");
 }
 
 async function mutateClaimRecord(
@@ -188,7 +185,9 @@ async function mutateClaimRecord(
       signal,
     );
     if (result.kind === "committed") return "committed";
-    const authoritative = await dependencies.state.read(scope, new AbortController().signal).catch(() => undefined);
+    const cleanupSignal = new AbortController().signal;
+    await assertScopeAuthority(dependencies, scope, cleanupSignal);
+    const authoritative = await dependencies.state.read(scope, cleanupSignal).catch(() => undefined);
     return authoritative?.ok && recordFor(authoritative.snapshot, registrationIdValue, dependencies.sha256) === undefined
       ? "removed"
       : "stale";
@@ -304,6 +303,7 @@ export type MarketplaceRefreshServiceDependencies = Readonly<{
   inventoryComplete?: () => boolean;
   currentProject?: Extract<ScopeContext, { kind: "project" }>;
   projectTrust?: ProjectTrustPort;
+  revalidateCurrentProject?: (signal: AbortSignal) => Promise<CurrentProjectRuntimeContext>;
   schedulerLeases?: UpdateSchedulerLeasePort;
 }>;
 
@@ -336,6 +336,9 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
     code: Extract<MarketplaceRefreshOutcome, { kind: "failed" }>["code"],
   ): Promise<MarketplaceRefreshOutcome> {
     const cleanupSignal = new AbortController().signal;
+    if ((await authorizeCurrentScope(scope, dependencies, cleanupSignal)).kind !== "trusted") {
+      return { kind: "failed", registrationId: id, code: "STATE_STALE", retained: { kind: "unavailable" } };
+    }
     const loaded = await dependencies.state.read(scope, cleanupSignal).catch(() => undefined);
     if (loaded?.ok !== true) return { kind: "failed", registrationId: id, code, retained: { kind: "unavailable" } };
     const record = recordFor(loaded.snapshot, id, dependencies.sha256);
@@ -361,6 +364,9 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
     });
     const settlement = await mutateClaimRecord(dependencies, scope, loaded.snapshot, id, replacement, cleanupSignal).catch(() => "stale" as const);
     if (settlement !== "committed") {
+      if ((await authorizeCurrentScope(scope, dependencies, cleanupSignal)).kind !== "trusted") {
+        return { kind: "failed", registrationId: id, code: "STATE_STALE", retained: { kind: "unavailable" } };
+      }
       const authoritative = await dependencies.state.read(scope, cleanupSignal).catch(() => undefined);
       if (authoritative?.ok) {
         const authority = recordFor(authoritative.snapshot, id, dependencies.sha256);
@@ -382,6 +388,7 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
     claimId: string,
   ): Promise<MarketplaceRefreshOutcome> {
     const cleanupSignal = new AbortController().signal;
+    if ((await authorizeCurrentScope(scope, dependencies, cleanupSignal)).kind !== "trusted") return { kind: "cancelled", registrationId: id };
     const loaded = await dependencies.state.read(scope, cleanupSignal).catch(() => undefined);
     if (loaded?.ok !== true) return { kind: "cancelled", registrationId: id };
     const record = recordFor(loaded.snapshot, id, dependencies.sha256);
@@ -408,6 +415,7 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
     schedulerLeaseId?: UpdateSchedulerLeaseId,
   ): Promise<Readonly<{ outcome: MarketplaceRefreshOutcome; notifications: readonly NotificationIntent[] }>> {
     abortIfRequested(signal);
+    await assertScopeAuthority(dependencies, scope, signal);
     const loaded = await dependencies.state.read(scope, signal);
     if (!loaded.ok) return { outcome: { kind: "failed", registrationId: id, code: "STATE_STALE", retained: { kind: "unavailable" } }, notifications: [] };
     const current = recordFor(loaded.snapshot, id, dependencies.sha256);
@@ -437,6 +445,7 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
       const selected = createMarketplaceSnapshotRecord({ marketplace: current.marketplace, source: materialized.source, content: materialized.content, binding: materialized.binding }, dependencies.sha256);
       const probes = dependencies.probe === undefined ? [] : await dependencies.probe({ scope, record: claimed, snapshot: selected, catalog, marketplace: materialized, signal });
       const completedAt = now();
+      await assertScopeAuthority(dependencies, scope, signal);
       const latest = await dependencies.state.read(scope, signal);
       if (!latest.ok) throw new Error("STATE_STALE");
       const latestAuthority = recordFor(latest.snapshot, id, dependencies.sha256);
@@ -532,8 +541,10 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
   async function activeScopes(signal: AbortSignal): Promise<Readonly<{ scopes: readonly ScopeContext[]; complete: boolean }>> {
     const inventory = await dependencies.inventory.discover(signal);
     const candidates = inventory.scopes.map((scope) => ScopeContextSchema.parse(scope));
-    const scopes = candidates.filter((scope) => scope.kind === "user" ||
-      dependencies.currentProject !== undefined && sameScope(scope, dependencies.currentProject));
+    const scopes: ScopeContext[] = [];
+    for (const scope of candidates) {
+      if (scope.kind === "user" || await authorizeCurrentScope(scope, dependencies, signal).then((authority) => authority.kind === "trusted")) scopes.push(scope);
+    }
     return { scopes: scopes.sort(scopeSort), complete: inventory.complete };
   }
 
@@ -545,6 +556,7 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
       const requested = parsed.registrationIds === undefined ? undefined : new Set(parsed.registrationIds);
       for (const scope of inventory.scopes) {
         if (parsed.scope !== "all-current" && parsed.scope !== scope.kind) continue;
+        await assertScopeAuthority(dependencies, scope, signal);
         const loaded = await dependencies.state.read(scope, signal);
         if (!loaded.ok) continue;
         for (const record of marketplaceUpdateRecords(loaded.snapshot)) {
@@ -594,6 +606,7 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
       const inventory = await activeScopes(signal);
       let earliest: number | undefined;
       for (const scope of inventory.scopes) {
+        await assertScopeAuthority(dependencies, scope, signal);
         const loaded = await dependencies.state.read(scope, signal);
         if (!loaded.ok) continue;
         for (const record of marketplaceUpdateRecords(loaded.snapshot)) {

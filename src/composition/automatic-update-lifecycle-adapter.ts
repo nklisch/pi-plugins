@@ -33,6 +33,7 @@ export function createAutomaticUpdateLifecycleAdapter(dependencies: Readonly<{
   async function target(notice: UpdateNotice, signal: AbortSignal) {
     const scope = context(notice);
     if (scope === undefined) return undefined;
+    if (!await projectAuthorized(scope, signal)) return { unauthorized: true as const, scope };
     const loaded = await dependencies.state.read(scope, signal);
     if (!loaded.ok) return undefined;
     const records = "installed" in loaded.snapshot ? loaded.snapshot.installed.plugins : loaded.snapshot.project.plugins;
@@ -67,6 +68,9 @@ export function createAutomaticUpdateLifecycleAdapter(dependencies: Readonly<{
       const [resolved, current] = await Promise.all([resolve(notice, signal), target(notice, signal)]);
       if (resolved.kind !== "resolved") return { candidate: "stale", source: "stable", target: "current", project: "trusted", recovery: "clear", configuration: "valid", secrets: "available", capability: "available" };
       const candidate = resolved.candidate;
+      if (current !== undefined && "unauthorized" in current) {
+        return { candidate: "current", source: "stable", target: "current", project: "untrusted", recovery: "clear", configuration: "valid", secrets: "available", capability: "available" };
+      }
       const selected = current?.record.revisions.find((revision) => revision.revision === current.record.selectedRevision);
       const source = deriveMarketplaceSourceIdentity(candidate.marketplace.source.declared, dependencies.sha256) === notice.available.marketplaceSourceIdentity &&
         derivePluginSourceIdentity(candidate.entry.source.value, dependencies.sha256) === notice.available.pluginSourceIdentity &&
@@ -87,7 +91,9 @@ export function createAutomaticUpdateLifecycleAdapter(dependencies: Readonly<{
         catalogSnapshot: MarketplaceSnapshotTokenSchema.parse(notice.snapshot),
       }, dependencies.sha256);
       const detail = await dependencies.inspection.detail({ snapshotId, detailId }, signal);
-      if (detail.kind !== "found") return { candidate: "stale", source, target: "current", project, recovery, configuration: "valid", secrets: "available", capability: "available" };
+      if (detail.kind !== "found" || detail.detail.summary.revision.immutable !== notice.available.immutableRevision) {
+        return { candidate: "stale", source, target: "current", project, recovery, configuration: "valid", secrets: "available", capability: "available" };
+      }
       const configuration = detail.detail.configuration.some((field) => field.required && ["missing", "invalid"].includes(field.state)) ? "required" as const : "valid" as const;
       const secrets = detail.detail.configuration.some((field) => field.required && field.sensitive && field.state === "unavailable") ? "unavailable" as const : "available" as const;
       const capability = detail.detail.compatibility.status === "incompatible" || detail.detail.compatibility.requirements.some((requirement) => requirement.status === "unavailable") ? "unavailable" as const : "available" as const;
@@ -95,7 +101,9 @@ export function createAutomaticUpdateLifecycleAdapter(dependencies: Readonly<{
     },
     async apply(notice, signal): Promise<AutomaticUpdateLifecycleResult> {
       const [resolved, current] = await Promise.all([resolve(notice, signal), target(notice, signal)]);
-      if (resolved.kind !== "resolved" || current === undefined || current.record.pendingTransition !== undefined) return { kind: "stale" };
+      if (resolved.kind !== "resolved" || current === undefined) return { kind: "stale" };
+      if ("unauthorized" in current) return { kind: "rejected", code: "UNTRUSTED" };
+      if (current.record.pendingTransition !== undefined) return { kind: "stale" };
       const selected = current.record.revisions.find((revision) => revision.revision === current.record.selectedRevision);
       if (selected === undefined) return { kind: "stale" };
       const candidate = resolved.candidate;
@@ -132,6 +140,15 @@ export function createAutomaticUpdateLifecycleAdapter(dependencies: Readonly<{
         }
       } else {
         configurationPathContext = { scope: current.scope, trustedBaseDirectory: dependencies.userBaseDirectory };
+      }
+      if (current.scope.kind === "project") {
+        const root = configurationPathContext.trustedProjectRoot;
+        const revalidated = dependencies.projectRoots.revalidate === undefined
+          ? dependencies.projectRoots.verify(root, current.scope)
+          : await dependencies.projectRoots.revalidate(root, current.scope, signal);
+        if (revalidated.kind !== "project" || revalidated.projectKey !== current.scope.projectKey || !await projectAuthorized(current.scope, signal)) {
+          return { kind: "rejected", code: "UNTRUSTED" };
+        }
       }
       const result = await dependencies.lifecycle.update({
         scope: current.scope,

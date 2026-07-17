@@ -35,10 +35,12 @@ import { deriveUpdatePolicyConsentId, deriveUpdatePolicyPreviewId } from "./nati
 import type { LifecycleClock } from "./ports/lifecycle-clock.js";
 import type { LifecycleStateInventoryPort } from "./ports/lifecycle-state-inventory.js";
 import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
-import type { ProjectTrustPort } from "./ports/project-trust.js";
+import type { CurrentProjectRuntimeContext, ProjectTrustPort } from "./ports/project-trust.js";
 import type { UpdatePolicyAuthorityPort } from "./ports/update-policy-authority.js";
 import { resolveEffectiveUpdatePolicy } from "./update-policy-resolution.js";
 import { parseStateMutation, type GenerationSnapshot } from "./state-contract.js";
+import { authorizeCurrentScope, sameProjectAuthority } from "./current-scope-authority.js";
+import type { UpdateSchedulerStatusProjection } from "./update-scheduler-status.js";
 
 export interface NativeUpdatePolicyService {
   preview(request: UpdatePolicyChange, signal: AbortSignal): Promise<NativeUpdatePolicyPreviewResult>;
@@ -55,13 +57,15 @@ export type NativeUpdatePolicyServiceDependencies = Readonly<{
   clock: LifecycleClock;
   currentProject?: Extract<ScopeContext, { kind: "project" }>;
   projectTrust?: ProjectTrustPort;
-  schedulerLeaseId?: string;
+  revalidateCurrentProject?: (signal: AbortSignal) => Promise<CurrentProjectRuntimeContext>;
+  schedulerStatus?: UpdateSchedulerStatusProjection;
 }>;
 
 type LoadedAuthority = Readonly<{
   user: Extract<GenerationSnapshot, { scope: { kind: "user" } }>;
   scopes: readonly GenerationSnapshot[];
   complete: boolean;
+  projectAuthority?: CurrentProjectRuntimeContext;
 }>;
 
 type PolicyRow = Readonly<{
@@ -81,8 +85,13 @@ function scopeContext(reference: ScopeReference, currentProject: NativeUpdatePol
   return currentProject?.projectKey === reference.projectKey ? currentProject : undefined;
 }
 
-function projectPolicyEpoch(projectKey: string, generation: number, sha256: Sha256): string {
-  return deriveUpdatePolicyPreviewId({ projectKey, generation }, sha256);
+function projectPolicyEpoch(authority: CurrentProjectRuntimeContext, generation: number, sha256: Sha256): string {
+  return deriveUpdatePolicyPreviewId({
+    projectKey: authority.projectKey,
+    identity: authority.identity,
+    trust: authority.trust,
+    generation,
+  }, sha256);
 }
 
 function scopeOverride(snapshot: GenerationSnapshot): UpdateApplicationMode | undefined {
@@ -163,19 +172,30 @@ export function createNativeUpdatePolicyService(dependencies: NativeUpdatePolicy
     const contexts = [...inventory.scopes];
     if (!contexts.some((scope) => scope.kind === "user")) contexts.unshift({ kind: "user" });
     const snapshots: GenerationSnapshot[] = [];
+    let projectAuthority: CurrentProjectRuntimeContext | undefined;
     for (const context of contexts) {
-      if (context.kind === "project" && context.projectKey !== dependencies.currentProject?.projectKey) continue;
+      if (context.kind === "project") {
+        const authority = await authorizeCurrentScope(context, dependencies, signal);
+        if (authority.kind !== "trusted" || authority.current === undefined) continue;
+        projectAuthority = authority.current;
+      }
       const result = await dependencies.state.read(context, signal);
       if (result.ok) snapshots.push(result.snapshot);
     }
     const user = snapshots.find((snapshot): snapshot is LoadedAuthority["user"] => snapshot.scope.kind === "user");
-    return user === undefined ? undefined : { user, scopes: snapshots, complete: inventory.complete };
+    return user === undefined ? undefined : {
+      user,
+      scopes: snapshots,
+      complete: inventory.complete,
+      ...(projectAuthority === undefined ? {} : { projectAuthority }),
+    };
   }
 
-  async function projectTrusted(reference: ScopeReference | undefined, signal: AbortSignal): Promise<boolean> {
-    if (reference?.kind !== "project") return true;
-    return dependencies.currentProject?.projectKey === reference.projectKey && dependencies.projectTrust !== undefined &&
-      (await dependencies.projectTrust.assess(reference.projectKey, signal)).kind === "trusted";
+  async function projectAuthority(reference: ScopeReference | undefined, signal: AbortSignal) {
+    if (reference?.kind !== "project") return { kind: "trusted" as const };
+    const context = dependencies.currentProject;
+    if (context === undefined || context.projectKey !== reference.projectKey) return { kind: "project-stale" as const };
+    return authorizeCurrentScope(context, dependencies, signal);
   }
 
   function targetScope(change: UpdatePolicyChange): ScopeReference | undefined {
@@ -188,7 +208,8 @@ export function createNativeUpdatePolicyService(dependencies: NativeUpdatePolicy
     if (!parsed.success) return NativeUpdatePolicyPreviewResultSchema.parse({ kind: "rejected", code: "INVALID_CHANGE" });
     const change = parsed.data;
     const reference = targetScope(change);
-    if (!(await projectTrusted(reference, signal))) return NativeUpdatePolicyPreviewResultSchema.parse({ kind: "rejected", code: "PROJECT_UNTRUSTED" });
+    const targetAuthority = await projectAuthority(reference, signal);
+    if (targetAuthority.kind !== "trusted") return NativeUpdatePolicyPreviewResultSchema.parse({ kind: "rejected", code: "PROJECT_UNTRUSTED" });
     const authority = await load(signal);
     if (authority === undefined) return NativeUpdatePolicyPreviewResultSchema.parse({ kind: "rejected", code: "STATE_UNAVAILABLE" });
     if (reference !== undefined && !authority.scopes.some((snapshot) => sameScope(toScopeReference(snapshot.scope), reference))) {
@@ -242,9 +263,9 @@ export function createNativeUpdatePolicyService(dependencies: NativeUpdatePolicy
         },
         authority: {
           userGeneration: authority.user.generation,
-          ...(reference?.kind === "project" ? {
+          ...(reference?.kind === "project" && authority.projectAuthority !== undefined ? {
             projectEpoch: projectPolicyEpoch(
-              reference.projectKey,
+              authority.projectAuthority,
               authority.scopes.find((snapshot) => snapshot.scope.kind === "project")!.generation,
               dependencies.sha256,
             ),
@@ -317,17 +338,33 @@ export function createNativeUpdatePolicyService(dependencies: NativeUpdatePolicy
       ? { kind: "user" as const }
       : scopeContext(reference, dependencies.currentProject);
     if (context === undefined) return NativeUpdatePolicyApplyResultSchema.parse({ kind: "stale", reason: "project" });
+    const projectBeforeRead = context.kind === "project" ? await authorizeCurrentScope(context, dependencies, signal) : undefined;
+    if (projectBeforeRead?.kind === "project-stale") return NativeUpdatePolicyApplyResultSchema.parse({ kind: "stale", reason: "project" });
+    if (projectBeforeRead?.kind === "project-untrusted") return NativeUpdatePolicyApplyResultSchema.parse({ kind: "stale", reason: "trust" });
     const loaded = await dependencies.state.read(context, signal);
     if (!loaded.ok) return NativeUpdatePolicyApplyResultSchema.parse({ kind: "rejected", code: "STATE_UNAVAILABLE" });
     const currentAuthority = context.kind === "user"
       ? loaded.snapshot.generation === checked.preview.authority.userGeneration
-      : checked.preview.authority.projectEpoch === projectPolicyEpoch(context.projectKey, loaded.snapshot.generation, dependencies.sha256);
+      : projectBeforeRead?.kind === "trusted" && projectBeforeRead.current !== undefined &&
+        checked.preview.authority.projectEpoch === projectPolicyEpoch(projectBeforeRead.current, loaded.snapshot.generation, dependencies.sha256);
     if (!currentAuthority) return NativeUpdatePolicyApplyResultSchema.parse({ kind: "stale", reason: "generation" });
     const before = canonicalJson("config" in loaded.snapshot ? loaded.snapshot.config : loaded.snapshot.project);
     try {
       const result = await dependencies.mutations.runPreparedMutation(
         { scope: context, plugins: parsed.change.kind === "application" && parsed.change.target.kind === "plugin" ? [parsed.change.target.plugin] : [], expectedGeneration: loaded.snapshot.generation },
-        async ({ snapshot }) => ({ mutation: mutateSnapshot(snapshot, parsed.change), value: undefined }),
+        async ({ snapshot }) => ({
+          mutation: mutateSnapshot(snapshot, parsed.change),
+          value: undefined,
+          beforeCommit: async () => {
+            if (context.kind === "user") return;
+            const current = await authorizeCurrentScope(context, dependencies, signal);
+            if (current.kind === "project-untrusted") throw new Error("PROJECT_TRUST_STALE");
+            if (current.kind !== "trusted" || current.current === undefined || projectBeforeRead?.kind !== "trusted" || projectBeforeRead.current === undefined ||
+                !sameProjectAuthority(current.current, projectBeforeRead.current)) {
+              throw new Error("PROJECT_AUTHORITY_STALE");
+            }
+          },
+        }),
         signal,
       );
       if (result.kind !== "committed") return NativeUpdatePolicyApplyResultSchema.parse({ kind: "stale", reason: "generation" });
@@ -335,7 +372,11 @@ export function createNativeUpdatePolicyService(dependencies: NativeUpdatePolicy
       return NativeUpdatePolicyApplyResultSchema.parse({ kind: before === after ? "unchanged" : "changed", previewId: checked.preview.previewId });
     } catch (error) {
       if (signal.aborted) throw signal.reason ?? error;
-      return NativeUpdatePolicyApplyResultSchema.parse({ kind: "stale", reason: error instanceof Error && error.message === "TARGET_STALE" ? "source" : "generation" });
+      const reason = error instanceof Error && error.message === "TARGET_STALE" ? "source"
+        : error instanceof Error && error.message === "PROJECT_TRUST_STALE" ? "trust"
+        : error instanceof Error && error.message === "PROJECT_AUTHORITY_STALE" ? "project"
+        : "generation";
+      return NativeUpdatePolicyApplyResultSchema.parse({ kind: "stale", reason });
     }
   }
 
@@ -346,6 +387,9 @@ export function createNativeUpdatePolicyService(dependencies: NativeUpdatePolicy
     ) {
       const scope = ScopeContextSchema.parse(request.scope);
       const userLoad = await dependencies.state.read({ kind: "user" }, signal);
+      if (scope.kind === "project" && (await authorizeCurrentScope(scope, dependencies, signal)).kind !== "trusted") {
+        return resolveEffectiveUpdatePolicy({ plugin: request.plugin, record: createUnavailableRecord(request.plugin), global: "manual", marketplaceSourceIdentity: "legacy-unavailable", pluginSourceIdentity: "legacy-unavailable" });
+      }
       const scopedLoad = scope.kind === "user" ? userLoad : await dependencies.state.read(scope, signal);
       if (!userLoad.ok || !scopedLoad.ok || !("config" in userLoad.snapshot)) return resolveEffectiveUpdatePolicy({
         plugin: request.plugin,
@@ -384,14 +428,17 @@ export function createNativeUpdatePolicyService(dependencies: NativeUpdatePolicy
           effective: effective(row, authority.user.config.global.application, scopeOverride(selectedScopes.find((snapshot) => sameScope(toScopeReference(snapshot.scope), row.scope))!), dependencies.sha256),
         }));
       const now = dependencies.clock.nowEpochMilliseconds();
+      const scheduler = dependencies.schedulerStatus?.snapshot();
       const scopes = selectedScopes.map((snapshot) => {
-        const lease = "config" in snapshot ? snapshot.config.scope.schedulerLease : snapshot.project.scope.schedulerLease;
-        const nextAt = marketplaceUpdateRecords(snapshot).map((record) => record.refresh.schedule?.dueAt).filter((value): value is number => value !== undefined).sort((a, b) => a - b)[0];
+        const reference = toScopeReference(snapshot.scope);
+        const projected = scheduler?.scopes.find((entry) => sameScope(entry.scope, reference));
+        const durableNextAt = marketplaceUpdateRecords(snapshot).map((record) => record.refresh.schedule?.dueAt).filter((value): value is number => value !== undefined).sort((a, b) => a - b)[0];
+        const nextAt = projected?.nextAt ?? durableNextAt;
         const regressed = marketplaceUpdateRecords(snapshot).some((record) => record.refresh.schedule !== undefined && now < record.refresh.schedule.anchorAt);
         return {
-          scope: toScopeReference(snapshot.scope),
+          scope: reference,
           ...(scopeOverride(snapshot) === undefined ? {} : { override: scopeOverride(snapshot) }),
-          ownership: lease === undefined || lease.expiresAt <= now ? "none" as const : lease.id === dependencies.schedulerLeaseId ? "self" as const : "other" as const,
+          ownership: projected?.ownership ?? "none" as const,
           clock: regressed ? "regressed" as const : "current" as const,
           ...(nextAt === undefined ? {} : { nextAt }),
         };

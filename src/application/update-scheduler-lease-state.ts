@@ -10,9 +10,10 @@ import { marketplaceUpdateRecords } from "./marketplace-update-state.js";
 import type { LifecycleClock } from "./ports/lifecycle-clock.js";
 import type { LifecycleStateInventoryPort } from "./ports/lifecycle-state-inventory.js";
 import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
-import type { ProjectTrustPort } from "./ports/project-trust.js";
+import type { CurrentProjectRuntimeContext, ProjectTrustPort } from "./ports/project-trust.js";
 import type { UpdateSchedulerLeasePort } from "./ports/update-scheduler-lease.js";
 import { parseStateMutation, type GenerationSnapshot } from "./state-contract.js";
+import { authorizeCurrentScope } from "./current-scope-authority.js";
 
 export function createStateUpdateSchedulerLeasePort(dependencies: Readonly<{
   state: LifecycleStateStore;
@@ -22,6 +23,7 @@ export function createStateUpdateSchedulerLeasePort(dependencies: Readonly<{
   sha256: Sha256;
   currentProject?: Extract<ScopeContext, { kind: "project" }>;
   projectTrust?: ProjectTrustPort;
+  revalidateCurrentProject?: (signal: AbortSignal) => Promise<CurrentProjectRuntimeContext>;
 }>): UpdateSchedulerLeasePort {
   if (dependencies === null || typeof dependencies !== "object" || typeof dependencies.sha256 !== "function") throw new TypeError("scheduler lease state dependencies are required");
 
@@ -31,10 +33,7 @@ export function createStateUpdateSchedulerLeasePort(dependencies: Readonly<{
   }
 
   async function projectAuthorized(context: ScopeContext, signal: AbortSignal): Promise<boolean> {
-    if (context.kind === "user") return true;
-    return dependencies.currentProject?.projectKey === context.projectKey &&
-      dependencies.projectTrust !== undefined &&
-      (await dependencies.projectTrust.assess(context.projectKey, signal)).kind === "trusted";
+    return (await authorizeCurrentScope(context, dependencies, signal)).kind === "trusted";
   }
 
   async function inventory(signal: AbortSignal) {

@@ -30,11 +30,12 @@ function setup() {
     },
   } as never;
   let acquisitionHook = () => {};
+  const readiness = { trust: vi.fn(async () => "authorized" as const), configuration: vi.fn(async () => []), secretCustody: () => ({ status: "available" as const, explanation: "ready" }) };
   const inspector = createNativeCandidateInspector({
     catalog: { resolve: vi.fn(async () => ({ kind: "resolved" as const, candidate })) },
     content: { withMaterialized: vi.fn(async (_candidate, _signal, use) => { acquisitionHook(); return use(materialized); }) },
     inspector: { inspect: vi.fn(async () => ({ ok: true as const, value: plugin, diagnostics: [] })) },
-    readiness: { trust: vi.fn(async () => "authorized" as const), configuration: vi.fn(async () => []), secretCustody: () => ({ status: "available", explanation: "ready" }) },
+    readiness,
     sha256,
   });
   const snapshot = {
@@ -55,7 +56,7 @@ function setup() {
     recovery: { results: [], deferred: false, processed: 0 },
     startup: { status: "ready", blocked: [], capabilities: { mcp: { status: "unavailable", explanation: "none" }, subagents: { status: "unavailable", explanation: "none" }, piReload: { status: "available", explanation: "yes" }, secrets: { status: "available", explanation: "yes" } } },
   } as never;
-  return { inspector, snapshot, onAcquisition: (hook: () => void) => { acquisitionHook = hook; } };
+  return { inspector, snapshot, readiness, materialized, onAcquisition: (hook: () => void) => { acquisitionHook = hook; } };
 }
 
 describe("native candidate inspection", () => {
@@ -69,6 +70,20 @@ describe("native candidate inspection", () => {
     expect(result.detail.lifecycle.installed).toBe(false);
     expect(JSON.stringify(result)).not.toContain("/scratch/secret");
     expect(JSON.stringify(result)).not.toContain("/market/private");
+  });
+
+  it("derives the installed configuration reference internally for candidate custody checks", async () => {
+    const value = setup();
+    const configurationRef = `plugin-configuration-v1:sha256:${"ab".repeat(32)}` as never;
+    value.snapshot.states = [{
+      ok: true,
+      snapshot: {
+        scope: { kind: "user" },
+        installed: { plugins: [{ plugin: subject.plugin, selectedRevision: value.materialized.binding, revisions: [{ revision: value.materialized.binding, configurationRef }] }] },
+      },
+    }];
+    await value.inspector.inspect(subject, value.snapshot, new AbortController().signal);
+    expect(value.readiness.configuration).toHaveBeenCalledWith(expect.objectContaining({ configurationRef }), expect.any(AbortSignal));
   });
 
   it("distinguishes corrupt published catalog evidence from ordinary unavailability", async () => {

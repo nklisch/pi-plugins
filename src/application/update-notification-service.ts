@@ -1,4 +1,4 @@
-import { compareUtf8 } from "../domain/canonical-json.js";
+import { canonicalJson, compareUtf8 } from "../domain/canonical-json.js";
 import type { MarketplaceCandidateId, MarketplaceRegistrationId, MarketplaceSnapshotToken } from "../domain/marketplace-registration.js";
 import { deriveMarketplaceRegistrationId } from "../domain/marketplace-registration.js";
 import { PluginKeySchema, type PluginKey } from "../domain/identity.js";
@@ -33,6 +33,7 @@ import type { LifecycleStateInventoryPort } from "./ports/lifecycle-state-invent
 import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
 import type { UpdateNotificationPublisherPort } from "./ports/update-notification-publisher.js";
 import type { GenerationSnapshot } from "./state-contract.js";
+import { authorizeCurrentScope, type CurrentScopeAuthorityDependencies } from "./current-scope-authority.js";
 
 export const UpdateNoticeRetentionPolicy = Object.freeze({
   resolvedPerPlugin: 64,
@@ -81,7 +82,7 @@ export type UpdateNotificationServiceDependencies = Readonly<{
   clock: LifecycleClock;
   sha256: Sha256;
   publisher?: UpdateNotificationPublisherPort;
-}>;
+}> & CurrentScopeAuthorityDependencies;
 
 function sameScope(left: ScopeReference, right: ScopeReference): boolean {
   return left.kind === right.kind && (left.kind === "user" || right.kind === "user" || left.projectKey === right.projectKey);
@@ -121,9 +122,18 @@ function replaceRecords(snapshot: GenerationSnapshot, replacement: readonly Retu
 export function createUpdateNotificationService(dependencies: UpdateNotificationServiceDependencies): UpdateNotificationService {
   if (dependencies === null || typeof dependencies !== "object" || typeof dependencies.sha256 !== "function") throw new TypeError("update notification dependencies are required");
 
+  async function authorized(scope: ScopeContext, signal: AbortSignal): Promise<boolean> {
+    return (await authorizeCurrentScope(scope, dependencies, signal)).kind === "trusted";
+  }
+
   async function scopes(signal: AbortSignal): Promise<readonly ScopeContext[]> {
     const inventory = await dependencies.inventory.discover(signal);
-    return inventory.scopes.map((scope) => ScopeContextSchema.parse(scope));
+    const scopes: ScopeContext[] = [];
+    for (const value of inventory.scopes) {
+      const scope = ScopeContextSchema.parse(value);
+      if (await authorized(scope, signal)) scopes.push(scope);
+    }
+    return scopes;
   }
 
   async function mutateScope<T>(
@@ -133,16 +143,24 @@ export function createUpdateNotificationService(dependencies: UpdateNotification
   ): Promise<T | undefined> {
     for (let attempt = 0; attempt < UpdateNoticeRetentionPolicy.mutationAttempts; attempt += 1) {
       signal.throwIfAborted();
+      if (!await authorized(scope, signal)) return undefined;
       const loaded = await dependencies.state.read(scope, signal);
       if (!loaded.ok) return undefined;
       const projected = transform(loaded.snapshot);
       if (projected === undefined) return undefined;
+      if (canonicalJson(projected.records) === canonicalJson(records(loaded.snapshot))) return projected.value;
       const result = await dependencies.mutations.runPreparedMutation(
         { scope, plugins: [], expectedGeneration: loaded.snapshot.generation },
         async ({ snapshot }) => {
           const current = transform(snapshot);
           if (current === undefined) throw new Error("NOTICE_AUTHORITY_STALE");
-          return { mutation: replaceRecords(snapshot, current.records, dependencies.sha256), value: current.value };
+          return {
+            mutation: replaceRecords(snapshot, current.records, dependencies.sha256),
+            value: current.value,
+            beforeCommit: async () => {
+              if (!await authorized(scope, signal)) throw new Error("PROJECT_AUTHORITY_STALE");
+            },
+          };
         },
         signal,
       );
@@ -154,6 +172,7 @@ export function createUpdateNotificationService(dependencies: UpdateNotification
   async function snapshots(signal: AbortSignal): Promise<readonly GenerationSnapshot[]> {
     const values: GenerationSnapshot[] = [];
     for (const scope of await scopes(signal)) {
+      if (!await authorized(scope, signal)) continue;
       const loaded = await dependencies.state.read(scope, signal);
       if (loaded.ok) values.push(loaded.snapshot);
     }
@@ -244,6 +263,7 @@ export function createUpdateNotificationService(dependencies: UpdateNotification
     let failed = 0;
     for (const entry of pending.slice(0, limit)) {
       try {
+        if (!await authorized(entry.scope, signal)) continue;
         await dependencies.publisher.publish({
           id: entry.notice.id,
           scope: entry.notice.scope,

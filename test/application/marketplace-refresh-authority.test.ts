@@ -105,9 +105,10 @@ describe("marketplace refresh project authority", () => {
       projectTrust: {
         async assess() {
           trustChecks += 1;
-          return trustChecks === 1 ? { kind: "trusted" as const } : { kind: "untrusted" as const };
+          return trustChecks < 6 ? { kind: "trusted" as const } : { kind: "untrusted" as const };
         },
       },
+      async revalidateCurrentProject() { return { identity, projectKey: scope.projectKey, trust: { kind: "trusted" as const } }; },
       sha256,
     });
 

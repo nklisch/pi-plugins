@@ -47,10 +47,11 @@ function environment(noticeCount = 1) {
   let lifecycleResult: any = { kind: "changed" };
   let applyCalls = 0;
   let onApply: (() => void) | undefined;
+  const mutationSignals: AbortSignal[] = [];
   const dependencies = {
     state: { async read() { return { ok: true as const, snapshot: snapshot() }; } },
     inventory: { async discover() { return { scopes: [scope], complete: true }; } },
-    mutations: { async runPreparedMutation(_request: any, prepare: any) { const prepared = await prepare({ snapshot: snapshot(), assertOwned: async () => undefined }); record = prepared.mutation.replace.config.records[0]; generation += 1; return { kind: "committed", value: prepared.value, snapshot: snapshot() }; } },
+    mutations: { async runPreparedMutation(_request: any, prepare: any, mutationSignal: AbortSignal) { mutationSignals.push(mutationSignal); const prepared = await prepare({ snapshot: snapshot(), assertOwned: async () => undefined }); record = prepared.mutation.replace.config.records[0]; generation += 1; return { kind: "committed", value: prepared.value, snapshot: snapshot() }; } },
     policy: { async resolve() { return { application: "automatic" as const, winningLevel: "marketplace" as const, sourceGuard: "none" as const }; } },
     lifecycle: { async inspect() { return authority; }, async apply() { applyCalls += 1; onApply?.(); return lifecycleResult; } },
     activation: { availability: () => context },
@@ -65,6 +66,8 @@ function environment(noticeCount = 1) {
     setRetryAt(retryAt: number) { record = { ...record, notices: record.notices.map((notice: any, index: number) => index === 0 ? { ...notice, disposition: "automatic-retryable", automatic: { state: "retryable", reason: "retryable", attemptedAt: 50, retryAt } } : notice) }; },
     acknowledgeDuringApply() { onApply = () => { record = { ...record, notices: record.notices.map((notice: any, index: number) => index === 0 ? { ...notice, unread: false, acknowledgedAt: 99 } : notice) }; }; },
     consumeContextDuringApply() { onApply = () => { context = "unavailable"; }; },
+    onApply(hook: () => void) { onApply = hook; },
+    mutationSignals,
     notice: () => record.notices[0], applyCalls: () => applyCalls,
   };
 }
@@ -129,6 +132,47 @@ describe("automatic update coordinator", () => {
     env.acknowledgeDuringApply();
     await env.service.run({ noticeIds: [env.id], limit: 1 }, signal);
     expect(env.notice()).toMatchObject({ unread: false, acknowledgedAt: 99, resolution: { kind: "installed" } });
+  });
+
+  it.each([
+    [{ kind: "changed" }, "applied", "automatic-applied"],
+    [{ kind: "rolled-back" }, "retryable", "automatic-retryable"],
+    [{ kind: "recovery-required" }, "recovery-required", "recovery-required"],
+  ] as const)("settles lifecycle %s truth with a fresh signal after caller abort", async (result, outcome, disposition) => {
+    const env = environment();
+    const controller = new AbortController();
+    env.setContext("available");
+    env.setResult(result);
+    env.onApply(() => controller.abort(new Error("caller stopped after possible commit")));
+    await expect(env.service.run({ noticeIds: [env.id], limit: 1 }, controller.signal)).resolves.toMatchObject({ outcomes: [{ kind: outcome }] });
+    expect(env.notice()).toMatchObject({ disposition });
+    expect(env.mutationSignals.at(-1)?.aborted).toBe(false);
+  });
+
+  it("excludes historical project scopes before any coordinator state read", async () => {
+    const identityA = { kind: "path-only" as const, canonicalRoot: "file:///project-a/" as never, limitation: "identity-changes-with-canonical-root" as const };
+    const identityB = { kind: "path-only" as const, canonicalRoot: "file:///project-b/" as never, limitation: "identity-changes-with-canonical-root" as const };
+    const projectA = { kind: "project" as const, identity: identityA, projectKey: `project-v1:sha256:${"a".repeat(64)}` as never };
+    const projectB = { kind: "project" as const, identity: identityB, projectKey: `project-v1:sha256:${"b".repeat(64)}` as never };
+    const reads: string[] = [];
+    const service = createAutomaticUpdateCoordinator({
+      state: { async read(context: typeof scope | typeof projectA | typeof projectB) {
+        reads.push(context.kind === "user" ? "user" : context.projectKey);
+        if (context.kind === "project" && context.projectKey === projectA.projectKey) throw new Error("historical project must not be read");
+        return context.kind === "user"
+          ? { ok: true as const, snapshot: { scope, config: { records: [] } } as never }
+          : { ok: true as const, snapshot: { scope: projectB, project: { marketplaceUpdates: [] } } as never };
+      } },
+      inventory: { async discover() { return { scopes: [scope, projectA, projectB], complete: true }; } },
+      mutations: {} as never, policy: {} as never, lifecycle: {} as never,
+      activation: { availability: () => "unavailable" },
+      clock: { nowEpochMilliseconds: () => 1, monotonicMilliseconds: () => 1 }, sha256,
+      currentProject: projectB,
+      projectTrust: { async assess(key) { return { kind: key === projectB.projectKey ? "trusted" as const : "untrusted" as const }; } },
+      async revalidateCurrentProject() { return { identity: identityB, projectKey: projectB.projectKey, trust: { kind: "trusted" as const } }; },
+    });
+    await expect(service.nextRetryAt(signal)).resolves.toBeUndefined();
+    expect(reads).toEqual(["user", projectB.projectKey]);
   });
 
   it("preserves unresolved state on concurrent stale/rollback and reports recovery authority", async () => {
