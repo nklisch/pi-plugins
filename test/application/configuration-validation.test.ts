@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { validateConfigurationSubmission, ConfigurationValidationError } from "../../src/application/configuration-validation.js";
+import { collectConfigurationValidation, validateConfigurationSubmission, ConfigurationValidationError } from "../../src/application/configuration-validation.js";
 import { derivePluginConfigurationRef } from "../../src/domain/state/references.js";
 import { CanonicalConfigurationPathSchema, digestConfigurationDescriptors, createPluginConfigurationDocument } from "../../src/domain/configured-values.js";
 import { claimFixture } from "../fixtures/compatibility/common.js";
@@ -91,13 +91,32 @@ describe("configuration submission validation", () => {
     expect(JSON.stringify(error)).not.toContain(canary);
   });
 
+  it("collects every pure issue deterministically before path effects", async () => {
+    const calls: string[] = [];
+    const port: ConfigurationPathPort = { normalizeAndInspect: async (input) => {
+      calls.push(input.value);
+      return pathPort.normalizeAndInspect(input, new AbortController().signal);
+    } };
+    const result = await collectConfigurationValidation(base({ UNKNOWN: "secret", NAME: "BAD", COUNT: 99 }), port, new AbortController().signal);
+    expect(result.kind).toBe("invalid");
+    if (result.kind === "invalid") expect(result.issues).toEqual([
+      { code: "CONFIG_BOUNDS", key: "COUNT" },
+      { code: "CONFIG_REQUIRED", key: "DIR" },
+      { code: "CONFIG_PATTERN", key: "NAME" },
+      { code: "CONFIG_REQUIRED", key: "TOKEN" },
+      { code: "CONFIG_UNKNOWN_KEY", key: "UNKNOWN" },
+    ]);
+    expect(calls).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain("secret");
+  });
+
   it("fails before path effects for unknown, duplicate, pattern, bounds, and required input", async () => {
     const calls: string[] = [];
     const port: ConfigurationPathPort = { normalizeAndInspect: async (input) => {
       calls.push(input.value);
       return pathPort.normalizeAndInspect(input, new AbortController().signal);
     } };
-    const unknown = await validateConfigurationSubmission(base({ UNKNOWN: "CANARY_UNKNOWN_SECRET_KEY" }), port, new AbortController().signal).catch((error: unknown) => error);
+    const unknown = await validateConfigurationSubmission(base({ NAME: "safe", DIR: "x", TOKEN: "s", UNKNOWN: "CANARY_UNKNOWN_SECRET_KEY" }), port, new AbortController().signal).catch((error: unknown) => error);
     expect(unknown).toMatchObject({ code: "CONFIG_UNKNOWN_KEY" });
     expect(JSON.stringify(unknown)).not.toContain("CANARY_UNKNOWN_SECRET_KEY");
     await expect(validateConfigurationSubmission({ ...base({ NAME: "bad-value", DIR: "x" }), values: { NAME: "safe", DIR: "x" }, unset: ["NAME"] }, port, new AbortController().signal)).rejects.toMatchObject({ code: "CONFIG_DUPLICATE_INPUT" });

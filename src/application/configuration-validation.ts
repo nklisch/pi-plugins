@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   ConfigurationKeySchema,
   PluginConfigurationSchema,
@@ -69,6 +70,19 @@ export type ConfigurationValidationCode =
   | "CONFIG_PATH_MISSING"
   | "CONFIG_PATH_WRONG_KIND"
   | "CONFIG_PATH_ADAPTER_FAILED";
+
+export const ConfigurationValidationIssueSchema = z.object({
+  code: z.enum([
+    "CONFIG_UNKNOWN_KEY", "CONFIG_DUPLICATE_INPUT", "CONFIG_REQUIRED", "CONFIG_TYPE",
+    "CONFIG_PATTERN", "CONFIG_BOUNDS", "CONFIG_PATH_INVALID", "CONFIG_PATH_MISSING",
+    "CONFIG_PATH_WRONG_KIND", "CONFIG_PATH_ADAPTER_FAILED",
+  ]),
+  key: ConfigurationKeySchema.optional(),
+}).strict().readonly();
+export type ConfigurationValidationIssue = z.infer<typeof ConfigurationValidationIssueSchema>;
+export type ConfigurationValidationResult =
+  | Readonly<{ kind: "valid"; submission: ValidatedConfigurationSubmission }>
+  | Readonly<{ kind: "invalid"; issues: readonly ConfigurationValidationIssue[] }>;
 
 export class ConfigurationValidationError extends Error {
   readonly code: ConfigurationValidationCode;
@@ -284,7 +298,7 @@ async function normalizePath(
 }
 
 /** Validate and normalize a complete submission without making any writes. */
-export async function validateConfigurationSubmission(
+async function validateConfigurationSubmissionFailFast(
   request: ConfigurationSubmission,
   pathPort: ConfigurationPathPort,
   signal: AbortSignal,
@@ -391,6 +405,156 @@ export async function validateConfigurationSubmission(
     preservedSecrets,
     unsetSecrets,
   };
+}
+
+function sortedIssues(input: readonly ConfigurationValidationIssue[]): readonly ConfigurationValidationIssue[] {
+  const unique = new Map<string, ConfigurationValidationIssue>();
+  for (const raw of input) {
+    const issue = ConfigurationValidationIssueSchema.parse(raw);
+    unique.set(`${issue.key ?? ""}\0${issue.code}`, issue);
+  }
+  return Object.freeze([...unique.values()].sort((left, right) => {
+    const key = utf8Compare(left.key ?? "", right.key ?? "");
+    return key !== 0 ? key : utf8Compare(left.code, right.code);
+  }));
+}
+
+function issueFromError(error: unknown, key?: string): ConfigurationValidationIssue {
+  const code = error instanceof ConfigurationValidationError ? error.code : "CONFIG_TYPE";
+  return ConfigurationValidationIssueSchema.parse({ code, ...(key === undefined || !ConfigurationKeySchema.safeParse(key).success ? {} : { key }) });
+}
+
+/** Collect every deterministic issue without retaining attempted values or native causes. */
+export async function collectConfigurationValidation(
+  request: ConfigurationSubmission,
+  pathPort: ConfigurationPathPort,
+  signal: AbortSignal,
+): Promise<ConfigurationValidationResult> {
+  signal.throwIfAborted();
+  if (!isRecord(request) || !isRecord(request.values ?? {}) || !Array.isArray(request.unset ?? [])) {
+    return { kind: "invalid", issues: [{ code: "CONFIG_TYPE" }] };
+  }
+
+  let parsedBase: ConfigurationSubmission;
+  try {
+    parsedBase = parseSubmission({ ...request, values: {}, unset: [] });
+  } catch (error) {
+    return { kind: "invalid", issues: sortedIssues([issueFromError(error)]) };
+  }
+
+  const issues: ConfigurationValidationIssue[] = [];
+  const options = descriptorMap(parsedBase.descriptors);
+  const valuesInput = request.values ?? {};
+  const unsetInput = request.unset ?? [];
+  const unset = new Set<string>();
+  for (const raw of unsetInput) {
+    const parsed = ConfigurationKeySchema.safeParse(raw);
+    if (!parsed.success) {
+      issues.push({ code: "CONFIG_UNKNOWN_KEY" });
+      continue;
+    }
+    if (unset.has(parsed.data)) issues.push({ code: "CONFIG_DUPLICATE_INPUT", key: parsed.data });
+    unset.add(parsed.data);
+  }
+  for (const key of Object.keys(valuesInput).sort(utf8Compare)) {
+    if (!ConfigurationKeySchema.safeParse(key).success || !options.has(key)) {
+      issues.push(ConfigurationKeySchema.safeParse(key).success ? { code: "CONFIG_UNKNOWN_KEY", key } : { code: "CONFIG_UNKNOWN_KEY" });
+      continue;
+    }
+    if (unset.has(key)) issues.push({ code: "CONFIG_DUPLICATE_INPUT", key });
+  }
+  for (const key of unset) if (!options.has(key)) issues.push({ code: "CONFIG_UNKNOWN_KEY", key });
+
+  const existing = existingSecrets(parsedBase.existing);
+  for (const option of parsedBase.descriptors.options) {
+    const present = Object.prototype.hasOwnProperty.call(valuesInput, option.key);
+    if (!present || unset.has(option.key)) {
+      const hasDefault = !option.sensitive && "default" in option.value && option.value.default !== undefined;
+      if (option.required && !hasDefault && !(option.sensitive && !unset.has(option.key) && existing.has(option.key))) {
+        issues.push({ code: "CONFIG_REQUIRED", key: option.key });
+      }
+    }
+  }
+
+  for (const key of Object.keys(valuesInput).sort(utf8Compare)) {
+    const option = options.get(key);
+    if (option === undefined) continue;
+    try {
+      const value = valuesInput[key];
+      if (option.value.kind === "directory" || option.value.kind === "file") {
+        if (option.sensitive) withSensitiveValue(SensitiveValue.fromUnknown(value), (plaintext) => {
+          if (typeof plaintext !== "string") failType(key);
+        });
+        else validateNonSensitiveValue(option, value, key);
+      } else if (option.sensitive) {
+        const secret = SensitiveValue.fromUnknown(value);
+        withSensitiveValue(secret, (plaintext) => parseSensitiveText(option, plaintext, key));
+      } else {
+        validateNonSensitiveValue(option, value, key);
+      }
+    } catch (error) {
+      issues.push(issueFromError(error, key));
+    }
+  }
+
+  const pureIssues = sortedIssues(issues);
+  if (pureIssues.length > 0) return { kind: "invalid", issues: pureIssues };
+
+  type PathResult = Awaited<ReturnType<ConfigurationPathPort["normalizeAndInspect"]>>;
+  const cache = new Map<string, PathResult>();
+  const cacheKey = (input: Parameters<ConfigurationPathPort["normalizeAndInspect"]>[0]) =>
+    `${input.expected}\0${input.mustExist ? "1" : "0"}\0${input.value}`;
+  const recordingPort: ConfigurationPathPort = {
+    async normalizeAndInspect(input, pathSignal) {
+      const result = ConfigurationPathResultSchema.parse(await pathPort.normalizeAndInspect(input, pathSignal));
+      cache.set(cacheKey(input), result);
+      return result;
+    },
+  };
+  const pathIssues: ConfigurationValidationIssue[] = [];
+  const checkPath = async (option: ConfigurationOption, value: string): Promise<void> => {
+    try { await normalizePath(option, value, recordingPort, parsedBase.pathContext, signal, option.key); }
+    catch (error) {
+      if (signal.aborted) throw signal.reason;
+      pathIssues.push(issueFromError(error, option.key));
+    }
+  };
+  for (const option of parsedBase.descriptors.options) {
+    if (option.value.kind !== "directory" && option.value.kind !== "file") continue;
+    if (Object.prototype.hasOwnProperty.call(valuesInput, option.key)) {
+      const raw = valuesInput[option.key];
+      if (option.sensitive) {
+        await withSensitiveValue(SensitiveValue.fromUnknown(raw), (plaintext) => checkPath(option, plaintext));
+      } else {
+        await checkPath(option, raw as string);
+      }
+    } else if (!unset.has(option.key) && "default" in option.value && option.value.default !== undefined) {
+      await checkPath(option, option.value.default);
+    }
+  }
+  const allPathIssues = sortedIssues(pathIssues);
+  if (allPathIssues.length > 0) return { kind: "invalid", issues: allPathIssues };
+
+  const replayPort: ConfigurationPathPort = {
+    async normalizeAndInspect(input, replaySignal) {
+      replaySignal.throwIfAborted();
+      const result = cache.get(cacheKey(input));
+      if (result === undefined) throw new Error("configuration path validation replay was not captured");
+      return result;
+    },
+  };
+  return { kind: "valid", submission: await validateConfigurationSubmissionFailFast(request, replayPort, signal) };
+}
+
+/** Existing fail-fast contract is a compatibility wrapper over the collector. */
+export async function validateConfigurationSubmission(
+  request: ConfigurationSubmission,
+  pathPort: ConfigurationPathPort,
+  signal: AbortSignal,
+): Promise<ValidatedConfigurationSubmission> {
+  const result = await collectConfigurationValidation(request, pathPort, signal);
+  if (result.kind === "valid") return result.submission;
+  throw new ConfigurationValidationError(result.issues[0]!.code);
 }
 
 function assertNever(value: never): never {
