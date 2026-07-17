@@ -55,6 +55,24 @@ describe("native plugin control service", () => {
     expect(report.envelope.status).toBe("input-required");
   });
 
+  it.each([
+    ["untrusted", "rejected", 7, "CONTROL_PROJECT_UNTRUSTED", "confirm-exact"],
+    ["stale", "stale", 5, "CONTROL_PROJECT_STALE", "reparse"],
+    ["unavailable", "unavailable", 6, "CONTROL_PROJECT_UNAVAILABLE", "retry"],
+  ] as const)("preserves exact %s current-project policy and sync classification", async (kind, expectedStatus, exit, code, action) => {
+    const { service, applications } = fixture();
+    applications.currentProject.current.mockResolvedValue({ kind } as never);
+    for (const argv of [
+      ["project", "sync", "--mode", "apply-intent", "--preview-only"],
+      ["updates", "policy", "preview", "--kind", "application", "--target", "scope", "--scope", "project", "--mode", "manual"],
+    ]) {
+      const report = await service.runArgv(argv, options, new AbortController().signal);
+      expect(report.envelope).toMatchObject({ status: expectedStatus, exit: { code: exit }, diagnostics: [{ code, action }] });
+    }
+    expect(applications.operations.preview).not.toHaveBeenCalled();
+    expect(applications.updates.previewPolicy).not.toHaveBeenCalled();
+  });
+
   it("keeps no-arg presentation intent and reports headless input required", async () => {
     const { service } = fixture();
     await expect(service.runArgv([], { mode: "headless", output: "json" }, new AbortController().signal)).resolves.toMatchObject({ envelope: { status: "presentation-required", exit: { code: 3 } } });

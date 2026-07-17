@@ -11,9 +11,14 @@ import { createNativeControlReadDispatcher } from "./native-control-read-dispatc
 import { createNativeControlMutationDispatcher } from "./native-control-mutation-dispatch.js";
 import { createNativeControlSelectionService } from "./native-control-selection.js";
 import {
+  NativeControlCommandRegistry,
   NativeControlCommandSchema,
   type NativeControlCommand,
 } from "./native-control-registry.js";
+import {
+  createNativeControlHandlerMap,
+  dispatchNativeControlCommand,
+} from "./native-control-dispatcher.js";
 import { unavailableNativeControlInput } from "./native-control-input.js";
 import type { NativeControlApplicationDependencies } from "./ports/native-control-applications.js";
 import type { NativeControlInputPort } from "./ports/native-control-input.js";
@@ -84,6 +89,7 @@ export function createNativePluginControlService(dependencies: Readonly<{
     selection,
   });
   const mutation = createNativeControlMutationDispatcher(dependencies.applications);
+  const handlers = createNativeControlHandlerMap({ read, mutation });
   const executions = createNativeControlExecutionCoordinator({ ids: dependencies.ids, timeouts: dependencies.timeouts });
 
   async function execute(commandInput: NativeControlCommand, options: NativeControlExecutionOptions, signal: AbortSignal): Promise<NativeControlExecutionReport> {
@@ -97,19 +103,17 @@ export function createNativePluginControlService(dependencies: Readonly<{
       ...(options.sink === undefined ? {} : { sink: options.sink }),
       ...(options.timeoutMs === undefined ? command.invocation.timeoutMs === undefined ? {} : { timeoutMs: command.invocation.timeoutMs } : { timeoutMs: options.timeoutMs }),
     }, async (owned, execution, operationSignal) => {
-      const pure = await read.dispatch(owned, operationSignal);
-      if (pure !== undefined) {
-        if (owned.command === "presentation" && options.mode !== "tui") return Object.freeze({ ...pure, exitOverride: NativeControlExitRegistry.inputRequired });
-        return pure;
-      }
-      const changed = await mutation.dispatch(owned, {
+      const definition = NativeControlCommandRegistry[owned.command];
+      const result = await dispatchNativeControlCommand(handlers, owned, {
         executionId: execution.executionId,
         input: options.input ?? unavailableNativeControlInput,
         progress: execution.progress,
-        readiness: dependencies.applications.status.snapshot(),
+        ...(definition.safety === "mutation" ? { readiness: dependencies.applications.status.snapshot() } : {}),
       }, operationSignal);
-      if (changed !== undefined) return changed;
-      throw new TypeError("native control registry command has no dispatcher");
+      if (owned.command === "presentation" && options.mode !== "tui") {
+        return Object.freeze({ ...result, exitOverride: NativeControlExitRegistry.inputRequired });
+      }
+      return result;
     }, signal);
   }
 

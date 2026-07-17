@@ -35,7 +35,9 @@ export type NativeControlSelectionFailure = Readonly<{
 export type NativeControlInstalledSelectionResult = Readonly<{ kind: "selected"; detail: NativeInspectionDetail }> | NativeControlSelectionFailure;
 export type NativeControlCandidateSelectionResult = NativeControlInstalledSelectionResult;
 export type NativeControlUpdateSelectionResult = Readonly<{ kind: "selected"; installed: NativeInspectionDetail; candidate: NativeInspectionDetail }> | NativeControlSelectionFailure;
-export type NativeControlCurrentProjectResult = Readonly<{ kind: "found"; projectKey: z.infer<typeof ProjectKeySchema>; scope: Extract<ScopeReference, { kind: "project" }> }> | Readonly<{ kind: "unavailable" | "untrusted" | "stale" }>;
+export type NativeControlCurrentProjectResult =
+  | Readonly<{ kind: "trusted"; projectKey: z.infer<typeof ProjectKeySchema>; scope: Extract<ScopeReference, { kind: "project" }> }>
+  | Readonly<{ kind: "untrusted" | "stale" | "unavailable" }>;
 
 export interface NativeControlCurrentProjectPort {
   current(signal: AbortSignal): Promise<NativeControlCurrentProjectResult>;

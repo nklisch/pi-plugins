@@ -1,7 +1,9 @@
-import type { NativeControlCommand } from "./native-control-registry.js";
+import { NativeControlCommandRegistry, type NativeControlCommand } from "./native-control-registry.js";
 import type { NativeControlApplicationDependencies, NativeControlDispatchContext } from "./ports/native-control-applications.js";
 import type { NativeControlDispatchResult } from "./native-control-projection.js";
 import { projectNativeControlFailure, projectNativeControlResponse } from "./native-control-projection.js";
+import { currentProjectFailure } from "./native-control-read-dispatch.js";
+import type { MarketplaceRefreshResult } from "./update-contract.js";
 import { createNativeControlSelectionService, type NativeControlSelectionService } from "./native-control-selection.js";
 import { collectTrustedInstallSubmission } from "./native-control-install.js";
 import { buildNativeLifecycleConfirmation } from "./native-control-lifecycle.js";
@@ -54,6 +56,14 @@ function lifecycleStatus(command: NativeControlCommand["command"], result: Nativ
   return projectNativeControlResponse(command, result, { status, ...(operation === undefined ? {} : { operation }) });
 }
 
+export function foldMarketplaceRefreshStatus(result: MarketplaceRefreshResult): NativeControlDispatchResult["status"] {
+  if (result.outcomes.length === 0) return "ok";
+  if (result.outcomes.every((outcome) => outcome.kind === "not-configured")) return "not-found";
+  if (result.outcomes.every((outcome) => outcome.kind === "cancelled")) return "cancelled";
+  if (result.outcomes.every((outcome) => outcome.kind === "refreshed" || outcome.kind === "skipped-local")) return "ok";
+  return "partial";
+}
+
 function inputFailure(result: unknown): NativeControlDispatchResult {
   return projectNativeControlFailure("input-required", "CONTROL_INPUT_REQUIRED", "provide-input", result);
 }
@@ -91,7 +101,7 @@ async function lifecycle(
   let ownerRequest: any;
   if (command.command === "project.sync") {
     const project = await selection.currentProject(signal);
-    if (project.kind !== "found") return projectNativeControlFailure(project.kind === "untrusted" ? "rejected" : project.kind === "stale" ? "stale" : "unavailable", "CONTROL_PROJECT_UNAVAILABLE", "retry");
+    if (project.kind !== "trusted") return currentProjectFailure(project);
     ownerRequest = { operation: "project-sync", mode: request.mode, projectKey: project.projectKey };
   } else if (command.command === "lifecycle.update") {
     const selected = await selection.update({
@@ -130,8 +140,7 @@ export function createNativeControlMutationDispatcher(dependencies: NativeContro
   const dispatcher: NativeControlDispatcher = {
     async dispatch(command: NativeControlCommand, context: NativeControlDispatchContext, signal: AbortSignal): Promise<NativeControlDispatchResult | undefined> {
       const request: any = command.request;
-      const definitionMutation = ["marketplace.add", "marketplace.remove", "marketplace.refresh", "marketplace.adopt.import", "install.open", "install.apply", "install.recover", "install.run", "lifecycle.enable", "lifecycle.disable", "lifecycle.update", "lifecycle.uninstall", "project.sync", "updates.policy.apply", "updates.policy.set", "updates.notices.acknowledge", "updates.automatic.run"].includes(command.command);
-      if (!definitionMutation) return undefined;
+      if (NativeControlCommandRegistry[command.command].safety !== "mutation") return undefined;
       if (context.readiness.status === "blocked") return projectNativeControlFailure("rejected", "CONTROL_READINESS_BLOCKED", "retry");
       switch (command.command) {
         case "marketplace.add": {
@@ -147,8 +156,7 @@ export function createNativeControlMutationDispatcher(dependencies: NativeContro
         }
         case "marketplace.refresh": {
           const result = await dependencies.marketplace.refresh.refresh({ trigger: "explicit", scope: request.scope, ...(request.registrationIds === undefined ? {} : { registrationIds: request.registrationIds }) }, signal);
-          const status = result.outcomes.some((entry) => entry.kind === "failed") ? "partial" : result.outcomes.length > 0 && result.outcomes.every((entry) => entry.kind === "cancelled") ? "cancelled" : "ok";
-          return projectNativeControlResponse(command.command, result, { status });
+          return projectNativeControlResponse(command.command, result, { status: foldMarketplaceRefreshStatus(result) });
         }
         case "marketplace.adopt.import": {
           if (!request.confirmed) return inputFailure({ code: "CONFIRMATION_REQUIRED" });

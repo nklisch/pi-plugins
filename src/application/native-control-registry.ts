@@ -16,7 +16,6 @@ import {
   UpdatePolicyConsentIdSchema,
   UpdatePolicyPreviewIdSchema,
 } from "../domain/update-policy.js";
-import { JsonValueSchema } from "../domain/schema.js";
 import { AdoptionImportResultSchema, AdoptionPreviewResultSchema } from "./adoption-contract.js";
 import {
   InspectionCursorSchema,
@@ -28,8 +27,10 @@ import {
   SafeDisplayFieldSchema,
 } from "./native-inspection-contract.js";
 import {
+  NativeLifecycleOperationCancellationResultSchema,
   NativeLifecycleOperationPreviewResultSchema,
   NativeLifecycleOperationResultSchema,
+  NativeLifecycleOperationStatusResultSchema,
   NativeLifecycleOperationTokenSchema,
 } from "./native-lifecycle-operation-contract.js";
 import {
@@ -49,10 +50,29 @@ import {
 } from "./native-update-contract.js";
 import {
   TrustedInstallActivationResultSchema,
+  TrustedInstallCancellationResultSchema,
   TrustedInstallOpenResultSchema,
   TrustedInstallSessionTokenSchema,
+  TrustedInstallStatusResultSchema,
 } from "./trusted-install-contract.js";
 import { HostStatusSnapshotSchema } from "./host-observation-contract.js";
+import {
+  NativeControlAdoptionImportResponseSchema,
+  NativeControlAdoptionPreviewResponseSchema,
+  NativeControlGrammarResponseSchema,
+  NativeControlHelpResponseSchema,
+  NativeControlMarketplaceAddResponseSchema,
+  NativeControlMarketplaceCatalogResponseSchema,
+  NativeControlMarketplaceListResponseSchema,
+  NativeControlMarketplaceRefreshResponseSchema,
+  NativeControlPresentationResponseSchema,
+  projectAdoptionImportResponse,
+  projectAdoptionPreviewResponse,
+  projectMarketplaceAddResponse,
+  projectMarketplaceCatalogResponse,
+  projectMarketplaceListResponse,
+  projectMarketplaceRefreshResponse,
+} from "./native-control-safe-projection.js";
 
 export const NativeControlGrammarVersionSchema = z.literal("plugin-control/v1");
 export type NativeControlGrammarVersion = z.infer<typeof NativeControlGrammarVersionSchema>;
@@ -186,7 +206,11 @@ export type NativeControlCommandDefinition = Readonly<{
   safety: "pure" | "local-read" | "remote-read" | "mutation" | "operation-control";
   input: "none" | "confirmation" | "configuration" | "decision";
   request: z.ZodTypeAny;
+  /** Strict owner DTO accepted from the underlying application service. */
   response: z.ZodTypeAny;
+  /** Strict command-specific machine DTO emitted after safe projection. */
+  projectedResponse: z.ZodTypeAny;
+  projectResponse?: (owner: unknown) => unknown;
   positionals: readonly NativeControlPositionalDefinition[];
   options: readonly NativeControlOptionDefinition[];
 }>;
@@ -200,21 +224,41 @@ const readScopeOption = option("--scope", "scope", "enum", { values: ["user", "p
 const exactOptions = [option("--snapshot-id", "snapshotId", "string"), option("--detail-id", "detailId", "string")] as const;
 const lifecycleOptions = [scopeOption, ...exactOptions, option("--preview-only", "previewOnly", "flag"), option("--yes", "confirmed", "flag")] as const;
 
-function command(definition: NativeControlCommandDefinition): NativeControlCommandDefinition {
-  return Object.freeze({ ...definition, path: Object.freeze([...definition.path]), aliases: Object.freeze(definition.aliases.map((alias) => Object.freeze({ ...alias, path: Object.freeze([...alias.path]) }))), positionals: Object.freeze([...definition.positionals]), options: Object.freeze([...definition.options]) });
+type NativeControlCommandInput = Omit<NativeControlCommandDefinition, "projectedResponse"> & Readonly<{
+  projectedResponse?: z.ZodTypeAny;
+}>;
+
+function command(definition: NativeControlCommandInput): NativeControlCommandDefinition {
+  return Object.freeze({
+    ...definition,
+    projectedResponse: definition.projectedResponse ?? definition.response,
+    path: Object.freeze([...definition.path]),
+    aliases: Object.freeze(definition.aliases.map((alias) => Object.freeze({ ...alias, path: Object.freeze([...alias.path]) }))),
+    positionals: Object.freeze([...definition.positionals]),
+    options: Object.freeze([...definition.options]),
+  });
 }
 
+const OperationStatusResponseSchema = z.union([
+  TrustedInstallStatusResultSchema,
+  NativeLifecycleOperationStatusResultSchema,
+]);
+const OperationCancellationResponseSchema = z.union([
+  TrustedInstallCancellationResultSchema,
+  NativeLifecycleOperationCancellationResultSchema,
+]);
+
 const registry = {
-  presentation: command({ path: [], aliases: [], summary: safe("Open plugin management"), safety: "pure", input: "decision", request: PresentationRequestSchema, response: JsonValueSchema, positionals: [], options: [] }),
-  help: command({ path: ["help"], aliases: [], summary: safe("Show exact command help"), safety: "pure", input: "none", request: HelpRequestSchema, response: JsonValueSchema, positionals: [positional("path", false, true)], options: [] }),
-  grammar: command({ path: ["grammar"], aliases: [], summary: safe("Show grammar metadata"), safety: "pure", input: "none", request: GrammarRequestSchema, response: JsonValueSchema, positionals: [], options: [option("--version", "version", "string")] }),
-  "marketplace.add": command({ path: ["marketplace", "add"], aliases: [], summary: safe("Register a marketplace"), safety: "mutation", input: "none", request: MarketplaceAddControlSchema, response: MarketplaceAddResultSchema, positionals: [positional("source")], options: [option("--source-kind", "sourceKind", "enum", { required: true, values: ["github", "git", "local-git"] }), scopeOption, option("--ref", "ref", "string")] }),
+  presentation: command({ path: [], aliases: [], summary: safe("Open plugin management"), safety: "pure", input: "decision", request: PresentationRequestSchema, response: NativeControlPresentationResponseSchema, positionals: [], options: [] }),
+  help: command({ path: ["help"], aliases: [], summary: safe("Show exact command help"), safety: "pure", input: "none", request: HelpRequestSchema, response: NativeControlHelpResponseSchema, positionals: [positional("path", false, true)], options: [] }),
+  grammar: command({ path: ["grammar"], aliases: [], summary: safe("Show grammar metadata"), safety: "pure", input: "none", request: GrammarRequestSchema, response: NativeControlGrammarResponseSchema, positionals: [], options: [option("--version", "version", "string")] }),
+  "marketplace.add": command({ path: ["marketplace", "add"], aliases: [], summary: safe("Register a marketplace"), safety: "mutation", input: "none", request: MarketplaceAddControlSchema, response: MarketplaceAddResultSchema, projectedResponse: NativeControlMarketplaceAddResponseSchema, projectResponse: projectMarketplaceAddResponse, positionals: [positional("source")], options: [option("--source-kind", "sourceKind", "enum", { required: true, values: ["github", "git", "local-git"] }), scopeOption, option("--ref", "ref", "string")] }),
   "marketplace.remove": command({ path: ["marketplace", "remove"], aliases: [], summary: safe("Remove a marketplace registration"), safety: "mutation", input: "confirmation", request: MarketplaceRemoveControlSchema, response: MarketplaceRemoveResultSchema, positionals: [positional("registration-id")], options: [scopeOption, option("--yes", "confirmed", "flag", { required: true })] }),
-  "marketplace.list": command({ path: ["marketplace", "list"], aliases: [], summary: safe("List marketplace registrations"), safety: "local-read", input: "none", request: MarketplaceListControlSchema, response: MarketplaceRegistrationPageSchema, positionals: [], options: [readScopeOption, option("--limit", "limit", "integer")] }),
-  "marketplace.refresh": command({ path: ["marketplace", "refresh"], aliases: [{ path: ["marketplace", "update"] }], summary: safe("Refresh marketplace registrations"), safety: "mutation", input: "none", request: MarketplaceRefreshControlSchema, response: MarketplaceRefreshResultSchema, positionals: [positional("registration-id", false, true)], options: [readScopeOption] }),
-  "marketplace.adopt.preview": command({ path: ["marketplace", "adopt", "preview"], aliases: [{ path: ["adopt", "preview"] }], summary: safe("Preview foreign marketplace adoption"), safety: "local-read", input: "none", request: AdoptionPreviewControlSchema, response: AdoptionPreviewResultSchema, positionals: [], options: [readScopeOption] }),
-  "marketplace.adopt.import": command({ path: ["marketplace", "adopt", "import"], aliases: [{ path: ["adopt", "import"] }], summary: safe("Import selected foreign marketplaces"), safety: "mutation", input: "confirmation", request: AdoptionImportControlSchema, response: AdoptionImportResultSchema, positionals: [positional("candidate-id", true, true)], options: [scopeOption, option("--yes", "confirmed", "flag", { required: true })] }),
-  browse: command({ path: ["browse"], aliases: [], summary: safe("Browse marketplace candidates"), safety: "local-read", input: "none", request: BrowseControlSchema, response: MarketplaceCatalogPageSchema, positionals: [positional("query", false)], options: [readScopeOption, option("--marketplace-id", "marketplaceIds", "repeatable"), option("--availability", "availability", "repeatable", { values: ["available", "installed-by-default", "not-available"] }), option("--cursor", "cursor", "string"), option("--limit", "limit", "integer")] }),
+  "marketplace.list": command({ path: ["marketplace", "list"], aliases: [], summary: safe("List marketplace registrations"), safety: "local-read", input: "none", request: MarketplaceListControlSchema, response: MarketplaceRegistrationPageSchema, projectedResponse: NativeControlMarketplaceListResponseSchema, projectResponse: projectMarketplaceListResponse, positionals: [], options: [readScopeOption, option("--limit", "limit", "integer")] }),
+  "marketplace.refresh": command({ path: ["marketplace", "refresh"], aliases: [{ path: ["marketplace", "update"] }], summary: safe("Refresh marketplace registrations"), safety: "mutation", input: "none", request: MarketplaceRefreshControlSchema, response: MarketplaceRefreshResultSchema, projectedResponse: NativeControlMarketplaceRefreshResponseSchema, projectResponse: projectMarketplaceRefreshResponse, positionals: [positional("registration-id", false, true)], options: [readScopeOption] }),
+  "marketplace.adopt.preview": command({ path: ["marketplace", "adopt", "preview"], aliases: [{ path: ["adopt", "preview"] }], summary: safe("Preview foreign marketplace adoption"), safety: "local-read", input: "none", request: AdoptionPreviewControlSchema, response: AdoptionPreviewResultSchema, projectedResponse: NativeControlAdoptionPreviewResponseSchema, projectResponse: projectAdoptionPreviewResponse, positionals: [], options: [readScopeOption] }),
+  "marketplace.adopt.import": command({ path: ["marketplace", "adopt", "import"], aliases: [{ path: ["adopt", "import"] }], summary: safe("Import selected foreign marketplaces"), safety: "mutation", input: "confirmation", request: AdoptionImportControlSchema, response: AdoptionImportResultSchema, projectedResponse: NativeControlAdoptionImportResponseSchema, projectResponse: projectAdoptionImportResponse, positionals: [positional("candidate-id", true, true)], options: [scopeOption, option("--yes", "confirmed", "flag", { required: true })] }),
+  browse: command({ path: ["browse"], aliases: [], summary: safe("Browse marketplace candidates"), safety: "local-read", input: "none", request: BrowseControlSchema, response: MarketplaceCatalogPageSchema, projectedResponse: NativeControlMarketplaceCatalogResponseSchema, projectResponse: projectMarketplaceCatalogResponse, positionals: [positional("query", false)], options: [readScopeOption, option("--marketplace-id", "marketplaceIds", "repeatable"), option("--availability", "availability", "repeatable", { values: ["available", "installed-by-default", "not-available"] }), option("--cursor", "cursor", "string"), option("--limit", "limit", "integer")] }),
   "inspection.list": command({ path: ["list"], aliases: [], summary: safe("List installed plugins"), safety: "local-read", input: "none", request: InstalledListControlSchema, response: NativeInspectionPageSchema, positionals: [], options: [readScopeOption, option("--query", "query", "string"), option("--condition", "conditions", "repeatable", { values: ["ready", "attention", "blocked", "unavailable"] }), option("--cursor", "cursor", "string"), option("--limit", "limit", "integer")] }),
   "inspection.show": command({ path: ["show"], aliases: [{ path: ["inspect"] }], summary: safe("Show exact plugin detail"), safety: "local-read", input: "none", request: PluginTargetControlSchema, response: NativeInspectionDetailResultSchema, positionals: [positional("plugin-key")], options: [scopeOption, ...exactOptions] }),
   "inspection.diagnose": command({ path: ["diagnose"], aliases: [], summary: safe("Diagnose host or plugin state"), safety: "local-read", input: "none", request: DiagnoseControlSchema, response: NativeDiagnosticReportSchema, positionals: [positional("plugin-key", false)], options: [optionalScopeOption, ...exactOptions, option("--include-adoption", "includeAdoption", "flag")] }),
@@ -235,8 +279,8 @@ const registry = {
   "updates.notices.acknowledge": command({ path: ["updates", "notices", "acknowledge"], aliases: [{ path: ["updates", "notices", "ack"] }], summary: safe("Acknowledge update notices"), safety: "mutation", input: "none", request: NoticesAckControlSchema, response: NativeUpdateAcknowledgmentResultSchema, positionals: [positional("notice-id", true, true)], options: [] }),
   "updates.automatic.run": command({ path: ["updates", "automatic", "run"], aliases: [], summary: safe("Run admitted automatic updates"), safety: "mutation", input: "none", request: AutomaticRunControlSchema, response: NativeAutomaticUpdateRunResultSchema, positionals: [], options: [option("--notice-id", "noticeIds", "repeatable"), option("--limit", "limit", "integer")] }),
   status: command({ path: ["status"], aliases: [], summary: safe("Show local host status"), safety: "local-read", input: "none", request: EmptyRequestSchema, response: HostStatusSnapshotSchema, positionals: [], options: [] }),
-  "operation.status": command({ path: ["operation", "status"], aliases: [], summary: safe("Poll an existing operation"), safety: "operation-control", input: "none", request: OperationControlSchema, response: JsonValueSchema, positionals: [positional("token")], options: [] }),
-  "operation.cancel": command({ path: ["operation", "cancel"], aliases: [], summary: safe("Cancel an existing operation"), safety: "operation-control", input: "none", request: OperationControlSchema, response: JsonValueSchema, positionals: [positional("token")], options: [] }),
+  "operation.status": command({ path: ["operation", "status"], aliases: [], summary: safe("Poll an existing operation"), safety: "operation-control", input: "none", request: OperationControlSchema, response: OperationStatusResponseSchema, positionals: [positional("token")], options: [] }),
+  "operation.cancel": command({ path: ["operation", "cancel"], aliases: [], summary: safe("Cancel an existing operation"), safety: "operation-control", input: "none", request: OperationControlSchema, response: OperationCancellationResponseSchema, positionals: [positional("token")], options: [] }),
 } as const satisfies Record<string, NativeControlCommandDefinition>;
 
 function policyOptions(includeConfirmation: boolean): readonly NativeControlOptionDefinition[] {

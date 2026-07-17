@@ -5,6 +5,7 @@ import {
   NativeControlExecutionIdSchema,
   createNativeControlEnvelope,
 } from "../../src/application/native-control-contract.js";
+import { createNativeControlHelp } from "../../src/application/native-control-help.js";
 
 const executionId = NativeControlExecutionIdSchema.parse("native-control-execution-v1:123e4567-e89b-42d3-a456-426614174000");
 
@@ -17,7 +18,7 @@ describe("native control envelopes", () => {
   });
 
   it("rejects impossible status/exit and arbitrary fields", () => {
-    const envelope = createNativeControlEnvelope({ executionId, command: "help", status: "ok", data: { grammarVersion: "plugin-control/v1" } });
+    const envelope = createNativeControlEnvelope({ executionId, command: "help", status: "ok", data: createNativeControlHelp() as never });
     expect(NativeControlEnvelopeSchema.parse(envelope)).toEqual(envelope);
     expect(() => NativeControlEnvelopeSchema.parse({ ...envelope, exit: NativeControlExitRegistry.cancelled })).toThrow();
     expect(() => NativeControlEnvelopeSchema.parse({ ...envelope, stack: "secret" })).toThrow();

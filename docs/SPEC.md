@@ -377,24 +377,52 @@ intent. Unknown fields and machine-local or operational values fail closed.
 
 ## Lifecycle operations
 
-The public command surface includes:
+The public command surface is `plugin-control/v1`. Scope-changing mutations
+require `--scope user|project`; destructive mutations also require the command's
+exact confirmation or retention options. The canonical forms are:
 
 ```text
 /plugin
-/plugin marketplace add <source>
-/plugin marketplace list
-/plugin marketplace update [name]
-/plugin marketplace remove <name>
+/plugin help [path...]
+/plugin grammar [--version plugin-control/v1]
+/plugin marketplace add <source> --source-kind github|git|local-git --scope user|project [--ref <ref>]
+/plugin marketplace remove <registration-id> --scope user|project --yes
+/plugin marketplace list [--scope user|project|all-current] [--limit <count>]
+/plugin marketplace refresh [registration-id...] [--scope user|project|all-current]
+/plugin marketplace adopt preview [--scope user|project|all-current]
+/plugin marketplace adopt import <candidate-id...> --scope user|project --yes
+/plugin browse [query]
 /plugin list
-/plugin inspect <plugin>@<marketplace>
-/plugin install <plugin>@<marketplace> [--scope user|project]
-/plugin enable <plugin>@<marketplace> [--scope user|project]
-/plugin disable <plugin>@<marketplace> [--scope user|project]
-/plugin update [<plugin>@<marketplace>]
-/plugin uninstall <plugin>@<marketplace> [--scope user|project]
-/plugin sync
-/plugin adopt
+/plugin show <plugin-key> --scope user|project
+/plugin diagnose [<plugin-key> --scope user|project]
+/plugin install open <plugin-key> --scope user|project
+/plugin install apply <install-token>
+/plugin install recover <install-token>
+/plugin install <plugin-key> --scope user|project
+/plugin enable <plugin-key> --scope user|project [--preview-only | --yes]
+/plugin disable <plugin-key> --scope user|project [--preview-only | --yes]
+/plugin update <plugin-key> --scope user|project [--preview-only]
+/plugin uninstall <plugin-key> --scope user|project --keep-data|--delete-data [--preview-only | --yes]
+/plugin project sync --mode apply-intent|publish-intent|merge [--preview-only]
+/plugin updates status
+/plugin updates policy preview <exact change options>
+/plugin updates policy apply <exact change options> --preview-id <preview-id>
+/plugin updates policy set <exact change options>
+/plugin updates notices list
+/plugin updates notices acknowledge <notice-id...>
+/plugin updates automatic run
+/plugin status
+/plugin operation status <token>
+/plugin operation cancel <token>
 ```
+
+Stable registry aliases are `marketplace update` for `marketplace refresh`,
+`adopt preview|import` for `marketplace adopt preview|import`, `inspect` for
+`show`, `install run` for `install`, `project-sync` for `project sync`, and
+`updates notices ack` for `updates notices acknowledge`. Aliases use the same
+request schema, scope and confirmation policy, dispatcher, and response schema
+as their canonical command. No alias performs name-to-identifier lookup or
+supplies a mutation scope.
 
 `/plugin` without arguments opens a Pi-native marketplace and installed-plugin
 manager. The command forms remain available for deterministic operation.

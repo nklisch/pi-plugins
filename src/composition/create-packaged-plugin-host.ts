@@ -69,6 +69,7 @@ import { createBackgroundUpdateCoordinator } from "./background-update-coordinat
 import { createNativeUpdateManagementComposition } from "./create-native-update-management-service.js";
 import { createAutomaticUpdateLifecycleAdapter } from "./automatic-update-lifecycle-adapter.js";
 import { createNativeControlService } from "./create-native-control-service.js";
+import { createNativeControlCurrentProjectPort } from "./create-native-control-current-project.js";
 import { createNodeControlTimeoutPort } from "../infrastructure/node/node-control-timeout.js";
 import type { NativePluginControlService } from "../application/native-control-service.js";
 import type { SkillResourceDiscoveryPort } from "../runtime/skills/resource-discovery.js";
@@ -615,18 +616,12 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
             operations: operationApplication,
             updates: updateApplication,
             status: hostStatus,
-            currentProject: {
-              async current(signal) {
-                try {
-                  await project.revalidate(signal);
-                  const assessment = await project.trust.assess(project.scope.projectKey, signal);
-                  if (assessment.kind !== "trusted") return { kind: "untrusted" as const };
-                  return { kind: "found" as const, projectKey: project.scope.projectKey, scope: toScopeReference(project.scope) as Extract<ReturnType<typeof toScopeReference>, { kind: "project" }> };
-                } catch {
-                  return { kind: "stale" as const };
-                }
-              },
-            },
+            currentProject: createNativeControlCurrentProjectPort({
+              scope: project.scope,
+              current: project.current,
+              revalidate: project.revalidate,
+              trust: project.trust,
+            }),
           },
           ids: identifiers.controlExecutionIds,
           timeouts: createNodeControlTimeoutPort(),

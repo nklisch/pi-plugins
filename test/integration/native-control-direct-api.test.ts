@@ -59,6 +59,7 @@ describe("native control direct grammar acceptance", () => {
   it.each([
     [["marketplace", "update"], "marketplace.refresh"],
     [["adopt", "preview"], "marketplace.adopt.preview"],
+    [["adopt", "import", adoption, "--scope", "user", "--yes"], "marketplace.adopt.import"],
     [["inspect", "demo@market", "--scope", "user"], "inspection.show"],
     [["install", "run", "demo@market", "--scope", "user"], "install.run"],
     [["project-sync", "--mode", "merge", "--preview-only"], "project.sync"],

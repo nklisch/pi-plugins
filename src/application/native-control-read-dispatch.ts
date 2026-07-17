@@ -8,7 +8,11 @@ import type { TrustedInstallationService } from "./trusted-install-contract.js";
 import type { NativeControlHostStatusPort } from "./ports/native-control-applications.js";
 import { createNativeControlHelp, nativeControlGrammarMetadata } from "./native-control-help.js";
 import type { NativeControlCommand } from "./native-control-registry.js";
-import type { NativeControlSelectionFailure, NativeControlSelectionService } from "./native-control-selection.js";
+import type {
+  NativeControlCurrentProjectResult,
+  NativeControlSelectionFailure,
+  NativeControlSelectionService,
+} from "./native-control-selection.js";
 import {
   projectNativeControlFailure,
   projectNativeControlResponse,
@@ -37,6 +41,19 @@ function selectionFailure(failure: NativeControlSelectionFailure): NativeControl
     case "invalid": return projectNativeControlFailure("not-found", "CONTROL_IDENTIFIER_INVALID", "reinspect");
     case "unavailable": return projectNativeControlFailure("unavailable", "CONTROL_SELECTION_UNAVAILABLE", "retry");
     case "wrong-subject": return projectNativeControlFailure("not-found", "CONTROL_TARGET_WRONG_SUBJECT", "reinspect");
+  }
+}
+
+export function currentProjectFailure(
+  project: Exclude<NativeControlCurrentProjectResult, { kind: "trusted" }>,
+): NativeControlDispatchResult {
+  switch (project.kind) {
+    case "untrusted":
+      return projectNativeControlFailure("rejected", "CONTROL_PROJECT_UNTRUSTED", "confirm-exact");
+    case "stale":
+      return projectNativeControlFailure("stale", "CONTROL_PROJECT_STALE", "reparse");
+    case "unavailable":
+      return projectNativeControlFailure("unavailable", "CONTROL_PROJECT_UNAVAILABLE", "retry");
   }
 }
 
@@ -100,9 +117,9 @@ export function createNativeControlReadDispatcher(dependencies: NativeControlRea
           return projectNativeControlResponse(command.command, result);
         }
         case "updates.policy.preview": {
-          const change = await bindPolicyChange(request.change, dependencies.selection, signal);
-          if (change === undefined) return projectNativeControlFailure("unavailable", "CONTROL_PROJECT_UNAVAILABLE", "retry");
-          const result = await dependencies.updates.previewPolicy(change as never, signal);
+          const binding = await bindPolicyChange(request.change, dependencies.selection, signal);
+          if (binding.kind !== "bound") return currentProjectFailure(binding.project);
+          const result = await dependencies.updates.previewPolicy(binding.change as never, signal);
           const status = result.kind === "rejected" ? "rejected" : "ok";
           return projectNativeControlResponse(command.command, result, { status });
         }
@@ -137,10 +154,18 @@ export function createNativeControlReadDispatcher(dependencies: NativeControlRea
   });
 }
 
-export async function bindPolicyChange(change: any, selection: NativeControlSelectionService, signal: AbortSignal): Promise<unknown | undefined> {
-  if (change.target.kind === "global") return change;
-  if (change.target.scope === "user") return { ...change, target: { ...change.target, scope: { kind: "user" } } };
+export type NativeControlPolicyBinding =
+  | Readonly<{ kind: "bound"; change: unknown }>
+  | Readonly<{ kind: "project-failure"; project: Exclude<NativeControlCurrentProjectResult, { kind: "trusted" }> }>;
+
+export async function bindPolicyChange(
+  change: any,
+  selection: NativeControlSelectionService,
+  signal: AbortSignal,
+): Promise<NativeControlPolicyBinding> {
+  if (change.target.kind === "global") return { kind: "bound", change };
+  if (change.target.scope === "user") return { kind: "bound", change: { ...change, target: { ...change.target, scope: { kind: "user" } } } };
   const project = await selection.currentProject(signal);
-  if (project.kind !== "found") return undefined;
-  return { ...change, target: { ...change.target, scope: project.scope } };
+  if (project.kind !== "trusted") return { kind: "project-failure", project };
+  return { kind: "bound", change: { ...change, target: { ...change.target, scope: project.scope } } };
 }

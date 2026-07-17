@@ -8,7 +8,7 @@ const omittedKeys = new Set([
 ]);
 const redactedKeys = new Set(["path", "root", "cwd", "file", "sessionFile"]);
 
-function project(value: unknown, seen: Set<object>): JsonValue {
+function project(value: unknown, seen: Set<object>, redactPathKeys: boolean): JsonValue {
   if (value === null || typeof value === "boolean" || typeof value === "string") {
     return typeof value === "string" && containsUnsafeNativeControlScalar(value) ? "[REDACTED]" : value;
   }
@@ -24,13 +24,13 @@ function project(value: unknown, seen: Set<object>): JsonValue {
   if (seen.has(value)) throw new TypeError("native control output contains a cycle");
   seen.add(value);
   try {
-    if (Array.isArray(value)) return Object.freeze(value.map((entry) => project(entry, seen)));
+    if (Array.isArray(value)) return Object.freeze(value.map((entry) => project(entry, seen, redactPathKeys)));
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) throw new TypeError("native control output contains a class instance");
     const output: Record<string, JsonValue> = {};
     for (const [key, entry] of Object.entries(value)) {
       if (entry === undefined || omittedKeys.has(key)) continue;
-      output[key] = redactedKeys.has(key) ? "[REDACTED]" : project(entry, seen);
+      output[key] = redactPathKeys && redactedKeys.has(key) ? "[REDACTED]" : project(entry, seen, redactPathKeys);
     }
     return Object.freeze(output);
   } finally {
@@ -40,7 +40,12 @@ function project(value: unknown, seen: Set<object>): JsonValue {
 
 /** Convert an owner DTO into a plain, finite, redacted JSON value. */
 export function projectNativeControlJson(value: unknown): JsonValue {
-  return project(value, new Set());
+  return project(value, new Set(), true);
+}
+
+/** Preserve fields that a command-specific schema has already made safe. */
+export function projectNativeControlSchemaJson(value: unknown): JsonValue {
+  return project(value, new Set(), false);
 }
 
 export function assertNativeControlJsonSafe(value: unknown): asserts value is JsonValue {

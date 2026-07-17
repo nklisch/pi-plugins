@@ -113,9 +113,12 @@ export const NativeControlEnvelopeSchema = z.object({
   if (envelope.page !== undefined && envelope.data === undefined) {
     context.addIssue({ code: "custom", path: ["page"], message: "page metadata requires data" });
   }
-  // Command-specific owner schemas are enforced immediately before structural
-  // disclosure projection. Envelope data is the projected JSON contract, so it
-  // must not be reparsed as the path-bearing/private owner DTO here.
+  if (envelope.data !== undefined) {
+    const projected = definition.projectedResponse.safeParse(envelope.data);
+    if (!projected.success) {
+      context.addIssue({ code: "custom", path: ["data"], message: "envelope data does not match the command projection schema" });
+    }
+  }
 });
 export type NativeControlEnvelope = z.infer<typeof NativeControlEnvelopeSchema>;
 

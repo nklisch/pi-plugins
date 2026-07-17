@@ -8,7 +8,7 @@ import type {
   NativeControlStatus,
 } from "./native-control-contract.js";
 import { NativeControlCommandRegistry, type NativeControlCommandId } from "./native-control-registry.js";
-import { projectNativeControlJson } from "./native-control-redaction.js";
+import { projectNativeControlSchemaJson } from "./native-control-redaction.js";
 
 export type NativeControlDispatchResult = Readonly<{
   status: NativeControlStatus;
@@ -40,10 +40,20 @@ export function projectNativeControlResponse(
     human?: readonly SafeDisplayField[];
   }> = {},
 ): NativeControlDispatchResult {
-  const owner = NativeControlCommandRegistry[command].response.parse(result);
+  const definition = NativeControlCommandRegistry[command];
+  const owner = definition.response.parse(result);
+  const projected = definition.projectResponse === undefined
+    ? projectNativeControlSchemaJson(owner)
+    : definition.projectResponse(owner);
+  // Projection is a second real boundary. Reparse the emitted shape so a
+  // redaction transform cannot silently remove required fields or change a
+  // source/path field into a different contract.
+  const safeResponse = definition.projectedResponse.parse(projected);
+  const jsonResponse = projectNativeControlSchemaJson(safeResponse);
+  const reparsedResponse = definition.projectedResponse.parse(jsonResponse);
   return Object.freeze({
     status: input.status ?? "ok",
-    data: projectNativeControlJson(owner),
+    data: projectNativeControlSchemaJson(reparsedResponse),
     ...(input.operation === undefined ? {} : { operation: input.operation }),
     ...(input.next === undefined ? {} : { page: Object.freeze({ next: input.next }) }),
     diagnostics: Object.freeze([...(input.diagnostics ?? [])]),
@@ -55,11 +65,13 @@ export function projectNativeControlFailure(
   status: NativeControlStatus,
   code: string,
   action: NativeControlDiagnostic["action"],
-  data?: unknown,
+  _privateContext?: unknown,
 ): NativeControlDispatchResult {
   return Object.freeze({
     status,
-    ...(data === undefined ? {} : { data: projectNativeControlJson(data) }),
+    // Failure context often contains input-channel or owner-private values.
+    // Stable diagnostics carry the actionable contract; arbitrary context is
+    // deliberately not promoted into the command's response schema.
     diagnostics: Object.freeze([controlDiagnostic(code, "error", action)]),
     human: Object.freeze([]),
   });

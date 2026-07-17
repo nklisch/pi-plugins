@@ -1,6 +1,6 @@
 import type { NativeUpdateManagementService } from "./native-update-management-service.js";
 import type { NativeControlSelectionService } from "./native-control-selection.js";
-import { bindPolicyChange } from "./native-control-read-dispatch.js";
+import { bindPolicyChange, currentProjectFailure } from "./native-control-read-dispatch.js";
 import type { NativeControlDispatchResult } from "./native-control-projection.js";
 import { projectNativeControlFailure, projectNativeControlResponse } from "./native-control-projection.js";
 import type { NativeControlCommand } from "./native-control-registry.js";
@@ -19,8 +19,9 @@ export async function dispatchNativeControlPolicy(
   signal: AbortSignal,
 ): Promise<NativeControlDispatchResult> {
   const request: any = command.request;
-  const change = await bindPolicyChange(request.change, dependencies.selection, signal);
-  if (change === undefined) return projectNativeControlFailure("unavailable", "CONTROL_PROJECT_UNAVAILABLE", "retry");
+  const binding = await bindPolicyChange(request.change, dependencies.selection, signal);
+  if (binding.kind !== "bound") return currentProjectFailure(binding.project);
+  const change = binding.change;
   if (command.command === "updates.policy.apply") {
     const result = await dependencies.updates.applyPolicy({
       change: change as never,

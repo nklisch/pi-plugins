@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createNativeControlMutationDispatcher } from "../../src/application/native-control-mutation-dispatch.js";
+import { createNativeControlMutationDispatcher, foldMarketplaceRefreshStatus } from "../../src/application/native-control-mutation-dispatch.js";
 import { createNativeControlParser } from "../../src/application/native-control-parser.js";
 import { unavailableNativeControlInput } from "../../src/application/native-control-input.js";
 import { SplitInspectorDetailFixtures, SplitInspectorPageFixture } from "../fixtures/native-inspection/split-inspector.js";
@@ -37,6 +37,17 @@ function fixture() {
 }
 
 describe("native control mutation dispatch", () => {
+  it.each([
+    [[{ kind: "not-configured" }, { kind: "not-configured" }], "not-found"],
+    [[{ kind: "not-configured" }, { kind: "refreshed" }], "partial"],
+    [[{ kind: "cancelled" }, { kind: "cancelled" }], "cancelled"],
+    [[{ kind: "refreshed" }, { kind: "skipped-local" }], "ok"],
+    [[{ kind: "failed" }], "partial"],
+    [[{ kind: "coalesced" }], "partial"],
+  ] as const)("folds refresh outcomes %j exhaustively", (outcomes, expected) => {
+    expect(foldMarketplaceRefreshStatus({ outcomes, notifications: [] } as never)).toBe(expected);
+  });
+
   it("assembles marketplace mutation requests and calls only the owner once", async () => {
     const { dispatcher, dependencies } = fixture();
     const result = await dispatcher.dispatch(parsed(["marketplace", "add", "owner/repo", "--source-kind", "github", "--scope", "user"]), context, signal);
