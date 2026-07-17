@@ -103,6 +103,12 @@ export class FakeMcpRuntimeLeaseProvider {
     this.active.delete(token);
     this.released.push(token);
   }
+
+  async drain(signal: AbortSignal): Promise<void> {
+    for (const token of this.acquired) {
+      if (this.active.has(token)) await this.release(token as McpRuntimeLease, signal);
+    }
+  }
 }
 
 class FakeMcpRuntimeFailure extends Error {
@@ -228,7 +234,8 @@ function providerShapeIsValid(request: McpSourceReplaceRequest): boolean {
     typeof request.launchValues.dispose === "function" &&
     request.runtimeLeases !== null && typeof request.runtimeLeases === "object" &&
     typeof request.runtimeLeases.acquire === "function" &&
-    typeof request.runtimeLeases.release === "function";
+    typeof request.runtimeLeases.release === "function" &&
+    typeof request.runtimeLeases.drain === "function";
 }
 
 /**
@@ -240,6 +247,7 @@ export class FakeMcpRuntime implements McpRuntimePort {
   private readonly cleanupResidue = new Map<string, Readonly<{
     identity: McpSourceIdentity;
     executions: Set<ExecutionState>;
+    runtimeLeases: McpSourceReplaceRequest["runtimeLeases"];
   }>>();
   private readonly runtimeCapabilities: McpRuntimeCapabilities;
   private nextReplacementFailure: ErrorCode | undefined;
@@ -331,6 +339,7 @@ export class FakeMcpRuntime implements McpRuntimePort {
     for (const execution of [...record.executions]) {
       await this.closeExecution(execution, cleanupSignal);
     }
+    await record.runtimeLeases.drain(cleanupSignal);
   }
 
   private expectedMatches(
@@ -392,6 +401,7 @@ export class FakeMcpRuntime implements McpRuntimePort {
         for (const execution of [...residue.executions]) {
           await this.closeExecution(execution, cleanupSignal);
         }
+        await residue.runtimeLeases.drain(cleanupSignal);
         this.cleanupResidue.delete(residueKey);
       }
     } catch {
@@ -451,12 +461,17 @@ export class FakeMcpRuntime implements McpRuntimePort {
     if (current !== undefined && this.nextRemovalFailure === "after-unregister") {
       this.nextRemovalFailure = undefined;
       this.records.delete(key);
-      this.cleanupResidue.set(exact, { identity: requested, executions });
+      this.cleanupResidue.set(exact, {
+        identity: requested,
+        executions,
+        runtimeLeases: current.runtimeLeases,
+      });
       throw new FakeMcpRuntimeFailure(ErrorCodeRegistry.mcpLaunchCleanupFailed);
     }
     try {
       const cleanupSignal = new AbortController().signal;
       for (const execution of [...executions]) await this.closeExecution(execution, cleanupSignal);
+      await (current?.runtimeLeases ?? residue!.runtimeLeases).drain(cleanupSignal);
     } catch {
       // The registered record still owns its executions. Residue is used only
       // after an intentionally partial unregister-before-cleanup effect.

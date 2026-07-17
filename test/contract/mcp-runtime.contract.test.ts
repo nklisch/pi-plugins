@@ -144,6 +144,7 @@ describe("MCP runtime conformance suite negative evidence", () => {
             return lease;
           },
           release: (lease, leaseSignal) => request.runtimeLeases.release(lease, leaseSignal),
+          drain: (leaseSignal) => request.runtimeLeases.drain(leaseSignal),
         },
       }, signal),
     });
@@ -158,6 +159,7 @@ describe("MCP runtime conformance suite negative evidence", () => {
         runtimeLeases: {
           acquire: (binding, leaseSignal) => request.runtimeLeases.acquire(binding, leaseSignal),
           release: async () => undefined,
+          drain: (leaseSignal) => request.runtimeLeases.drain(leaseSignal),
         },
       }, signal),
     });
@@ -175,6 +177,7 @@ describe("MCP runtime conformance suite negative evidence", () => {
             await request.runtimeLeases.release(lease, leaseSignal);
             await request.runtimeLeases.release(lease, leaseSignal);
           },
+          drain: (leaseSignal) => request.runtimeLeases.drain(leaseSignal),
         },
       }, signal),
     });

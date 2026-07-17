@@ -99,6 +99,7 @@ function fixture(input: Readonly<{
 function participant(runtime?: FakeMcpRuntime) {
   const effects = { resolved: 0, disposed: 0, acquired: 0, released: 0 };
   const leases = new WeakSet<object>();
+  const issued: object[] = [];
   return {
     effects,
     value: createMcpLifecycleParticipant({
@@ -115,11 +116,18 @@ function participant(runtime?: FakeMcpRuntime) {
           effects.acquired += 1;
           const lease = Object.freeze({ toJSON: () => "[REDACTED]" });
           leases.add(lease);
+          issued.push(lease);
           return lease as never;
         },
         async release(lease) {
           if (!leases.has(lease as object)) throw new Error("lease mismatch");
+          leases.delete(lease as object);
           effects.released += 1;
+        },
+        async drain(signal) {
+          for (const lease of issued) {
+            if (leases.has(lease)) await this.release(lease as never, signal);
+          }
         },
       }),
       sha256,

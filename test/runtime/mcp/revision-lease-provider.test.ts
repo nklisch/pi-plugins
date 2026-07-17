@@ -25,6 +25,7 @@ import {
   directPlugin,
   fixtureProvenance,
 } from "../../fixtures/compatibility/common.js";
+import { FakeMcpRuntime } from "../../support/fakes/mcp-runtime.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array =>
   new Uint8Array(createHash("sha256").update(bytes).digest());
@@ -112,26 +113,37 @@ function fixture() {
 class Leases implements RevisionLeaseStore {
   acquired: Parameters<RevisionLeaseStore["acquire"]>[0][] = [];
   released: RevisionLease[] = [];
-  failRelease = false;
+  failReleaseCount = 0;
+  private readonly live = new Map<string, RevisionLease>();
 
   async acquire(request: Parameters<RevisionLeaseStore["acquire"]>[0]) {
     this.acquired.push(request);
-    return RevisionLeaseSchema.parse({
-      leaseId: "00000000-0000-4000-8000-000000000001",
+    const lease = RevisionLeaseSchema.parse({
+      leaseId: `00000000-0000-4000-8000-${String(this.acquired.length).padStart(12, "0")}`,
       sessionId: request.sessionId,
       artifacts: request.artifacts,
       acquiredAt: request.at,
     });
+    this.live.set(lease.leaseId, lease);
+    return lease;
   }
   async replace() { throw new Error("not used"); }
   async release(lease: RevisionLease) {
-    if (this.failRelease) {
-      this.failRelease = false;
+    if (this.failReleaseCount > 0) {
+      this.failReleaseCount -= 1;
       throw new Error("CANARY_RELEASE_FAILURE");
     }
+    this.live.delete(lease.leaseId);
     this.released.push(lease);
   }
-  async list() { return { complete: true, leases: [], owners: [] }; }
+  async list() {
+    const leases = [...this.live.values()];
+    return {
+      complete: true,
+      leases,
+      owners: leases.map((lease) => ({ leaseId: lease.leaseId, status: "live" as const })),
+    };
+  }
 }
 
 function activePort(selection: ReturnType<typeof fixture>["selection"]): McpLaunchActiveSelectionPort {
@@ -217,7 +229,7 @@ describe("MCP revision lease provider", () => {
     const leases = new Leases();
     const runtimeLeases = provider(value, leases);
     const token = await runtimeLeases.acquire(value.binding, new AbortController().signal);
-    leases.failRelease = true;
+    leases.failReleaseCount = 1;
     await expect(runtimeLeases.release(token, new AbortController().signal)).rejects.toThrow();
     expect(leases.released).toEqual([]);
     await Promise.all([
@@ -225,6 +237,51 @@ describe("MCP revision lease provider", () => {
       runtimeLeases.release(token, new AbortController().signal),
     ]);
     expect(leases.released).toHaveLength(1);
+  });
+
+  it("drains a lease retained after cancellation cleanup fails before removal can succeed", async () => {
+    const value = fixture();
+    const leases = new Leases();
+    const controller = new AbortController();
+    const active: McpLaunchActiveSelectionPort = {
+      async withSelection(_binding, signal, use) {
+        await use(value.selection as never);
+        controller.abort(new Error("CANARY_CANCEL_AFTER_STORE_ACQUIRE"));
+        signal.throwIfAborted();
+      },
+    };
+    const runtimeLeases = provider(value, leases, active);
+    const runtime = new FakeMcpRuntime();
+    const signal = new AbortController().signal;
+    await runtime.replaceSource({
+      registration: value.mcpProjection.registration,
+      expected: { kind: "absent" },
+      launchValues: {
+        async resolve() { return { transport: "stdio", command: "server", args: [] }; },
+        dispose() {},
+      },
+      runtimeLeases,
+    }, signal);
+
+    leases.failReleaseCount = 2;
+    await expect(runtime.openExecution(
+      value.mcpProjection.registration.source.identity,
+      value.binding.serverKey,
+      controller.signal,
+    )).rejects.toThrow("CANARY_CANCEL_AFTER_STORE_ACQUIRE");
+    expect((await leases.list(signal)).leases).toHaveLength(1);
+
+    await expect(runtime.removeSource(
+      value.mcpProjection.registration.source.identity,
+      signal,
+    )).rejects.toThrow();
+    expect((await leases.list(signal)).leases).toHaveLength(1);
+
+    await expect(runtime.removeSource(
+      value.mcpProjection.registration.source.identity,
+      signal,
+    )).resolves.toEqual({ kind: "removed" });
+    expect((await leases.list(signal)).leases).toEqual([]);
   });
 
   it("cleans an acquired lease if active-selection completion is cancelled", async () => {

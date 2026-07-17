@@ -300,6 +300,11 @@ export interface McpRuntimeLeaseProvider {
     signal: AbortSignal,
   ): Promise<McpRuntimeLease>;
   release(lease: McpRuntimeLease, signal: AbortSignal): Promise<void>;
+  /**
+   * Retry provider-owned cleanup whose token could not be transferred to the
+   * runtime. Replacement and removal must drain before claiming success.
+   */
+  drain(signal: AbortSignal): Promise<void>;
 }
 
 function compareText(left: string, right: string): number {

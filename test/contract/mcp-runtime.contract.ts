@@ -130,12 +130,14 @@ function launchProvider(
 
 function runtimeLeaseProvider() {
   const active = new WeakSet<object>();
+  const issued: object[] = [];
   const counters = { acquired: 0, released: 0 };
   const provider: McpRuntimeLeaseProvider = {
     async acquire(_binding, signal) {
       signal.throwIfAborted();
       const token = Object.freeze({ toJSON: () => "[REDACTED]" });
       active.add(token);
+      issued.push(token);
       counters.acquired += 1;
       return token as unknown as McpRuntimeLease;
     },
@@ -145,6 +147,11 @@ function runtimeLeaseProvider() {
       if (!active.has(token)) throw new Error("runtime lease release ownership was violated");
       active.delete(token);
       counters.released += 1;
+    },
+    async drain(signal) {
+      for (const token of issued) {
+        if (active.has(token)) await provider.release(token as unknown as McpRuntimeLease, signal);
+      }
     },
   };
   return { provider, counters };

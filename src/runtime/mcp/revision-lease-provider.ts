@@ -36,14 +36,14 @@ function sameJson(left: unknown, right: unknown): boolean {
   return canonicalJson(left) === canonicalJson(right);
 }
 
-function createOpaqueToken(states: WeakMap<object, LeaseState>, lease: RevisionLease): McpRuntimeLease {
+function createOpaqueToken(states: WeakMap<object, LeaseState>, state: LeaseState): McpRuntimeLease {
   const token = Object.create(null) as Record<PropertyKey, unknown>;
   Object.defineProperties(token, {
     toString: { value: () => "[REDACTED]" },
     toJSON: { value: () => "[REDACTED]" },
     [inspectSymbol]: { value: () => "[REDACTED]" },
   });
-  states.set(token, { lease, released: false, releasing: undefined });
+  states.set(token, state);
   return Object.freeze(token) as McpRuntimeLease;
 }
 
@@ -68,6 +68,32 @@ export function createMcpRevisionLeaseProvider(input: Readonly<{
   }
   const registration = verifyMcpSourceRegistration(input.source, input.sha256);
   const states = new WeakMap<object, LeaseState>();
+  // A strong set is intentional: it preserves cleanup ownership even when an
+  // acquire cannot transfer an opaque token to its caller.
+  const outstanding = new Set<LeaseState>();
+
+  async function releaseState(state: LeaseState, signal: AbortSignal): Promise<void> {
+    if (state.released) return;
+    if (state.releasing !== undefined) return state.releasing;
+    const releasing = (async () => {
+      try {
+        signal.throwIfAborted();
+        await input.leases.release(
+          state.lease,
+          input.clock.nowEpochMilliseconds(),
+          signal,
+        );
+        state.released = true;
+        outstanding.delete(state);
+      } catch {
+        throw new McpRevisionLeaseError();
+      } finally {
+        state.releasing = undefined;
+      }
+    })();
+    state.releasing = releasing;
+    return releasing;
+  }
 
   async function acquire(
     bindingInput: Parameters<McpRuntimeLeaseProvider["acquire"]>[0],
@@ -86,10 +112,10 @@ export function createMcpRevisionLeaseProvider(input: Readonly<{
       throw new McpRevisionLeaseError();
     }
 
-    let acquired: RevisionLease | undefined;
+    let acquiredState: LeaseState | undefined;
     try {
       await input.active.withSelection(binding, signal, async (selection) => {
-        if (acquired !== undefined) throw new McpRevisionLeaseError();
+        if (acquiredState !== undefined) throw new McpRevisionLeaseError();
         signal.throwIfAborted();
         const expectation = verifyProjectionExpectation(selection.expectation, input.sha256);
         if (expectation.kind !== "active") throw new McpRevisionLeaseError();
@@ -131,7 +157,7 @@ export function createMcpRevisionLeaseProvider(input: Readonly<{
           sourceHash: revision.evidence.source.sourceHash,
           binding: revision.revision,
         }, input.sha256);
-        acquired = await input.leases.acquire({
+        const lease = await input.leases.acquire({
           sessionId: input.sessionId,
           artifacts: [
             { kind: "plugin", key: pluginStore.key },
@@ -139,21 +165,19 @@ export function createMcpRevisionLeaseProvider(input: Readonly<{
           ],
           at: input.clock.nowEpochMilliseconds(),
         }, signal);
+        acquiredState = { lease, released: false, releasing: undefined };
+        outstanding.add(acquiredState);
       });
       signal.throwIfAborted();
-      if (acquired === undefined) throw new McpRevisionLeaseError();
-      return createOpaqueToken(states, acquired);
+      if (acquiredState === undefined) throw new McpRevisionLeaseError();
+      return createOpaqueToken(states, acquiredState);
     } catch {
-      if (acquired !== undefined) {
+      if (acquiredState !== undefined) {
         try {
-          await input.leases.release(
-            acquired,
-            input.clock.nowEpochMilliseconds(),
-            new AbortController().signal,
-          );
+          await releaseState(acquiredState, new AbortController().signal);
         } catch {
-          // Cleanup uncertainty is intentionally collapsed to one safe error;
-          // callers cannot mistake it for a usable lease token.
+          // The state stays in `outstanding`; runtime replacement/removal owns
+          // the deterministic drain retry before it can report cleanup success.
         }
       }
       throw new McpRevisionLeaseError();
@@ -163,26 +187,22 @@ export function createMcpRevisionLeaseProvider(input: Readonly<{
   async function release(lease: McpRuntimeLease, signal: AbortSignal): Promise<void> {
     const state = states.get(lease as object);
     if (state === undefined) throw new McpRevisionLeaseError();
-    if (state.released) return;
-    if (state.releasing !== undefined) return state.releasing;
-    const releasing = (async () => {
-      try {
-        signal.throwIfAborted();
-        await input.leases.release(
-          state.lease,
-          input.clock.nowEpochMilliseconds(),
-          signal,
-        );
-        state.released = true;
-      } catch {
-        throw new McpRevisionLeaseError();
-      } finally {
-        state.releasing = undefined;
-      }
-    })();
-    state.releasing = releasing;
-    return releasing;
+    return releaseState(state, signal);
   }
 
-  return Object.freeze({ acquire, release });
+  async function drain(signal: AbortSignal): Promise<void> {
+    let failed = false;
+    const pending = [...outstanding]
+      .sort((left, right) => left.lease.leaseId.localeCompare(right.lease.leaseId));
+    for (const state of pending) {
+      try {
+        await releaseState(state, signal);
+      } catch {
+        failed = true;
+      }
+    }
+    if (failed) throw new McpRevisionLeaseError();
+  }
+
+  return Object.freeze({ acquire, release, drain });
 }

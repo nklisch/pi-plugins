@@ -971,7 +971,7 @@ describe("explicit package API", () => {
     expectTypeOf<McpLaunchValueRequest>().toEqualTypeOf<z.infer<typeof McpLaunchValueRequestSchema>>();
     expectTypeOf<McpLaunchValues>().not.toEqualTypeOf<McpConfigSource>();
     expectTypeOf<McpLaunchValueProvider>().toMatchTypeOf<{ resolve: Function; dispose: Function }>();
-    expectTypeOf<McpRuntimeLeaseProvider>().toMatchTypeOf<{ acquire: Function; release: Function }>();
+    expectTypeOf<McpRuntimeLeaseProvider>().toMatchTypeOf<{ acquire: Function; release: Function; drain: Function }>();
     expectTypeOf<McpSourceReplaceRequest>().toMatchTypeOf<{
       registration: McpSourceRegistration;
       expected: McpSourcePrecondition;
