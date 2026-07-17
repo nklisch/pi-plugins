@@ -66,6 +66,8 @@ import { qualifyRuntimeParticipants, type RuntimeQualificationStatus } from "./r
 import { disposeSequentially } from "./sequential-cleanup.js";
 import { createHostStatusService } from "./host-status-service.js";
 import { createBackgroundUpdateCoordinator } from "./background-update-coordinator.js";
+import { createNativeUpdateManagementComposition } from "./create-native-update-management-service.js";
+import { createAutomaticUpdateLifecycleAdapter } from "./automatic-update-lifecycle-adapter.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(bytes).digest());
 
@@ -406,6 +408,30 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           clock,
           sha256,
         });
+        const automaticLifecycle = createAutomaticUpdateLifecycleAdapter({
+          state: state.state,
+          catalog: marketplaceComposition.inspection.catalog,
+          inspection: nativeInspection.application,
+          evidence: nativeInspection.evidence,
+          lifecycle,
+          projectTrust: project.trust,
+          projectRoots: project.authority,
+          currentProject: project.scope,
+          userBaseDirectory: binding.current().cwd,
+          sha256,
+        });
+        const updates = createNativeUpdateManagementComposition({
+          state: state.state,
+          inventory: state.inventory,
+          mutations,
+          clock,
+          sha256,
+          scheduler: marketplaceComposition.updates.scheduler,
+          lifecycle: automaticLifecycle,
+          activation: { availability: () => operationContexts.getStore() === undefined ? "unavailable" : "available" },
+          currentProject: project.scope,
+          projectTrust: project.trust,
+        });
         const hostEpochId = await identifiers.operationIds.create(startupSignal);
         const hostEpoch = hashContent(new TextEncoder().encode(`native-operation-host-epoch-v1\0${hostEpochId}`), sha256);
         const operations = createComposedNativeLifecycleOperationService({
@@ -521,6 +547,8 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         });
         const background = createBackgroundUpdateCoordinator({
           scheduler: marketplaceComposition.updates.scheduler,
+          notifications: updates.notifications,
+          automatic: updates.automatic,
           status: hostStatus,
           async enabled(signal) {
             const leases = marketplaceComposition.updates.schedulerLeases;
@@ -531,16 +559,31 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         });
         stopBackground = background.close;
         own(() => background.close());
+        const updateApplication = Object.freeze({
+          previewPolicy: requireOperationContext(updates.application.previewPolicy),
+          applyPolicy: requireOperationContext(updates.application.applyPolicy),
+          status: requireOperationContext(updates.application.status),
+          notifications: requireOperationContext(updates.application.notifications),
+          acknowledge: requireOperationContext(updates.application.acknowledge),
+          runAutomatic: requireOperationContext(updates.application.runAutomatic),
+        });
+        const publicMarketplace = Object.freeze({
+          registration: marketplace.registration,
+          refresh: marketplace.refresh,
+          catalog: marketplace.catalog,
+          adoption: marketplace.adoption,
+        });
         const application: PackagedPluginHostApplication = Object.freeze({
           operations: operationApplication,
           trustedInstallation: trustedInstallation.application,
+          updates: updateApplication,
           compatibility,
           inspection: nativeInspection.application,
           status: hostStatus,
           configuration: configuration.application,
           recovery,
           collection,
-          marketplace,
+          marketplace: publicMarketplace,
           capabilities,
           resources: skillHook.resources,
         });

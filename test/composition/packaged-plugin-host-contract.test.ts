@@ -4,6 +4,7 @@ import { deriveProjectKey, type ProjectIdentity } from "../../src/domain/state/s
 import { createPluginHostPathPlan } from "../../src/composition/plugin-host-paths.js";
 import type { NativeInspectionService } from "../../src/application/native-inspection-contract.js";
 import type { TrustedInstallationService } from "../../src/application/trusted-install-contract.js";
+import type { NativeUpdateManagementService } from "../../src/application/native-update-management-service.js";
 import type { PackagedPluginHostApplication } from "../../src/composition/packaged-plugin-host-contract.js";
 import {
   claimPackagedPluginHostComposition,
@@ -27,6 +28,8 @@ describe("packaged host construct-only contract", () => {
     expectTypeOf<PackagedPluginHostApplication["inspection"]>().toEqualTypeOf<NativeInspectionService>();
     expectTypeOf<PackagedPluginHostApplication["inspection"]>().not.toHaveProperty("inspect");
     expectTypeOf<PackagedPluginHostApplication["trustedInstallation"]>().toEqualTypeOf<TrustedInstallationService>();
+    expectTypeOf<PackagedPluginHostApplication["updates"]>().toEqualTypeOf<NativeUpdateManagementService>();
+    expectTypeOf<PackagedPluginHostApplication["marketplace"]>().not.toHaveProperty("policy");
   });
 
   it("plans collision-free paths using only the verified project digest", () => {

@@ -1561,6 +1561,7 @@ export {
   NativeUpdatePolicyApplyResultSchema,
   NativeUpdateStatusRequestSchema,
   NativeUpdatePolicyStatusSchema,
+  NativeUpdateStatusSchema,
   NativeUpdateNotificationListRequestSchema,
   NativeUpdateNotificationViewSchema,
   NativeUpdateNotificationPageSchema,
@@ -1578,6 +1579,7 @@ export type {
   NativeUpdatePolicyApplyResult,
   NativeUpdateStatusRequest,
   NativeUpdatePolicyStatus,
+  NativeUpdateStatus,
   NativeUpdateNotificationListRequest,
   NativeUpdateNotificationView,
   NativeUpdateNotificationPage,
@@ -1599,6 +1601,10 @@ export type {
   NativeUpdatePolicyServiceDependencies,
 } from "./application/native-update-policy-service.js";
 export type { UpdatePolicyAuthorityPort } from "./application/ports/update-policy-authority.js";
+export { createNativeUpdateManagementService } from "./application/native-update-management-service.js";
+export type { NativeUpdateManagementService } from "./application/native-update-management-service.js";
+export { createNativeUpdateManagementComposition } from "./composition/create-native-update-management-service.js";
+export { createAutomaticUpdateLifecycleAdapter } from "./composition/automatic-update-lifecycle-adapter.js";
 export {
   UpdateNoticeRetentionPolicy,
   pruneUpdateNotices,

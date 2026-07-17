@@ -85,6 +85,17 @@ export const NativeUpdatePolicyStatusSchema = z.object({
 }).strict().readonly();
 export type NativeUpdatePolicyStatus = z.infer<typeof NativeUpdatePolicyStatusSchema>;
 
+export const NativeUpdateStatusSchema = z.object({
+  policy: NativeUpdatePolicyStatusSchema,
+  scheduler: z.object({
+    state: z.enum(["disabled", "standby", "running", "clock-regressed", "degraded", "stopped"]),
+    scopes: z.array(z.object({ scope: ScopeReferenceSchema, ownership: z.enum(["self", "other", "none"]), nextAt: EpochMillisecondsSchema.optional() }).strict().readonly()).readonly(),
+  }).strict().readonly(),
+  unreadCount: z.number().int().nonnegative(),
+  unresolvedCount: z.number().int().nonnegative(),
+}).strict().readonly();
+export type NativeUpdateStatus = z.infer<typeof NativeUpdateStatusSchema>;
+
 export const NativeUpdateNotificationListRequestSchema = z.object({
   scope: z.enum(["user", "project", "all-current"]).default("all-current"),
   plugin: PluginKeySchema.optional(),

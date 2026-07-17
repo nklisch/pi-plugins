@@ -70,6 +70,9 @@ export function createAutomaticUpdateCoordinator(dependencies: AutomaticUpdateCo
       pluginSourceIdentity: notice.available.pluginSourceIdentity,
     }, signal);
     if (policy.application !== "automatic") return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: policy.sourceGuard === "none" ? "manual" : "approval-required" });
+    // Without a live reload-capable context, defer before candidate materialization
+    // or lifecycle inspection. Every authority is reread on the admitted call.
+    if (dependencies.activation.availability() !== "available") return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: "awaiting-host-context" });
     const authority = await dependencies.lifecycle.inspect(notice, signal);
     if (authority.source === "changed") return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: "approval-required" });
     if (authority.candidate === "stale" || authority.target === "stale") return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: "stale" });
@@ -78,7 +81,6 @@ export function createAutomaticUpdateCoordinator(dependencies: AutomaticUpdateCo
     if (authority.configuration === "required") return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: "configuration-required" });
     if (authority.secrets === "unavailable") return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: "secret-unavailable" });
     if (authority.capability === "unavailable") return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: "capability-unavailable" });
-    if (dependencies.activation.availability() !== "available") return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: "awaiting-host-context" });
     return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: "eligible" });
   }
 

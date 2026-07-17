@@ -51,6 +51,25 @@ describe("packaged host disposal matrix", () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  it("exposes updates only through admitted operation context", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-host-update-admission-"));
+    const agentDir = join(root, "agent");
+    const project = join(root, "project");
+    await Promise.all([mkdir(agentDir), mkdir(project)]);
+    const fake = pi();
+    const bound = context(project);
+    const host = createPackagedPluginHost({ pi: fake.api as never, agentDir });
+    const started = await host.start({ type: "session_start", reason: "startup" } as never, bound as never);
+    expect(() => started.application.updates.status({ scope: "all-current" }, new AbortController().signal))
+      .toThrowError(expect.objectContaining({ code: PackagedPluginHostErrorCode.reloadContextUnavailable }));
+    await expect(host.runWithPiOperationContext(bound as never, new AbortController().signal, (application) =>
+      application.updates.status({ scope: "all-current" }, new AbortController().signal)))
+      .resolves.toMatchObject({ unreadCount: 0, unresolvedCount: 0 });
+    expect("policy" in started.application.marketplace).toBe(false);
+    await host.dispose("quit");
+    await rm(root, { recursive: true, force: true });
+  }, 30_000);
+
   it("quiesces shutdown admission but keeps pinned application adapters live until an admitted operation settles", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-host-operation-lease-"));
     const agentDir = join(root, "agent");

@@ -8,6 +8,7 @@ import type {
 import type { McpRuntimePort } from "../application/ports/mcp-runtime.js";
 import type { SubagentLifecyclePort } from "../application/ports/subagent-lifecycle.js";
 import type { NativeLifecycleOperationService } from "../application/native-lifecycle-operation-contract.js";
+import type { NativeUpdateManagementService } from "../application/native-update-management-service.js";
 import type { CompatibilityService } from "../application/compatibility-service.js";
 import type { NativeInspectionService } from "../application/native-inspection-contract.js";
 import type { TrustedInstallationService } from "../application/trusted-install-contract.js";
@@ -82,13 +83,14 @@ export interface PiSessionBindingPort {
 export type PackagedPluginHostApplication = Readonly<{
   operations: NativeLifecycleOperationService;
   trustedInstallation: TrustedInstallationService;
+  updates: NativeUpdateManagementService;
   compatibility: CompatibilityService;
   inspection: NativeInspectionService;
   status: HostStatusService;
   configuration: BoundPluginConfigurationService;
   recovery: LifecycleRecoveryService;
   collection: ReturnType<typeof createRevisionCollectionService>;
-  marketplace: MarketplaceDiscoveryServices;
+  marketplace: Omit<MarketplaceDiscoveryServices, "policy">;
   capabilities: RuntimeCapabilityProbe;
   resources: SkillResourceDiscoveryPort;
 }>;
