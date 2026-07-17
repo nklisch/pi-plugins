@@ -1,5 +1,3 @@
-import type { JsonValue } from "./schema.js";
-
 const encoder = new TextEncoder();
 
 export function hasLoneSurrogate(value: string): boolean {
@@ -39,19 +37,22 @@ function assertWellFormed(value: string): void {
  * order and every string is checked before JSON serialization can rewrite an
  * invalid UTF-16 surrogate.
  */
-export function canonicalJson(value: JsonValue): string {
+export function canonicalJson(value: unknown): string {
   if (value === null) return "null";
   if (typeof value === "string") {
     assertWellFormed(value);
     return JSON.stringify(value);
   }
-  if (typeof value === "number" || typeof value === "boolean") {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new TypeError("canonical JSON numbers must be finite");
     return JSON.stringify(value);
   }
+  if (typeof value === "boolean") return JSON.stringify(value);
   if (Array.isArray(value)) {
     return `[${value.map((entry) => canonicalJson(entry)).join(",")}]`;
   }
-  const record = value as Readonly<Record<string, JsonValue>>;
+  if (typeof value !== "object") throw new TypeError("value is not canonical JSON");
+  const record = value as Readonly<Record<string, unknown>>;
   const fields = Object.keys(record).sort(compareUtf8).map((key) => {
     assertWellFormed(key);
     return `${JSON.stringify(key)}:${canonicalJson(record[key]!)}`;

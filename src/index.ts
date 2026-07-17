@@ -422,6 +422,22 @@ export type {
   McpRuntimePort,
 } from "./application/ports/mcp-runtime.js";
 
+export {
+  PluginMcpLaunchTemplateSchemaV1,
+  PluginMcpAliasOmissionCodeSchema,
+  PluginMcpAliasOmissionSchema,
+  PluginMcpProjectionSchemaV1,
+  deriveMcpRuntimeServerKey,
+  createPluginMcpProjection,
+  verifyPluginMcpProjection,
+} from "./application/mcp-plugin-projection.js";
+export type {
+  PluginMcpLaunchTemplate,
+  PluginMcpAliasOmissionCode,
+  PluginMcpAliasOmission,
+  PluginMcpProjection,
+} from "./application/mcp-plugin-projection.js";
+
 export { authorizeTrustCandidate } from "./application/trust-service.js";
 export type { TrustAuthorizationResult } from "./application/trust-service.js";
 export {

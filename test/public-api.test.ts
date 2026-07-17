@@ -133,6 +133,13 @@ import {
   McpSourceServerStatusSchema,
   McpSourceStatusSchema,
   McpSourceValidationResultSchema,
+  PluginMcpLaunchTemplateSchemaV1,
+  PluginMcpAliasOmissionCodeSchema,
+  PluginMcpAliasOmissionSchema,
+  PluginMcpProjectionSchemaV1,
+  deriveMcpRuntimeServerKey,
+  createPluginMcpProjection,
+  verifyPluginMcpProjection,
   RuntimeCapabilityAvailabilitySchema,
   RuntimeCapabilityIdSchema,
   RuntimeCapabilityRegistry,
@@ -440,6 +447,10 @@ import {
   type McpSourceServerStatus,
   type McpSourceStatus,
   type McpSourceValidationResult,
+  type PluginMcpLaunchTemplate,
+  type PluginMcpAliasOmissionCode,
+  type PluginMcpAliasOmission,
+  type PluginMcpProjection,
   type RuntimeCapabilityAvailability,
   type RuntimeCapabilityId,
   type RuntimeCapabilityProbe,
@@ -615,6 +626,13 @@ describe("explicit package API", () => {
       McpSourceServerStatusSchema,
       McpSourceStatusSchema,
       McpSourceValidationResultSchema,
+      PluginMcpLaunchTemplateSchemaV1,
+      PluginMcpAliasOmissionCodeSchema,
+      PluginMcpAliasOmissionSchema,
+      PluginMcpProjectionSchemaV1,
+      deriveMcpRuntimeServerKey,
+      createPluginMcpProjection,
+      verifyPluginMcpProjection,
       RuntimeCapabilityAvailabilitySchema,
       RuntimeCapabilityIdSchema,
       RuntimeCapabilityRegistry,
@@ -897,6 +915,10 @@ describe("explicit package API", () => {
     expectTypeOf<McpSourceServerStatus>().toEqualTypeOf<z.infer<typeof McpSourceServerStatusSchema>>();
     expectTypeOf<McpSourceStatus>().toEqualTypeOf<z.infer<typeof McpSourceStatusSchema>>();
     expectTypeOf<McpSourceValidationResult>().toMatchTypeOf<{ ok: boolean }>();
+    expectTypeOf<PluginMcpLaunchTemplate>().toEqualTypeOf<z.infer<typeof PluginMcpLaunchTemplateSchemaV1>>();
+    expectTypeOf<PluginMcpAliasOmissionCode>().toEqualTypeOf<z.infer<typeof PluginMcpAliasOmissionCodeSchema>>();
+    expectTypeOf<PluginMcpAliasOmission>().toEqualTypeOf<z.infer<typeof PluginMcpAliasOmissionSchema>>();
+    expectTypeOf<PluginMcpProjection>().toEqualTypeOf<z.infer<typeof PluginMcpProjectionSchemaV1>>();
     expectTypeOf<McpSourceReplaceResult>().toMatchTypeOf<{ kind: "applied" | "stale" | "rejected" }>();
     expectTypeOf<McpSourceRemoveResult>().toMatchTypeOf<{ kind: "removed" | "absent" | "ownership-mismatch" }>();
     expectTypeOf<McpLaunchValueRequest>().toEqualTypeOf<z.infer<typeof McpLaunchValueRequestSchema>>();

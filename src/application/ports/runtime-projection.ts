@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { canonicalJson } from "../../domain/canonical-json.js";
 import {
   ContentDigestSchema,
   hashContent,
@@ -83,19 +84,6 @@ export type ProjectionExpectation = z.infer<typeof ProjectionExpectationSchema>;
 export interface RuntimeProjectionPort {
   /** Publish/verify one complete-plugin projection, without activating it. */
   prepare(expectation: ProjectionExpectation, signal: AbortSignal): Promise<ProjectionExpectation>;
-}
-
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value !== null && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return Object.fromEntries(Object.keys(record).sort().map((key) => [key, canonicalize(record[key])]));
-  }
-  return value;
-}
-
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(canonicalize(value));
 }
 
 function digestProjection(value: Omit<PluginRuntimeProjection, "digest">, sha256: Sha256): ContentDigest {

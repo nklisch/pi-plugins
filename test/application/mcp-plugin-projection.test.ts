@@ -1,0 +1,289 @@
+import { createHash } from "node:crypto";
+import { describe, expect, it } from "vitest";
+import {
+  createPluginMcpProjection,
+  deriveMcpRuntimeServerKey,
+  verifyPluginMcpProjection,
+} from "../../src/application/mcp-plugin-projection.js";
+import { McpRuntimeCapabilitiesSchemaV1 } from "../../src/application/ports/mcp-runtime.js";
+import { createPluginRuntimeProjection } from "../../src/application/ports/runtime-projection.js";
+import { evaluateCompatibility } from "../../src/domain/compatibility-evaluator.js";
+import { RuntimeCapabilityRegistry, RuntimeCapabilitySnapshotSchema } from "../../src/domain/compatibility-policy.js";
+import { deriveComponentId } from "../../src/domain/component-identity.js";
+import { createContentManifest } from "../../src/domain/content-manifest.js";
+import { DomainContractError } from "../../src/domain/errors.js";
+import { NormalizedPluginSchema } from "../../src/domain/plugin.js";
+import { claim } from "../../src/domain/provenance.js";
+import { createResolvedPluginSource } from "../../src/domain/source.js";
+import { createInstalledRevisionRecord } from "../../src/domain/state/installed-state.js";
+
+const sha256 = (bytes: Uint8Array): Uint8Array =>
+  new Uint8Array(createHash("sha256").update(bytes).digest());
+const content = createContentManifest([], sha256);
+const location = (host: "claude" | "codex", pointer: string) => ({
+  location: {
+    host,
+    documentKind: "mcp" as const,
+    path: host === "claude" ? ".mcp.json" : ".codex-plugin/plugin.json",
+    pointer,
+  },
+  declaration: { secret: "CANARY_DECLARATION" },
+});
+
+function capabilities(overrides: Record<string, "available" | "unavailable"> = {}) {
+  return RuntimeCapabilitySnapshotSchema.parse({
+    capabilities: Object.fromEntries(Object.values(RuntimeCapabilityRegistry).map((entry) => [
+      entry.id,
+      { status: overrides[entry.id] ?? "available", explanation: "fixture" },
+    ])),
+    capturedBy: "projection-test",
+  });
+}
+
+function runtime(overrides: Record<string, unknown> = {}) {
+  const base = {
+    schemaVersion: 1,
+    sourceLifecycle: {
+      initialSourcesBeforeToolRegistration: true,
+      isolatedFileDiscovery: true,
+      localValidation: true,
+      atomicReplace: true,
+      exactRemove: true,
+      inspect: true,
+      cancellable: true,
+      lateLaunchValues: true,
+    },
+    transports: { stdio: true, streamableHttp: true, legacySse: false, websocket: false },
+    oauth: { authorizationCode: true, clientCredentials: true },
+    features: {
+      sampling: true,
+      elicitationForm: true,
+      elicitationUrl: true,
+      toolApproval: true,
+      resources: true,
+      pluginToolAliases: true,
+    },
+  };
+  return McpRuntimeCapabilitiesSchemaV1.parse({ ...base, ...overrides });
+}
+
+type ServerInput = Readonly<{
+  nativeKey: string;
+  declaration: Record<string, unknown>;
+  hosts?: readonly ("claude" | "codex")[];
+  forgedId?: string;
+}>;
+
+function fixture(input: Readonly<{
+  plugin?: string;
+  manifestName?: string;
+  scope?: { kind: "user" } | { kind: "project"; projectKey: string };
+  servers?: readonly ServerInput[];
+  capabilityOverrides?: Record<string, "available" | "unavailable">;
+}> = {}) {
+  const pluginKey = (input.plugin ?? "demo@community") as never;
+  const [entryName, marketplaceName] = (input.plugin ?? "demo@community").split("@");
+  const servers = (input.servers ?? [{
+    nativeKey: "search/../opaque",
+    declaration: {
+      transport: "stdio",
+      command: "CANARY_COMMAND",
+      args: ["CANARY_ARG"],
+      env: { TOKEN: "CANARY_ENV" },
+      cwd: "/CANARY_ROOT",
+      startupTimeout: 1000,
+      allowTools: ["read"],
+      instructions: "read-only",
+    },
+    hosts: ["codex", "claude"],
+  }]).map((server, index) => {
+    const hosts = server.hosts ?? ["claude"];
+    const provenances = hosts.map((host) => location(host, `/servers/${index}`));
+    const id = server.forgedId ?? deriveComponentId(pluginKey, {
+      kind: "mcp-server",
+      nativeKey: server.nativeKey,
+    }, sha256);
+    return {
+      kind: "mcp-server" as const,
+      id,
+      nativeKey: { value: server.nativeKey, provenance: [...provenances].reverse() },
+      declaration: { value: server.declaration, provenance: provenances },
+      metadata: [],
+    };
+  });
+  const plugin = NormalizedPluginSchema.parse({
+    identity: {
+      key: pluginKey,
+      marketplaceName,
+      marketplaceEntryName: entryName,
+      ...(input.manifestName === undefined ? {} : { manifestName: input.manifestName }),
+    },
+    source: createResolvedPluginSource({
+      kind: "git",
+      url: "https://example.invalid/plugin.git",
+      revision: "a".repeat(40),
+    }, sha256),
+    configuration: { options: [] },
+    components: { skills: [], hooks: [], mcpServers: servers, foreign: [] },
+    metadata: [],
+  });
+  const compatibility = evaluateCompatibility({
+    plugin,
+    capabilities: capabilities(input.capabilityOverrides),
+  });
+  const scope = input.scope ?? { kind: "user" as const };
+  const revision = createInstalledRevisionRecord({ plugin, compatibility, content, scope }, sha256);
+  const projection = createPluginRuntimeProjection({
+    scope,
+    plugin,
+    compatibility,
+    revision,
+    sha256,
+  });
+  return { plugin, compatibility, projection };
+}
+
+function create(f = fixture(), runtimeCapabilities = runtime()) {
+  return createPluginMcpProjection({
+    projection: f.projection,
+    compatibility: f.compatibility,
+    runtimeCapabilities,
+    sha256,
+  });
+}
+
+describe("plugin MCP projection", () => {
+  it("builds a deterministic logical-only source with canonical identity and provenance", () => {
+    const f = fixture();
+    const first = create(f);
+    expect(first.kind).toBe("source");
+    if (first.kind !== "source") throw new Error("expected source projection");
+    const component = f.projection.components.mcpServers[0]!;
+    const key = deriveMcpRuntimeServerKey(component.id);
+    expect(first.source.identity).toEqual({
+      schemaVersion: 1,
+      scope: f.projection.scope,
+      plugin: f.projection.plugin,
+      revision: f.projection.revision,
+      projectionDigest: f.projection.digest,
+    });
+    expect(Object.keys(first.source.servers)).toEqual([key]);
+    expect(first.source.servers[key]).toMatchObject({
+      componentId: component.id,
+      nativeKey: "search/../opaque",
+      transport: "stdio",
+      options: {
+        schemaVersion: 1,
+        startupTimeoutMs: 1000,
+        allowedTools: ["read"],
+        instructions: "read-only",
+        auth: { kind: "none" },
+      },
+      launchTemplate: {
+        schemaVersion: 1,
+        componentId: component.id,
+        contentRef: f.projection.contentRef,
+        dataRef: f.projection.dataRef,
+      },
+      toolAliases: [{
+        pluginName: "demo",
+        nativeServerKey: "search/../opaque",
+        collisionPolicy: "omit-all",
+        preserveNativeDiscovery: true,
+      }],
+    });
+    expect(first.source.servers[key]!.provenance.map((entry) => entry.host)).toEqual(["claude", "codex"]);
+    expect(verifyPluginMcpProjection(first, sha256)).toEqual(first);
+    expect(JSON.stringify(first)).not.toMatch(/CANARY_/u);
+
+    const reorderedReport = {
+      ...f.compatibility,
+      components: [...f.compatibility.components].reverse(),
+      requirements: [...f.compatibility.requirements].reverse(),
+      diagnostics: [...f.compatibility.diagnostics].reverse(),
+    };
+    expect(createPluginMcpProjection({
+      projection: f.projection,
+      compatibility: reorderedReport,
+      runtimeCapabilities: runtime(),
+      sha256,
+    })).toEqual(first);
+  });
+
+  it("returns an explicit deterministic none projection without an empty source", () => {
+    const f = fixture({ servers: [] });
+    const result = create(f);
+    expect(result).toMatchObject({
+      schemaVersion: 1,
+      kind: "none",
+      identity: { plugin: "demo@community", projectionDigest: f.projection.digest },
+      aliasOmissions: [],
+    });
+    expect(result).not.toHaveProperty("source");
+    expect(verifyPluginMcpProjection(result, sha256)).toEqual(result);
+  });
+
+  it("keeps local server keys stable across revisions while exact source identity changes", () => {
+    const firstFixture = fixture();
+    const secondFixture = fixture({ servers: [{
+      nativeKey: "search/../opaque",
+      declaration: { transport: "stdio", command: "new-command" },
+      hosts: ["claude"],
+    }] });
+    const first = create(firstFixture);
+    const second = create(secondFixture);
+    if (first.kind !== "source" || second.kind !== "source") throw new Error("expected sources");
+    expect(Object.keys(first.source.servers)).toEqual(Object.keys(second.source.servers));
+    expect(first.source.identity).not.toEqual(second.source.identity);
+  });
+
+  it("omits unsafe or unavailable aliases without rewriting canonical identity", () => {
+    const unsafe = fixture({ manifestName: "bad\u0000plugin", servers: [{
+      nativeKey: "server\u0001name",
+      declaration: { transport: "stdio", command: "server" },
+      hosts: ["claude"],
+    }] });
+    const unsafeResult = create(unsafe);
+    if (unsafeResult.kind !== "source") throw new Error("expected source");
+    const key = Object.keys(unsafeResult.source.servers)[0]!;
+    expect(unsafeResult.source.servers[key]!.nativeKey).toBe("server\u0001name");
+    expect(unsafeResult.source.servers[key]!.toolAliases).toEqual([]);
+    expect(unsafeResult.aliasOmissions[0]?.code).toBe("UNREPRESENTABLE_ALIAS_SEGMENT");
+
+    const aliasDisabled = create(fixture(), runtime({
+      features: {
+        sampling: true,
+        elicitationForm: true,
+        elicitationUrl: true,
+        toolApproval: true,
+        resources: true,
+        pluginToolAliases: false,
+      },
+    }));
+    if (aliasDisabled.kind !== "source") throw new Error("expected source");
+    expect(Object.values(aliasDisabled.source.servers)[0]!.toolAliases).toEqual([]);
+    expect(aliasDisabled.aliasOmissions[0]?.code).toBe("RUNTIME_ALIAS_UNAVAILABLE");
+  });
+
+  it("fails closed with redacted domain errors for mismatched report, capability, component, and digest evidence", () => {
+    const valid = fixture();
+    const mismatchedReport = fixture({ servers: [] }).compatibility;
+    const forged = fixture({ servers: [{
+      nativeKey: "search",
+      declaration: { transport: "stdio", command: "CANARY_FORGED_COMMAND" },
+      forgedId: `component-v1:mcp-server:${"f".repeat(64)}`,
+    }] });
+    const cases = [
+      () => createPluginMcpProjection({ projection: valid.projection, compatibility: mismatchedReport, runtimeCapabilities: runtime(), sha256 }),
+      () => create(valid, runtime({ transports: { stdio: false, streamableHttp: true, legacySse: false, websocket: false } })),
+      () => create(forged),
+      () => verifyPluginMcpProjection({ ...create(valid), digest: `sha256:${"0".repeat(64)}` }, sha256),
+    ];
+    for (const operation of cases) {
+      let error: unknown;
+      try { operation(); } catch (caught) { error = caught; }
+      expect(error).toBeInstanceOf(DomainContractError);
+      expect(JSON.stringify((error as DomainContractError).toDiagnostic())).not.toMatch(/CANARY_/u);
+    }
+  });
+});
