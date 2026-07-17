@@ -553,8 +553,10 @@ class Coordinator implements GenerationMutationCoordinator {
           scope,
         );
         await lease.assertOwned(signal);
-        await prepared.beforeCommit?.();
-        await lease.assertOwned(signal);
+        if (prepared.beforeCommit !== undefined) {
+          await prepared.beforeCommit();
+          await lease.assertOwned(signal);
+        }
         try {
           const commitResult = validateCommitResult(
             await this.dependencies.state.commit(prepared.mutation, signal),

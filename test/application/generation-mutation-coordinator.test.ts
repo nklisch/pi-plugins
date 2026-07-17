@@ -177,6 +177,27 @@ describe("generation-guarded prepared mutation coordinator", () => {
     ]);
   });
 
+  it("runs the final authority guard under the lease and blocks commit on revocation", async () => {
+    const events: string[] = [];
+    const service = coordinator(events, stateStore({ events }));
+    await expect(service.runPreparedMutation(
+      { scope: user, plugins: [plugin], expectedGeneration: 0 },
+      async () => ({
+        mutation: mutation(),
+        value: "blocked",
+        async beforeCommit() {
+          events.push("authority.revalidate");
+          throw new Error("authority revoked");
+        },
+      }),
+      new AbortController().signal,
+    )).rejects.toThrow("authority revoked");
+    expect(events).toEqual([
+      "lock.acquire", "lock.assert", "state.read", "lock.assert", "lock.assert", "authority.revalidate", "lock.release",
+    ]);
+    expect(events).not.toContain("state.commit");
+  });
+
   it("proves a non-empty v1 adapter config against the v2 mutation", async () => {
     const events: string[] = [];
     const before = snapshot(user, 0);
