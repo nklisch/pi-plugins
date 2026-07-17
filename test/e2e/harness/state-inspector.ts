@@ -88,10 +88,27 @@ export async function publicStateDigest(rpc: PiRpcProcess): Promise<string> {
     rpc.plugin("--non-interactive marketplace list --scope all-current --limit 100", "marketplace.list"),
     rpc.plugin("--non-interactive updates status --scope all-current", "updates.status"),
   ]);
+  const volatile = new Set(["snapshotId", "detailId", "capturedAt", "checkedAt", "nextAt", "dueAt", "anchorAt", "updateDigest", "claim", "executionId"]);
+  const stable = (value: any): any => Array.isArray(value)
+    ? value.map(stable)
+    : value !== null && typeof value === "object"
+      ? Object.fromEntries(Object.entries(value).filter(([key]) => !volatile.has(key)).map(([key, child]) => [key, stable(child)]))
+      : value;
+  const registrations = (marketplaces.envelope.data?.registrations ?? []).map((entry: any) => {
+    const { refresh: _refresh, ...authority } = entry;
+    return stable(authority);
+  });
+  // Snapshot ids, scheduler ownership, deadlines, and refresh observations are
+  // live health, not mutation authority. Keep installed rows, registration
+  // declarations, policy, and notice counts as the public digest.
   const publicState = {
-    plugins: plugins.envelope.data,
-    marketplaces: marketplaces.envelope.data,
-    updates: updates.envelope.data,
+    plugins: stable(plugins.envelope.data?.items ?? []),
+    marketplaces: { registrations },
+    updates: {
+      policy: stable(updates.envelope.data?.policy),
+      unreadCount: updates.envelope.data?.unreadCount,
+      unresolvedCount: updates.envelope.data?.unresolvedCount,
+    },
   };
   return createHash("sha256").update(JSON.stringify(publicState)).digest("hex");
 }

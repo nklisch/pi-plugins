@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-clean-environment-core-e2e-fuzz-boundaries
 kind: story
-stage: implementing
+stage: done
 tags: [e2e-test, testing]
 parent: epic-native-plugin-management-clean-environment-core-e2e
 depends_on: [epic-native-plugin-management-clean-environment-core-e2e-infrastructure]
@@ -50,3 +50,14 @@ Do not turn this into random soak testing or duplicate detailed source/codec uni
 ## Test integrity
 
 Park real parser/state/adoption bugs with `/agile-workflow:park`, retain the minimal replay and linked skip/xfail only when necessary, and fix generator/harness defects in-session. Never define the property as “did not throw” alone: every invalid case must also preserve public authority and produce bounded safe output. Never loosen generators or discard a seed merely to make the campaign green.
+
+## Implementation notes
+
+- Execution capability: GPT-5.6 Sol xhigh, caller-selected; one owner kept corpus, process, filesystem, and state evidence together without nested agents.
+- Review weight: standard from `.work/CONVENTIONS.md`; child-story checkpoint does not receive review.
+- Files changed: `test/e2e/harness/mutation-corpus.ts`, authority-digest normalization in `state-inspector.ts`, and `test/e2e/fuzz/{control-argv-fuzz,state-config-fuzz}.e2e.test.ts`.
+- Tests added: fixed 128-case/8-KiB grammar corpus with seed hash and per-case replay; six opaque-token operators; eight project-intent mutations including malformed UTF-8; structural versus schema-valid SQLite corruption; seven pointer/blob mutations; and Claude/Codex byte-preservation mutations.
+- Simplification: a small xorshift corpus replaces a fuzz dependency; the public authority digest intentionally removes scheduler clocks/snapshot IDs while retaining installed rows, registration declarations, policy, and notice counts.
+- Discrepancies from design: schema-valid SQLite corruptions hit the parked packed-startup diagnosis bug and are linked expected failures; structural corruption is classified on a disposable real SQLite clone instead of being mislabeled a product result.
+- Adjacent issues parked: no new fuzz-specific issue; `idea-packed-corruption-startup-diagnosis` is linked to all seven exact state-corruption cases.
+- Verification: control fuzz passed all 128 cases plus token mutations; state/config fuzz passed 10 tests; combined fuzz lane passed 13 tests including linked executable expected failures.
