@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isAbortRejection } from "../../application/abort-rejection.js";
 import { canonicalJson } from "../../domain/canonical-json.js";
 import { compareUtf8 } from "../../domain/canonical-json.js";
 import { hashContent } from "../../domain/content-manifest.js";
@@ -151,12 +152,6 @@ function sameScope(left: ScopeReference, right: ScopeReference): boolean {
 
 function sameIdentity(left: McpSourceIdentity, right: McpSourceIdentity): boolean {
   return sameJson(left, right);
-}
-
-function isAbortRejection(error: unknown): boolean {
-  if (error === null || typeof error !== "object") return false;
-  const value = error as { readonly name?: unknown; readonly code?: unknown };
-  return value.name === "AbortError" || value.code === "ABORT_ERR";
 }
 
 function stateOwner(state: McpLifecycleState): McpLifecycleOwner {
