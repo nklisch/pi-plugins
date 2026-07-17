@@ -7,7 +7,7 @@ import { SplitInspectorDetailFixtures, SplitInspectorPageFixture } from "../fixt
 const parser = createNativeControlParser();
 const signal = new AbortController().signal;
 function parsed(argv: string[]) { const value = parser.parseArgv(argv); if (value.kind !== "parsed") throw new Error(JSON.stringify(value)); return value.command; }
-const ready = { status: "ready", local: { recovery: "settled", runtime: "reconciled" }, update: { state: "standby", unresolvedCount: 0, unreadCount: 0 }, blocked: [], capabilities: { mcp: { status: "unavailable", explanation: "none" }, subagents: { status: "unavailable", explanation: "none" }, piReload: { status: "available", explanation: "yes" }, secrets: { status: "available", explanation: "yes" } } } as const;
+const ready = { status: "ready", local: { recovery: "settled", runtime: "reconciled" }, update: { state: "standby", unresolvedCount: 0, unreadCount: 0, scopes: [] }, blocked: [], capabilities: { mcp: { status: "unavailable", explanation: "none" }, subagents: { status: "unavailable", explanation: "none" }, piReload: { status: "available", explanation: "yes" }, secrets: { status: "available", explanation: "yes" } } } as const;
 const context = { executionId: "native-control-execution-v1:123e4567-e89b-42d3-a456-426614174000", input: unavailableNativeControlInput, readiness: ready, progress: { trusted: vi.fn(), lifecycle: vi.fn(), emit: vi.fn() } } as never;
 
 function fixture() {
@@ -67,5 +67,18 @@ describe("native control mutation dispatch", () => {
     expect(result).toMatchObject({ status: "rejected", data: { kind: "rejected", code: "INCOMPATIBLE" } });
     expect(dependencies.trustedInstallation.open).toHaveBeenCalledOnce();
     expect(dependencies.trustedInstallation.activate).not.toHaveBeenCalled();
+  });
+
+  it("reports deferred automatic maintenance as partial rather than successful", async () => {
+    const { dispatcher, dependencies } = fixture();
+    const noticeId = `update-notice-v1:sha256:${"a".repeat(64)}`;
+    dependencies.updates.runAutomatic.mockResolvedValue({
+      outcomes: [{ noticeId, kind: "pending", reason: "awaiting-host-context" }],
+    });
+    const result = await dispatcher.dispatch(parsed(["updates", "automatic", "run", "--notice-id", noticeId]), context, signal);
+    expect(result).toMatchObject({
+      status: "partial",
+      data: { outcomes: [{ noticeId, kind: "pending", reason: "awaiting-host-context" }] },
+    });
   });
 });

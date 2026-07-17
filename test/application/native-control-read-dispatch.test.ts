@@ -34,7 +34,7 @@ function fixture() {
     trustedInstallation: { status: vi.fn(async () => ({ kind: "missing" })), cancel: vi.fn(async () => ({ kind: "missing" })) },
     operations: { status: vi.fn(async () => ({ kind: "missing" })), cancel: vi.fn(async () => ({ kind: "missing" })) },
     updates: { previewPolicy: vi.fn(), status: vi.fn(async () => ({ policy: { global: { application: "manual", cadence: "balanced" }, scopes: [], policies: [], inventoryComplete: true }, scheduler: { state: "standby", scopes: [] }, unreadCount: 0, unresolvedCount: 0 })), notifications: vi.fn(async () => ({ notices: [], unreadCount: 0, unresolvedCount: 0 })) },
-    status: { snapshot: () => ({ status: "ready", local: { recovery: "settled", runtime: "reconciled" }, update: { state: "standby", unreadCount: 0, unresolvedCount: 0 }, blocked: [], capabilities: { mcp: { status: "unavailable", explanation: "not configured" }, subagents: { status: "unavailable", explanation: "not configured" }, piReload: { status: "available", explanation: "available" }, secrets: { status: "available", explanation: "available" } } }) },
+    status: { snapshot: vi.fn(() => ({ status: "ready", local: { recovery: "settled", runtime: "reconciled" }, update: { state: "standby", unreadCount: 0, unresolvedCount: 0, scopes: [] }, blocked: [], capabilities: { mcp: { status: "unavailable", explanation: "not configured" }, subagents: { status: "unavailable", explanation: "not configured" }, piReload: { status: "available", explanation: "available" }, secrets: { status: "available", explanation: "available" } } })) },
     selection,
   };
   return { dispatcher: createNativeControlReadDispatcher(dependencies as never), dependencies };
@@ -67,5 +67,31 @@ describe("native control read dispatch", () => {
     await expect(dispatcher.dispatch(command(["operation", "status", token]), signal)).resolves.toMatchObject({ status: "not-found" });
     expect(dependencies.trustedInstallation.status).toHaveBeenCalledOnce();
     expect(dependencies.operations.status).not.toHaveBeenCalled();
+  });
+
+  it("preserves scheduler ownership in update and host status projections", async () => {
+    const { dispatcher, dependencies } = fixture();
+    dependencies.updates.status.mockResolvedValue({
+      policy: { global: { application: "manual", cadence: "balanced" }, scopes: [{ scope: { kind: "user" }, ownership: "self", clock: "current", nextAt: 500 }], policies: [], inventoryComplete: true },
+      scheduler: { state: "running", scopes: [{ scope: { kind: "user" }, ownership: "self", nextAt: 500 }] },
+      unreadCount: 1,
+      unresolvedCount: 2,
+    });
+    dependencies.status.snapshot.mockReturnValue({
+      status: "ready",
+      local: { recovery: "settled", runtime: "reconciled" },
+      update: { state: "running", unreadCount: 1, unresolvedCount: 2, scopes: [{ scope: { kind: "user" }, ownership: "self", nextAt: 500 }] },
+      blocked: [],
+      capabilities: { mcp: { status: "unavailable", explanation: "not configured" }, subagents: { status: "unavailable", explanation: "not configured" }, piReload: { status: "available", explanation: "available" }, secrets: { status: "available", explanation: "available" } },
+    });
+
+    await expect(dispatcher.dispatch(command(["updates", "status"]), signal)).resolves.toMatchObject({
+      status: "ok",
+      data: { scheduler: { state: "running", scopes: [{ ownership: "self", nextAt: 500 }] } },
+    });
+    await expect(dispatcher.dispatch(command(["status"]), signal)).resolves.toMatchObject({
+      status: "ok",
+      data: { update: { state: "running", scopes: [{ ownership: "self", nextAt: 500 }] } },
+    });
   });
 });

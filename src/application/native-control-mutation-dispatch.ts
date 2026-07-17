@@ -211,7 +211,7 @@ export function createNativeControlMutationDispatcher(dependencies: NativeContro
         }
         case "updates.automatic.run": {
           const result = await dependencies.updates.runAutomatic(request, signal);
-          const status = result.outcomes.some((entry) => entry.kind === "recovery-required") ? "recovery-required" : result.outcomes.some((entry) => ["blocked", "retryable", "stale"].includes(entry.kind)) ? "partial" : "ok";
+          const status = result.outcomes.some((entry) => entry.kind === "recovery-required") ? "recovery-required" : result.outcomes.some((entry) => ["pending", "blocked", "retryable", "stale"].includes(entry.kind)) ? "partial" : "ok";
           return projectNativeControlResponse(command.command, result, { status });
         }
         default:

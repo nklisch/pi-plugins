@@ -4,7 +4,7 @@ import { createNativePluginControlService } from "../../../src/application/nativ
 export const ControlReadyStatus = Object.freeze({
   status: "ready" as const,
   local: { recovery: "settled" as const, runtime: "reconciled" as const },
-  update: { state: "standby" as const, unreadCount: 0, unresolvedCount: 0 },
+  update: { state: "standby" as const, unreadCount: 0, unresolvedCount: 0, scopes: [] },
   blocked: [],
   capabilities: {
     mcp: { status: "unavailable" as const, explanation: "not configured" },
