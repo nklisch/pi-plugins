@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-packaged-host-composition-project-secret-identity-adapters
 kind: story
-stage: implementing
+stage: done
 tags: [security, compatibility, infra]
 parent: epic-native-plugin-management-packaged-host-composition
 depends_on: [epic-native-plugin-management-packaged-host-composition-host-contract-session-layout]
@@ -52,3 +52,10 @@ Implement the exact Pi project root/trust adapters and a safe concrete Linux Sec
 ## Ordering constraint
 
 May proceed beside durable state after host contracts. Runtime selection depends on its exact project/trust and credential boundaries.
+
+## Implementation notes
+
+- Added exact Pi-bound project composition over canonical real paths, optional local Git common-directory device/inode identity, the existing opaque project-root authority, and live conjunctive Pi trust.
+- Added a pinned `dbus-next` dependency and a package-private encrypted Secret Service client using the required DH/AES session algorithm only. Fixed labels/attributes contain no values; prompt/locked/session failures fail closed.
+- Added the Linux `SecretStore` adapter with random nonce envelopes, verified creation evidence, exact-item owned deletion, zeroed byte buffers, collision isolation, and explicit unavailable adapters for missing/unsupported providers. No CLI, file, environment, settings, SQLite, or plain-session fallback exists.
+- Verification: project/root/path and secret custody suites passed (5 tests); `npm run typecheck` and `npm run boundaries` passed.
