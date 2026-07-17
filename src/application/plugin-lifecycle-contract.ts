@@ -9,6 +9,8 @@ import {
   InstalledPluginRecordSchema,
   type InstalledPluginRecord,
 } from "../domain/state/installed-state.js";
+export { LifecycleTargetExpectationSchema } from "./native-lifecycle-operation-contract.js";
+export type { LifecycleTargetExpectation } from "./native-lifecycle-operation-contract.js";
 import {
   PendingTransitionRefSchema,
   derivePendingTransitionRef,

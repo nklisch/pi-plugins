@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createPluginLifecycleComposition, createPluginLifecycleService, type PluginLifecycleServiceDependencies } from "../../src/application/plugin-lifecycle-service.js";
+import { deriveLifecycleTargetDigest } from "../../src/application/native-lifecycle-target.js";
 import { createPluginConfigurationDocument, digestConfigurationDescriptors } from "../../src/domain/configured-values.js";
 import { digestCompatibilityReport } from "../../src/application/ports/runtime-projection.js";
 import { prepareEnableCandidate } from "../../src/application/plugin-candidate-preparation.js";
@@ -421,6 +422,32 @@ describe("plugin lifecycle service", () => {
     expect(removed.kind).toBe("changed");
     expect(removed).toMatchObject({ cleanup: { kind: "deferred", retainedData: "delete-confirmed" } });
     expect(state.current.installed.plugins).toHaveLength(0);
+  });
+
+  it("binds optional target expectations and rebases unrelated generations only for exact target bytes", async () => {
+    const target = createInstalledPluginRecord({ plugin: plugin.identity.key, activation: "enabled", revisions: [{ plugin, compatibility, content }] }, sha256);
+    const state = new MemoryState(snapshot(0, [target, otherRecord]));
+    const expectation = {
+      generation: state.current.generation,
+      plugin: target.plugin,
+      selectedRevision: target.selectedRevision,
+      activation: target.activation,
+      targetDigest: deriveLifecycleTargetDigest({ kind: "user" }, target, sha256),
+      pendingTransition: "none" as const,
+    };
+    advanceOtherPlugin(state);
+    const service = createPluginLifecycleService(dependencies(state));
+    expect((await service.disable({ scope: { kind: "user" }, plugin: target.plugin, expectedTarget: expectation }, signal)).kind).toBe("changed");
+
+    const changed = state.current.installed.plugins.find((record) => record.plugin === target.plugin)!;
+    const stale = await service.enable({
+      scope: { kind: "user" },
+      plugin: target.plugin,
+      configurationPathContext: { scope: { kind: "user" } },
+      expectedTarget: { ...expectation, activation: "disabled", targetDigest: expectation.targetDigest },
+    }, signal);
+    expect(stale.kind).toBe("stale");
+    expect(changed.activation).toBe("disabled");
   });
 
   it("reports verified rollback instead of accepting a rejected reload", async () => {

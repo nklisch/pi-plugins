@@ -50,7 +50,9 @@ import {
   type CandidateContentCleanupRecovery,
   type CandidateContentLease,
 } from "./ports/candidate-content-lease.js";
-import type { TrustedInstallCandidateBinding } from "./trusted-install-contract.js";
+import type { PreparedLifecycleCandidateBinding } from "./trusted-install-contract.js";
+import type { LifecycleTargetExpectation } from "./native-lifecycle-operation-contract.js";
+import { deriveLifecycleTargetDigest } from "./native-lifecycle-target.js";
 import type { PluginInspectionService } from "./inspection-service.js";
 import type { CompatibilityService } from "./compatibility-service.js";
 import type { ContentStorePort, PromotionResult } from "./ports/content-store.js";
@@ -107,12 +109,14 @@ export type InstallPluginRequest = Readonly<{
   expectedRevision?: import("../domain/content-manifest.js").ContentDigest;
   automaticAuthorization?: AutomaticUpdateAuthorizationEvidence;
 }>;
-export type UpdatePluginRequest = InstallPluginRequest;
+export type UpdatePluginRequest = InstallPluginRequest & ExpectedLifecycleTarget;
 type PreparedInstallPluginRequest = InstallPluginRequest & Readonly<{
   candidateLease: CandidateContentLease;
-  expectedBinding: TrustedInstallCandidateBinding;
+  expectedBinding: PreparedLifecycleCandidateBinding;
   expectedConfigurationRevision?: import("../domain/content-manifest.js").ContentDigest;
+  expectedTarget?: LifecycleTargetExpectation;
 }>;
+type ExpectedLifecycleTarget = Readonly<{ expectedTarget?: LifecycleTargetExpectation }>;
 export type EnablePluginRequest = Readonly<{
   scope: ScopeContext;
   plugin: PluginKey;
@@ -120,18 +124,18 @@ export type EnablePluginRequest = Readonly<{
   trustRecords?: readonly TrustStateRecord[];
   configurationPathContext: ConfigurationPathContext;
   expectedConfigurationRevision?: import("../domain/content-manifest.js").ContentDigest;
-}>;
+}> & ExpectedLifecycleTarget;
 export type DisablePluginRequest = Readonly<{
   scope: ScopeContext;
   plugin: PluginKey;
   origin?: LifecycleOrigin;
-}>;
+}> & ExpectedLifecycleTarget;
 export type UninstallPluginRequest = Readonly<{
   scope: ScopeContext;
   plugin: PluginKey;
   origin?: LifecycleOrigin;
   retainedData?: LifecycleRetainedData;
-}>;
+}> & ExpectedLifecycleTarget;
 
 export type LifecycleActivationFailure =
   | Readonly<{ kind: "reload-rejected"; code: "RELOAD_REJECTED" }>
@@ -176,22 +180,29 @@ export interface PluginLifecycleService {
   uninstall(request: UninstallPluginRequest, signal: AbortSignal): Promise<PluginLifecycleResult>;
 }
 
-export interface PreparedInstallLifecycleAuthority {
-  installPrepared(request: Readonly<{
-    scope: ScopeContext;
-    plugin: PluginKey;
-    entry: NormalizedMarketplaceEntry;
-    marketplaceSource: ResolvedMarketplaceSource;
-    sourceContext: SourceContext;
-    lease: CandidateContentLease;
-    expected: TrustedInstallCandidateBinding;
-    expectedConfigurationRevision?: import("../domain/content-manifest.js").ContentDigest;
-    configurationPathContext: ConfigurationPathContext;
-  }>, signal: AbortSignal): Promise<PluginLifecycleResult>;
+export type PreparedLifecycleMutationRequest = Readonly<{
+  scope: ScopeContext;
+  plugin: PluginKey;
+  entry: NormalizedMarketplaceEntry;
+  marketplaceSource: ResolvedMarketplaceSource;
+  sourceContext: SourceContext;
+  lease: CandidateContentLease;
+  expected: PreparedLifecycleCandidateBinding;
+  expectedConfigurationRevision?: import("../domain/content-manifest.js").ContentDigest;
+  configurationPathContext: ConfigurationPathContext;
+}>;
+
+export interface PreparedLifecycleAuthority {
+  installPrepared(request: PreparedLifecycleMutationRequest, signal: AbortSignal): Promise<PluginLifecycleResult>;
+  updatePrepared(request: PreparedLifecycleMutationRequest & Readonly<{ expectedTarget: LifecycleTargetExpectation }>, signal: AbortSignal): Promise<PluginLifecycleResult>;
 }
+
+/** Source-compatible trusted-install authority name. */
+export type PreparedInstallLifecycleAuthority = Pick<PreparedLifecycleAuthority, "installPrepared">;
 
 export type PluginLifecycleComposition = Readonly<{
   application: PluginLifecycleService;
+  prepared: PreparedLifecycleAuthority;
   preparedInstall: PreparedInstallLifecycleAuthority;
 }>;
 
@@ -604,6 +615,14 @@ function createPluginLifecycleImplementation(
     if (initial === undefined) return rejected(operation, "MALFORMED");
     const previous = targetRecord(initial, plugin);
     if (previous?.pendingTransition !== undefined) return rejected(operation, "PENDING_TRANSITION");
+    const expectedTarget = "expectedTarget" in request ? request.expectedTarget : undefined;
+    if (expectedTarget !== undefined) {
+      if (expectedTarget.plugin !== plugin || previous === undefined || previous.pendingTransition !== undefined ||
+          previous.selectedRevision !== expectedTarget.selectedRevision || previous.activation !== expectedTarget.activation ||
+          deriveLifecycleTargetDigest(toScopeReference(scope), previous, dependencies.sha256) !== expectedTarget.targetDigest) {
+        return { kind: "stale", operation, expected: expectedTarget.generation, actual: initial.generation };
+      }
+    }
 
     if (operation === "enable" && (previous === undefined || previous.activation === "enabled")) {
       return previous === undefined ? rejected(operation, "NOT_INSTALLED") : noOp(operation, initial);
@@ -866,30 +885,37 @@ function createPluginLifecycleImplementation(
     update: (request: UpdatePluginRequest, signal: AbortSignal) => execute("update", request, signal),
     uninstall: (request: UninstallPluginRequest, signal: AbortSignal) => execute("uninstall", request, signal),
   });
-  const preparedInstall: PreparedInstallLifecycleAuthority = Object.freeze({
-    async installPrepared(request: Parameters<PreparedInstallLifecycleAuthority["installPrepared"]>[0], signal: AbortSignal) {
-      const preparedRequest: PreparedInstallPluginRequest = {
-          scope: request.scope,
-          plugin: request.plugin,
-          origin: "manual",
-          entry: request.entry,
-          marketplaceSource: request.marketplaceSource,
-          sourceContext: request.sourceContext,
-          configurationPathContext: request.configurationPathContext,
-          expectedRevision: request.expected.immutableRevision,
-          ...(request.expectedConfigurationRevision === undefined ? {} : { expectedConfigurationRevision: request.expectedConfigurationRevision }),
-          candidateLease: request.lease,
-          expectedBinding: request.expected,
-        };
-      try {
-        return await execute("install", preparedRequest, signal);
-      } finally {
-        // No-op after transfer; mandatory cleanup when lifecycle returned before claim.
-        await request.lease.release();
-      }
-    },
+  async function executePrepared(
+    operation: "install" | "update",
+    request: PreparedLifecycleMutationRequest & Readonly<{ expectedTarget?: LifecycleTargetExpectation }>,
+    signal: AbortSignal,
+  ): Promise<PluginLifecycleResult> {
+    const preparedRequest: PreparedInstallPluginRequest = {
+      scope: request.scope,
+      plugin: request.plugin,
+      origin: "manual",
+      entry: request.entry,
+      marketplaceSource: request.marketplaceSource,
+      sourceContext: request.sourceContext,
+      configurationPathContext: request.configurationPathContext,
+      expectedRevision: request.expected.immutableRevision,
+      ...(request.expectedConfigurationRevision === undefined ? {} : { expectedConfigurationRevision: request.expectedConfigurationRevision }),
+      candidateLease: request.lease,
+      expectedBinding: request.expected,
+      ...(request.expectedTarget === undefined ? {} : { expectedTarget: request.expectedTarget }),
+    };
+    try {
+      return await execute(operation, preparedRequest, signal);
+    } finally {
+      // No-op after transfer; mandatory cleanup when lifecycle returned before claim.
+      await request.lease.release();
+    }
+  }
+  const prepared: PreparedLifecycleAuthority = Object.freeze({
+    installPrepared: (request: PreparedLifecycleMutationRequest, signal: AbortSignal) => executePrepared("install", request, signal),
+    updatePrepared: (request: PreparedLifecycleMutationRequest & Readonly<{ expectedTarget: LifecycleTargetExpectation }>, signal: AbortSignal) => executePrepared("update", request, signal),
   });
-  return Object.freeze({ application, preparedInstall });
+  return Object.freeze({ application, prepared, preparedInstall: prepared });
 }
 
 export function createPluginLifecycleComposition(
