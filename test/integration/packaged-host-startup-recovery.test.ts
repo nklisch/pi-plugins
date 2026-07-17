@@ -35,10 +35,16 @@ describe("packaged host startup and recovery", () => {
     const project = join(root, "project");
     await import("node:fs/promises").then(({ mkdir }) => Promise.all([mkdir(agentDir), mkdir(project)]));
     const fake = pi();
-    const host = createPackagedPluginHost({ pi: fake.api as never, agentDir });
+    let networkCalls = 0;
+    const host = createPackagedPluginHost({
+      pi: fake.api as never,
+      agentDir,
+      source: { fetch: (async () => { networkCalls += 1; throw new Error("startup must not call network"); }) as never },
+    });
     await expect(stat(join(agentDir, "plugin-host"))).rejects.toMatchObject({ code: "ENOENT" });
     const started = await host.start({ type: "session_start", reason: "startup" } as never, context(project) as never);
     expect(started.startup.status).toBe("ready");
+    expect(networkCalls).toBe(0);
     expect(started.startup.capabilities.mcp.status).toBe("unavailable");
     expect(started.startup.capabilities.subagents.status).toBe("unavailable");
     expect(started.application.operations).toBeDefined();

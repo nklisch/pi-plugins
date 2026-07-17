@@ -1,69 +1,82 @@
-import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createStateUpdateSchedulerLeasePort } from "../../src/application/update-scheduler-lease-state.js";
-import { createMarketplaceConfigurationRecord } from "../../src/domain/update-policy.js";
 
-const sha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(bytes).digest());
-const signal = new AbortController().signal;
-const scope = { kind: "user" as const };
-const ownerA = "update-scheduler-lease-v1:uuid:123e4567-e89b-42d3-a456-426614174000" as any;
-const ownerB = "update-scheduler-lease-v1:uuid:123e4567-e89b-42d3-a456-426614174001" as any;
+const fixture = resolve(process.cwd(), "test/fixtures/composition/child-update-scheduler-state.mjs");
+const loader = resolve(process.cwd(), "test/fixtures/locking/source-loader.mjs");
+const ownerA = "update-scheduler-lease-v1:uuid:123e4567-e89b-42d3-a456-426614174000";
+const ownerB = "update-scheduler-lease-v1:uuid:123e4567-e89b-42d3-a456-426614174001";
 
-function environment() {
-  let now = 1_000;
-  let generation = 0;
-  let config: any = {
-    schemaVersion: 4, generation,
-    global: { application: "manual", cadence: "balanced" }, scope: {},
-    records: [createMarketplaceConfigurationRecord({ marketplace: "community", source: { kind: "github", repository: "example/community" } })],
-  };
-  const snapshot = () => ({ scope, generation, config, installed: { schemaVersion: 2, generation, marketplaces: [], plugins: [] }, trust: { schemaVersion: 1, generation, records: [] }, pointers: { schemaVersion: 1, scope, generation, documents: [] }, corruptions: [] }) as any;
-  let queue = Promise.resolve();
-  const dependencies = {
-    state: { async read() { return { ok: true as const, snapshot: snapshot() }; } },
-    inventory: { async discover() { return { scopes: [scope], complete: true }; } },
-    mutations: {
-      async runPreparedMutation(request: any, prepare: any) {
-        let release!: () => void;
-        const previous = queue;
-        queue = new Promise<void>((resolve) => { release = resolve; });
-        await previous;
-        try {
-          if (request.expectedGeneration !== generation) return { kind: "stale-generation", expected: request.expectedGeneration, actual: generation };
-          const prepared = await prepare({ snapshot: snapshot(), assertOwned: async () => undefined });
-          generation += 1;
-          config = { ...prepared.mutation.replace.config, generation };
-          return { kind: "committed", value: prepared.value, snapshot: snapshot() };
-        } finally { release(); }
-      },
-    },
-    clock: { nowEpochMilliseconds: () => now, monotonicMilliseconds: () => now }, sha256,
-  } as any;
-  return { dependencies, setNow(value: number) { now = value; }, setLease(value: unknown) { config = { ...config, scope: { schedulerLease: value } }; } };
+function child<T>(agentDir: string, projectRoot: string, mode: "lease" | "seed" | "inventory", now: number, value?: string | number): Promise<T> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const handle = spawn(process.execPath, [
+      "--experimental-strip-types", "--experimental-transform-types", "--loader", loader,
+      fixture, agentDir, projectRoot, mode, String(now), ...(value === undefined ? [] : [String(value)]),
+    ], {
+      cwd: process.cwd(),
+      env: { ...process.env, NODE_OPTIONS: "", VITEST: undefined },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    handle.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+    handle.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+    handle.once("close", (code) => {
+      if (code !== 0) rejectPromise(new Error(`scheduler child failed (${mode}): ${stderr}`));
+      else resolvePromise(JSON.parse(stdout.trim()) as T);
+    });
+  });
+}
+
+async function roots() {
+  const root = await mkdtemp(join(tmpdir(), "pi-update-scheduler-process-"));
+  const agentDir = join(root, "agent");
+  const project = join(root, "project");
+  await Promise.all([mkdir(agentDir), mkdir(project)]);
+  return { root, agentDir, project };
 }
 
 describe("multiprocess update scheduler ownership", () => {
-  it("elects one owner per scope and fences the loser", async () => {
-    const env = environment();
-    const left = createStateUpdateSchedulerLeasePort(env.dependencies);
-    const right = createStateUpdateSchedulerLeasePort(env.dependencies);
-    const results = await Promise.all([
-      left.acquire(scope, ownerA, 1_000, 1_000, signal),
-      right.acquire(scope, ownerB, 1_000, 1_000, signal),
-    ]);
-    const winner = results[0] === "self" ? ownerA : ownerB;
-    expect([...results].sort()).toEqual(["other", "self"]);
-    const loser = winner === ownerA ? ownerB : ownerA;
-    expect(await left.validate(scope, winner, 1_001, signal)).toBe(true);
-    expect(await right.validate(scope, loser, 1_001, signal)).toBe(false);
-  });
+  it("elects one SQLite-backed owner and permits expiry takeover from a fresh process", async () => {
+    const value = await roots();
+    try {
+      const initial = await Promise.all([
+        child<{ result: string }>(value.agentDir, value.project, "lease", 1_000, ownerA),
+        child<{ result: string }>(value.agentDir, value.project, "lease", 1_000, ownerB),
+      ]);
+      expect(initial.map((entry) => entry.result).sort()).toEqual(["other", "self"]);
+      const loser = initial[0]!.result === "self" ? ownerB : ownerA;
+      await expect(child<{ result: string }>(value.agentDir, value.project, "lease", 2_001, loser)).resolves.toEqual({ result: "self" });
+    } finally {
+      await rm(value.root, { recursive: true, force: true });
+    }
+  }, 30_000);
 
-  it("expires future-clock and elapsed leases for deterministic takeover", async () => {
-    const env = environment();
-    env.setLease({ id: ownerA, startedAt: 5_000, renewedAt: 5_000, expiresAt: 6_000 });
-    const port = createStateUpdateSchedulerLeasePort(env.dependencies);
-    expect(await port.acquire(scope, ownerB, 1_000, 1_000, signal)).toBe("self");
-    env.setNow(3_000);
-    expect(await port.acquire(scope, ownerA, 3_000, 1_000, signal)).toBe("self");
-  });
+  it("treats a future-clock owner as expired without publishing lease identity", async () => {
+    const value = await roots();
+    try {
+      await expect(child<{ result: string }>(value.agentDir, value.project, "lease", 5_000, ownerA)).resolves.toEqual({ result: "self" });
+      await expect(child<{ result: string }>(value.agentDir, value.project, "lease", 1_000, ownerB)).resolves.toEqual({ result: "self" });
+    } finally {
+      await rm(value.root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("preserves deterministic failure backoff/jitter across restart and reports backward clock", async () => {
+    const value = await roots();
+    try {
+      const seeded = await child<{ result: string; schedule: { anchorAt: number; dueAt: number; jitterMs: number } }>(value.agentDir, value.project, "seed", 10_000, 3);
+      expect(seeded.result).toBe("committed");
+      const restarted = await child<{ plan: { dueAt: number; clock: string } }>(value.agentDir, value.project, "inventory", 10_001);
+      expect(restarted.plan).toMatchObject({ dueAt: seeded.schedule.dueAt, clock: "current" });
+      const regressed = await child<{ plan: { dueAt: number; clock: string } }>(value.agentDir, value.project, "inventory", 9_999);
+      expect(regressed.plan).toMatchObject({ dueAt: seeded.schedule.dueAt, clock: "regressed" });
+      expect(seeded.schedule.dueAt).toBeGreaterThan(seeded.schedule.anchorAt);
+      expect(Number.isSafeInteger(seeded.schedule.jitterMs)).toBe(true);
+    } finally {
+      await rm(value.root, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

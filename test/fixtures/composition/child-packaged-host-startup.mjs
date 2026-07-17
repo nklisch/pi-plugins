@@ -8,10 +8,17 @@ const context = {
   sessionManager: { getSessionId: () => sessionId, getSessionFile: () => undefined },
   isProjectTrusted: () => true,
 };
-const host = createPackagedPluginHost({ pi, agentDir });
+let networkCalls = 0;
+let publisherCalls = 0;
+const host = createPackagedPluginHost({
+  pi,
+  agentDir,
+  source: { fetch: async () => { networkCalls += 1; throw new Error("packaged startup called network"); } },
+  update: { publisher: { async publish() { publisherCalls += 1; throw new Error("packaged startup called publisher"); } } },
+});
 try {
   const started = await host.start({ type: "session_start", reason: "startup" }, context);
-  process.stdout.write(`${JSON.stringify({ status: started.startup.status })}\n`);
+  process.stdout.write(`${JSON.stringify({ status: started.startup.status, networkCalls, publisherCalls })}\n`);
 } finally {
   await host.dispose("quit");
 }
