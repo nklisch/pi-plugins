@@ -32,6 +32,10 @@ import { createNodeMarketplaceDiscoveryComposition } from "./create-marketplace-
 import { createCandidateContentLeasePort } from "./candidate-content-lease.js";
 import { createNativeInspectionComposition } from "./create-native-inspection-service.js";
 import { createComposedTrustedInstallationService } from "./create-trusted-installation-service.js";
+import { createComposedNativeLifecycleOperationService } from "./create-native-lifecycle-operation-service.js";
+import { createNativeUninstallCleanupService } from "../application/native-uninstall-cleanup.js";
+import { createNodeProjectIntentFilePort } from "../infrastructure/project/node-project-intent-file.js";
+import { deriveInspectionDetailId, deriveInspectionEvidenceSnapshotId } from "../application/native-inspection-identifiers.js";
 import { createHostConfigurationServices } from "./create-host-configuration.js";
 import { createNodePiRuntimeCapabilityProbe } from "./node-pi-runtime-capability-probe.js";
 import { buildRuntimeDesiredState, type HostBlockedPlugin, type RuntimeDesiredState } from "./runtime-desired-state.js";
@@ -121,6 +125,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
   let sessionStartDispatch: Promise<void> | undefined;
   let sessionEndPromise: Promise<void> | undefined;
   let quiesceTrustedInstallation: (() => void) | undefined;
+  let quiesceOperations: (() => void) | undefined;
 
   async function start(_event: SessionStartEvent, context: ExtensionContext): Promise<StartedPackagedPluginHost> {
     if (terminal) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.terminal, "packaged plugin host is terminal");
@@ -168,6 +173,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         const identifiers = createNodeHostIdentifiers();
         const clock = createNodeLifecycleClock();
         const configurationPaths = createNodeConfigurationPathPort({ binding, projectRoots: project.authority });
+        const projectFiles = createNodeProjectIntentFilePort({ projectRoots: project.authority, sha256 });
         const configuration = createHostConfigurationServices({
           configurations,
           secrets: secrets.store,
@@ -294,11 +300,13 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           sha256,
         });
         const lifecycle = lifecycleComposition.application;
+        const uninstallCleanup = createNativeUninstallCleanupService({ transitions: recoveryAdapters.transitions, data: content.dataRemoval, clock });
         const recovery = recoveryAdapters.createRecoveryService({
           state: state.state,
           inventory: state.inventory,
           reconciler,
           reload,
+          uninstallCleanup,
           clock,
         });
         const collection = recoveryAdapters.createCollectionService({ state: state.state, inventory: state.inventory, mutations, clock });
@@ -389,10 +397,53 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           sha256,
         });
         const hostEpochId = await identifiers.operationIds.create(startupSignal);
-        const hostEpoch = hashContent(new TextEncoder().encode(`trusted-install-host-epoch-v1\0${hostEpochId}`), sha256);
+        const hostEpoch = hashContent(new TextEncoder().encode(`native-operation-host-epoch-v1\0${hostEpochId}`), sha256);
+        const operations = createComposedNativeLifecycleOperationService({
+          catalog: marketplaceComposition.inspection.catalog,
+          candidateContent,
+          inspector: inspection,
+          readiness: nativeInspection.readiness,
+          async syncReadiness(snapshot, signal) {
+            const captured = await nativeInspection.evidence.capture(signal);
+            const state = captured.states.find((result) => result.ok && result.snapshot.scope.kind === "project" && result.snapshot.scope.projectKey === snapshot.scope.projectKey);
+            if (state === undefined || !state.ok || state.snapshot.generation !== snapshot.generation) throw new Error("project inspection evidence changed during sync preview");
+            const snapshotId = deriveInspectionEvidenceSnapshotId(captured.binding, sha256);
+            const values = [];
+            for (const record of snapshot.project.plugins) {
+              const detailId = deriveInspectionDetailId({ version: 1, subject: "installed", scope: { kind: "project", projectKey: snapshot.scope.projectKey }, plugin: record.plugin, selectedRevision: record.selectedRevision }, sha256);
+              const detail = await nativeInspection.application.detail({ snapshotId, detailId }, signal);
+              if (detail.kind !== "found") throw new Error("project plugin readiness is unavailable");
+              const configurationReady = !detail.detail.configuration.some((field) => field.state === "invalid" || field.required && (field.state === "missing" || field.state === "unavailable"));
+              values.push({ plugin: record.plugin, trust: detail.detail.trust === "authorized" ? "ready" as const : "missing" as const, configuration: configurationReady ? "ready" as const : "missing" as const });
+            }
+            return values;
+          },
+          evidence: nativeInspection.evidence,
+          configuration: configuration.application,
+          configurations,
+          configurationPaths,
+          secretCustody: startup.capabilities.secrets,
+          userBaseDirectory: binding.current().cwd,
+          state: state.state,
+          mutations,
+          projectTrust: project.trust,
+          projectRoots: project.authority,
+          projectFiles,
+          projectWriteIds: identifiers.projectIntentWriteIds,
+          registrations: marketplaceComposition.application.registration,
+          lifecycle: lifecycleComposition,
+          uninstallCleanup,
+          clock,
+          sessionIds: identifiers.operationIds,
+          hostEpoch,
+          sha256,
+        });
+        quiesceOperations = operations.quiesce;
+        own(() => operations.close());
         const trustedInstallation = createComposedTrustedInstallationService({
           catalog: marketplaceComposition.inspection.catalog,
           candidateContent,
+          candidate: operations.candidate,
           inspector: inspection,
           readiness: nativeInspection.readiness,
           evidence: nativeInspection.evidence,
@@ -413,8 +464,30 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         });
         quiesceTrustedInstallation = trustedInstallation.quiesce;
         own(() => trustedInstallation.close());
+        const operationApplication = Object.freeze({
+          preview: (...args: Parameters<typeof operations.application.preview>) => {
+            if (operationContexts.getStore() === undefined) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.reloadContextUnavailable, "native operation requires a Pi operation context");
+            return operations.application.preview(...args);
+          },
+          apply: (...args: Parameters<typeof operations.application.apply>) => {
+            if (operationContexts.getStore() === undefined) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.reloadContextUnavailable, "native operation requires a Pi operation context");
+            return operations.application.apply(...args);
+          },
+          run: (...args: Parameters<typeof operations.application.run>) => {
+            if (operationContexts.getStore() === undefined) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.reloadContextUnavailable, "native operation requires a Pi operation context");
+            return operations.application.run(...args);
+          },
+          status: (...args: Parameters<typeof operations.application.status>) => {
+            if (operationContexts.getStore() === undefined) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.reloadContextUnavailable, "native operation requires a Pi operation context");
+            return operations.application.status(...args);
+          },
+          cancel: (...args: Parameters<typeof operations.application.cancel>) => {
+            if (operationContexts.getStore() === undefined) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.reloadContextUnavailable, "native operation requires a Pi operation context");
+            return operations.application.cancel(...args);
+          },
+        });
         const application: PackagedPluginHostApplication = Object.freeze({
-          lifecycle,
+          operations: operationApplication,
           trustedInstallation: trustedInstallation.application,
           compatibility,
           inspection: nativeInspection.application,
@@ -489,6 +562,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
     terminal = true;
     operationAdmission = false;
     quiesceTrustedInstallation?.();
+    quiesceOperations?.();
     started = undefined;
     if (event !== undefined && context !== undefined) {
       sessionEndPromise ??= delegates.dispatchSessionEnd(event, context);

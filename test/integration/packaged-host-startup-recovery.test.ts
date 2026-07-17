@@ -41,7 +41,9 @@ describe("packaged host startup and recovery", () => {
     expect(started.startup.status).toBe("ready");
     expect(started.startup.capabilities.mcp.status).toBe("unavailable");
     expect(started.startup.capabilities.subagents.status).toBe("unavailable");
-    expect(started.application.lifecycle).toBeDefined();
+    expect(started.application.operations).toBeDefined();
+    expect(started.application).not.toHaveProperty("lifecycle");
+    expect(() => started.application.operations.preview({} as never, new AbortController().signal)).toThrow(expect.objectContaining({ code: PackagedPluginHostErrorCode.reloadContextUnavailable }));
     expect(started.application.recovery).toBeDefined();
     await expect(host.start({ type: "session_start", reason: "startup" } as never, context(project, "other-session") as never))
       .rejects.toMatchObject({ code: PackagedPluginHostErrorCode.sessionMismatch });

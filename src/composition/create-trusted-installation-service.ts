@@ -1,5 +1,5 @@
 import { createExactTrustGrantService } from "../application/exact-trust-grant-service.js";
-import { createTrustedInstallCandidateService } from "../application/trusted-install-candidate.js";
+import { createTrustedInstallCandidateService, type TrustedInstallCandidateService } from "../application/trusted-install-candidate.js";
 import { createTrustedInstallConfigurationAuthority } from "../application/trusted-install-configuration.js";
 import { createTrustedInstallationService } from "../application/trusted-install-service.js";
 import type { CandidateContentLeasePort } from "../application/ports/candidate-content-lease.js";
@@ -25,6 +25,7 @@ import type { Sha256 } from "../domain/source.js";
 export function createComposedTrustedInstallationService(input: Readonly<{
   catalog: Pick<MarketplaceCatalogService, "resolve">;
   candidateContent: CandidateContentLeasePort;
+  candidate?: TrustedInstallCandidateService;
   inspector: PluginInspectionService;
   readiness: InspectionReadinessPort;
   evidence: NativeInspectionEvidencePort;
@@ -43,7 +44,7 @@ export function createComposedTrustedInstallationService(input: Readonly<{
   hostEpoch: ContentDigest;
   sha256: Sha256;
 }>) {
-  const candidate = createTrustedInstallCandidateService({
+  const candidate = input.candidate ?? createTrustedInstallCandidateService({
     catalog: input.catalog,
     content: input.candidateContent,
     inspector: input.inspector,

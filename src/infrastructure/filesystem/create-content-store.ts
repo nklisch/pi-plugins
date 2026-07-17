@@ -2,6 +2,7 @@ import { createHash, randomBytes as nodeRandomBytes } from "node:crypto";
 import type { ContentStorePort } from "../../application/ports/content-store.js";
 import type { InstalledPluginLoader } from "../../application/ports/installed-plugin-loader.js";
 import type { ContentStorePlatform } from "../../application/ports/content-store-platform.js";
+import type { PersistentDataRemovalPort } from "../../application/ports/persistent-data-removal.js";
 import { createContentStoreLayout } from "./content-store-layout.js";
 import { createStagingAllocator, type RandomBytes } from "./staging-allocator.js";
 import { createNodeContentStorePlatform } from "./content-store-durability.js";
@@ -9,6 +10,7 @@ import { createImmutableContentStore } from "./immutable-content-store.js";
 import { createContentRootResolver } from "./content-root-resolver.js";
 import { createRuntimeRootStore } from "./runtime-root-store.js";
 import { createInstalledPluginLoader } from "./installed-plugin-loader.js";
+import { createNodePersistentDataRemovalPort } from "./persistent-data-removal.js";
 
 const nodeSha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(bytes).digest());
 
@@ -31,6 +33,7 @@ type InternalNodeContentStoreOptions = Readonly<{
 export type NodeContentInfrastructure = Readonly<{
   content: ContentStorePort;
   installed: InstalledPluginLoader;
+  dataRemoval: PersistentDataRemovalPort;
 }>;
 
 export async function createNodeContentStore(options: NodeContentStoreOptions): Promise<ContentStorePort> {
@@ -76,5 +79,6 @@ export async function createNodeContentInfrastructureWithPlatform(
   return Object.freeze({
     content,
     installed: createInstalledPluginLoader({ content, sha256: nodeSha256 }),
+    dataRemoval: createNodePersistentDataRemovalPort({ layout, sha256: nodeSha256 }),
   });
 }

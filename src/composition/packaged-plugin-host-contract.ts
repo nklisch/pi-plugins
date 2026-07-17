@@ -7,7 +7,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { McpRuntimePort } from "../application/ports/mcp-runtime.js";
 import type { SubagentLifecyclePort } from "../application/ports/subagent-lifecycle.js";
-import type { PluginLifecycleService } from "../application/plugin-lifecycle-service.js";
+import type { NativeLifecycleOperationService } from "../application/native-lifecycle-operation-contract.js";
 import type { CompatibilityService } from "../application/compatibility-service.js";
 import type { NativeInspectionService } from "../application/native-inspection-contract.js";
 import type { TrustedInstallationService } from "../application/trusted-install-contract.js";
@@ -79,7 +79,7 @@ export interface PiSessionBindingPort {
 
 /** Safe application services; raw stores, handles, codecs, catalogs, and brokers stay private. */
 export type PackagedPluginHostApplication = Readonly<{
-  lifecycle: PluginLifecycleService;
+  operations: NativeLifecycleOperationService;
   trustedInstallation: TrustedInstallationService;
   compatibility: CompatibilityService;
   inspection: NativeInspectionService;
