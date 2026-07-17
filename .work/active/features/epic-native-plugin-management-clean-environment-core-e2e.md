@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-clean-environment-core-e2e
 kind: feature
-stage: review
+stage: implementing
 tags: [compatibility, e2e-test]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-pi-extension-manager]
@@ -373,3 +373,16 @@ The design counters those failures with isolated npm/Pi installation, real Pi RP
 - Adjacent issues parked: `idea-fix-packed-candidate-inspection`, `idea-production-projection-publication`, `idea-packed-corruption-startup-diagnosis`, `idea-packed-refresh-cancellation-state-stale`, `idea-recover-crashed-refresh-claim`, `idea-distinct-marketplace-add-contention`.
 - Verification: `npm run test:e2e` passed 12 files / 43 tests (22 passed, 21 expected fail) with zero E2E type errors in 259.72s. `npm test` passed production typecheck, 414-module/2,962-dependency boundaries, 325 files / 1,589 Vitest tests, build, 847 root exports, 3 Pi exports, and the isolated packed real-Pi RPC/JSON/PTY consumer.
 - Final hygiene: every test sandbox/service/process/listener/port is cleaned; `.e2e-artifacts` is ignored and absent after green runs. The temporary worktree `node_modules` tooling symlink and generated `dist` are removed after lifecycle commit.
+
+## Sole review blocker resolution
+
+The standard-weight sole independent review found material production and suite blockers. The receiver accepted all six parked production defects as current-cycle work, promoted them intact as blocking child/fix stories, and returned this feature from `review` to `implementing`:
+
+- `idea-fix-packed-candidate-inspection`
+- `idea-production-projection-publication`
+- `idea-packed-corruption-startup-diagnosis`
+- `idea-packed-refresh-cancellation-state-stale`
+- `idea-recover-crashed-refresh-claim`
+- `idea-distinct-marketplace-add-contention`
+
+The same sole review requires candidate/projection separation, strict Linux PTY/libfaketime CI, protocol-v2 smart HTTP, authority-bearing fuzz and golden journeys, and failure-aware sanitized teardown. Per `review_weight: standard` and the caller's explicit boundary, accepted fixes will be adjudicated and verified once, then the feature will close without re-review.
