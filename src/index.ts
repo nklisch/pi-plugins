@@ -1570,6 +1570,14 @@ export {
   deriveUpdatePolicyPreviewId,
   deriveUpdatePolicyConsentId,
 } from "./application/native-update-identifiers.js";
+export { resolveEffectiveUpdatePolicy } from "./application/update-policy-resolution.js";
+export type { UpdatePolicyResolutionInput } from "./application/update-policy-resolution.js";
+export { createNativeUpdatePolicyService } from "./application/native-update-policy-service.js";
+export type {
+  NativeUpdatePolicyService,
+  NativeUpdatePolicyServiceDependencies,
+} from "./application/native-update-policy-service.js";
+export type { UpdatePolicyAuthorityPort } from "./application/ports/update-policy-authority.js";
 
 export type { RefreshClaimIdPort } from "./application/ports/refresh-claim-id.js";
 export type { UpdateDelayPort } from "./application/ports/update-delay.js";

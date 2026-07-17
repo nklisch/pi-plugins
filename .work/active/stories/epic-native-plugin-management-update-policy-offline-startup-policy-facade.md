@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-update-policy-offline-startup-policy-facade
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, reliability]
 parent: epic-native-plugin-management-update-policy-offline-startup
 depends_on: [epic-native-plugin-management-update-policy-offline-startup-contracts-state]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Implement Deterministic Update Policy Preview, Apply, and Status
@@ -33,3 +33,15 @@ Implement pure effective-policy resolution and a native policy service over exis
 - Changed generation, registration/source, plugin source, project key/root/trust, preview, or consent returns typed stale/rejected with no write.
 - Two process-local service instances over shared durable state produce one exact commit and deterministic stale/current convergence.
 - Global automatic consent truthfully covers future registrations when inventory is incomplete; local/source-change guards remain manual regardless of broader policy.
+
+## Implementation notes
+
+- Added one pure resolver for exact plugin → marketplace → scope → global precedence with hard manual guards for local, legacy, marketplace-source, and plugin-source changes.
+- Added a network-free native policy service with deterministic preview/consent IDs, current/future breadth disclosure, exact target validation, CAS-backed apply, project trust binding, and safe status projection.
+- Exposed a narrow `UpdatePolicyAuthorityPort` for lifecycle admission; the legacy per-marketplace setter remains only as a compatibility adapter over the same registration authority.
+- Concurrent service instances recompute authority before apply, so a preview is stale after any relevant generation change rather than overwriting it.
+
+## Verification
+
+- `npx vitest run test/application/update-policy-resolution.test.ts test/application/native-update-policy-service.test.ts` — 5 tests passed.
+- `npx tsc -p tsconfig.json --noEmit` — passed.
