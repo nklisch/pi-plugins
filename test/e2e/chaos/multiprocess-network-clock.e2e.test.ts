@@ -38,29 +38,32 @@ describe("packed multiprocess contention, network loss, and clock regression", (
     const git = await startGitService(sandbox, first);
     sandbox.env.PI_OFFLINE = "0";
     const [left, right] = await Promise.all([PiRpcProcess.start({ sandbox }), PiRpcProcess.start({ sandbox })]);
-    await left.plugin("updates policy set --kind cadence --target global --cadence paused", "updates.policy.set");
+    try {
+      await left.plugin("updates policy set --kind cadence --target global --cadence paused", "updates.policy.set");
 
-    const same = await Promise.all([
-      left.plugin(`--non-interactive marketplace add ${git.url} --source-kind git --scope user`, "marketplace.add", 60_000),
-      right.plugin(`--non-interactive marketplace add ${git.url} --source-kind git --scope user`, "marketplace.add", 60_000),
-    ]);
-    expect(same.filter((result) => result.envelope.status === "ok")).toHaveLength(1);
-    expect(same.every((result) => /ok|no-change|stale/u.test(result.envelope.status))).toBe(true);
+      const same = await Promise.all([
+        left.plugin(`--non-interactive marketplace add ${git.url} --source-kind git --scope user`, "marketplace.add", 60_000),
+        right.plugin(`--non-interactive marketplace add ${git.url} --source-kind git --scope user`, "marketplace.add", 60_000),
+      ]);
+      expect(same.filter((result) => result.envelope.status === "ok")).toHaveLength(1);
+      expect(same.every((result) => /ok|no-change|stale/u.test(result.envelope.status))).toBe(true);
 
-    const base = `https://127.0.0.1:${new URL(git.url).port}`;
-    const distinct = await Promise.all([
-      left.plugin(`--non-interactive marketplace add ${base}/marketplace-two.git --source-kind git --scope user`, "marketplace.add", 60_000),
-      right.plugin(`--non-interactive marketplace add ${base}/marketplace-three.git --source-kind git --scope user`, "marketplace.add", 60_000),
-    ]);
-    expect(distinct.every((result) => /ok|no-change/u.test(result.envelope.status))).toBe(true);
-    const [leftList, rightList] = await Promise.all([
-      left.plugin("--non-interactive marketplace list --scope user --limit 50", "marketplace.list"),
-      right.plugin("--non-interactive marketplace list --scope user --limit 50", "marketplace.list"),
-    ]);
-    expect(leftList.envelope.data.registrations).toHaveLength(3);
-    expect(rightList.envelope.data.registrations.map((entry: any) => entry.id).sort())
-      .toEqual(leftList.envelope.data.registrations.map((entry: any) => entry.id).sort());
-    await Promise.all([left.shutdown(), right.shutdown()]);
+      const base = `https://127.0.0.1:${new URL(git.url).port}`;
+      const distinct = await Promise.all([
+        left.plugin(`--non-interactive marketplace add ${base}/marketplace-two.git --source-kind git --scope user`, "marketplace.add", 60_000),
+        right.plugin(`--non-interactive marketplace add ${base}/marketplace-three.git --source-kind git --scope user`, "marketplace.add", 60_000),
+      ]);
+      expect(distinct.every((result) => /ok|no-change/u.test(result.envelope.status))).toBe(true);
+      const [leftList, rightList] = await Promise.all([
+        left.plugin("--non-interactive marketplace list --scope user --limit 50", "marketplace.list"),
+        right.plugin("--non-interactive marketplace list --scope user --limit 50", "marketplace.list"),
+      ]);
+      expect(leftList.envelope.data.registrations).toHaveLength(3);
+      expect(rightList.envelope.data.registrations.map((entry: any) => entry.id).sort())
+        .toEqual(leftList.envelope.data.registrations.map((entry: any) => entry.id).sort());
+    } finally {
+      await Promise.all([left.shutdown(), right.shutdown()]);
+    }
     await assertAllSqliteIntegrity(sandbox.agentDir);
   });
 
