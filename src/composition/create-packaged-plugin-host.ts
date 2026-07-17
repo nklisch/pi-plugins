@@ -51,6 +51,7 @@ import {
 } from "./packaged-plugin-host-contract.js";
 import { createPluginHostPathPlan } from "./plugin-host-paths.js";
 import { qualifyRuntimeParticipants, type RuntimeQualificationStatus } from "./runtime-participant-qualification.js";
+import { disposeSequentially } from "./sequential-cleanup.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(bytes).digest());
 
@@ -211,11 +212,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         closeRuntime = () => {
           closeRuntimeResources ??= (async () => {
             skillHook.quiesce();
-            const errors: unknown[] = [];
-            for (const dispose of [() => mcp.close(), () => skillHook.close(), () => selections.close()]) {
-              try { await dispose(); } catch (error) { errors.push(error); }
-            }
-            if (errors.length > 0) throw new AggregateError(errors, "packaged plugin runtime cleanup failed");
+            await disposeSequentially([() => mcp.close(), () => skillHook.close(), () => selections.close()], "packaged plugin runtime cleanup failed");
           })();
           return closeRuntimeResources;
         };
@@ -352,12 +349,8 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         let applicationClosePromise: Promise<void> | undefined;
         closeApplication = () => {
           applicationClosePromise ??= (async () => {
-            const errors: unknown[] = [];
-            for (const dispose of [...cleanup].reverse()) {
-              try { await dispose(); } catch (error) { errors.push(error); }
-            }
-            cleanup.length = 0;
-            if (errors.length > 0) throw new AggregateError(errors, "packaged plugin host cleanup failed");
+            try { await disposeSequentially([...cleanup].reverse(), "packaged plugin host cleanup failed"); }
+            finally { cleanup.length = 0; }
           })();
           return applicationClosePromise;
         };

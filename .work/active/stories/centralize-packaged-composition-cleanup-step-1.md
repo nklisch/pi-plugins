@@ -1,7 +1,7 @@
 ---
 id: centralize-packaged-composition-cleanup-step-1
 kind: story
-stage: implementing
+stage: done
 tags: [refactor, infra]
 parent: centralize-packaged-composition-cleanup
 depends_on: []
@@ -81,3 +81,15 @@ Callers prepare their current ordered disposer sequence and retain responsibilit
 ## Risk and Rollback
 
 Risk is low because the helper names an already-identical internal algorithm and callers retain all ownership. The main implementation risk is accidentally changing order or detaching a collection too early; focused disposal verification must compare those facts. Revert the implementation commit to restore the inline loops; no migration or compatibility path is needed.
+
+## Implementation notes
+
+- Execution capability: inline, direct-read only; one owner retained the exact four cleanup ownership boundaries and no nested agent was used.
+- Review weight: standard, from `.work/CONVENTIONS.md`; review remains feature-scoped.
+- Files changed: `src/composition/sequential-cleanup.ts`, `src/composition/create-mcp-runtime.ts`, `src/composition/create-skill-hook-runtime.ts`, `src/composition/create-packaged-plugin-host.ts`, and `test/composition/sequential-cleanup.test.ts`.
+- Tests added: one focused helper contract test covering strict serial execution, attempt-all behavior, aggregate message, and original rejection identity/order. Existing call-site tests continue to cover owner idempotence and lifecycle integration.
+- Simplification: removed all four local aggregation loops. Production source changed by 45 insertions and 48 deletions (net 3-line deletion); the three callers alone changed by 38 insertions and 48 deletions (net 10-line deletion). The focused test adds 43 lines.
+- Ownership preservation: MCP source cleanup remains reverse-ordered before live lease-provider iteration and clears providers before rejection; skill/hook lease lookup remains after subagent/coordinator disposal and detaches after its release attempt; packaged application cleanup snapshots in reverse and clears ownership before rejection.
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
+- Verification: focused composition/reload/startup/recovery/disposal coverage passed (7 files, 14 tests); typecheck passed; dependency boundaries passed over 285 modules and 1,855 dependencies; full `npm test` passed 214 test files and 1,068 tests with no type errors, then passed build, 562-export root import, 3-export Pi import, and isolated packed-consumer startup.

@@ -35,6 +35,7 @@ import { createSkillHookSnapshotLoader } from "../runtime/skill-hook/runtime-sna
 import { createSkillResourceDiscoveryRuntime, type SkillResourceDiscoveryPort } from "../runtime/skills/resource-discovery.js";
 import { createSubagentHookCoordinator, type SubagentHookCoordinator } from "../runtime/subagents/subagent-hook-coordinator.js";
 import type { RuntimeSelection, RuntimeSelectionCatalog } from "./runtime-selection-catalog.js";
+import { disposeSequentially } from "./sequential-cleanup.js";
 
 export type ComposedSkillHookRuntime = Readonly<{
   participant: ReturnType<typeof createSkillResourceDiscoveryRuntime>["participant"];
@@ -155,15 +156,17 @@ export async function createComposedSkillHookRuntime(input: Readonly<{
       closePromise ??= (async () => {
         if (!runtimeAbort.signal.aborted) runtimeAbort.abort(new DOMException("skill/hook runtime closed", "AbortError"));
         delegates.clear();
-        const errors: unknown[] = [];
-        try { await subagent?.dispose(); } catch (error) { errors.push(error); }
-        try { await coordinator?.dispose(); } catch (error) { errors.push(error); }
-        if (lease !== undefined) {
-          try { await input.leases.release(lease, input.clock.nowEpochMilliseconds(), new AbortController().signal); }
-          catch (error) { errors.push(error); }
-          lease = undefined;
+        function* cleanupDisposers() {
+          yield () => subagent?.dispose();
+          yield () => coordinator?.dispose();
+          if (lease === undefined) return;
+          const sessionLease = lease;
+          yield async () => {
+            try { await input.leases.release(sessionLease, input.clock.nowEpochMilliseconds(), new AbortController().signal); }
+            finally { lease = undefined; }
+          };
         }
-        if (errors.length > 0) throw new AggregateError(errors, "skill/hook runtime cleanup failed");
+        await disposeSequentially(cleanupDisposers(), "skill/hook runtime cleanup failed");
       })();
       return closePromise;
     }

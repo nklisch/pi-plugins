@@ -18,6 +18,7 @@ import {
 import { createMcpRevisionLeaseProvider } from "../runtime/mcp/revision-lease-provider.js";
 import type { HostConfigurationDependencies } from "./create-host-configuration.js";
 import type { RuntimeSelectionCatalog } from "./runtime-selection-catalog.js";
+import { disposeSequentially } from "./sequential-cleanup.js";
 
 export type ComposedMcpRuntime = Readonly<{
   participant: McpLifecycleParticipant;
@@ -111,37 +112,30 @@ export function createComposedMcpRuntime(input: Readonly<{
 
   async function close(): Promise<void> {
     closePromise ??= (async () => {
-      const errors: unknown[] = [];
-      for (const state of [...owned.values()].reverse()) {
-        if (state.kind !== "source") continue;
-        const inactive: McpLifecycleState = {
-          kind: "inactive",
-          expectation: createInactiveProjectionExpectation({
-            scope: state.expectation.projection.scope,
-            plugin: state.expectation.projection.plugin,
-            sha256: input.sha256,
-          }),
-        };
-        try {
-          const result = await participant.reconcile({
-            from: state,
-            to: inactive,
-            currentProject: input.project.current(),
-          }, new AbortController().signal);
-          if (result.kind !== "applied" && result.kind !== "unchanged") {
-            throw new Error("MCP source cleanup remains ambiguous");
-          }
-          owned.delete(stateKey(state));
-        } catch (error) {
-          errors.push(error);
+      function* cleanupDisposers() {
+        for (const state of [...owned.values()].reverse()) {
+          if (state.kind !== "source") continue;
+          yield async () => {
+            const result = await participant.reconcile({
+              from: state,
+              to: {
+                kind: "inactive",
+                expectation: createInactiveProjectionExpectation({
+                  scope: state.expectation.projection.scope,
+                  plugin: state.expectation.projection.plugin,
+                  sha256: input.sha256,
+                }),
+              },
+              currentProject: input.project.current(),
+            }, new AbortController().signal);
+            if (result.kind !== "applied" && result.kind !== "unchanged") throw new Error("MCP source cleanup remains ambiguous");
+            owned.delete(stateKey(state));
+          };
         }
+        for (const provider of leaseProviders) yield () => provider.drain(new AbortController().signal);
       }
-      for (const provider of leaseProviders) {
-        try { await provider.drain(new AbortController().signal); }
-        catch (error) { errors.push(error); }
-      }
-      leaseProviders.clear();
-      if (errors.length > 0) throw new AggregateError(errors, "MCP runtime cleanup failed");
+      try { await disposeSequentially(cleanupDisposers(), "MCP runtime cleanup failed"); }
+      finally { leaseProviders.clear(); }
     })();
     return closePromise;
   }
