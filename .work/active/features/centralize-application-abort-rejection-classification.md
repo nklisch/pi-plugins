@@ -1,7 +1,7 @@
 ---
 id: centralize-application-abort-rejection-classification
 kind: feature
-stage: implementing
+stage: review
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -138,3 +138,20 @@ Both proposed child IDs were absent. Before writing dependencies, `.work/bin/wor
 ## Foundation Impact
 
 None. This consolidates an internal predicate without changing the ports-and-adapters boundary, runtime capability semantics, MCP/subagent contracts, trust behavior, or any assertion in `docs/VISION.md`, `docs/SPEC.md`, or `docs/ARCHITECTURE.md`.
+
+## Implementation notes
+
+- Execution capability: inline GPT-5.6 owner. One cohesive owner preserved the exact eight call-site catch orders and reason-identity guarantees while eliminating their duplicate predicate bodies.
+- Review weight: standard by project default; the caller explicitly set the lifecycle boundary at `stage: review`, so no feature review was run in this implementation pass.
+- Files changed: `.dependency-cruiser.cjs`; `src/application/abort-rejection.ts`; the eight designed consumers in compatibility, configuration, trust, MCP/subagent capability, MCP launch context, and MCP launch values; `test/application/abort-rejection.test.ts`; `test/application/trust-service.test.ts`; `test/runtime/mcp/launch-value-provider.test.ts`; and the two child story records.
+- Tests added: one compact helper contract test for object narrowing and the exact two recognized shapes; trust and MCP launch-value call-site assertions for code-only abort rejection and exact reason identity. Existing cancellation/configuration matrices remain unchanged rather than duplicated.
+- Simplification: eight local predicate definitions were replaced by one dependency-free package-internal helper. Production source across the helper and eight consumers is 35 lines smaller, with no public export added.
+- Discrepancies from design: the existing compatibility-service dependency rule also needed an explicit narrow allowance for the shared application policy. Repository reality contains a separate exact predicate in `src/composition/create-project-root-authority.ts`; the caller restricted this change to the designed eight application/MCP launch-value copies, so that unrelated composition/MCP lifecycle path was intentionally not touched.
+- Adjacent issues parked: none.
+
+## Integrated verification
+
+- Story commits: `bdfbc7a` (step 1) and `ab0e953` (step 2); both child stories are `stage: done` with their own evidence.
+- Focused affected suites: 9 test files, 84 tests passed in two dependency-ordered runs (26 + 58), 0 failed.
+- Full `npm test`: 174 test files and 956 tests passed, no type errors; dependency boundaries passed across 236 modules and 1425 dependencies with 0 violations; compiled-package import passed with 508 public exports.
+- `git diff --check` passed. `src/index.ts`, package exports, recognized rejection shapes, signal ordering, callback ordering, error mappings, and runtime timeout/cancellation policy remain unchanged.
