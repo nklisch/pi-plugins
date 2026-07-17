@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-pi-extension-manager
 kind: feature
-stage: review
+stage: done
 tags: [compatibility, tui]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-deterministic-control-facade]
@@ -548,15 +548,45 @@ Pi 0.80.8 gives `session_start` only `ExtensionContext`, while the packaged host
 
 - `npm test`: passed.
 - TypeScript: zero errors.
-- Dependency boundaries: 413 modules / 2,950 dependencies, zero violations.
-- Vitest: 322 files / 1,549 tests passed, including 70 new focused manager/Pi tests.
-- Package acceptance: build, 847-source-export allowlist, 3-export Pi subpath allowlist, exact Pi/Pi TUI 0.80.8 metadata, and isolated offline packed consumer all passed.
-- Working tree was clean after logical story and corrective commits; no push or release was performed.
+- Dependency boundaries: 414 modules / 2,962 dependencies, zero violations.
+- Vitest: 325 files / 1,589 tests passed.
+- Package acceptance: build, 847-source-export allowlist, 3-export Pi subpath allowlist, exact Pi/Pi TUI 0.80.8 metadata, and isolated packed Pi RPC/JSON/PTY acceptance all passed.
+- Packed production acceptance proves real command registration, collision identity, manager navigation, install progress/cancellation, reload handoff, and graceful shutdown. Node 24 does not expose an atomic no-replace directory rename, so real production projection honestly returns `PROJECTION_FAILED`; successful projection and reload handoff remain covered at the injected public capability boundary.
+- No push or release was performed.
 
 ## Implementation run notes
 
 - Ownership: one feature owner for the full seven-story DAG; shared Pi/facade/TUI context made a split less safe and more expensive.
 - Capability: GPT-5.6 Sol, xhigh, explicitly requested by the caller.
 - Review weight: `standard` from `.work/CONVENTIONS.md`.
-- Child stories advanced directly from `implementing` to `done` after green verification.
-- Feature advanced from `implementing` to `review`; independent feature review remains the receiving orchestrator's next lifecycle step because the caller prohibited nested agents in this owner run.
+- All seven child stories remain `done` after green verification.
+- The feature advanced `implementing → review → done` after one independent review pass, receiver adjudication, blocker fixes, and full verification.
+
+## Review blocker remediation
+
+The sole independent `standard` review produced eight receiver-accepted blockers. All were fixed and verified without a repeat review, as required by the caller and the standard single-pass closure policy.
+
+1. **Reason-aware reload handoff and one-shot cancellation**: cancellation now aborts exactly once, waits for owner truth, and preserves completed/committed results; reload succession transfers only safe final data and distinguishes reload from ordinary manager closure.
+2. **Fresh destructive confirmations**: every destructive action receives a new confirmation component and current exact evidence, so stale overlays and reused decisions cannot authorize a later mutation.
+3. **Production-reachable three-step install journey**: the manager now closes before Pi-owned overlays, runs choose/inspect → configure/trust → activation result through public custom surfaces, reopens from authoritative state, and does not nest unsupported `ctx.ui.custom()` ownership.
+4. **Small-terminal scrolling**: manager, install, confirmation, and operation views now retain focused content and expose bounded scrolling instead of clipping actions or results on narrow/short terminals.
+5. **Live progress and cancellation**: progress delivery is serialized, rendered while the owner runs, and cancelled through one authoritative signal without converting concurrent valid callbacks or output timing into false failure.
+6. **Real packed Pi acceptance**: the isolated consumer now drives packed Pi 0.80.8 through RPC/JSON and PTY surfaces, waits for exact public completion evidence, validates manager/install/collision/reload behavior, and shuts down cleanly without source-tree imports.
+7. **Exact status mapping**: the Pi adapter maps every canonical result and exit classification through one exhaustive status boundary instead of inferring success from presentation text.
+8. **Exact collision identity**: command collision detection keys the extension by exact `import.meta.url`, reports the actual suffixed command identity, and neither suppresses nor overrides another registration.
+
+Review-fix commits: `58beafd` (install authority, source normalization, expiry validity, and progress serialization), `943f4e2` (manager lifecycle, confirmations, install journey, scrolling, progress, status, collision, and reload behavior), and `12c00f9` (packed Pi 0.80.8 acceptance).
+
+## Review (2026-07-17)
+
+**Verdict**: Approve
+
+**Blockers**: 8 accepted, 8 fixed — reload/cancellation truth; fresh destructive confirmation; production install journey; small-terminal scrolling; live progress/cancellation; genuine packed Pi acceptance; exact status mapping; exact extension collision identity.
+
+**Important**: none.
+
+**Nits**: none.
+
+**Rejected**: none.
+
+**Notes**: Substrate feature review; effective weight `standard` from `.work/CONVENTIONS.md`; one sole independent pass followed by receiver adjudication and fixes. Focused and full verification passed, including 325 files / 1,589 tests, zero type errors, zero dependency violations, package import checks, and packed Pi 0.80.8 RPC/JSON/PTY acceptance. No repeat review, nested agent, push, or release ran. All child stories remain `done`; unresolved material blockers: zero.
