@@ -111,21 +111,27 @@ function participantStatus(input: Readonly<{
   expectedSkills?: readonly ComponentId[];
   expectedHooks?: readonly ComponentId[];
   selectedRevision: string;
+  activeExpected: boolean;
 }>): "matching" | "missing" | "mismatched" | "unavailable" {
   if (input.evidence === undefined) return "missing";
   if (input.participant === "skills-hooks") {
     const result = input.evidence.skillsHooks;
     if (result.kind !== "ready") return "unavailable";
     const observation = result.observation;
-    if (observation.kind === "inactive") return input.expectedSkills?.length === 0 && input.expectedHooks?.length === 0 ? "matching" : "missing";
+    if (observation.kind === "inactive") return input.activeExpected ? "missing" : "matching";
     return observation.revision === input.selectedRevision && observation.projectionDigest === input.evidence.projectionDigest &&
       sameIds(observation.skillComponentIds, input.expectedSkills ?? []) && sameIds(observation.hookComponentIds, input.expectedHooks ?? [])
       ? "matching" : "mismatched";
   }
   const expected = input.evidence.mcp.expected;
   const status = input.evidence.mcp.status;
-  if (status.kind !== "ready") return "unavailable";
-  if (expected.kind !== "source") return status.status === null ? "matching" : "mismatched";
+  if (status.kind !== "ready") {
+    return expected.kind !== "source" && (!input.activeExpected || expected.kind === "none") ? "matching" : "unavailable";
+  }
+  if (expected.kind !== "source") {
+    if (status.status !== null) return "mismatched";
+    return expected.kind === "none" || !input.activeExpected ? "matching" : "missing";
+  }
   if (status.status === null) return "missing";
   if (status.status.registrationDigest !== expected.registrationDigest || status.status.state !== "registered") return "mismatched";
   return sameIds(status.status.servers.map((server) => server.componentId), expected.servers.map((server) => server.componentId)) ? "matching" : "mismatched";
@@ -206,8 +212,9 @@ export function createNativeInstalledInspector(dependencies: Readonly<{
       const assessments = new Map(report?.components.map((assessment) => [assessment.componentId, assessment]) ?? []);
       const expectedSkills = loaded.plugin.components.skills.filter((component) => assessments.get(component.id)?.verdict.kind === "supported").map((component) => component.id);
       const expectedHooks = loaded.plugin.components.hooks.filter((component) => assessments.get(component.id)?.verdict.kind === "supported").map((component) => component.id);
-      const skillsStatus = participantStatus({ evidence: runtime, participant: "skills-hooks", expectedSkills, expectedHooks, selectedRevision: subject.selectedRevision });
-      const mcpStatus = participantStatus({ evidence: runtime, participant: "mcp", selectedRevision: subject.selectedRevision });
+      const activeExpected = authority.record.activation === "enabled";
+      const skillsStatus = participantStatus({ evidence: runtime, participant: "skills-hooks", expectedSkills, expectedHooks, selectedRevision: subject.selectedRevision, activeExpected });
+      const mcpStatus = participantStatus({ evidence: runtime, participant: "mcp", selectedRevision: subject.selectedRevision, activeExpected });
       const transition = authority.record.pendingTransition !== undefined ? "pending" as const : recoveryTransition(subject, snapshot);
       const update = updateState(subject, snapshot);
       const findings: NativeDiagnosticInput["findings"][number][] = [];

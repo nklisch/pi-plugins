@@ -6,17 +6,26 @@ import { createContentManifest, createMaterializationBinding } from "../../src/d
 import { createInstalledRevisionRecord } from "../../src/domain/state/installed-state.js";
 import { createResolvedMarketplaceSource } from "../../src/domain/source.js";
 import { deriveMcpRuntimeServerKey } from "../../src/application/ports/mcp-runtime.js";
-import { capabilities, directPlugin, sha256 as fixtureSha } from "../fixtures/compatibility/common.js";
+import { capabilities, claimFixture, componentId, directPlugin, fixtureProvenance, sha256 as fixtureSha } from "../fixtures/compatibility/common.js";
 import { mcp } from "../fixtures/compatibility/mcp.js";
 
 const sha256 = (bytes: Uint8Array) => new Uint8Array(createHash("sha256").update(bytes).digest());
 const marketplaceSource = createResolvedMarketplaceSource({ declared: { kind: "github", repository: "owner/market" }, revision: "a".repeat(40) }, fixtureSha);
 const projectionDigest = `sha256:${"55".repeat(32)}` as never;
 
-function setup(options: { enabled?: boolean; remote?: "failed" | "needs-auth" | "connected"; pending?: boolean } = {}) {
+function setup(options: { enabled?: boolean; remote?: "failed" | "needs-auth" | "connected"; pending?: boolean; skill?: boolean; mcpUnavailable?: boolean } = {}) {
   const component = mcp({ transport: "stdio", command: "server" }, "a") as any;
   component.nativeKey = { ...component.nativeKey, value: "native\u001b[2J\u202Ekey" };
-  const plugin = options.remote === undefined ? directPlugin() : directPlugin({ components: { mcpServers: [component] } });
+  const skill = {
+    kind: "skill" as const,
+    id: componentId("skill", "b"),
+    name: claimFixture("demo", fixtureProvenance("skills/demo/SKILL.md", "/name", "claude", "skill")),
+    root: claimFixture("skills/demo", fixtureProvenance("skills/demo/SKILL.md", "/root", "claude", "skill")),
+    metadata: [],
+  };
+  const plugin = options.remote !== undefined
+    ? directPlugin({ components: { mcpServers: [component] } })
+    : options.skill ? directPlugin({ components: { skills: [skill] } }) : directPlugin();
   const report = evaluateCompatibility({ plugin, capabilities: capabilities() });
   const content = createContentManifest([], fixtureSha);
   const revision = createInstalledRevisionRecord({ plugin, compatibility: report, content, scope: { kind: "user" } }, fixtureSha);
@@ -42,7 +51,7 @@ function setup(options: { enabled?: boolean; remote?: "failed" | "needs-auth" | 
       projectionDigest: `sha256:${"33".repeat(32)}`, currentProject: { projectKey: `project-v1:sha256:${"11".repeat(32)}`, trust: { kind: "trusted" } },
       contributionDigest: `sha256:${"22".repeat(32)}`, skillComponentIds: [], hookComponentIds: [],
     } },
-    mcp: options.remote === undefined ? { expected: { kind: "inactive", servers: [] }, status: { kind: "ready", status: null } } : {
+    mcp: options.remote === undefined ? { expected: { kind: "inactive", servers: [] }, status: options.mcpUnavailable ? { kind: "unavailable", code: "RUNTIME_UNAVAILABLE" } : { kind: "ready", status: null } } : {
       expected: { kind: "source", registrationDigest: `sha256:${"44".repeat(32)}`, servers: [{ componentId: component.id, serverKey, transport: "stdio" }] },
       status: { kind: "ready", status: {
         identity: { schemaVersion: 1, scope: { kind: "user" }, plugin: plugin.identity.key, revision: revision.revision, projectionDigest },
@@ -71,7 +80,7 @@ function setup(options: { enabled?: boolean; remote?: "failed" | "needs-auth" | 
 
 describe("native installed inspection", () => {
   it("treats disabled plus exact inactive evidence as ready", async () => {
-    const value = setup();
+    const value = setup({ skill: true, mcpUnavailable: true });
     const result = await value.inspector.inspect(value.subject, value.snapshot, new AbortController().signal);
     expect(result.kind).toBe("found");
     if (result.kind !== "found") return;
