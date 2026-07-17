@@ -801,6 +801,7 @@ export {
   InspectionDetailSubjectSchema,
   InspectionCursorPayloadSchema,
   deriveInspectionSnapshotId,
+  deriveInspectionEvidenceSnapshotId,
   deriveInspectionDetailId,
   decodeInspectionDetailId,
   verifyInspectionDetailId,
@@ -828,6 +829,13 @@ export type {
   NativeDiagnosticAction,
   NativeDiagnosticRegistryKey,
 } from "./application/native-diagnostic-registry.js";
+export {
+  compileNativeDiagnostics,
+  deriveNativeInspectionCondition,
+  countNativeDiagnostics,
+  unavailableEvidenceFinding,
+} from "./application/native-diagnostic-compiler.js";
+export type { NativeDiagnosticInput } from "./application/native-diagnostic-compiler.js";
 export { reconcilePluginBundle } from "./application/bundle-reconciler.js";
 export type { BundleReconciliationInput } from "./application/bundle-reconciler.js";
 export { createNodePluginInspector } from "./composition/create-plugin-inspector.js";
