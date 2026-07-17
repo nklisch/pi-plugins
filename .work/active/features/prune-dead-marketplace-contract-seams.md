@@ -1,7 +1,7 @@
 ---
 id: prune-dead-marketplace-contract-seams
 kind: feature
-stage: implementing
+stage: review
 tags: [refactor]
 parent: null
 depends_on: []
@@ -94,13 +94,13 @@ export const ResolvedMarketplaceCandidateResultSchema = z.discriminatedUnion("ki
 
 **Acceptance Criteria**:
 
-- [ ] Exact repository search finds no `MarketplacePluginProbe`, `MarketplaceSnapshotRead`, or `ResolvedMarketplaceCandidateResultSchema` declaration or reference.
-- [ ] `update-contract.ts` no longer imports `NormalizedMarketplaceEntry` or the `MarketplaceUpdateRecord` type solely for dead declarations.
-- [ ] The live marketplace probe implementation, port/result types, automatic-update behavior, and composition wiring are unchanged.
-- [ ] Catalog search/detail schemas and the branded exact resolver service/type are unchanged; active inspection design retains its existing consumer seam.
-- [ ] `src/index.ts`, `src/pi/index.ts`, public API allowlists, compiled export counts, and emitted package surface are unchanged.
-- [ ] The implementation is a strict net deletion and contains no replacement abstraction, compatibility shim, test cleanup, or behavior change.
-- [ ] Typecheck, dependency boundaries, focused refresh/catalog tests, public API tests, build, and compiled package verification pass.
+- [x] Exact source, test, and compiled-output searches find no `MarketplacePluginProbe`, `MarketplaceSnapshotRead`, or `ResolvedMarketplaceCandidateResultSchema` declaration or reference.
+- [x] `update-contract.ts` no longer imports `NormalizedMarketplaceEntry` or the `MarketplaceUpdateRecord` type solely for dead declarations.
+- [x] The live marketplace probe implementation, port/result types, automatic-update behavior, and composition wiring are unchanged.
+- [x] Catalog search/detail schemas and the branded exact resolver service/type are unchanged; active inspection retains its existing consumer seam.
+- [x] `src/index.ts`, `src/pi/index.ts`, public API allowlists, compiled export counts, and emitted package surface are unchanged.
+- [x] The implementation is a strict net deletion and contains no replacement abstraction, compatibility shim, test cleanup, or behavior change.
+- [x] Typecheck, dependency boundaries, focused refresh/catalog tests, public API tests, build, and compiled package verification pass.
 
 **Rollback**: Revert the implementation commit to restore the three unused declarations and type imports. No runtime, persisted state, schema family, migration, or supported package contract is involved.
 
@@ -125,3 +125,16 @@ export const ResolvedMarketplaceCandidateResultSchema = z.discriminatedUnion("ki
 ## Implementation Order
 
 1. `prune-dead-marketplace-contract-seams-step-1`
+
+## Implementation notes
+
+- Execution capability: direct inline implementation across one child checkpoint; the design named the complete two-file write set, and the caller prohibited nested agents.
+- Review weight: standard by project default. Per the caller's requested lifecycle boundary, the child story is done and this feature is left at review for independent feature-level review.
+- Files changed: `src/application/update-contract.ts`, `src/application/marketplace-catalog-contract.ts`, plus this feature and its child-story work records.
+- Tests added/removed: none; no declaration had a consumer or behavior to protect with a new test.
+- Simplification: source commit `7b61b87` removes exactly three dead declarations and two exclusively supporting type imports. Production-source delta is 1 insertion / 21 deletions, net 20 lines deleted across 2 files; the insertion is only the shortened import line.
+- Consumer verification: no exact target symbol remains in source, tests, emitted declarations, public/compiled allowlists, root/Pi barrels, dynamic contract loading, or the two-entry package export map. Clean build output retains the live probe port/result and branded catalog resolver types.
+- Integrated verification: focused Vitest passed 5 files / 18 tests. Full `npm test` passed typecheck, dependency boundaries (285 modules / 1,855 dependencies), 214 test files / 1,068 tests, build, 562-export compiled root verification, 3-export compiled Pi verification, and isolated packed Pi startup.
+- Commits: child implementation/story completion `7b61b87`; feature review transition is the commit carrying this note (`implement: prune-dead-marketplace-contract-seams`).
+- Discrepancies from design: none.
+- Adjacent issues parked: none.
