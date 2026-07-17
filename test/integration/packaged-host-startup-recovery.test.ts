@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { createPackagedPluginHost } from "../../src/composition/create-packaged-plugin-host.js";
+import { PackagedPluginHostErrorCode } from "../../src/composition/packaged-plugin-host-contract.js";
 
 function pi() {
   const handlers = new Map<string, Array<(event: unknown, context: unknown) => unknown>>();
@@ -42,6 +43,10 @@ describe("packaged host startup and recovery", () => {
     expect(started.startup.capabilities.subagents.status).toBe("unavailable");
     expect(started.application.lifecycle).toBeDefined();
     expect(started.application.recovery).toBeDefined();
+    await expect(host.start({ type: "session_start", reason: "startup" } as never, context(project, "other-session") as never))
+      .rejects.toMatchObject({ code: PackagedPluginHostErrorCode.sessionMismatch });
+    await expect(host.runWithPiOperationContext(context(project, "other-session") as never, new AbortController().signal, async () => undefined))
+      .rejects.toMatchObject({ code: PackagedPluginHostErrorCode.sessionMismatch });
     await started.close();
     await started.close();
     await host.dispose("quit");

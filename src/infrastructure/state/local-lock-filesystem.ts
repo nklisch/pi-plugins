@@ -51,7 +51,14 @@ async function ensureDirectory(path: string): Promise<void> {
     if (!stats.isDirectory()) throw filesystemFailure("lock root component is not a directory");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    await mkdir(path, { mode: PRIVATE_DIRECTORY_MODE });
+    try {
+      await mkdir(path, { mode: PRIVATE_DIRECTORY_MODE });
+    } catch (mkdirError) {
+      // Another process may create the same first-use component after our
+      // ENOENT observation. Accept only that race, then revalidate the winner
+      // without following a symlink below.
+      if ((mkdirError as NodeJS.ErrnoException).code !== "EEXIST") throw mkdirError;
+    }
     const stats = await lstat(path);
     if (stats.isSymbolicLink() || !stats.isDirectory()) {
       throw filesystemFailure("lock root component is not a private directory");

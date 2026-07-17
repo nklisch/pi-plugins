@@ -39,7 +39,7 @@ import { createPiProjectContextAdapters } from "../pi/pi-project-context.js";
 import { createPiSessionBinding } from "../pi/pi-session-binding.js";
 import { createPluginHostBootstrap, claimPackagedPluginHostComposition } from "../pi/plugin-host-bootstrap.js";
 import { createPluginHostRuntimeDelegates } from "../pi/plugin-host-runtime-delegates.js";
-import { createPiReloadBroker } from "../pi/pi-reload-broker.js";
+import { createPiReloadBroker, type PiReloadTicket } from "../pi/pi-reload-broker.js";
 import {
   PackagedPluginHostError,
   PackagedPluginHostErrorCode,
@@ -93,22 +93,30 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
     throw error;
   }
   let started: StartedPackagedPluginHost | undefined;
+  let activeBinding: ReturnType<typeof createPiSessionBinding> | undefined;
   let startPromise: Promise<StartedPackagedPluginHost> | undefined;
+  let reloadSuccessor: Readonly<{ ticket: PiReloadTicket; reload: ReturnType<typeof createCompletePluginReloadPort> }> | undefined;
   let terminal = false;
 
   async function start(_event: SessionStartEvent, context: ExtensionContext): Promise<StartedPackagedPluginHost> {
     if (terminal) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.terminal, "packaged plugin host is terminal");
     if (started !== undefined) {
-      context && createPiSessionBinding(context).current().sessionId;
+      activeBinding?.assertContext(context);
       return started;
     }
-    if (startPromise !== undefined) return startPromise;
+    if (startPromise !== undefined) {
+      activeBinding?.assertContext(context);
+      return startPromise;
+    }
     startPromise = (async () => {
       const cleanup: Cleanup[] = [];
+      let startupSuccessor: PiReloadTicket | undefined;
       const own = (dispose: Cleanup): void => { cleanup.push(dispose); };
       try {
         const binding = createPiSessionBinding(context);
+        activeBinding = binding;
         const successor = broker.claimSuccessor(binding.current());
+        startupSuccessor = successor;
         claim.claimSession(binding.current().sessionId, successor?.id);
         own(async () => claim.releaseSession());
         delegates.bindSession(binding);
@@ -270,6 +278,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         const observations = successor === undefined
           ? await reload.reconcileCurrent(new AbortController().signal)
           : await reload.acceptSuccessor(successor, new AbortController().signal);
+        if (successor !== undefined) reloadSuccessor = Object.freeze({ ticket: successor, reload });
         void observations;
         const application: PackagedPluginHostApplication = Object.freeze({
           lifecycle,
@@ -308,6 +317,9 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         return value;
       } catch (error) {
         terminal = true;
+        if (startupSuccessor !== undefined) {
+          try { broker.fail(startupSuccessor, error); } catch { /* preserve startup failure */ }
+        }
         const errors: unknown[] = [error];
         for (const dispose of [...cleanup].reverse()) {
           try { await dispose(); } catch (cleanupError) { errors.push(cleanupError); }
@@ -321,9 +333,16 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
 
   async function dispose(_reason: SessionShutdownEvent["reason"]): Promise<void> {
     terminal = true;
-    try { await (started ?? await startPromise)?.close(); }
-    finally {
+    try {
+      if (started !== undefined) await started.close();
+      else if (startPromise !== undefined) await startPromise.then((value) => value.close(), () => undefined);
+    } finally {
       started = undefined;
+      activeBinding = undefined;
+      if (reloadSuccessor !== undefined) {
+        try { reloadSuccessor.reload.failSuccessor(reloadSuccessor.ticket); } catch { /* ticket may already be settled */ }
+        reloadSuccessor = undefined;
+      }
       bootstrap.clear(target);
       delegates.clear();
       claim.release();
@@ -341,7 +360,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
       signal.throwIfAborted();
       const current = started;
       if (current === undefined) throw new PackagedPluginHostError(PackagedPluginHostErrorCode.terminal, "packaged plugin host is not started");
-      createPiSessionBinding(context).current();
+      activeBinding?.assertContext(context);
       return operationContexts.run(context, () => use(current.application));
     },
     dispose,
@@ -351,12 +370,22 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
     async resourcesDiscover(_event: Readonly<{ type: "resources_discover"; cwd: string; reason: "startup" | "reload" }>, context: ExtensionContext) {
       const current = started;
       if (current === undefined) return;
-      const binding = createPiSessionBinding(context);
+      activeBinding?.assertContext(context);
       const resources = current.application.resources as { discover(request: Readonly<{ reason: "startup" | "reload"; projectTrusted: boolean }>, signal: AbortSignal): Promise<Readonly<{ kind: string; skillPaths?: readonly string[] }>> };
-      const result = await resources.discover({ reason: _event.reason, projectTrusted: binding.isProjectTrusted() }, new AbortController().signal);
+      const result = await resources.discover({ reason: _event.reason, projectTrusted: activeBinding?.isProjectTrusted() === true }, new AbortController().signal);
+      if (result.kind === "ready" && reloadSuccessor !== undefined) {
+        reloadSuccessor.reload.publishSuccessor(reloadSuccessor.ticket);
+        reloadSuccessor = undefined;
+      } else if (result.kind !== "ready" && reloadSuccessor !== undefined) {
+        reloadSuccessor.reload.failSuccessor(reloadSuccessor.ticket, new Error("Pi reload resource publication failed"));
+        reloadSuccessor = undefined;
+      }
       return result.kind === "ready" ? { skillPaths: [...(result.skillPaths ?? [])] } : undefined;
     },
-    sessionShutdown: (event: SessionShutdownEvent) => dispose(event.reason),
+    sessionShutdown: (event: SessionShutdownEvent, context: ExtensionContext) => {
+      activeBinding?.assertContext(context);
+      return dispose(event.reason);
+    },
   });
   bootstrap.activate(target);
   return Object.freeze(host);

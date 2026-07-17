@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, lstatSync, readFileSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { z } from "zod";
 import { BoundaryError, DomainContractError, ErrorCodeRegistry } from "../../domain/errors.js";
 import { ScopeReferenceSchema, type ScopeReference } from "../../domain/state/scope.js";
@@ -101,7 +101,6 @@ function validateSchema(database: DatabaseSync): void {
 }
 
 function createSchema(database: DatabaseSync): void {
-  database.exec("PRAGMA journal_mode = DELETE; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON; PRAGMA trusted_schema = OFF;");
   database.exec(`CREATE TABLE recovery_protocol (protocol TEXT PRIMARY KEY NOT NULL CHECK (protocol = '${PROTOCOL}'), version INTEGER NOT NULL CHECK (version = ${VERSION})) STRICT;
     CREATE TABLE lifecycle_transitions (
       reference TEXT PRIMARY KEY NOT NULL,
@@ -154,12 +153,24 @@ async function openDatabase(filesystem: RecoveryFilesystem, scope: ScopeReferenc
   await filesystem.verify();
   const path = filesystem.journalDatabasePath(scope);
   const databaseName = path.slice(path.lastIndexOf("/") + 1);
-  let created = false;
-  try { await stat(path); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; created = true; }
   const database = new DatabaseSync(path, { allowExtension: false, defensive: true, enableDoubleQuotedStringLiterals: false, enableForeignKeyConstraints: true, readOnly: false, timeout: 0 });
   try {
-    if (created) createSchema(database); else { database.exec("PRAGMA journal_mode = DELETE; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON; PRAGMA trusted_schema = OFF;"); validateSchema(database); }
-    ensureDatabaseMarker(path, filesystem.rootIdentity, databaseName, created);
+    database.exec("PRAGMA journal_mode = DELETE; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON; PRAGMA trusted_schema = OFF;");
+    // File existence is not creation authority: two processes can both observe
+    // ENOENT before SQLite creates the same file. Serialize schema inspection,
+    // initialization, and identity-marker publication under one exclusive
+    // database transaction so no contender can validate a partial schema.
+    database.exec("BEGIN EXCLUSIVE");
+    try {
+      const objects = database.prepare("SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").all();
+      const initialize = objects.length === 0;
+      if (initialize) createSchema(database); else validateSchema(database);
+      ensureDatabaseMarker(path, filesystem.rootIdentity, databaseName, initialize);
+      database.exec("COMMIT");
+    } catch (error) {
+      try { if (database.isTransaction) database.exec("ROLLBACK"); } catch { /* preserve primary failure */ }
+      throw error;
+    }
     await filesystem.verify();
     return { database, path, close: () => database.close() };
   } catch (error) { try { database.close(); } catch { /* preserve first failure */ } throw error; }

@@ -3,6 +3,14 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./dist/pi/extension.js"
+    ]
+  },
   "engines": {
     "node": ">=24"
   },
@@ -10,6 +18,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./pi": {
+      "types": "./dist/pi/index.d.ts",
+      "import": "./dist/pi/index.js"
     }
   },
   "files": [
@@ -22,7 +34,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "boundaries": "depcruise src --config .dependency-cruiser.cjs",
     "test:unit": "vitest run",
-    "test:package": "npm run build && node test/compiled-package-import.mjs",
+    "test:package": "npm run build && node test/compiled-package-import.mjs && node test/compiled-pi-package-import.mjs && node test/packed-pi-consumer.mjs",
     "test": "npm run typecheck && npm run boundaries && npm run test:unit && npm run test:package"
   },
   "dependencies": {

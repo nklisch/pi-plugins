@@ -19,6 +19,8 @@ export type RuntimeDesiredStateLoader = Readonly<{ load(signal: AbortSignal): Pr
 export type CompletePluginReloadPort = LifecycleReloadPort & Readonly<{
   reconcileCurrent(signal: AbortSignal, expectations?: readonly ProjectionExpectation[]): Promise<readonly ActivationObservation[]>;
   acceptSuccessor(ticket: PiReloadTicket, signal: AbortSignal): Promise<readonly ActivationObservation[]>;
+  publishSuccessor(ticket: PiReloadTicket): void;
+  failSuccessor(ticket: PiReloadTicket, error?: unknown): void;
 }>;
 
 function target(expectation: ProjectionExpectation): string {
@@ -46,6 +48,7 @@ export function createCompletePluginReloadPort(input: Readonly<{
   const observed = new Map<string, ActivationObservation>();
   let current: RuntimeDesiredState | undefined;
   let queue = Promise.resolve();
+  let successorPublication: Readonly<{ ticket: PiReloadTicket; observations: readonly ActivationObservation[] }> | undefined;
 
   async function evidenceFor(
     desired: RuntimeDesiredState,
@@ -136,8 +139,20 @@ export function createCompletePluginReloadPort(input: Readonly<{
     const entry = await journal.read?.({ scope: ticket.scope, reference: ticket.transition }, signal);
     if (entry?.kind !== "found") throw new Error("reload transition evidence is unavailable");
     const observations = await reconcileCurrent(signal, [entry.entry.record.candidateProjection]);
-    input.broker.publish(ticket, observations);
+    successorPublication = Object.freeze({ ticket, observations });
     return observations;
+  }
+
+  function publishSuccessor(ticket: PiReloadTicket): void {
+    const publication = successorPublication;
+    if (publication === undefined || publication.ticket.id !== ticket.id) throw new Error("Pi reload successor publication is unavailable");
+    input.broker.publish(ticket, publication.observations);
+    successorPublication = undefined;
+  }
+
+  function failSuccessor(ticket: PiReloadTicket, error?: unknown): void {
+    if (successorPublication?.ticket.id === ticket.id) successorPublication = undefined;
+    input.broker.fail(ticket, error);
   }
 
   async function reload(request: Parameters<LifecycleReloadPort["reload"]>[0], signal: AbortSignal) {
@@ -163,5 +178,5 @@ export function createCompletePluginReloadPort(input: Readonly<{
     return value;
   }
 
-  return Object.freeze({ reload, observe, reconcileCurrent, acceptSuccessor });
+  return Object.freeze({ reload, observe, reconcileCurrent, acceptSuccessor, publishSuccessor, failSuccessor });
 }

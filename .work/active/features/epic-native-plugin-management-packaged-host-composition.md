@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-packaged-host-composition
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: epic-native-plugin-management
 depends_on: []
@@ -662,6 +662,12 @@ The default extension calls only `createPackagedPluginHost({ pi })`; it supplies
 10. **Late production binding**: optional package-neutral ports are absent by default. A test fake proves composition mechanics, never published-package qualification.
 11. **Close once**: every resource has one owner and one idempotent reverse-order close. Cleanup uncertainty is reported safely and never turns a committed operation into a replay.
 12. **No stale Pi use**: after `ctx.reload()` the predecessor uses only its pinned application adapters and the broker; it never calls old `pi`, `ctx`, UI, session manager, resource, or runtime objects.
+
+## Implementation completion
+
+All nine child stories are implemented and marked done. The packaged composition now has one construct-only Pi root, exact session/project/path authority, durable state/configuration/secret/revision adapters, immutable runtime selection, complete skill/hook/subagent and MCP composition, one recovery/reload convergence path, and a compiled `./pi` package boundary with optional production participants truthfully absent by default.
+
+Full verification passed: 201 test files / 1,037 tests, strict typechecking, dependency boundaries (276 modules / 1,746 dependencies), compiled root and Pi imports, and packed clean-consumer discovery. The feature is ready for integrated review.
 
 ## Failure matrix
 

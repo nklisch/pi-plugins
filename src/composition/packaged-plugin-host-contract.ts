@@ -7,6 +7,16 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { McpRuntimePort } from "../application/ports/mcp-runtime.js";
 import type { SubagentLifecyclePort } from "../application/ports/subagent-lifecycle.js";
+import type { PluginLifecycleService } from "../application/plugin-lifecycle-service.js";
+import type { CompatibilityService } from "../application/compatibility-service.js";
+import type { PluginInspectionService } from "../application/inspection-service.js";
+import type { BoundPluginConfigurationService } from "./create-host-configuration.js";
+import type { LifecycleRecoveryService } from "../application/recovery-service.js";
+import type { createRevisionCollectionService } from "../application/revision-collection-service.js";
+import type { MarketplaceInspectionService } from "../application/marketplace-inspection-contract.js";
+import type { NodeMarketplaceUpdateServices } from "./create-marketplace-update-services.js";
+import type { RuntimeCapabilityProbe } from "../application/ports/runtime-capability-probe.js";
+import type { SkillResourceDiscoveryPort } from "../runtime/skills/resource-discovery.js";
 
 export const PackagedPluginHostErrorCode = {
   invalidOptions: "HOST_INVALID_OPTIONS",
@@ -81,21 +91,17 @@ export type HostStartupResult = Readonly<{
   }>;
 }>;
 
-/**
- * The concrete application shape is intentionally structural and safe. The
- * composition module refines these fields with the existing application
- * services without exposing stores, SQLite handles, path codecs, or brokers.
- */
+/** Safe application services; raw stores, handles, codecs, catalogs, and brokers stay private. */
 export type PackagedPluginHostApplication = Readonly<{
-  lifecycle?: unknown;
-  compatibility?: unknown;
-  inspection?: unknown;
-  configuration?: unknown;
-  recovery?: unknown;
-  collection?: unknown;
-  marketplace?: unknown;
-  capabilities?: unknown;
-  resources?: unknown;
+  lifecycle: PluginLifecycleService;
+  compatibility: CompatibilityService;
+  inspection: PluginInspectionService;
+  configuration: BoundPluginConfigurationService;
+  recovery: LifecycleRecoveryService;
+  collection: ReturnType<typeof createRevisionCollectionService>;
+  marketplace: Readonly<{ inspection: MarketplaceInspectionService }> & NodeMarketplaceUpdateServices;
+  capabilities: RuntimeCapabilityProbe;
+  resources: SkillResourceDiscoveryPort;
 }>;
 
 export type StartedPackagedPluginHost = Readonly<{

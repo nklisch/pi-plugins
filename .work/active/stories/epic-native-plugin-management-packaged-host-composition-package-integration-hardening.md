@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-packaged-host-composition-package-integration-hardening
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management-packaged-host-composition
 depends_on: [epic-native-plugin-management-packaged-host-composition-reload-recovery-application-container]
@@ -54,3 +54,11 @@ Publish the default compiled no-production-runtime Pi entry and `./pi` compositi
 ## Ordering constraint
 
 Final checkpoint after the complete application container. It advances no user workflow and selects no production fork.
+
+## Implementation notes
+
+- Added the compiled default Pi extension and `./pi` subpath. The public Pi surface contains only the construct-only factory, redacted host error/status values, and safe structural types; raw bindings, paths, database adapters, brokers, catalogs, and fakes remain private.
+- Added `pi-package` discovery metadata and a compiled `dist/pi/extension.js` manifest entry. The default extension supplies no MCP or subagent implementation.
+- Added source/compiled Pi export allowlists, clean packed-consumer extraction/import/discovery, duplicate-root and partial-start reverse-disposal coverage, and idempotent close evidence.
+- Fixed real first-use multiprocess races found by the full suite: private-directory creation now accepts only a revalidated `EEXIST` winner, lifecycle state openers use a bounded SQLite busy handler, and recovery-journal schema/identity publication is serialized under one exclusive transaction. The adversarial recovery and lifecycle-state process tests passed repeated stress runs.
+- Full verification: 201 test files and 1,037 tests passed; source/test typechecking had no errors; dependency boundaries passed over 276 modules/1,746 dependencies; build, 522-export root import, 3-export Pi subpath import, and packed-consumer discovery passed.

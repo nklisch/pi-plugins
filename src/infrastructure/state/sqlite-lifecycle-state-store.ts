@@ -318,7 +318,10 @@ class SqliteLifecycleStateAdapter implements LifecycleStateStore {
       if (!sameJson(existing.scope, scope)) throw new LifecycleStateAdapterError("STATE_CORRUPT", "lifecycle state scope alias detected");
       return existing;
     }
-    const database = new DatabaseSync(path, { allowExtension: false, defensive: true });
+    // First-use schema/default initialization is process-shared. A bounded
+    // native busy handler lets the losing opener wait for the winner's short
+    // initialization transaction instead of failing on an expected lock.
+    const database = new DatabaseSync(path, { allowExtension: false, defensive: true, timeout: 5_000 });
     try {
       chmodSync(path, LOCAL_LOCK_DATABASE_MODE);
       initializeSchema(database);
