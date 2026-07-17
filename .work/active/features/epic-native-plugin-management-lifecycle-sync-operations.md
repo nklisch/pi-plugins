@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-lifecycle-sync-operations
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-inspection-diagnostics]
@@ -842,3 +842,20 @@ The feature remains one cohesive implementation/review bundle. Stories are durab
 This design fails if update resolves a moved/latest source under old consent, a presentation bypasses expected target state, a pending transition is stacked, prior active content disappears on failed update, uninstall claims cleanup while data remains, project sync touches user state or foreign files, sync performs hidden network/install/trust/config writes, an editor change is overwritten after preview, merge silently chooses a side, cancellation hides committed actions, the declaration digest advances before convergence, or shutdown destroys an admitted reload.
 
 The countermeasures are exact inspection/candidate/target/preview bindings, one prepared lifecycle executor, pending-state admission, existing compensation/recovery, durable uninstall cleanup intent, project-only local/offline planner, fixed no-follow file CAS, explicit conflict resolutions, effect-bearing results, final convergence reread, and operation-drain-aware disposal. Whenever evidence cannot be proven current, the correct result is current-state, needs-input/action, stale, conflict, rejected, cancelled-with-effects, rolled-back, recovery-required, or failed—never guessed success.
+
+## Implementation summary
+
+All ten child stories were implemented in declared dependency order by one cohesive xhigh owner. The implementation adds strict safe contracts/opaque identifiers; exact installed targets and trusted prepared update leases; fixed no-follow project intent CAS; lifecycle orchestration with rollback/recovery truth; a deterministic offline project-sync planner and executor; journal-v2 uninstall cleanup; transient operation sessions with duplicate/cancel/disposal admission; and private packaged composition exposing `application.operations` instead of raw lifecycle.
+
+The feature deliberately reuses native inspection evidence, the candidate lease/materializer seam, exact trust/configuration authorities, generation coordination and scope locks, the lifecycle transition/reload/recovery engine, project root/trust, registration mutation, and persistent-data removal. It adds no second transaction/state engine, network-capable sync path, command, TUI, scheduler, watcher, durable operation session, or generic filesystem surface.
+
+## Integrated verification
+
+- Full `npm test`: 259 test files / 1,265 tests passed; no type errors.
+- Dependency boundaries: 337 modules / 2,403 dependencies, no violations.
+- Package acceptance: exact root allowlist 711 exports; exact Pi allowlist 3 exports; isolated packed Pi startup passed.
+- Feature-owned tests cover stale targets/candidates/capabilities, update lease ownership/races, disable/uninstall rollback, cleanup crash/restart/migration, hostile values and progress observers, symlink/replacement/CAS behavior, deterministic three-way conflict resolution, offline missing prerequisites, partial sync retry, duplicate apply/cancellation, session expiry/disposal, packaged context admission, and raw lifecycle removal.
+
+## Execution record
+
+Execution capability: one xhigh feature owner, selected because the ten stories share lifecycle transaction, target binding, project authority, session, recovery, and packaged-composition state. No delegated worker or nested agent was used. Implementation commits: `afaa479`, `e0102ce`, `20c2453`, `ee9cd13`, `727de2e`, `f2f8473`, `6b59af2`, `6524270`, `453140e`, `3d1f188`.
