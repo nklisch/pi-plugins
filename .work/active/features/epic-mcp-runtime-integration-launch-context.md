@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-launch-context
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, infra, security]
 parent: epic-mcp-runtime-integration
 depends_on: [epic-mcp-runtime-integration-config-source-bridge]
@@ -458,3 +458,42 @@ All four child stories are implementable against the completed package-neutral b
 ## UI alignment
 
 No UI surface and no mockups. Configuration/trust collection and status rendering belong to `epic-native-plugin-management`.
+
+## Implementation summary
+
+Implemented the four security checkpoints as one cohesive xhigh owner in dependency order:
+
+1. **Portable contracts** — one strict schema-derived canonical launch template, shared root registry, shared structured sensitive-field classifier, callback-only selection/context/environment ports, null-prototype configured environments, and stable error-code registry entries.
+2. **Trusted context** — one exact active-selection lease that recomputes projection/revision/reference evidence, compares the selected component to projection and executable trust, authorizes before root effects, reacquires and verifies project/content/data roots, and invokes the existing configuration resolver as the final trust/document/path/secret check.
+3. **Transport delivery** — one source-bound provider with strict non-recursive template rendering, requested-name-only ambient reads, literal standard-I/O values, strict Streamable HTTP values, platform-aware collision rejection, redacted accessor leases, and a single cancellation ownership-transfer point.
+4. **Conformance** — an immediate-consumption fake/runtime contract with safe status codes and disposal on every outcome, negative broken harnesses, concurrent configuration-revision evidence, trust-revocation evidence, public/compiled allowlists, and end-to-end integration through the real resolver.
+
+The context callback carries the freshly canonicalized non-secret template alongside roots/configuration so the provider can compare it to the registered source without reopening lifecycle state. This is a small contract elaboration over the design sketch, not a new authority. Static credential-looking standard-I/O environment values were also rejected unless late-bound, extending the design's header/query rule to preserve the stated canonical secret-free invariant.
+
+No production MCP runtime, `pi-mcp-adapter` import/composition, process launch, HTTP connection, OAuth/auth implementation, environment/file/settings mutation, lifecycle/reload logic, secret store, cache, or projection-feature implementation was added. The fake remains test-only and exports no production capability.
+
+## Implementation run notes
+
+- Ownership: GPT-5.6 Sol, xhigh, direct host implementation. One sequential feature owner was retained because all stories share the same trust/value-lifetime invariants and overlapping contracts; nested agents and peer mechanisms were explicitly prohibited.
+- Review weight: standard by project default, but the caller explicitly set the lifecycle boundary at **feature `review` after full green verification** and prohibited nested agents. No independent review was run in this implementation stride.
+- Child checkpoints advanced directly `implementing → done`: portable-contracts, trusted-context, transport-delivery, conformance.
+- Story commits:
+  - `b2728e8` — portable contracts
+  - `b8c3bda` — trusted context
+  - `19b8edf` — transport delivery
+  - `28d730d` — conformance/integration/public surface
+
+## Integrated verification
+
+Full `npm test` pipeline passed:
+
+- typecheck: no errors;
+- dependency boundaries: **223 modules / 1,342 dependencies**, no violations;
+- unit/integration/contracts: **161 files / 860 tests passed**, 0 failed, no type errors;
+- compiled package import: **476 exports**.
+
+Focused risk suites additionally recorded **43/43** portable-contract tests, **11/11** trusted-context tests, **26/26** transport/lifetime tests, and **27/27** conformance/integration/public tests.
+
+## Portable completion status
+
+The feature's portable completion boundary is satisfied and it is ready for feature-level review. Production launch/connect remains unavailable by design until `epic-mcp-runtime-integration-config-source-bridge-production-adapter` and later lifecycle composition qualify a real package against these contracts; that external production dependency does not block review of this portable feature.
