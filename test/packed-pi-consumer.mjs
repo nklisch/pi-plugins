@@ -1,224 +1,349 @@
-import { cp, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
+import { cp, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const project = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const root = await mkdtemp(join(tmpdir(), "pi-plugin-host-consumer-"));
+const root = await mkdtemp(join(tmpdir(), "pi-plugin-host-real-pi-"));
+
+function checked(command, args, options = {}) {
+  const result = spawnSync(command, args, { encoding: "utf8", ...options });
+  if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed (${result.status}):\n${result.stderr || result.stdout}`);
+  return result;
+}
+
+function timeoutAfter(ms, label) {
+  return new Promise((_, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    timer.unref?.();
+  });
+}
+
+async function prepareMarketplace(path) {
+  const plugin = join(path, "plugins", "demo");
+  await mkdir(join(path, ".claude-plugin"), { recursive: true });
+  await mkdir(join(plugin, ".claude-plugin"), { recursive: true });
+  await mkdir(join(plugin, "skills", "demo"), { recursive: true });
+  await writeFile(join(path, ".claude-plugin", "marketplace.json"), JSON.stringify({
+    name: "acceptance-market",
+    owner: { name: "acceptance" },
+    plugins: [{
+      name: "demo",
+      source: "./plugins/demo",
+      description: "Packed real-Pi acceptance plugin",
+      category: "testing",
+      tags: ["acceptance"],
+      policy: { installation: "AVAILABLE", authentication: "ON_INSTALL" },
+    }],
+  }, null, 2));
+  await writeFile(join(plugin, ".claude-plugin", "plugin.json"), JSON.stringify({
+    name: "demo",
+    description: "Packed real-Pi acceptance plugin",
+    version: "1.0.0",
+    author: { name: "acceptance" },
+    license: "MIT",
+    skills: ["./skills/demo"],
+  }, null, 2));
+  await writeFile(join(plugin, "skills", "demo", "SKILL.md"), "---\nname: demo\ndescription: Real Pi manager packed acceptance skill.\n---\n\n# Demo\n\nUse only for packed acceptance.\n");
+  checked("git", ["init", "-q"], { cwd: path });
+  checked("git", ["config", "user.email", "acceptance@example.invalid"], { cwd: path });
+  checked("git", ["config", "user.name", "Acceptance"], { cwd: path });
+  checked("git", ["add", "."], { cwd: path });
+  checked("git", ["commit", "-qm", "acceptance marketplace"], { cwd: path });
+}
+
+async function startRpc({ cli, args, cwd, env }) {
+  const child = spawn(process.execPath, [cli, ...args, "--mode", "rpc", "--no-session"], {
+    cwd,
+    env,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  let buffer = "";
+  let sequence = 0;
+  const events = [];
+  const pending = new Map();
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk;
+    buffer += chunk;
+    while (true) {
+      const index = buffer.indexOf("\n");
+      if (index < 0) break;
+      let line = buffer.slice(0, index);
+      buffer = buffer.slice(index + 1);
+      if (line.endsWith("\r")) line = line.slice(0, -1);
+      if (line.length === 0) continue;
+      let event;
+      try { event = JSON.parse(line); }
+      catch (error) { throw new Error(`real Pi RPC emitted non-JSON stdout: ${JSON.stringify(line)}\n${error}`); }
+      events.push(event);
+      if (event.type === "response" && typeof event.id === "string") {
+        const waiter = pending.get(event.id);
+        if (waiter !== undefined) {
+          pending.delete(event.id);
+          waiter.resolve(event);
+        }
+      }
+    }
+  });
+
+  async function request(command, timeoutMs = 30_000) {
+    const id = `acceptance-${++sequence}`;
+    const response = new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+    child.stdin.write(`${JSON.stringify({ id, ...command })}\n`);
+    const value = await Promise.race([response, timeoutAfter(timeoutMs, `RPC ${command.type}`)]);
+    if (value.success !== true) throw new Error(`real Pi RPC ${command.type} failed: ${JSON.stringify(value)}\nstderr=${stderr}`);
+    return value;
+  }
+
+  async function stop() {
+    child.stdin.end();
+    const [code, signal] = await Promise.race([once(child, "exit"), timeoutAfter(20_000, "real Pi RPC shutdown")]);
+    if (code !== 0) throw new Error(`real Pi RPC shutdown failed: code=${code} signal=${signal}\n${stderr}`);
+    for (const waiter of pending.values()) waiter.reject(new Error("RPC stopped"));
+    pending.clear();
+    if (buffer.trim().length > 0) throw new Error(`real Pi RPC left a partial JSON frame: ${JSON.stringify(buffer)}`);
+  }
+
+  return { child, events, request, stop, output: () => ({ stdout, stderr }) };
+}
+
+function controlReports(entriesResponse) {
+  return (entriesResponse.data?.entries ?? [])
+    .filter((entry) => entry.type === "custom" && entry.customType === "plugin-host:control-report-v1")
+    .map((entry) => entry.data?.envelope)
+    .filter(Boolean);
+}
+
+async function waitForControlReport(rpc, predicate, label, afterCount = 0, timeoutMs = 60_000) {
+  const deadline = Date.now() + timeoutMs;
+  do {
+    const entries = await rpc.request({ type: "get_entries" });
+    const matches = controlReports(entries).filter(predicate);
+    if (matches.length > afterCount) return matches.at(-1);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+  } while (Date.now() < deadline);
+  throw new Error(`real Pi RPC timed out waiting for ${label}`);
+}
+
+async function runControlCommand(rpc, message, predicate, label) {
+  const before = controlReports(await rpc.request({ type: "get_entries" })).filter(predicate).length;
+  await rpc.request({ type: "prompt", message }, 60_000);
+  return waitForControlReport(rpc, predicate, label, before);
+}
+
+async function waitForMarketplaceIdle(rpc, commandName, timeoutMs = 60_000) {
+  const deadline = Date.now() + timeoutMs;
+  let consecutiveIdle = 0;
+  do {
+    const report = await runControlCommand(
+      rpc,
+      `/${commandName} marketplace list --scope user`,
+      (envelope) => envelope.command?.id === "marketplace.list",
+      "marketplace idle observation",
+    );
+    consecutiveIdle = (report.data?.registrations ?? []).every((registration) => registration.refresh?.claim === undefined)
+      ? consecutiveIdle + 1
+      : 0;
+    if (consecutiveIdle >= 2) return;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+  } while (Date.now() < deadline);
+  throw new Error(`real Pi RPC background marketplace refresh did not settle\n${rpc.output().stderr}`);
+}
+
 try {
-  const packed = spawnSync("npm", ["pack", "--json", "--silent", "--pack-destination", root], { cwd: project, encoding: "utf8" });
-  if (packed.status !== 0) throw new Error(packed.stderr || "npm pack failed");
+  const packed = checked("npm", ["pack", "--json", "--silent", "--pack-destination", root], { cwd: project });
   const [{ filename }] = JSON.parse(packed.stdout);
   const consumer = join(root, "consumer");
   const home = join(root, "empty-home");
   const workspace = join(root, "workspace");
   const agentDir = join(root, "agent");
-  await Promise.all([mkdir(consumer), mkdir(home), mkdir(workspace), mkdir(agentDir)]);
+  const marketplace = join(root, "marketplace");
+  await Promise.all([mkdir(consumer), mkdir(home), mkdir(workspace), mkdir(agentDir), mkdir(marketplace)]);
+  await prepareMarketplace(marketplace);
   await writeFile(join(consumer, "package.json"), JSON.stringify({ private: true, type: "module" }));
-  // Copy installed dependency bytes, then extract only the npm tarball for the
-  // package under test. This keeps the consumer offline and checkout-isolated
-  // without depending on which registry metadata happens to be in npm's cache.
+
+  // Install the package-under-test tarball beside the exact package-pinned Pi
+  // runtime without importing any source checkout files.
   await cp(join(project, "node_modules"), join(consumer, "node_modules"), { recursive: true, dereference: true });
   const packageRoot = join(consumer, "node_modules", "@nklisch", "pi-plugin-host");
+  await rm(packageRoot, { recursive: true, force: true });
   await mkdir(packageRoot, { recursive: true });
-  const extract = spawnSync("tar", ["-xzf", join(root, filename), "--strip-components=1", "-C", packageRoot], { encoding: "utf8" });
-  if (extract.status !== 0) throw new Error(extract.stderr || "isolated packed extraction failed");
+  checked("tar", ["-xzf", join(root, filename), "--strip-components=1", "-C", packageRoot]);
 
-  const metadata = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
-  const dependencies = [
-    ...Object.keys(metadata.dependencies ?? {}),
-    "@earendil-works/pi-coding-agent",
-    "@earendil-works/pi-tui",
+  const piRoot = join(consumer, "node_modules", "@earendil-works", "pi-coding-agent");
+  const piMetadata = JSON.parse(await readFile(join(piRoot, "package.json"), "utf8"));
+  const hostMetadata = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
+  if (piMetadata.version !== "0.80.8") throw new Error(`real Pi acceptance requires exact 0.80.8, got ${piMetadata.version}`);
+  if (JSON.stringify(hostMetadata.pi?.extensions) !== JSON.stringify(["./dist/pi/extension.js"])) throw new Error("packed extension discovery metadata missing");
+  if (await realpath(packageRoot) === project) throw new Error("packed package resolved to the source checkout");
+
+  const cli = join(piRoot, piMetadata.bin.pi);
+  const extension = join(packageRoot, hostMetadata.pi.extensions[0]);
+  const collision = join(consumer, "collision-extension.mjs");
+  await writeFile(collision, `export default function (pi) { pi.registerCommand("plugin", { description: "Acceptance collision", handler: async (_args, ctx) => { ctx.ui.notify("collision command", "info"); } }); }\n`);
+  const commonArgs = [
+    "--offline",
+    "--approve",
+    "--no-extensions",
+    "--no-skills",
+    "--no-prompt-templates",
+    "--no-themes",
+    "--no-context-files",
+    "-e", collision,
+    "-e", extension,
   ];
-  for (const dependency of dependencies) {
-    const installedPath = await realpath(join(consumer, "node_modules", ...dependency.split("/")));
-    if (installedPath === project || installedPath.startsWith(`${project}/`)) {
-      throw new Error(`packed consumer dependency escaped into checkout: ${dependency}`);
-    }
+  const env = {
+    ...process.env,
+    HOME: home,
+    PI_CODING_AGENT_DIR: agentDir,
+    PI_OFFLINE: "1",
+    NODE_OPTIONS: "",
+    NO_COLOR: "1",
+  };
+
+  // Real RPC proves public extension registration, collision ownership,
+  // structured framing, canonical command execution, and durable local setup.
+  const rpc = await startRpc({ cli, args: commonArgs, cwd: workspace, env });
+  const commands = await rpc.request({ type: "get_commands" });
+  const pluginCommands = commands.data.commands.filter((command) => command.source === "extension" && command.name.startsWith("plugin"));
+  if (pluginCommands.length !== 2) throw new Error(`expected collision plus packed /plugin, got ${JSON.stringify(pluginCommands)}`);
+  const owned = pluginCommands.find((command) => {
+    const path = command.path ?? command.sourceInfo?.path;
+    return typeof path === "string" && resolve(path) === resolve(extension);
+  });
+  if (owned === undefined || owned.name === "plugin") throw new Error(`packed command did not retain exact collision suffix ownership: ${JSON.stringify(pluginCommands)}`);
+  if (!rpc.events.some((event) => event.type === "extension_ui_request" && event.method === "notify" && String(event.message).includes(`/${owned.name}`))) {
+    throw new Error("real Pi collision notification did not name the exact suffixed command");
   }
 
-  const headlessChild = join(consumer, "headless-child.mjs");
-  await writeFile(headlessChild, `
-    import { createNativeControlService, createNodeControlTimeoutPort, runNodeNativeControlHeadless } from "@nklisch/pi-plugin-host";
-    const ready = {
-      status: "ready",
-      local: { recovery: "settled", runtime: "reconciled" },
-      update: { state: "standby", unreadCount: 0, unresolvedCount: 0, scopes: [] },
-      blocked: [],
-      capabilities: {
-        mcp: { status: "unavailable", explanation: "not configured" },
-        subagents: { status: "unavailable", explanation: "not configured" },
-        piReload: { status: "available", explanation: "available" },
-        secrets: { status: "unavailable", explanation: "not configured" },
-      },
-    };
-    const unavailable = async () => { throw new Error("unused adapter"); };
-    const waitForAbort = (signal) => new Promise((resolve, reject) => {
-      const activeOwnerHandle = setInterval(() => {}, 1000);
-      const abort = () => {
-        clearInterval(activeOwnerHandle);
-        reject(signal.reason ?? new DOMException("aborted", "AbortError"));
-      };
-      if (signal.aborted) abort(); else signal.addEventListener("abort", abort, { once: true });
-    });
-    const service = createNativeControlService({
-      applications: {
-        marketplace: {
-          registration: { add: unavailable, remove: unavailable, list: unavailable },
-          refresh: { refresh: unavailable },
-          catalog: { search: unavailable, detail: unavailable },
-          adoption: { preview: unavailable, import: unavailable },
-        },
-        inspection: {
-          list: (_request, signal) => waitForAbort(signal),
-          detail: unavailable,
-          diagnose: unavailable,
-        },
-        trustedInstallation: { open: unavailable, activate: unavailable, recover: unavailable, run: unavailable, status: unavailable, cancel: unavailable },
-        operations: { preview: unavailable, apply: unavailable, run: unavailable, status: unavailable, cancel: unavailable },
-        updates: { previewPolicy: unavailable, applyPolicy: unavailable, status: unavailable, notifications: unavailable, acknowledge: unavailable, runAutomatic: unavailable },
-        status: { snapshot: () => ready },
-        currentProject: { current: async () => ({ kind: "unavailable" }) },
-      },
-      ids: { issue: async () => "native-control-execution-v1:123e4567-e89b-42d3-a456-426614174000" },
-      timeouts: createNodeControlTimeoutPort(),
-    });
-    if (process.env.SELF_SIGINT === "1") setTimeout(() => process.kill(process.pid, "SIGINT"), 25);
-    const code = await runNodeNativeControlHeadless({ control: service, argv: process.argv.slice(2) });
-    await service.close();
-    process.exitCode = code;
-  `);
+  await runControlCommand(rpc, `/${owned.name} status`, (envelope) => envelope.command?.id === "status", "status completion");
+  await runControlCommand(rpc, `/${owned.name} marketplace add ${marketplace} --source-kind local-git --scope user`, (envelope) => envelope.command?.id === "marketplace.add", "marketplace registration completion");
+  await runControlCommand(rpc, `/${owned.name} browse demo --scope user --limit 50`, (envelope) => envelope.command?.id === "browse", "catalog browse completion");
+  const entries = await rpc.request({ type: "get_entries" });
+  const reports = controlReports(entries);
+  if (!reports.some((envelope) => envelope.command?.id === "status" && envelope.status === "ok")) throw new Error("real Pi RPC status envelope missing");
+  if (!reports.some((envelope) => envelope.command?.id === "browse" && envelope.status === "ok" && envelope.data?.candidates?.some((candidate) => candidate.plugin === "demo@acceptance-market"))) {
+    throw new Error(`real Pi RPC did not discover local acceptance candidate: ${JSON.stringify(reports.at(-1))}`);
+  }
+  await runControlCommand(rpc, `/${owned.name}`, (envelope) => envelope.status === "presentation-required", "headless manager presentation result");
+  // Every command wake is allowed to start detached marketplace maintenance.
+  // Keep the real RPC process alive until its public registration view proves
+  // that no durable refresh claim will be abandoned at shutdown.
+  await waitForMarketplaceIdle(rpc, owned.name);
+  await rpc.stop();
 
-  const usageProcess = spawnSync(process.execPath, [headlessChild, "unknown-command"], { cwd: consumer, encoding: "utf8", env: { ...process.env, HOME: home, NODE_OPTIONS: "" } });
-  if (usageProcess.status !== 2 || Buffer.byteLength(usageProcess.stdout) === 0) throw new Error("headless usage did not emit bytes with exit 2");
-  const timeoutProcess = spawnSync(process.execPath, [headlessChild, "--output", "json", "--timeout-ms", "25", "list"], { cwd: consumer, encoding: "utf8", env: { ...process.env, HOME: home, NODE_OPTIONS: "" } });
-  if (timeoutProcess.status !== 9 || !timeoutProcess.stdout.includes('"status":"cancelled"')) throw new Error(`headless timeout failed: status=${timeoutProcess.status} stdout=${JSON.stringify(timeoutProcess.stdout)} stderr=${JSON.stringify(timeoutProcess.stderr)}`);
-  const sigintProcess = spawnSync(process.execPath, [headlessChild, "--output", "json", "list"], { cwd: consumer, encoding: "utf8", env: { ...process.env, HOME: home, NODE_OPTIONS: "", SELF_SIGINT: "1" } });
-  if (sigintProcess.status !== 9 || !sigintProcess.stdout.includes('"status":"cancelled"')) throw new Error(`headless SIGINT failed: status=${sigintProcess.status} stdout=${JSON.stringify(sigintProcess.stdout)} stderr=${JSON.stringify(sigintProcess.stderr)}`);
+  const packageOnlyArgs = [
+    "--offline", "--approve", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files", "-e", extension,
+  ];
+  // Real JSON mode must remain strict JSONL even while the extension publishes
+  // custom control frames and reports through Pi's session channel.
+  const json = checked(process.execPath, [cli, ...packageOnlyArgs, "--mode", "json", "--no-session", "/plugin status"], { cwd: workspace, env, timeout: 60_000 });
+  const jsonLines = json.stdout.split("\n").filter(Boolean);
+  if (jsonLines.length === 0) throw new Error("real Pi JSON mode emitted no framing");
+  for (const line of jsonLines) JSON.parse(line);
 
-  const epipeProcess = spawn(process.execPath, [headlessChild, "--output", "json", "list"], { cwd: consumer, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, HOME: home, NODE_OPTIONS: "" } });
-  epipeProcess.stdout.destroy();
-  const [epipeCode] = await once(epipeProcess, "exit");
-  if (epipeCode !== 74) throw new Error(`headless EPIPE exited ${epipeCode} instead of 74`);
+  // A minimal Node-owned PTY acceptance uses Python's standard-library pty
+  // allocator only because Node 24 has no public PTY API. It drives the actual
+  // package-pinned Pi CLI and the production extension without deep imports or
+  // monkeypatches. Node 24 exposes no atomic no-replace directory rename, so
+  // production correctly rejects projection before install mutation; successful
+  // install/reload handoff remains covered at the strongest injected-platform
+  // boundary. This PTY covers host reload, browse, exact trust, public rejection,
+  // manager recovery, and graceful shutdown without pretending the limitation
+  // is a successful install.
+  const transcript = join(root, "real-pi-tui.log");
+  const ptyDriver = join(root, "pty-driver.py");
+  await writeFile(ptyDriver, String.raw`
+import fcntl, json, os, pty, select, signal, struct, sys, termios, time
+args = json.loads(sys.argv[1])
+env = os.environ.copy()
+pid, fd = pty.fork()
+if pid == 0:
+    os.chdir(args["cwd"])
+    os.execve(args["node"], [args["node"], args["cli"], *args["argv"]], env)
+fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 120, 0, 0))
+os.set_blocking(fd, False)
+buffer = bytearray()
+def pump(deadline):
+    while time.monotonic() < deadline:
+        ready, _, _ = select.select([fd], [], [], 0.1)
+        if not ready: continue
+        try:
+            chunk = os.read(fd, 65536)
+        except BlockingIOError:
+            continue
+        except OSError:
+            return False
+        if not chunk: return False
+        buffer.extend(chunk)
+    return True
+def wait_for(token, start=None, timeout=45):
+    needle = token.encode()
+    begin = len(buffer) if start is None else start
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if buffer.find(needle, begin) >= 0: return
+        if not pump(min(deadline, time.monotonic() + 0.25)): break
+    tail = bytes(buffer[-12000:]).decode("utf-8", "replace")
+    raise RuntimeError("missing TUI token %r after %d bytes; tail=%r" % (token, begin, tail))
+def send(data):
+    os.write(fd, data)
+wait_for("Plugin Host command collision", 0, 60)
+mark = len(buffer); send(("/" + args["command"] + " status\r").encode()); wait_for("Plugin operation", mark, 60); wait_for("Final owner result", mark, 60); send(b"\x1b"); pump(time.monotonic() + 0.5)
+mark = len(buffer); send(b"/reload\r"); wait_for("Plugin Host command collision", mark, 60)
+mark = len(buffer); send(("/" + args["command"] + "\r").encode()); wait_for("PI / PLUGINS", mark, 60)
+mark = len(buffer); send(b"\x1b[C\x1b[C"); wait_for("demo", mark, 60)
+send(b"\t\t\r"); wait_for("Component inventory", mark, 60)
+mark = len(buffer); send(b"\t\t\x1b[B\r"); wait_for("Step 1/3", mark, 60)
+mark = len(buffer); send(b"\r"); wait_for("Step 2/3", mark, 60)
+send(b"\r")
+for _ in range(16): send(b"\x1b[6~")
+send(b"\t\t\r")
+mark = len(buffer); wait_for("Step 3/3", mark, 90); wait_for("PROJECTION_FAILED", mark, 90)
+send(b"\r")
+mark = len(buffer); wait_for("PI / PLUGINS", mark, 60); wait_for("demo", mark, 60)
+send(b"\x1b\x04")
+deadline = time.monotonic() + 30
+status = None
+while time.monotonic() < deadline:
+    ended, raw = os.waitpid(pid, os.WNOHANG)
+    if ended:
+        status = raw
+        break
+    pump(time.monotonic() + 0.1)
+if status is None:
+    os.kill(pid, signal.SIGTERM)
+    ended, status = os.waitpid(pid, 0)
+with open(args["transcript"], "wb") as output: output.write(buffer)
+if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
+    raise RuntimeError("real Pi TUI exited with status %r" % status)
+`);
+  const pty = checked("python3", [ptyDriver, JSON.stringify({
+    node: process.execPath,
+    cli,
+    cwd: workspace,
+    argv: [...commonArgs, "--no-session"],
+    command: owned.name,
+    transcript,
+  })], { cwd: workspace, env, timeout: 240_000 });
+  const tuiBytes = await readFile(transcript, "utf8");
+  for (const expected of ["PI / PLUGINS", "Step 1/3", "Step 2/3", "Step 3/3", "Final owner result", "PROJECTION_FAILED", "demo"]) {
+    if (!tuiBytes.includes(expected)) throw new Error(`real Pi PTY transcript missing ${expected}`);
+  }
+  if (tuiBytes.includes("SECRET-CANARY")) throw new Error("real Pi PTY transcript leaked a secret canary");
 
-  await writeFile(join(consumer, "verify.mjs"), `
-    import * as api from "@nklisch/pi-plugin-host/pi";
-    import { readFile } from "node:fs/promises";
-    import { pathToFileURL } from "node:url";
-    const packageRoot = ${JSON.stringify(packageRoot)};
-    const metadata = JSON.parse(await readFile(packageRoot + "/package.json", "utf8"));
-    if (typeof api.createPackagedPluginHost !== "function") throw new Error("Pi composition factory missing");
-    if (JSON.stringify(metadata.pi?.extensions) !== JSON.stringify(["./dist/pi/extension.js"])) throw new Error("Pi extension metadata missing");
-    const extension = (await import(pathToFileURL(packageRoot + "/" + metadata.pi.extensions[0]).href)).default;
-    const handlers = new Map();
-    const commands = [];
-    const entries = [];
-    let customOpened = 0;
-    const theme = {
-      fg(_token, text) { return text; },
-      bg(_token, text) { return text; },
-      bold(text) { return text; },
-    };
-    const keybindings = { matches() { return false; }, getKeys() { return ["enter"]; } };
-    const tui = { terminal: { rows: 24, columns: 100 }, requestRender() {}, setFocus() {} };
-    const pi = {
-      on(name, handler) { handlers.set(name, [...(handlers.get(name) ?? []), handler]); },
-      registerCommand(name, options) { commands.push({ name, options }); },
-      getCommands() {
-        return commands.map((command) => ({
-          name: command.name,
-          source: "extension",
-          sourceInfo: { path: packageRoot + "/dist/pi/extension.js", source: "package", scope: "user", origin: "package" },
-        }));
-      },
-      appendEntry(type, data) { entries.push({ type, data }); },
-      sendMessage() {},
-      setSessionName() {},
-    };
-    const context = {
-      cwd: ${JSON.stringify(workspace)},
-      mode: "tui",
-      hasUI: true,
-      signal: undefined,
-      sessionManager: {
-        getSessionId: () => "packed-consumer-session",
-        getSessionFile: () => undefined,
-        getEntries: () => entries,
-      },
-      isProjectTrusted: () => true,
-      isIdle: () => true,
-      waitForIdle: async () => {},
-      ui: {
-        theme,
-        notify() {},
-        input: async () => undefined,
-        confirm: async () => false,
-        select: async () => undefined,
-        async custom(factory) {
-          customOpened += 1;
-          return await new Promise((resolve, reject) => {
-            let settled = false;
-            const done = (value) => { if (!settled) { settled = true; resolve(value); } };
-            Promise.resolve(factory(tui, theme, keybindings, done)).then((component) => {
-              component.focused = true;
-              component.render(100);
-              done({ kind: "closed" });
-              component.dispose?.();
-            }, reject);
-          });
-        },
-      },
-    };
-    const directPi = {
-      on() {},
-      sendMessage() {},
-      setSessionName() {},
-    };
-    const directHost = api.createPackagedPluginHost({ pi: directPi, agentDir: ${JSON.stringify(agentDir)} });
-    const started = await directHost.start({ type: "session_start", reason: "startup" }, context);
-    if (JSON.stringify(Object.keys(started.application)) !== JSON.stringify(["control"])) throw new Error("packed control capability missing");
-    if (typeof started.application.control?.runArgv !== "function") throw new Error("packed control service missing");
-    if (started.startup.capabilities.secrets.status !== "unavailable") throw new Error("packed secret custody did not fail closed");
-    const registrations = await directHost.runWithPiOperationContext(context, new AbortController().signal, (application) =>
-      application.control.runArgv(["marketplace", "list", "--scope", "all-current"], { mode: "headless", output: "json" }, new AbortController().signal));
-    if (registrations.envelope.data.registrations.length !== 0) throw new Error("packed marketplace did not start from clean state");
-    const status = await directHost.runWithPiOperationContext(context, new AbortController().signal, (application) =>
-      application.control.runArgv(["status"], { mode: "headless", output: "json" }, new AbortController().signal));
-    if (status.envelope.status !== "ok") throw new Error("packed local status failed");
-    const mutation = await directHost.runWithPiOperationContext(context, new AbortController().signal, (application) =>
-      application.control.runArgv(["updates", "policy", "set", "--kind", "cadence", "--target", "global", "--cadence", "conservative"], { mode: "headless", output: "json" }, new AbortController().signal));
-    if (mutation.envelope.status !== "ok") throw new Error("packed policy mutation did not use control surface");
-    const readback = await directHost.runWithPiOperationContext(context, new AbortController().signal, (application) =>
-      application.control.runArgv(["updates", "status"], { mode: "headless", output: "json" }, new AbortController().signal));
-    if (readback.envelope.data.policy.global.cadence !== "conservative") throw new Error("packed policy mutation was not readable");
-    await directHost.dispose("quit");
-
-    const restartedHost = api.createPackagedPluginHost({ pi: directPi, agentDir: ${JSON.stringify(agentDir)} });
-    await restartedHost.start({ type: "session_start", reason: "startup" }, context);
-    const persisted = await restartedHost.runWithPiOperationContext(context, new AbortController().signal, (application) =>
-      application.control.runArgv(["updates", "status"], { mode: "headless", output: "json" }, new AbortController().signal));
-    if (persisted.envelope.data.policy.global.cadence !== "conservative") throw new Error("packed policy mutation did not survive restart");
-    await restartedHost.dispose("quit");
-
-    extension(pi);
-    if (commands.length !== 1 || commands[0].name !== "plugin") throw new Error("packed extension did not register exactly /plugin");
-    for (const handler of handlers.get("session_start") ?? []) await handler({ type: "session_start", reason: "startup" }, context);
-    await commands[0].options.handler("", context);
-    if (customOpened !== 1) throw new Error("empty packed /plugin did not open the native TUI manager");
-    const resources = [];
-    for (const handler of handlers.get("resources_discover") ?? []) resources.push(await handler({ type: "resources_discover", cwd: context.cwd, reason: "startup" }, context));
-    for (const handler of handlers.get("session_shutdown") ?? []) await handler({ type: "session_shutdown", reason: "quit" }, context);
-    if (resources.length !== 1) throw new Error("packed extension startup did not own resource discovery");
-  `);
-  const run = spawnSync(process.execPath, [join(consumer, "verify.mjs")], {
-    cwd: consumer,
-    encoding: "utf8",
-    env: { ...process.env, HOME: home, NODE_OPTIONS: "" },
-  });
-  if (run.status !== 0) throw new Error(run.stderr || run.stdout || "packed extension startup failed");
-  console.log("isolated packed Pi extension startup passed");
+  console.log("isolated packed real Pi 0.80.8 RPC/JSON/PTY acceptance passed");
 } finally {
-  await rm(root, { recursive: true, force: true });
+  if (process.env.KEEP_PACKED_ACCEPTANCE === "1") console.error(`packed acceptance root retained at ${root}`);
+  else {
+    spawnSync("chmod", ["-R", "u+w", root]);
+    await rm(root, { recursive: true, force: true });
+  }
 }
