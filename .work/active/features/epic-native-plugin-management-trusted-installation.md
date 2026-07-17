@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-trusted-installation
 kind: feature
-stage: review
+stage: done
 tags: [compatibility, security]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-inspection-diagnostics]
@@ -769,3 +769,45 @@ No durable workflow/session/status/transaction/secret authority was added. Confi
 - The post-rebase hardening rejects invalid inspection IDs distinctly, revalidates candidate publication/quarantine plus inspection and project-root authority before session publication and lifecycle transfer, preserves exact existing configuration/credential authority without plaintext access, returns partition and descriptor input issues together, and refuses truncated executable consent disclosure.
 - HTTP bearer credential environment names are now included in the shared safe MCP disclosure while values remain structurally absent and digest-bound.
 - No command/TUI rendering, later lifecycle operation, fork/refactor, release, push, stage transition, or `.work/bin/work-view` change was made.
+
+## Review (2026-07-17)
+
+**Verdict**: Approve
+
+**Blockers**: Five sole-review blockers accepted and fixed in this cycle:
+
+1. Exact configuration revision was not carried beyond the workflow `readExact` check.
+2. Candidate acquisition and post-inspection cleanup failures could be swallowed or lose cleanup ownership.
+3. `lifecycleStarted` conflated cancellation, adapter failure, and cleanup failure.
+4. Configuration ambiguity and credential cleanup advertised lifecycle recovery without an operation that could settle either condition.
+5. Trusted-install integration files asserted fixtures or isolated primitives rather than the composed service flow.
+
+**Important**: Public result-union tightening was explicitly deferred as `idea-tighten-trusted-install-result-unions` (`.work/backlog/idea-tighten-trusted-install-result-unions.md`).
+
+**Nits**: none
+
+**Rejected**: none
+
+**Fixes**:
+
+- Threaded the exact configuration revision through prepared install and enable readiness, lifecycle commit guards, pre-reload checks, and post-observation verification. `CONFIGURATION_STALE` now returns before promotion/reload when the revision changes after workflow `readExact`; a later observation-window change enters verified rollback rather than success.
+- Introduced typed, path-free candidate cleanup failures with opaque retry ownership. Acquisition, inspection rejection, session publication, lifecycle preparation, and host close preserve and retry cleanup authority; open returns `CLEANUP_FAILED` without a session when acquired bytes cannot be discarded.
+- Replaced the boolean lifecycle boundary with typed `before-transaction` outcomes. Pre-transaction abort maps to `cancelled`, ordinary boundary rejection maps to `ADAPTER_FAILED`, and only typed cleanup failures map to `CLEANUP_FAILED`.
+- Replaced locator-bearing configuration recovery evidence with opaque capabilities that perform bounded authority reconciliation and credential cleanup. Trusted installation attempts settlement immediately, retains unresolved capability ownership in the transient session, and exposes callable `recover` actions for configuration and trust without falsely citing lifecycle recovery.
+- Replaced fixture-only integration coverage with a production-composed open → configure/trust → activate harness over the real candidate lease, configuration custody, exact trust grant, session engine, prepared lifecycle, reload observation, rollback, and recovery orchestration. Boundary adapters remain controllable for offline, stale, concurrent, cancellation, cleanup, rollback, recovery, and hostile-output cases. Static signed-flow fixture validation moved to a focused contract test.
+
+**Commits**:
+
+- `1c4e8a3` — parked result-union tightening.
+- `8e10b85` — fixed authority binding, cleanup ownership, typed lifecycle outcomes, and callable recovery.
+- `835851f` — added the composed trusted-install acceptance harness and replaced fixture-only integration tests.
+
+**Totals**:
+
+- Review-fix diff before this record: 27 files, 1,893 insertions, 212 deletions.
+- Focused trusted-install/configuration/lifecycle/security verification: 28 files, 128 tests passed.
+- Full verification: 248 test files, 1,247 tests passed; TypeScript green; dependency boundaries green (312 modules / 2,180 dependencies); package build/import green (651 root exports / 3 Pi exports); isolated packed Pi startup passed.
+- One first full-suite run hit the existing generation-locking process-contention timeout; its isolated rerun passed, and the complete `npm test` rerun passed.
+- All eight child stories remain `stage: done`.
+
+**Notes**: Substrate feature review, effective weight `standard` from project convention and caller instruction. This is closure of the single completed review pass after receiver adjudication and verified blocker fixes. No repeat review, nested agent, peer mechanism, or second independent pass ran. The feature advanced `review → done`; its parent epic remains active because sibling features are not all complete.
