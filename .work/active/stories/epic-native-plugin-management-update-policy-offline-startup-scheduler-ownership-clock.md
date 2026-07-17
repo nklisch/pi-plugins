@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-update-policy-offline-startup-scheduler-ownership-clock
 kind: story
-stage: implementing
+stage: done
 tags: [reliability]
 parent: epic-native-plugin-management-update-policy-offline-startup
 depends_on: [epic-native-plugin-management-update-policy-offline-startup-policy-facade, epic-native-plugin-management-update-policy-offline-startup-notification-ledger]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Harden the Existing Scheduler for Ownership, Restart, and Clock Changes
@@ -36,3 +36,15 @@ Extend the existing marketplace update scheduler rather than adding another loop
 - Restart honors persisted future due/backoff and does not force a refresh; first-use due runs only after explicit scheduler start.
 - Two processes have one user owner and one owner per current project scope; a project-A owner cannot suppress project-B work.
 - Lease/claim expiry, ownership loss, deterministic jitter, forward/backward clocks, explicit bypass, local-source exclusion, incomplete inventory, and remote failure preserve selected catalogs and active revisions.
+
+## Implementation notes
+
+- Extended the existing scheduler with CAS-backed user/project scope leases, per-process lease IDs, renewal/release, exact validation, and lease-fenced scheduled refresh admission. Explicit refresh remains lease-free but still uses refresh claims.
+- Added one cadence registry and SHA-256-derived deterministic jitter. Refresh persists the complete anchor/base/jitter/due tuple, so restart and competing processes never recompute an existing due time.
+- Scheduler waits remain abortable/monotonic while every wake rereads wall time and durable inventory. Forward jumps run due work; backward jumps pause with clock-regressed status.
+- Future-clock or expired leases/claims are stale, ownership loss prevents new scheduled claims, and shutdown releases owned leases best-effort.
+
+## Verification
+
+- `npx vitest run test/application/update-schedule.test.ts test/application/marketplace-update-scheduler.test.ts test/application/marketplace-update-scheduler-ownership.test.ts test/application/marketplace-refresh-service.test.ts test/integration/marketplace-scheduler-multiprocess.test.ts test/integration/marketplace-update-policy.test.ts` — 21 tests passed.
+- `npx tsc -p tsconfig.json --noEmit` — passed.

@@ -1617,12 +1617,25 @@ export type {
 } from "./application/marketplace-refresh-service.js";
 export {
   DEFAULT_INVENTORY_POLL_MS,
+  DEFAULT_LEASE_MS,
   createMarketplaceUpdateScheduler,
 } from "./application/marketplace-update-scheduler.js";
 export type {
+  UpdateSchedulerStatus,
   MarketplaceUpdateScheduler,
   MarketplaceUpdateSchedulerDependencies,
 } from "./application/marketplace-update-scheduler.js";
+export {
+  deriveUpdateSchedule,
+  scheduleClockState,
+} from "./application/update-schedule.js";
+export type { UpdateScheduleRequest } from "./application/update-schedule.js";
+export { createStateUpdateSchedulerLeasePort } from "./application/update-scheduler-lease-state.js";
+export type {
+  UpdateSchedulerScopePlan,
+  UpdateSchedulerLeasePort,
+} from "./application/ports/update-scheduler-lease.js";
+export type { UpdateSchedulerLeaseIdPort } from "./application/ports/update-scheduler-lease-id.js";
 export {
   createNodeMarketplaceRefreshServices,
 } from "./composition/create-marketplace-refresh-services.js";

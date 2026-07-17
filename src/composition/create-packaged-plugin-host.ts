@@ -333,6 +333,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           mutations,
           clock,
           claimIds: identifiers.refreshClaimIds,
+          updateSchedulerLeaseIds: identifiers.updateSchedulerLeaseIds,
           materializers,
           inspection: marketplaceInspection,
           content: content.content,

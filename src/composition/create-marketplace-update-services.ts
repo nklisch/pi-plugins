@@ -9,6 +9,8 @@ import {
   type MarketplaceUpdateScheduler,
 } from "../application/marketplace-update-scheduler.js";
 import type { UpdateDelayPort } from "../application/ports/update-delay.js";
+import type { UpdateSchedulerLeasePort } from "../application/ports/update-scheduler-lease.js";
+import type { UpdateSchedulerLeaseIdPort } from "../application/ports/update-scheduler-lease-id.js";
 import {
   createMarketplaceUpdatePolicyService,
   type MarketplaceUpdatePolicyService,
@@ -23,6 +25,8 @@ const nodeDelay: UpdateDelayPort = Object.freeze({
 export type NodeMarketplaceUpdateServicesOptions = Readonly<{
   refresh: MarketplaceRefreshServiceDependencies;
   delay?: UpdateDelayPort;
+  schedulerLeases?: UpdateSchedulerLeasePort;
+  leaseIds?: UpdateSchedulerLeaseIdPort;
 }>;
 
 export type NodeMarketplaceUpdateServices = Readonly<{
@@ -51,6 +55,8 @@ export function createNodeMarketplaceUpdateServices(
     refresh,
     clock: options.refresh.clock,
     delay: options.delay ?? nodeDelay,
+    ...(options.schedulerLeases === undefined ? {} : { leases: options.schedulerLeases }),
+    ...(options.leaseIds === undefined ? {} : { leaseIds: options.leaseIds }),
   });
   return Object.freeze({ refresh, policy, scheduler });
 }

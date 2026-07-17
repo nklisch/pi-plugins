@@ -23,6 +23,8 @@ import type { ScopeContext } from "../domain/state/scope.js";
 import type { Sha256 } from "../domain/source.js";
 import type { MarketplacePluginProbePort } from "../application/marketplace-refresh-service.js";
 import type { PluginLifecycleService } from "../application/plugin-lifecycle-service.js";
+import type { UpdateSchedulerLeaseIdPort } from "../application/ports/update-scheduler-lease-id.js";
+import { createStateUpdateSchedulerLeasePort } from "../application/update-scheduler-lease-state.js";
 
 type RegistrationService = ReturnType<typeof createMarketplaceRegistrationService>;
 type UpdateServices = ReturnType<typeof createNodeMarketplaceUpdateServices>;
@@ -55,6 +57,8 @@ export type NativeInspectionMarketplaceServices = Readonly<{
 export type NodeMarketplaceDiscoveryComposition = Readonly<{
   application: MarketplaceDiscoveryServices;
   inspection: NativeInspectionMarketplaceServices;
+  /** Internal coordinator authority; never exposed on the packaged application. */
+  updates: UpdateServices;
 }>;
 
 export type NodeMarketplaceDiscoveryServicesOptions = Readonly<{
@@ -63,6 +67,7 @@ export type NodeMarketplaceDiscoveryServicesOptions = Readonly<{
   mutations: GenerationMutationCoordinator;
   clock: LifecycleClock;
   claimIds: RefreshClaimIdPort;
+  updateSchedulerLeaseIds?: UpdateSchedulerLeaseIdPort;
   materializers: Readonly<{ marketplaces: MarketplaceMaterializer; plugins?: PluginMaterializer }>;
   inspection: MarketplaceInspectionService;
   content: ContentStorePort;
@@ -99,6 +104,13 @@ export function createNodeMarketplaceDiscoveryComposition(
     localSources: createNodeMarketplaceLocalSourcePort(),
     sha256: options.sha256,
   });
+  const schedulerLeases = options.updateSchedulerLeaseIds === undefined ? undefined : createStateUpdateSchedulerLeasePort({
+    state: options.state,
+    inventory: options.inventory,
+    mutations: options.mutations,
+    clock: options.clock,
+    sha256: options.sha256,
+  });
   const updates = createNodeMarketplaceUpdateServices({
     refresh: {
       inventory: options.inventory,
@@ -114,7 +126,10 @@ export function createNodeMarketplaceDiscoveryComposition(
       sha256: options.sha256,
       ...(options.probe === undefined ? {} : { probe: options.probe }),
       ...(options.lifecycle === undefined ? {} : { lifecycle: options.lifecycle }),
+      ...(schedulerLeases === undefined ? {} : { schedulerLeases }),
     },
+    ...(schedulerLeases === undefined ? {} : { schedulerLeases }),
+    ...(options.updateSchedulerLeaseIds === undefined ? {} : { leaseIds: options.updateSchedulerLeaseIds }),
   });
   const internalCatalog = createMarketplaceCatalogService({
     state: options.state,
@@ -215,6 +230,7 @@ export function createNodeMarketplaceDiscoveryComposition(
   return Object.freeze({
     application,
     inspection: Object.freeze({ catalog: internalCatalog, adoption: Object.freeze({ preview: internalAdoption.preview.bind(internalAdoption) }) }),
+    updates,
   });
 }
 

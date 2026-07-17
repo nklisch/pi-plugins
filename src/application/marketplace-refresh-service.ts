@@ -15,6 +15,8 @@ import type { LifecycleClock } from "./ports/lifecycle-clock.js";
 import type { LifecycleStateInventoryPort } from "./ports/lifecycle-state-inventory.js";
 import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
 import type { ProjectTrustPort } from "./ports/project-trust.js";
+import type { UpdateSchedulerLeasePort } from "./ports/update-scheduler-lease.js";
+import type { UpdateSchedulerLeaseId } from "../domain/update-policy.js";
 import type { MarketplaceMaterializer, MaterializedMarketplace, PluginMaterializer, SourceContext } from "./source-materialization.js";
 import type { PluginLifecycleService } from "./plugin-lifecycle-service.js";
 import type { LifecycleRejectionCode } from "./plugin-lifecycle-contract.js";
@@ -39,12 +41,14 @@ import {
 import type { Sha256 } from "../domain/source.js";
 import type { RefreshClaimIdPort } from "./ports/refresh-claim-id.js";
 import {
+  MarketplaceRegistrationIdSchema,
   deriveMarketplaceRegistrationId,
   deriveMarketplaceSnapshotToken,
   deriveMarketplaceCandidateId,
   type MarketplaceRegistrationId,
 } from "../domain/marketplace-registration.js";
 import { deriveUpdateNoticeId } from "./native-update-identifiers.js";
+import { deriveUpdateSchedule } from "./update-schedule.js";
 import {
   createMarketplaceRegistrationView,
   codePointCompare,
@@ -104,7 +108,7 @@ function snapshotFor(snapshot: GenerationSnapshot, record: MarketplaceRegistrati
 }
 
 function claimIsActive(record: MarketplaceRegistrationRecord, now: number): boolean {
-  return record.refresh.claim !== undefined && record.refresh.claim.expiresAt > now;
+  return record.refresh.claim !== undefined && record.refresh.claim.startedAt <= now && record.refresh.claim.expiresAt > now;
 }
 
 function failureCode(error: unknown): Extract<MarketplaceRefreshOutcome, { kind: "failed" }>["code"] {
@@ -160,6 +164,7 @@ async function mutateClaimRecord(
   registrationIdValue: MarketplaceRegistrationId,
   replacement: MarketplaceRegistrationRecord,
   signal: AbortSignal,
+  schedulerLeaseId?: UpdateSchedulerLeaseId,
 ): Promise<"committed" | "stale" | "removed"> {
   try {
     const result = await dependencies.mutations.runPreparedMutation(
@@ -171,7 +176,13 @@ async function mutateClaimRecord(
         return {
           mutation: replaceRecord(context.snapshot, replacement, dependencies.sha256),
           value: undefined,
-          beforeCommit: () => assertScopeAuthority(dependencies, scope, signal),
+          beforeCommit: async () => {
+            await assertScopeAuthority(dependencies, scope, signal);
+            if (schedulerLeaseId !== undefined && dependencies.schedulerLeases !== undefined &&
+                !(await dependencies.schedulerLeases.validate(scope, schedulerLeaseId, dependencies.clock.nowEpochMilliseconds(), signal))) {
+              throw new Error("STATE_STALE");
+            }
+          },
         };
       },
       signal,
@@ -269,6 +280,12 @@ function discoveredNotifications(
 
 export interface MarketplaceRefreshService {
   refresh(request: MarketplaceRefreshRequest, signal: AbortSignal): Promise<MarketplaceRefreshResult>;
+  /** Internal lease-fenced scheduled entry; explicit refresh never needs lease evidence. */
+  refreshScheduled?(request: Readonly<{
+    scope: ScopeContext;
+    registrationIds: readonly MarketplaceRegistrationId[];
+    leaseId: UpdateSchedulerLeaseId;
+  }>, signal: AbortSignal): Promise<MarketplaceRefreshResult>;
   nextScheduledAt(signal: AbortSignal): Promise<number | undefined>;
 }
 
@@ -287,11 +304,17 @@ export type MarketplaceRefreshServiceDependencies = Readonly<{
   inventoryComplete?: () => boolean;
   currentProject?: Extract<ScopeContext, { kind: "project" }>;
   projectTrust?: ProjectTrustPort;
+  schedulerLeases?: UpdateSchedulerLeasePort;
 }>;
 
 export function createMarketplaceRefreshService(dependencies: MarketplaceRefreshServiceDependencies): MarketplaceRefreshService {
   if (typeof dependencies.sha256 !== "function") throw new TypeError("marketplace refresh requires SHA-256");
   const now = () => dependencies.clock.nowEpochMilliseconds();
+
+  async function cadence(signal: AbortSignal) {
+    const loaded = await dependencies.state.read({ kind: "user" }, signal);
+    return loaded.ok && "config" in loaded.snapshot ? loaded.snapshot.config.global.cadence : "balanced" as const;
+  }
 
   async function safeView(snapshot: GenerationSnapshot, record: MarketplaceRegistrationRecord, signal: AbortSignal) {
     const selected = snapshotFor(snapshot, record);
@@ -321,6 +344,7 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
     if (record.refresh.claim?.id !== claimId) return { kind: "failed", registrationId: id, code: "STATE_STALE", retained };
     const failures = record.refresh.consecutiveFailures + 1;
     const completedAt = now();
+    const schedule = deriveUpdateSchedule({ registrationId: id, outcome: "failure", failureCount: failures, anchorAt: completedAt, cadence: await cadence(cleanupSignal) }, dependencies.sha256);
     const replacement = MarketplaceRegistrationRecordSchema.parse({
       ...record,
       refresh: {
@@ -332,13 +356,7 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
           code,
         },
         consecutiveFailures: failures,
-        schedule: {
-          anchorAt: completedAt,
-          baseDelayMs: backoffDelayMs(failures, DefaultMarketplaceUpdatePolicy.failureBaseMs, DefaultMarketplaceUpdatePolicy.failureMaxMs),
-          jitterMs: 0,
-          dueAt: completedAt + backoffDelayMs(failures, DefaultMarketplaceUpdatePolicy.failureBaseMs, DefaultMarketplaceUpdatePolicy.failureMaxMs),
-          reason: "failure",
-        },
+        schedule,
       },
     });
     const settlement = await mutateClaimRecord(dependencies, scope, loaded.snapshot, id, replacement, cleanupSignal).catch(() => "stale" as const);
@@ -387,6 +405,7 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
     trigger: "explicit" | "scheduled",
     completeInventory: boolean,
     signal: AbortSignal,
+    schedulerLeaseId?: UpdateSchedulerLeaseId,
   ): Promise<Readonly<{ outcome: MarketplaceRefreshOutcome; notifications: readonly NotificationIntent[] }>> {
     abortIfRequested(signal);
     const loaded = await dependencies.state.read(scope, signal);
@@ -405,7 +424,7 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
       ...current,
       refresh: { ...current.refresh, claim: { id: claimId, startedAt: time, expiresAt: time + DefaultMarketplaceUpdatePolicy.claimLeaseMs } },
     });
-    const claimedResult = await mutateClaimRecord(dependencies, scope, loaded.snapshot, id, claimed, signal);
+    const claimedResult = await mutateClaimRecord(dependencies, scope, loaded.snapshot, id, claimed, signal, schedulerLeaseId);
     if (claimedResult === "removed") return { outcome: { kind: "not-configured", registrationId: id }, notifications: [] };
     if (claimedResult !== "committed") return { outcome: { kind: "failed", registrationId: id, code: "STATE_STALE", retained: cacheWithoutIo(current, snapshotFor(loaded.snapshot, current), time) }, notifications: [] };
 
@@ -438,6 +457,13 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
           // refresh memory and newly discovered notification facts belong to
           // this long-running refresh operation.
           const discovered = discoveredNotifications(authority, scope, id, selected, probes, completedAt, dependencies.sha256);
+          const schedule = authority.source.kind === "local-git" ? undefined : deriveUpdateSchedule({
+            registrationId: id,
+            outcome: "success",
+            failureCount: 0,
+            anchorAt: completedAt,
+            cadence: await cadence(signal),
+          }, dependencies.sha256);
           const publicationRecord = MarketplaceRegistrationRecordSchema.parse({
             ...discovered.record,
             refresh: {
@@ -445,15 +471,7 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
               claim: undefined,
               lastCompletedAt: completedAt,
               lastAttempt: { completedAt, outcome: unchanged ? "unchanged" : "succeeded" },
-              ...(authority.source.kind === "local-git" ? { schedule: undefined } : {
-                schedule: {
-                  anchorAt: completedAt,
-                  baseDelayMs: DefaultMarketplaceUpdatePolicy.successIntervalMs,
-                  jitterMs: 0,
-                  dueAt: completedAt + DefaultMarketplaceUpdatePolicy.successIntervalMs,
-                  reason: "success",
-                },
-              }),
+              schedule,
               consecutiveFailures: 0,
             },
           });
@@ -546,6 +564,29 @@ export function createMarketplaceRefreshService(dependencies: MarketplaceRefresh
       if (requested !== undefined) {
         const seen = new Set(outcomes.map((outcome) => outcome.registrationId));
         for (const id of [...requested].filter((candidate) => !seen.has(candidate)).sort(codePointCompare)) outcomes.push({ kind: "not-configured", registrationId: id });
+      }
+      return MarketplaceRefreshResultSchema.parse({ outcomes, notifications });
+    },
+    async refreshScheduled(request, signal) {
+      const scope = ScopeContextSchema.parse(request.scope);
+      const leaseId = request.leaseId;
+      const ids = request.registrationIds.map((id) => MarketplaceRegistrationIdSchema.parse(id));
+      if (dependencies.schedulerLeases === undefined ||
+          !(await dependencies.schedulerLeases.validate(scope, leaseId, dependencies.clock.nowEpochMilliseconds(), signal))) {
+        return MarketplaceRefreshResultSchema.parse({
+          outcomes: ids.map((registrationId) => ({ kind: "failed", registrationId, code: "STATE_STALE", retained: { kind: "unavailable" } })),
+          notifications: [],
+        });
+      }
+      const inventory = await activeScopes(signal);
+      const active = inventory.scopes.find((candidate) => sameScope(candidate, scope));
+      if (active === undefined) return MarketplaceRefreshResultSchema.parse({ outcomes: [], notifications: [] });
+      const outcomes: MarketplaceRefreshOutcome[] = [];
+      const notifications: NotificationIntent[] = [];
+      for (const id of ids) {
+        const result = await refreshOne(active, id, "scheduled", inventory.complete, signal, leaseId);
+        outcomes.push(result.outcome);
+        notifications.push(...result.notifications);
       }
       return MarketplaceRefreshResultSchema.parse({ outcomes, notifications });
     },
