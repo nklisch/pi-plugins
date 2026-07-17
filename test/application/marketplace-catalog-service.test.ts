@@ -5,7 +5,7 @@ import { createMarketplaceConfigurationRecord } from "../../src/domain/update-po
 import { createContentManifest, createMaterializationBinding } from "../../src/domain/content-manifest.js";
 import { createMarketplaceSnapshotRecord, InstalledUserStateDocumentSchemaV2 } from "../../src/domain/state/installed-state.js";
 import { createResolvedMarketplaceSource, type Sha256 } from "../../src/domain/source.js";
-import { HostConfigDocumentSchemaV3, GenerationSchema } from "../../src/domain/state/config-state.js";
+import { HostConfigDocumentSchemaV4, GenerationSchema } from "../../src/domain/state/config-state.js";
 import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
 import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
 import { deriveStateBlobRef } from "../../src/domain/state/references.js";
@@ -47,7 +47,7 @@ function fixture() {
           digest: digest("a"),
         })),
       }),
-      config: HostConfigDocumentSchemaV3.parse({ schemaVersion: 3, generation, records: [record] }),
+      config: HostConfigDocumentSchemaV4.parse({ schemaVersion: 4, generation, global: { application: "manual", cadence: "balanced" }, scope: {}, records: [record] }),
       installed: InstalledUserStateDocumentSchemaV2.parse({ schemaVersion: 2, generation, marketplaces: [snapshot], plugins: [] }),
       trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation, records: [] }),
       corruptions: [],

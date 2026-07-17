@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-update-policy-offline-startup-integrated-acceptance
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, reliability, testing]
 parent: epic-native-plugin-management-update-policy-offline-startup
 depends_on: [epic-native-plugin-management-update-policy-offline-startup-packaged-lifetime-composition]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Prove Native Updates and Offline Startup End to End
@@ -37,3 +37,18 @@ Add feature-boundary acceptance for policy precedence/consent, notice restart/de
 - Two processes prove one owner per scope, safe lease/claim expiry and clock jumps, one retained publisher event, and convergent manual/automatic updates.
 - Project/root/trust change, secret unavailable, missing runtime capability, moved/source-changed candidate, cancellation, rollback, recovery-required, stale/offline catalog, remote failure, and shutdown preserve prior active revisions and isolate siblings.
 - Full `npm test` passes typecheck, boundaries, focused integrations, build, packed import, and exact exports.
+
+## Implemented acceptance matrix
+
+- Migration and strict schema behavior: v1/v2/v3→v4 host/project fixtures, deterministic identifiers, and public DTO tests.
+- Policy: plugin→marketplace→scope→global precedence, consent/preview CAS, stale previews, project trust, source replacement, and network-free status.
+- Notifications: duplicate publication, concurrent CAS, separate read/resolution state, exact revision identity, acknowledgment idempotence, and bounded pruning.
+- Scheduling: two-owner lease fencing, expiry/takeover, persisted restart cadence, deterministic jitter/backoff, forward jumps, and backward clock regression.
+- Automatic application: policy eligibility, missing host context, trust/root/config/source/candidate/capability drift, concurrent authority races, lifecycle outcomes, rollback, and recovery-required retention.
+- Startup/lifetime: inert factory, recovery-first trace, clean offline readiness, unavailable optional capabilities, management admission, policy persistence across packaged restart, shutdown quiescence, and isolated packed installation.
+- Public and packed export allowlists were advanced intentionally; stale pre-v4 fixtures were updated rather than weakening strict parsing.
+
+## Verification
+
+- `npm test` — passed: typecheck, dependency boundaries (358 modules / 2,599 dependencies), 274 test files / 1,328 tests, 783 public exports, 3 Pi exports, isolated packed Pi startup.
+- No network, command/TUI renderer, alternate lifecycle path, recovery store, scheduler, secret custody, or fork capability was introduced.

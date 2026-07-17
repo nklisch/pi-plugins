@@ -69,9 +69,10 @@ try {
     };
     const directHost = api.createPackagedPluginHost({ pi: directPi, agentDir: ${JSON.stringify(agentDir)} });
     const started = await directHost.start({ type: "session_start", reason: "startup" }, context);
-    if (JSON.stringify(Object.keys(started.application.marketplace).sort()) !== JSON.stringify(["adoption", "catalog", "policy", "refresh", "registration"])) {
+    if (JSON.stringify(Object.keys(started.application.marketplace).sort()) !== JSON.stringify(["adoption", "catalog", "refresh", "registration"])) {
       throw new Error("packed marketplace capability missing");
     }
+    if (typeof started.application.updates?.status !== "function") throw new Error("packed update management capability missing");
     if (started.startup.capabilities.secrets.status !== "unavailable") throw new Error("packed secret custody did not fail closed");
     const registrations = await directHost.runWithPiOperationContext(context, new AbortController().signal, (application) =>
       application.marketplace.registration.list({ scope: "all-current", limit: 50 }, new AbortController().signal));

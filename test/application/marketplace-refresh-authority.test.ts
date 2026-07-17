@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createMarketplaceRefreshService } from "../../src/application/marketplace-refresh-service.js";
 import { createContentManifest, createMaterializationBinding } from "../../src/domain/content-manifest.js";
 import { createMarketplaceSnapshotRecord } from "../../src/domain/state/installed-state.js";
-import { createProjectLocalStateDocumentV3 } from "../../src/domain/state/project-state.js";
+import { createProjectLocalStateDocumentV4 } from "../../src/domain/state/project-state.js";
 import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
 import { deriveStateBlobRef } from "../../src/domain/state/references.js";
 import { deriveProjectKey } from "../../src/domain/state/scope.js";
@@ -47,12 +47,13 @@ describe("marketplace refresh project authority", () => {
       scope,
       generation: GenerationSchema.parse(generation),
       pointers: pointers(scope, generation),
-      project: createProjectLocalStateDocumentV3({
-        schemaVersion: 3,
+      project: createProjectLocalStateDocumentV4({
+        schemaVersion: 4,
         generation,
         projectKey: scope.projectKey,
         identity,
         declarationDigest: content.rootDigest,
+        scope: {},
         marketplaces: [selected],
         plugins: [],
         marketplaceUpdates: [registration],

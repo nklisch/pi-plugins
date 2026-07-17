@@ -7,7 +7,7 @@ import {
   deriveUpdateCandidateKey,
   type MarketplaceUpdateRecord,
 } from "../../src/domain/update-policy.js";
-import { HostConfigDocumentSchemaV3, GenerationSchema } from "../../src/domain/state/config-state.js";
+import { HostConfigDocumentSchemaV4, GenerationSchema } from "../../src/domain/state/config-state.js";
 import { InstalledUserStateDocumentSchemaV2 } from "../../src/domain/state/installed-state.js";
 import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
 import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
@@ -38,7 +38,7 @@ function snapshot(record: MarketplaceUpdateRecord): Extract<GenerationSnapshot, 
         digest: digest("a"),
       })),
     }),
-    config: HostConfigDocumentSchemaV3.parse({ schemaVersion: 3, generation, records: [record] }),
+    config: HostConfigDocumentSchemaV4.parse({ schemaVersion: 4, generation, global: { application: "manual", cadence: "balanced" }, scope: {}, records: [record] }),
     installed: InstalledUserStateDocumentSchemaV2.parse({ schemaVersion: 2, generation, marketplaces: [], plugins: [] }),
     trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation, records: [] }),
     corruptions: [],
@@ -62,7 +62,7 @@ function coordinatorFor(
 }
 
 describe("marketplace update policy service", () => {
-  it("changes policy without network or trust work and preserves v2 memory through a v1-compatible envelope", async () => {
+  it("changes policy without network or trust work and preserves durable update memory", async () => {
     const marketplaceSourceIdentity = deriveMarketplaceSourceIdentity(source, sha256);
     const pluginSourceIdentity = derivePluginSourceIdentity(pluginSource, sha256);
     const candidate = deriveUpdateCandidateKey({
@@ -89,12 +89,7 @@ describe("marketplace update policy service", () => {
         phase: "discovered",
       }],
     });
-    // Model a compatibility adapter that retains the v1 envelope while
-    // exposing the richer v2 record payload to the application boundary.
-    const current = {
-      ...snapshot(record),
-      config: { schemaVersion: 1 as const, generation: 0, records: [record] },
-    } as unknown as Extract<GenerationSnapshot, { scope: { kind: "user" } }>;
+    const current = snapshot(record);
     let mutation: unknown;
     let reads = 0;
     const state: LifecycleStateStore = { read: async () => { reads += 1; return { ok: true, snapshot: current }; }, commit: async () => { throw new Error("coordinator owns commits"); } };
@@ -111,9 +106,9 @@ describe("marketplace update policy service", () => {
     expect(result).toEqual({ kind: "changed", preference: "automatic" });
     expect(reads).toBe(1);
     const replacement = (mutation as { replace: { config: { schemaVersion: number; records: readonly MarketplaceUpdateRecord[] } } }).replace.config;
-    expect(replacement.schemaVersion).toBe(3);
+    expect(replacement.schemaVersion).toBe(4);
     expect(replacement.records[0]!.refresh).toEqual(record.refresh);
-    expect(replacement.records[0]!.notifications).toEqual(record.notifications);
+    expect(replacement.records[0]!.notices).toEqual(record.notices);
   });
 
   it("rejects local automatic policy and source races before mutation", async () => {

@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-update-policy-offline-startup
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, reliability]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-lifecycle-sync-operations]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Update Policy, Notifications, and Offline Startup
@@ -550,3 +550,9 @@ One feature owner should normally carry the graph. State migration, refresh publ
 The design fails if construction starts a timer, startup waits for network, a project process owns every project's scheduler, restart forgets due/notified state, backward clock movement spins refresh, acknowledgment hides an unresolved update, broad policy crosses a source change, missing secret/runtime capability still reaches lifecycle, manual and automatic operations stack transitions, abort reports cancellation after commit, rollback loses the active revision, or shutdown closes stores beneath an admitted operation.
 
 The chosen boundaries address each failure directly: explicit post-readiness start, per-scope leases plus exact claims/CAS, persisted deterministic schedule and notice IDs, separate unread/resolution state, source-bound effective policy and lifecycle authority, exact candidate/target expectations, commit-aware lifecycle results, recovery-before-retry, and one host operation/lifetime gate. When any required evidence is unavailable, the conservative outcome is visible pending/manual/degraded status with the previous active revision retained.
+
+## Implementation completion
+
+All nine child checkpoints are done. The implementation landed as a single authority chain: v4 durable state → hierarchical policy and notice ledger → lease-fenced scheduler → eligibility/lifecycle coordinator → recovery-first packaged startup → inspection/status → admitted `application.updates` facade. The packaged marketplace surface no longer exposes the lower-level policy setter.
+
+Verification at review entry: `npm test` passed typecheck, dependency boundaries (358 modules / 2,599 dependencies), 274 test files / 1,328 tests, build, 783 exact public exports, 3 Pi exports, and isolated packed Pi startup. Feature is ready for integrated review.

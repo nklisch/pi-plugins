@@ -57,8 +57,8 @@ describe("lifecycle state application contracts", () => {
     expect(isVerifiedStateMutation({ ...mutation })).toBe(false);
     expect(mutation.replace).toHaveProperty("config");
     expect(mutation.replace.config.records[0]).toMatchObject({
-      refresh: { nextScheduledAt: 0, consecutiveFailures: 0 },
-      notifications: [],
+      refresh: { consecutiveFailures: 0 },
+      notices: [],
     });
     expect(mutation).not.toHaveProperty("transaction");
     expect(mutation).not.toHaveProperty("path");

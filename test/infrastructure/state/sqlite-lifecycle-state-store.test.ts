@@ -43,8 +43,8 @@ describe("SQLite lifecycle state store", () => {
     const signal = new AbortController().signal;
     const user = await adapters.state.read({ kind: "user" }, signal);
     const local = await adapters.state.read(project, signal);
-    expect(user).toMatchObject({ ok: true, snapshot: { generation: 0, config: { schemaVersion: 3 }, installed: { schemaVersion: 2 }, trust: { schemaVersion: 1 } } });
-    expect(local).toMatchObject({ ok: true, snapshot: { generation: 0, project: { schemaVersion: 3, projectKey: project.projectKey, marketplaces: [], plugins: [] } } });
+    expect(user).toMatchObject({ ok: true, snapshot: { generation: 0, config: { schemaVersion: 4 }, installed: { schemaVersion: 2 }, trust: { schemaVersion: 1 } } });
+    expect(local).toMatchObject({ ok: true, snapshot: { generation: 0, project: { schemaVersion: 4, projectKey: project.projectKey, marketplaces: [], plugins: [] } } });
     expect(JSON.stringify(local)).not.toContain("plugins.json");
     const inventory = await adapters.inventory.discover(signal);
     expect(inventory).toEqual({ scopes: [{ kind: "user" }, project], complete: true });

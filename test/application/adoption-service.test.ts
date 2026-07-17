@@ -174,7 +174,7 @@ describe("adoption service", () => {
         sourceIdentity: `sha256:${"b".repeat(64)}`,
         origin: { kind: "native" },
         updateApplication: "manual",
-        refresh: { nextScheduledAt: 0, consecutiveFailures: 0 },
+        refresh: { consecutiveFailures: 0 },
         cache: { kind: "not-materialized" },
       },
     });
