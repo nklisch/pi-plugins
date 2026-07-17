@@ -1,3 +1,4 @@
+import { isAbortRejection } from "./abort-rejection.js";
 import { authorizeTrustCandidate } from "./trust-service.js";
 import {
   CurrentProjectRuntimeContextSchema,
@@ -44,12 +45,6 @@ function sameJson(left: unknown, right: unknown): boolean {
 function sameScope(left: ScopeReference, right: ScopeReference): boolean {
   return left.kind === right.kind &&
     (left.kind === "user" || (right.kind === "project" && left.projectKey === right.projectKey));
-}
-
-function isAbortRejection(error: unknown): boolean {
-  if (error === null || typeof error !== "object") return false;
-  const value = error as { readonly name?: unknown; readonly code?: unknown };
-  return value.name === "AbortError" || value.code === "ABORT_ERR";
 }
 
 function authorityError(binding?: McpLaunchBinding): McpLaunchContextError {

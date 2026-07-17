@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isAbortRejection } from "../../application/abort-rejection.js";
 import {
   McpLaunchBindingSchemaV1,
   McpLaunchContextError,
@@ -54,12 +55,6 @@ const inspectSymbol = Symbol.for("nodejs.util.inspect.custom");
 
 function sameJson(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function isAbortRejection(error: unknown): boolean {
-  if (error === null || typeof error !== "object") return false;
-  const value = error as { readonly name?: unknown; readonly code?: unknown };
-  return value.name === "AbortError" || value.code === "ABORT_ERR";
 }
 
 function launchError(binding: McpLaunchBinding, code: (typeof McpLaunchErrorCodes)[keyof typeof McpLaunchErrorCodes]): McpLaunchContextError {

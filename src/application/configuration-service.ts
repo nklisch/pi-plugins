@@ -16,6 +16,7 @@ import {
 } from "../domain/state/scope.js";
 import { PluginKeySchema, type PluginKey } from "../domain/identity.js";
 import { BoundaryError, ErrorCodeRegistry } from "../domain/errors.js";
+import { isAbortRejection } from "./abort-rejection.js";
 import {
   validateConfigurationSubmission,
   ConfigurationValidationError,
@@ -113,12 +114,6 @@ export class ConfigurationCleanupError extends Error {
     this.cleanup = cleanup;
     this.aborted = aborted;
   }
-}
-
-function isAbortRejection(error: unknown): boolean {
-  if (error === null || typeof error !== "object") return false;
-  const candidate = error as { readonly name?: unknown; readonly code?: unknown };
-  return candidate.name === "AbortError" || candidate.code === "ABORT_ERR";
 }
 
 function adapterFailure(operation: string, cleanup?: readonly SecretLocator[]): BoundaryError {

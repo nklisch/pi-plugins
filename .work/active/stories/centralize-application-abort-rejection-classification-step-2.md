@@ -1,7 +1,7 @@
 ---
 id: centralize-application-abort-rejection-classification-step-2
 kind: story
-stage: implementing
+stage: done
 tags: [refactor, infra]
 parent: centralize-application-abort-rejection-classification
 depends_on: [centralize-application-abort-rejection-classification-step-1]
@@ -71,3 +71,13 @@ Only the predicate definition disappears locally. Every surrounding branch remai
 ## Risk and Rollback
 
 **Risk: Low.** The main risk is moving a check across a cleanup or signal-precedence branch; implementation must change imports and delete local bodies only. Roll back this story by restoring its four exact private functions. Step 1 and its consumers remain independently valid.
+
+## Implementation evidence
+
+- Execution capability: inline GPT-5.6 owner, continuing the cohesive step-1 context so import-only migrations could be checked against every existing catch order.
+- Migrated configuration resolver/service, MCP launch context, and MCP launch-value provider to the shared helper; only imports and the four local predicate bodies changed.
+- Added one MCP launch-value call-site test proving a code-only abort-shaped rejection is rethrown by exact identity while the signal remains active.
+- Focused verification: 4 files, 58 tests passed; `npm run typecheck` passed; `npm run boundaries` passed (236 modules, 1425 dependencies, 0 violations); `git diff --check` passed.
+- Full verification: `npm test` passed with 174 test files and 956 tests, no type errors, 0 dependency violations, and the compiled-package smoke test passing with 508 public exports.
+- Scope discrepancy: repository reality also contains a private predicate in `src/composition/create-project-root-authority.ts`; the caller limited this feature to the designed eight application/MCP launch-value copies, so that unrelated composition/MCP lifecycle path remains untouched. The designed application and launch-value scope now has only the shared definition and intended imports.
+- Review: not applicable — child story checkpoint.

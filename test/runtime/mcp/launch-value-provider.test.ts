@@ -415,6 +415,13 @@ describe("trusted MCP launch value provider", () => {
     await expect(fixture.provider.resolve(fixture.request, controller.signal)).rejects.toBe(reason);
   });
 
+  it("propagates an abort-shaped ambient rejection unchanged while the signal remains active", async () => {
+    const fixture = setup();
+    const abort = Object.assign(new Error("adapter cancelled"), { code: "ABORT_ERR" });
+    fixture.environment.withResolved = async () => { throw abort; };
+    await expect(fixture.provider.resolve(fixture.request, new AbortController().signal)).rejects.toBe(abort);
+  });
+
   it("maps ambient adapter failures without retaining native messages", async () => {
     const fixture = setup();
     fixture.environment.withResolved = async () => { throw new Error("CANARY_ENVIRONMENT_FAILURE"); };

@@ -20,6 +20,7 @@ import {
   type ScopeContext,
 } from "../domain/state/scope.js";
 import type { TrustCandidate } from "../domain/trust-policy.js";
+import { isAbortRejection } from "./abort-rejection.js";
 import { authorizeTrustCandidate } from "./trust-service.js";
 import type { ProjectTrustPort } from "./ports/project-trust.js";
 import type { ProjectRootAuthorityPort } from "./ports/project-root-authority.js";
@@ -58,12 +59,6 @@ export class ConfigurationResolutionError extends Error {
     this.name = "ConfigurationResolutionError";
     this.code = code;
   }
-}
-
-function isAbortRejection(error: unknown): boolean {
-  if (error === null || typeof error !== "object") return false;
-  const candidate = error as { readonly name?: unknown; readonly code?: unknown };
-  return candidate.name === "AbortError" || candidate.code === "ABORT_ERR";
 }
 
 function adapterFailure(operation: string): BoundaryError {
