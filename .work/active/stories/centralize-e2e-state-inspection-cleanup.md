@@ -1,7 +1,7 @@
 ---
 id: centralize-e2e-state-inspection-cleanup
 kind: story
-stage: review
+stage: done
 tags: [refactor, infra]
 parent: null
 depends_on: []
@@ -129,3 +129,14 @@ Risk is low: the only live callsite changes from a sandbox-shaped wrapper to the
 - `npm run test:e2e` passed: 12 files, 22 passing tests, and all 21 expected failures retained.
 - `npm test` passed: typecheck, dependency boundaries, 325 unit files / 1,589 tests, package build/import checks, and isolated packed Pi 0.80.8 RPC/JSON/PTY acceptance.
 - Static symbol inspection confirms one recursive E2E inventory implementation, one `PRAGMA integrity_check` implementation, no residue-check export, and unchanged live `scanForbiddenValues` callsites.
+
+## Review (2026-07-17)
+
+**Verdict**: Approve
+
+**Blockers**: none
+**Important**: none
+**Nits**: none
+**Rejected**: none
+
+**Notes**: Bounded inline standalone-story review at standard project weight; no independent, fresh-context, or cross-model reviewer ran, per standalone-story policy and the caller's no-nested-agents constraint. The review inspected implementation commit `f049001` and confirmed that cleanup callbacks still run in reverse before SQLite inspection, retention/removal still follows inspection, and the existing `AggregateError` path still preserves collected cleanup and integrity failures. The canonical inspector still discovers regular `.sqlite` files recursively, opens each read-only, runs `PRAGMA integrity_check`, and closes every handle in `finally`; `state-inspector.ts`, its direct callers, `scanForbiddenValues`, process/PTY/RPC/platform code, expected failures, production source, and package exports are unchanged. The apparent environment/inspector source dependency is runtime-safe because the inspector's sandbox import is type-only and erased. Correctness, tests, design alignment, filesystem/SQLite safety, breaking-change, naming, and foundation-assertion lenses found no issue; focused infrastructure, full E2E, typecheck, boundaries, all unit tests, package checks, and packed-Pi acceptance passed. The implementation is a net harness deletion with no current-cycle findings.
