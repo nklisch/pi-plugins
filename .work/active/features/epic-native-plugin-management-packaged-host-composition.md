@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-packaged-host-composition
 kind: feature
-stage: review
+stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management
 depends_on: []
@@ -61,7 +61,7 @@ No new UI is owned here. This feature supplies status and capability data to the
 - **Clean defaults**: First user open creates generation zero with empty current host-config v2, installed-user v2, and trust v1 documents. First project open creates an empty current project-local v2 document bound to the exact project identity/key and a versioned digest for “portable intent not synchronized”; it never reads or silently adopts `.pi/plugins.json`. The subsequent marketplace/sync feature replaces that sentinel through normal verified synchronization.
 - **State compatibility**: Reads retain the current six-family registry and pure migrations. A database never rewrites a readable older blob merely because it was read; the next committed mutation writes current schemas. The adapter retains the current and previous complete generations and never fabricates a snapshot from a partially migrated set. Recovery journals remain separate and continue to reference opaque pending refs, so adapter migration cannot reinterpret transition evidence.
 - **Configuration custody**: Add one private rollback-journal SQLite configuration database under the host root. It implements exact ref/revision CAS and stores only `PluginConfigurationDocument`; it rejects any payload not accepted by the existing schema. Configuration write IDs, operation IDs, and refresh claim IDs use Node cryptographic randomness and existing schemas. A session-bound path adapter resolves user-relative paths against the exact current project root and project-relative paths only through `TrustedProjectRoot`; project paths cannot escape via lexical or realpath/symlink traversal.
-- **Secret custody**: Linux production composition uses a package-private Secret Service client over an exact-lockfile-pinned `dbus-next` transport, not `secret-tool` (the CLI cannot prove the port's atomic no-replace/ownership contract). It negotiates the Secret Service encrypted session algorithm with no plaintext-session downgrade. `put` calls `CreateItem(..., replace=false)` using fixed application/locator attributes and a random owner nonce inside the encrypted value envelope; it reads the returned item and issues process-local creation evidence only if that nonce matches. A concurrent winner therefore yields `collision` and can never be deleted through `removeOwned`; `removeOwned` re-reads and constant-time verifies the current envelope nonce before deleting, so stale evidence cannot delete a later replacement. Plaintext exists only in short-lived adapter buffers/`SensitiveValue`, never argv, environment, diagnostics, D-Bus labels/attributes, or native-error projection, and buffers are cleared after wrapping/consumption. Unsupported platforms, missing session bus/service, a locked collection, prompt-required operation, or encrypted-session failure produce an explicit unavailable/adapter result; there is no file, environment, Pi-settings, SQLite, or plain-D-Bus fallback. macOS Keychain and Windows Credential Manager are acknowledged missing concrete backends and remain unavailable until a safe adapter is supplied.
+- **Secret custody**: Production secret custody is explicitly unavailable on every platform. Review established that freedesktop Secret Service `CreateItem(..., replace=false)` does not provide atomic uniqueness for an attribute set, so a stable single winner and safe loser cleanup cannot be proven. The speculative D-Bus backend and `dbus-next` dependency were removed rather than publishing a false no-replace claim. There is no file, environment, Pi-settings, SQLite, CLI, or plain-D-Bus fallback; non-sensitive plugins continue and sensitive configuration remains unavailable until a backend can prove the full ownership contract.
 - **Installed revision reconstruction**: The current `InstalledPluginLoader` cannot be implemented from lossy state plus `metadata.json` v1: state deliberately omits resolved sources and executable declarations, while store metadata currently retains only identity/manifest/binding. Plugin promotion therefore gains a strict version-2 immutable reconstruction descriptor containing the verified `LoadedInstalledPlugin` evidence used to create the installed record. The descriptor is stored in sealed store metadata, verified against content/source/binding and the installed summary on load, and never copied into lifecycle state or projection caches. Existing v1 roots still resolve as content but return `INSTALLED_DESCRIPTOR_UNAVAILABLE`; no source URL or catalog declaration is guessed.
 - **Derived projections remain replaceable**: Startup uses the immutable reconstruction descriptor to re-assess current runtime capabilities and regenerate missing/corrupt projection caches. The stored compatibility report verifies the installed revision; a fresh report decides whether it can activate now. Adapter disappearance therefore blocks only the affected plugin and never mutates installed evidence or claims partial activity.
 - **One runtime selection catalog**: A composition-owned immutable catalog binds each active projection to its installed revision, current compatibility report, exact trust candidate/records, configuration descriptors/ref, current project context, content/data roots, and component identities. It supplies both `HookExecutionActiveSelectionPort` and callback-pinned `McpLaunchActiveSelectionPort`; hook and MCP adapters do not reread ambient state or independently choose revisions.
@@ -173,11 +173,11 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
 `hostRoot` is the existing content/recovery host root; `stateRoot`, `lockRoot`, and `configurationRoot` are dedicated private descendants. Startup passes only schema-verified scope values into legacy versioned codecs and decodes new state project filenames only from verified keys. The bootstrap registers delegates in fixed order so state/runtime initialization precedes the same `session_start` hook event and `resources_discover` finishes contribution publication.
 
 **Acceptance criteria**:
-- [ ] Factory construction performs no filesystem/network/process/timer/runtime/credential/recovery/tool/command effect; spies observe only inert Pi event delegate registration, and no delegate can execute a hook before startup.
-- [ ] Session id, cwd, trust, and mode come only from one Pi context and every later context mismatch is rejected.
-- [ ] User/project paths are fixed/digest-derived, cannot alias, and contain no plugin/source/project spelling.
-- [ ] Duplicate construction and illegal active-session overlap fail before an effect; an exact reload predecessor/successor is the only overlap.
-- [ ] Start/dispose are idempotent/coalesced, and a failed start becomes terminal after reverse cleanup.
+- [x] Factory construction performs no filesystem/network/process/timer/runtime/credential/recovery/tool/command effect; spies observe only inert Pi event delegate registration, and no delegate can execute a hook before startup.
+- [x] Session id, cwd, trust, and mode come only from one Pi context and every later context mismatch is rejected.
+- [x] User/project paths are fixed/digest-derived, cannot alias, and contain no plugin/source/project spelling.
+- [x] Duplicate construction and illegal active-session overlap fail before an effect; an exact reload predecessor/successor is the only overlap.
+- [x] Start/dispose are idempotent/coalesced, and a failed start becomes terminal after reverse cleanup.
 
 ### Unit 2: Durable lifecycle state, inventory, configuration, clocks, and identifiers
 
@@ -230,12 +230,12 @@ export function createNodeHostIdentifiers(): Readonly<{
 The state database protocol has strict `protocol`, `state_blobs`, and singleton `current_pointer` tables. Blob bytes are canonical and digest/ref checked. Initialization writes a complete generation zero transaction. Commit verifies scope, expected generation, every document generation, current schema, and expected-plus-one result before acknowledgment. Inventory lists only strict state database names, opens each through the state adapter, and reports `complete: false` if any candidate is unreadable.
 
 **Acceptance criteria**:
-- [ ] Fresh user/project snapshots are valid current-schema generation zero values and do not read/adopt foreign or project intent.
-- [ ] Older supported documents migrate in memory and commit as one current generation; unknown future/corrupt pointer evidence fails closed without partial snapshot.
-- [ ] Two processes committing one expected generation produce exactly one commit and one stale result; outer `ScopeLockManager` remains separately exercised around promotion.
-- [ ] Configuration CAS is process-safe, current-schema-only, secret-free, and reconciles a lost response by authoritative read.
-- [ ] IDs satisfy existing schemas, are unpredictable/process-safe, and abort before issuance; clocks expose wall and monotonic values through one singleton.
-- [ ] All database handles close idempotently; initialized files remain durable and are never deleted by disposal.
+- [x] Fresh user/project snapshots are valid current-schema generation zero values and do not read/adopt foreign or project intent.
+- [x] Older supported documents migrate in memory and commit as one current generation; unknown future/corrupt pointer evidence fails closed without partial snapshot.
+- [x] Two processes committing one expected generation produce exactly one commit and one stale result; outer `ScopeLockManager` remains separately exercised around promotion.
+- [x] Configuration CAS is process-safe, current-schema-only, secret-free, and reconciles a lost response by authoritative read.
+- [x] IDs satisfy existing schemas, are unpredictable/process-safe, and abort before issuance; clocks expose wall and monotonic values through one singleton.
+- [x] All database handles close idempotently; initialized files remain durable and are never deleted by disposal.
 
 ### Unit 3: Project authority, path containment, and OS secret custody
 
@@ -246,13 +246,9 @@ The state database protocol has strict `protocol`, `state_blobs`, and singleton 
 - `src/pi/pi-project-context.ts`
 - `src/infrastructure/project/node-project-root-resolver.ts`
 - `src/infrastructure/secrets/create-platform-secret-store.ts`
-- `src/infrastructure/secrets/dbus-secret-service-client.ts`
-- `src/infrastructure/secrets/linux-secret-service-store.ts`
 - `src/infrastructure/secrets/unavailable-secret-store.ts`
-- `package.json`, `package-lock.json`
 - `test/pi/pi-project-context.test.ts`
-- `test/infrastructure/secrets/linux-secret-service-store.test.ts`
-- `test/contract/platform-secret-store.contract.ts`
+- `test/infrastructure/secrets/platform-secret-store.test.ts`
 
 ```typescript
 export type PiProjectContextAdapters = Readonly<{
@@ -271,43 +267,25 @@ export async function createPiProjectContextAdapters(input: Readonly<{
 export type PlatformSecretStoreResult = Readonly<{
   store: SecretStore;
   availability: Readonly<{
-    status: "available" | "unavailable";
-    provider: "linux-secret-service" | "unsupported-platform" | "missing-provider";
+    status: "unavailable";
+    provider: "unsupported-platform" | "missing-provider";
     explanation: string;
   }>;
   close(): Promise<void>;
 }>;
 
-export interface SecretServiceClient extends AsyncDisposable {
-  createNoReplace(input: Readonly<{
-    locator: SecretLocator;
-    ownerNonce: Uint8Array;
-    plaintext: Uint8Array;
-  }>, signal: AbortSignal): Promise<
-    | Readonly<{ kind: "created"; itemPath: string }>
-    | Readonly<{ kind: "collision" }>
-    | Readonly<{ kind: "prompt-required" }>
-  >;
-  read(locator: SecretLocator, signal: AbortSignal): Promise<
-    | Readonly<{ kind: "found"; ownerNonce: Uint8Array; plaintext: Uint8Array }>
-    | Readonly<{ kind: "missing" }>
-  >;
-  remove(locator: SecretLocator, signal: AbortSignal): Promise<"removed" | "missing" | "prompt-required">;
-}
-
 export async function createPlatformSecretStore(input?: Readonly<{
-  connectLinux?: (signal: AbortSignal) => Promise<SecretServiceClient>;
   platform?: NodeJS.Platform;
+  signal?: AbortSignal;
 }>): Promise<PlatformSecretStoreResult>;
 ```
 
 **Acceptance criteria**:
-- [ ] Canonical current project and trust remain exact across all service/hook/MCP calls; a different cwd, session, key, repository replacement, or copied root capability fails.
-- [ ] Project configuration paths cannot escape the trusted root lexically or through symlinks; user paths use the exact bound base and canonical file URLs.
-- [ ] Linux create/get/remove/removeOwned pass `SecretStore` conformance; two real clients racing one locator produce one owned creation and one collision, and the loser cannot remove the winner.
-- [ ] The D-Bus client requires an encrypted Secret Service session, handles locked/prompt-required outcomes without UI, and never puts plaintext in attributes/labels/argv/env/errors/logs.
-- [ ] Missing/unsupported/locked credential services remain explicit unavailable adapters; no file/plain-session fallback exists and non-sensitive host startup may continue.
-- [ ] Native causes remain only as non-serialized causes; safe capability reports contain no paths, locators, PIDs, service messages, or values.
+- [x] Canonical current project and trust remain exact across all service/hook/MCP calls; a different cwd, session, key, repository replacement, or copied root capability fails.
+- [x] Project configuration paths cannot escape the trusted root lexically or through symlinks; user paths use the exact bound base and canonical file URLs.
+- [x] Linux fails closed because Secret Service cannot prove atomic no-replace ownership; production never calls a speculative provider.
+- [x] Missing and unsupported credential services remain explicit unavailable adapters; no file/plain-session fallback exists and non-sensitive host startup continues.
+- [x] Safe capability reports contain no paths, locators, PIDs, service messages, or values.
 
 ### Unit 4: Immutable reconstruction metadata and installed-revision loader
 
@@ -353,11 +331,11 @@ export async function createNodeContentInfrastructure(
 Plugin `VerifiedPromotionPlan` carries the verified descriptor; marketplace plans cannot. Published metadata v2 binds identity, manifest, binding, and descriptor digest. Resolver and loader rewalk content, parse metadata, verify all source/content/plugin/report/reference fingerprints, and return a deep-frozen value. Low-level metadata readers remain private.
 
 **Acceptance criteria**:
-- [ ] Restart loading reconstructs the exact normalized plugin, stored report, marketplace source, manifest, and binding and reproduces the installed record.
-- [ ] Any descriptor/source/report/content/reference tamper, cross-scope request, or wrong revision fails before runtime projection or secret access.
-- [ ] v1 store metadata still resolves immutable content but loader returns a stable unavailable result/error and never guesses declarations from current catalogs or paths.
-- [ ] Missing/corrupt replaceable projection cache is rebuilt from the descriptor; descriptor disappearance blocks the plugin and leaves state/content unchanged.
-- [ ] Descriptor values never enter lifecycle state, diagnostics, logs, projection caches, or public low-level APIs.
+- [x] Restart loading reconstructs the exact normalized plugin, stored report, marketplace source, manifest, and binding and reproduces the installed record.
+- [x] Any descriptor/source/report/content/reference tamper, cross-scope request, or wrong revision fails before runtime projection or secret access.
+- [x] v1 store metadata still resolves immutable content but loader returns a stable unavailable result/error and never guesses declarations from current catalogs or paths.
+- [x] Missing/corrupt replaceable projection cache is rebuilt from the descriptor; descriptor disappearance blocks the plugin and leaves state/content unchanged.
+- [x] Descriptor values never enter lifecycle state, diagnostics, logs, projection caches, or public low-level APIs.
 
 ### Unit 5: Runtime selection catalog and complete capability chain
 
@@ -448,11 +426,11 @@ export function createNodePiRuntimeCapabilityProbe(input: Readonly<{
 `RuntimeSelectionCatalog.replace` atomically publishes a new immutable epoch. MCP callbacks already admitted retain their old frozen selection until completion, while new callbacks see only the new epoch; old Pi hook callbacks are aborted before replacement. Retired epochs are reference-counted and reclaimed when their final callback releases, and `close()` rejects new callbacks then drains them. Desired-state loading always rereads authoritative user/current project state; untrusted current-project state is excluded and reported. Every active plugin is re-assessed against the current capability snapshot before projection generation. `createHostConfigurationServices` is the sole composition of the existing save/remove operations and callback-scoped resolver dependencies: the application side exposes safe write/remove results, while hook/MCP internals receive only the existing callback resolver plus its private store/secret/path/trust dependencies.
 
 **Acceptance criteria**:
-- [ ] Catalog lookup requires exact complete binding and project evidence; replacement cannot expose mixed old/new selections.
-- [ ] MCP callback pins retain their immutable retired epoch across replacement; new callbacks cannot observe it, and cancellation/close rejects new callbacks and drains existing ones.
-- [ ] Capability snapshots contain every registry id exactly once, distinguish absent adapters from malformed evidence, and never infer production qualification from test ports.
-- [ ] Adapter disappearance blocks only affected MCP/subagent plugins; skills/ordinary hooks and unrelated plugins remain activatable.
-- [ ] Requested-only ambient MCP environment values are callback-scoped/redacted and disposed on success, failure, and abort.
+- [x] Catalog lookup requires exact complete binding and project evidence; replacement cannot expose mixed old/new selections.
+- [x] MCP callback pins retain their immutable retired epoch across replacement; new callbacks cannot observe it, and cancellation/close rejects new callbacks and drains existing ones.
+- [x] Capability snapshots contain every registry id exactly once, distinguish absent adapters from malformed evidence, and never infer production qualification from test ports.
+- [x] Adapter disappearance blocks only affected MCP/subagent plugins; skills/ordinary hooks and unrelated plugins remain activatable.
+- [x] Requested-only ambient MCP environment values are callback-scoped/redacted and disposed on success, failure, and abort.
 
 ### Unit 6: Skills, ordinary hooks, and optional subagent lifecycle composition
 
@@ -496,11 +474,11 @@ export async function createComposedSkillHookRuntime(input: Readonly<{
 The runtime reuses all existing planner/executor/decision/resource/subagent factories. Inert Pi delegates are installed at construction and receive a target only after explicit startup. The subagent parent-session resolver accepts exactly the current Plugin Host session id/evidence.
 
 **Acceptance criteria**:
-- [ ] Required skill/hook components reconcile as one complete set, resource paths are verified before contribution, and Pi receives one deterministic path list.
-- [ ] Hook process execution begins only from a real Pi event after startup and always uses exact session cwd/project/trust/configuration roots.
-- [ ] Session revision leases pin every active skill/hook plugin and projection; reload replaces the lease only after the next full set exists, shutdown releases it.
-- [ ] Qualified subagent lifecycle registers one aggregate interceptor with matching qualification evidence; absent/unqualified lifecycle registers nothing and reports unavailable.
-- [ ] Partial startup/registration failure disposes coordinator/registration/leases exactly once and leaves no active delegate target.
+- [x] Required skill/hook components reconcile as one complete set, resource paths are verified before contribution, and Pi receives one deterministic path list.
+- [x] Hook process execution begins only from a real Pi event after startup and always uses exact session cwd/project/trust/configuration roots.
+- [x] Session revision leases pin every active skill/hook plugin and projection; reload replaces the lease only after the next full set exists, shutdown releases it.
+- [x] Qualified subagent lifecycle registers one aggregate interceptor with matching qualification evidence; absent/unqualified lifecycle registers nothing and reports unavailable.
+- [x] Partial startup/registration failure disposes coordinator/registration/leases exactly once and leaves no active delegate target.
 
 ### Unit 7: Optional MCP participant, launch providers, and exact cleanup
 
@@ -540,11 +518,11 @@ export function createComposedMcpRuntime(input: Readonly<{
 `launchValues(registration)` uses `createMcpLaunchContextPort` and `createTrustedMcpLaunchValueProvider`; `runtimeLeases(registration)` uses `createMcpRevisionLeaseProvider`. Cleanup uses the exact previous source identity/registration evidence and independently inspects absence.
 
 **Acceptance criteria**:
-- [ ] No-runtime plus no-MCP projection produces exact `none`/inactive contribution; a source projection produces `RUNTIME_UNAVAILABLE` and never partial success.
-- [ ] Registration/replace/remove/observation preserve exact source identity, digest, server inventory, project trust, and complete-plugin projection evidence.
-- [ ] Construction and local capability probing create no connection/process/tool; launch values and leases are requested only by the runtime at actual start/connect.
-- [ ] Every launch value/configuration facade and revision lease disposes after use; source removal proves provider/process/cache/lease cleanup or remains ambiguous.
-- [ ] Shutdown removes only sources owned by this composition; adapter disappearance/failure leaves safe recovery evidence and no false inactive observation.
+- [x] No-runtime plus no-MCP projection produces exact `none`/inactive contribution; a source projection produces `RUNTIME_UNAVAILABLE` and never partial success.
+- [x] Registration/replace/remove/observation preserve exact source identity, digest, server inventory, project trust, and complete-plugin projection evidence.
+- [x] Construction and local capability probing create no connection/process/tool; launch values and leases are requested only by the runtime at actual start/connect.
+- [x] Every launch value/configuration facade and revision lease disposes after use; source removal proves provider/process/cache/lease cleanup or remains ambiguous.
+- [x] Shutdown removes only sources owned by this composition; adapter disappearance/failure leaves safe recovery evidence and no false inactive observation.
 
 ### Unit 8: Canonical reload/recovery and full application container
 
@@ -611,13 +589,13 @@ export function createMarketplacePluginProbe(input: Readonly<{
 Lifecycle and reconciler calls are tightened to always include `scope` in transition settlement, allowing the scoped journal router to remain restart-safe rather than relying on an in-memory ref map. `createNodeRecoveryAdapters` gains a scoped transition facade and `close()` that releases owned lease/database resources.
 
 **Acceptance criteria**:
-- [ ] Startup follows the declared recovery/desired-state/participant/resource order and returns ready only after exact local contribution evidence; blocked plugins remain explicit and unrelated plugins continue.
-- [ ] Reload quiesces new event/launch admission, exposes candidate selection only to participant-internal callbacks, commits/resumes only after complete evidence, and restores or leaves recovery-required on failure.
-- [ ] One lifecycle transition across `ctx.reload()` yields observation from the successor instance, then exact predecessor finalization; failed successor evidence remains recovery-required.
-- [ ] Recovery and ordinary lifecycle share the existing reconciler; no command replay, second state writer, or component-specific activation path appears.
-- [ ] Marketplace readers/materializers/inspection/probe/update services and lifecycle use one state/content/capability graph; construction and local startup perform no network/timer.
-- [ ] A background update without Pi reload context cannot claim activation; refresh/notification evidence remains usable and the active revision is preserved.
-- [ ] Transition settlement routes by explicit scope across restart, and recovery adapters close/release owned resources without pruning durable evidence.
+- [x] Startup follows the declared recovery/desired-state/participant/resource order and returns ready only after exact local contribution evidence; blocked plugins remain explicit and unrelated plugins continue.
+- [x] Reload quiesces new event/launch admission, exposes candidate selection only to participant-internal callbacks, commits/resumes only after complete evidence, and restores or leaves recovery-required on failure.
+- [x] One lifecycle transition across `ctx.reload()` yields observation from the successor instance, then exact predecessor finalization; failed successor evidence remains recovery-required.
+- [x] Recovery and ordinary lifecycle share the existing reconciler; no command replay, second state writer, or component-specific activation path appears.
+- [x] Marketplace readers/materializers/inspection/probe/update services and lifecycle use one state/content/capability graph; construction and local startup perform no network/timer.
+- [x] A background update without Pi reload context cannot claim activation; refresh/notification evidence remains usable and the active revision is preserved.
+- [x] Transition settlement routes by explicit scope across restart, and recovery adapters close/release owned resources without pruning durable evidence.
 
 ### Unit 9: Package entry, public boundary, disposal matrix, and consumer integration
 
@@ -641,12 +619,12 @@ Lifecycle and reconciler calls are tightened to always include `scope` in transi
 The default extension calls only `createPackagedPluginHost({ pi })`; it supplies no unpublished production runtime. The `pi` manifest points to compiled JavaScript. `@nklisch/pi-plugin-host/pi` exports the factory and safe host/application/status types, not the raw Pi session binding (cwd/session file/id), adapter internals, or native causes. The library root retains existing contracts and intentionally exported Node leaf factories.
 
 **Acceptance criteria**:
-- [ ] `npm pack` bytes install into an empty consumer and Pi discovers `dist/pi/extension.js` through package metadata with no source-tree import.
-- [ ] Clean startup succeeds without Claude/Codex homes or MCP/subagent packages, reports those runtime capabilities unavailable, and activates compatible skill/ordinary-hook-only fixtures offline.
-- [ ] Duplicate roots, concurrent sessions/processes, restart, interrupted startup, adapter disappearance, partial construction, reload overlap, and shutdown all have deterministic integration evidence.
-- [ ] Source/compiled export allowlists expose the intended composition surface and no raw Pi binding/session path/id, SQLite handle, path codec, broker ticket, credential backend/client, selection mutator, raw state commit, or fake participant.
-- [ ] Dependency rules keep application/domain independent, infrastructure free of Pi, and Pi/composition as the only host wiring layers.
-- [ ] Full `npm test` passes strict source/test typechecking, boundaries, unit/integration/child-process tests, build, root import, Pi subpath import, and packed consumer discovery.
+- [x] `npm pack` bytes install into an empty consumer and Pi discovers `dist/pi/extension.js` through package metadata with no source-tree import.
+- [x] Clean startup succeeds without Claude/Codex homes or MCP/subagent packages, reports those runtime capabilities unavailable, and activates compatible skill/ordinary-hook-only fixtures offline.
+- [x] Duplicate roots, concurrent sessions/processes, restart, interrupted startup, adapter disappearance, partial construction, reload overlap, and shutdown all have deterministic integration evidence.
+- [x] Source/compiled export allowlists expose the intended composition surface and no raw Pi binding/session path/id, SQLite handle, path codec, broker ticket, credential backend/client, selection mutator, raw state commit, or fake participant.
+- [x] Dependency rules keep application/domain independent, infrastructure free of Pi, and Pi/composition as the only host wiring layers.
+- [x] Full `npm test` passes strict source/test typechecking, boundaries, unit/integration/child-process tests, build, root import, Pi subpath import, and packed consumer discovery.
 
 ## Startup, ownership, and scope invariants
 
@@ -667,7 +645,7 @@ The default extension calls only `createPackagedPluginHost({ pi })`; it supplies
 
 All nine child stories are implemented and marked done. The packaged composition now has one construct-only Pi root, exact session/project/path authority, durable state/configuration/secret/revision adapters, immutable runtime selection, complete skill/hook/subagent and MCP composition, one recovery/reload convergence path, and a compiled `./pi` package boundary with optional production participants truthfully absent by default.
 
-Full verification passed: 201 test files / 1,037 tests, strict typechecking, dependency boundaries (276 modules / 1,746 dependencies), compiled root and Pi imports, and packed clean-consumer discovery. The feature is ready for integrated review.
+Final verification passed: 204 test files / 1,046 tests, strict typechecking, dependency boundaries (275 modules / 1,739 dependencies), compiled root and Pi imports, and isolated packed-extension startup. The standard review blockers are fixed and the feature is complete.
 
 ## Failure matrix
 
@@ -744,7 +722,7 @@ The feature remains one cohesive implementation and review bundle. Stories are c
 
 - **Construct-only contract**: spy on filesystem APIs, `fetch`, `spawn`, timer creation, runtime methods, credential methods, Pi tool/command registration, and hook executor. Only inert Pi event delegate registration is allowed before `start`; no delegate has an executable target.
 - **State/config adapter contracts**: clean initialization, v1→current migration, corruption/future version, user/project alias attempts, stale CAS, lost responses, two real processes, path/root replacement, abort, and close/reopen.
-- **Project/secret contracts**: exact session/cwd/trust changes, Git/path-only identity, repository replacement, project containment/symlinks, Secret Service create collision/get/remove/owned cleanup, leak canaries, missing/locked backend, and unsupported platform.
+- **Project/secret contracts**: exact session/cwd/trust changes, Git/path-only identity, repository replacement, project containment/symlinks, leak canaries, fail-closed Linux custody, and unsupported platforms.
 - **Installed reconstruction**: real promoted fixture restart, regenerated projection, stored/current capability distinction, descriptor/content/source/report tamper, v1 descriptor absence, and cross-scope/revision swaps.
 - **Runtime selection/capabilities**: atomic replacement, pinned MCP callback, stale hook binding, current-project mismatch, complete registry snapshots, shell absence, malformed optional adapter, MCP none/source, and subagent qualification evidence.
 - **Reload bridge**: fake Pi old/new runtime sequence exactly mirrors `session_shutdown → session_start(reload) → resources_discover`; tests cover ticket claim, successor failure, mismatched session/cwd/transition, predecessor drain, rollback reload, concurrent reload serialization, and abort without timers.
@@ -758,7 +736,7 @@ The feature remains one cohesive implementation and review bundle. Stories are c
 
 - **Riskiest assumption — Pi reload handoff can safely overlap one draining application predecessor with the successor**: Pi documents the event order and old-frame continuation, but not Plugin Host’s broker. Mitigation: no stale Pi object use, exact session/transition tickets, application leases, one reload at a time, and packed integration against Pi 0.80.8. Fallback: report reload unavailable and keep lifecycle recovery-required; never use direct participant callback as false Pi activation proof.
 - **Installed reconstruction metadata becomes load-bearing physical evidence**: state is intentionally lossy. Mitigation: seal/digest it with immutable content, validate against state on every load, and keep it versioned. Fallback: missing old metadata blocks enable/startup for that plugin; do not consult a changed catalog or write guessed state.
-- **Credential support is not cross-platform complete**: only a safe Linux Secret Service adapter is concrete here. Its hardest boundary is encrypted-session negotiation and atomic ownership verification, so the D-Bus client stays package-private behind contract/fault tests and uses `CreateItem(replace=false)` plus an encrypted owner nonce before issuing evidence. Mitigation: explicit provider status, no prompt automation, and no plain-session fallback. Fallback: non-sensitive plugins work; sensitive configuration remains unavailable until the Linux service is usable or safe macOS/Windows backends are implemented.
+- **Credential support is unavailable**: Secret Service cannot prove this host's atomic no-replace ownership contract. Mitigation: the production factory always returns an explicit unavailable store and has no fallback. Non-sensitive plugins work; sensitive configuration remains unavailable until a backend can prove stable winner selection and stale-safe deletion.
 - **SQLite adapters multiply private roots/handles**: state, config, locks, journal, leases, and retention have distinct ownership. Mitigation: one path plan, shared local-filesystem/root-identity conventions, short transactions, reverse close, and no cross-database transaction claim. Fallback: partial failure retains durable files and blocks only the affected capability/scope.
 - **Startup capability changes can invalidate an installed plugin**: a previously available runtime can disappear. Mitigation: stored report verifies installation, fresh report governs activation, and participant evidence remains all-or-nothing. Fallback: leave installed state intact and report blocked/unavailable.
 - **Resource discovery occurs after `session_start`**: startup hooks need the catalog before Pi asks for resources, while reload evidence needs resource contribution afterward. Mitigation: ordered inert delegates, source catalog publication during bootstrap, resource evidence publication during the following event, and direct resource verification only inside recovery’s explicit local reload mode.
@@ -767,3 +745,38 @@ The feature remains one cohesive implementation and review bundle. Stories are c
 - **Least certainty — full MCP source cleanup when a concrete adapter disappears during reload**: package-neutral status may be unavailable. Mitigation: exact previous/journal evidence, lease retention, and ambiguous outcomes. Fallback: retain state/artifacts and require recovery; never report inactive from missing inspection.
 
 This design fails if construction writes or connects, two roots choose different state paths, project trust is inferred from cwd text, secrets fall back to files, installed revisions cannot rebuild after restart, runtime participants independently select revisions, partial evidence becomes active, recovery races a live predecessor, or shutdown closes adapters while the old lifecycle frame still finalizes. The construct/start split, fixed digest layout, exact Pi binding, unavailable credential/runtime capabilities, sealed reconstruction descriptor, one selection catalog, composed observations, ticketed reload overlap, and application-resource drain directly counter those failures.
+
+## Standard review record
+
+- **Mode and weight**: feature-level integrated review, `standard` (project default).
+- **Independent pass count**: 1 — the sole packaged-host pass already completed. Per the standard closure policy and operator instruction, fixes were verified without re-review. No nested agent or peer pass ran during remediation.
+- **Initial verdict**: request changes — 2 critical and 7 high material blockers.
+- **Final disposition**: all 9 blockers accepted and fixed; 0 unresolved blockers, 0 rejected findings, 0 nits. Four explicitly deferred ideas were parked unbound and were not implemented.
+
+### Findings and fixes
+
+1. **Reload operation lifetime (critical)** — Added admitted-operation leasing. `session_shutdown` closes runtime admission/resources first but keeps predecessor state, configuration, and recovery adapters pinned until the old application operation settles. The operation frame consumes its Pi reload context exactly once; after `ctx.reload()` only the broker and pinned application adapters remain usable. Exact shutdown → successor start/discover → predecessor settlement and durable-cleanup ordering is covered.
+2. **Fresh-process recovery (critical)** — Added startup-only local complete-participant reconciliation/observation, conservative rollback including pending install, post-recovery authority reread, explicit startup blocking for unresolved recovery, and pending-record exclusion from ordinary desired-state publication. A subprocess-written dead-owner SQLite/journal crash state proves fresh-process rollback; existing whole-bundle crash matrices cover update/disable/uninstall participant outcomes.
+3. **Owned SessionEnd chain (high)** — Removed independent runtime lifecycle handlers. Bootstrap now owns one ordered session boundary chain and dispatches `SessionEnd` once before quiesce, abort, and disposal for Pi shutdown reasons.
+4. **Lifecycle SQLite snapshots (high)** — Reads now hold a transaction across pointer/blob decoding. Writers use bounded abort-aware busy retry, validate the exact expected+1 snapshot before commit, and acknowledge that exact generation rather than rereading a later writer. Continuous multiprocess readers/writers prove complete monotonic snapshots.
+5. **First-use process safety (high)** — Added exclusive, retryable, process-identity-bound SQLite initialization for lifecycle state, process leases, and retention. Recovery-root marker publication is single-winner. Two clean host processes starting together prove the state/lease/retention path.
+6. **Secret Service claim (high)** — Determined that D-Bus `CreateItem(replace=false)` cannot prove attribute uniqueness, stable winner selection, and loser cleanup. Removed the speculative provider and `dbus-next`; production secret custody now fails closed as unavailable with no fallback or false atomicity claim.
+7. **Project identity revalidation (high)** — Re-resolve canonical root and Git common-directory fingerprint at desired-state, trust, configuration/path, hook, and MCP boundaries. Repository replacement advances the authority epoch and invalidates every old root capability before protected access.
+8. **Runtime qualification (high)** — Added one startup qualification decision consumed by capability reporting, registration, desired state, and startup. It uses the actual Pi `VERSION`, Pi API shape, host and provider Node/Pi ranges, complete MCP lifecycle facts, and published-provider evidence; mere ports, test evidence, malformed facts, and contradictions are consistently unavailable.
+9. **Independent integration evidence (high)** — The packed test now performs an isolated offline npm installation with no checkout dependency symlinks, imports the manifest extension, and executes session startup/resource/shutdown. Added real process concurrency, dead-owner crash recovery, root replacement, operation leasing, broker reload-once, and complete runtime qualification evidence that would fail the reviewed commit.
+
+### Commits
+
+- `6cf0972` — lifecycle, recovery, qualification, identity, SQLite, project, and fail-closed secret fixes.
+- `af817a6` — adversarial process, crash, reload, qualification, and isolated package evidence.
+- `c86ae3f` — bounded busy retry while opening an identity-bound database during an active writer.
+- `7d6b038`, `875e33a`, `75c8cf9`, `52d9e2f` — the four requested unbound backlog captures.
+
+### Verification
+
+- Focused adversarial suites: reload broker/context consumption, operation lease/disposal, fresh-process crash recovery, MCP lifecycle recovery, runtime qualification/desired state, project replacement, lifecycle SQLite, multiprocess startup/read-write concurrency, and fail-closed secret custody — green.
+- Full `npm test` — green.
+- Vitest: **204 files / 1,046 tests**, 0 failures, 0 type errors.
+- Dependency boundaries: **275 modules / 1,739 dependencies**, 0 violations.
+- Package checks: **522 root exports**, **3 `./pi` exports**, isolated packed Pi extension startup passed.
+- All nine child stories remain `done`; this feature advanced `review → done` after blocker verification.
