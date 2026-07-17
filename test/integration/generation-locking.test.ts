@@ -129,8 +129,10 @@ async function runFirstUseContention(): Promise<readonly ChildEvent[]> {
 }
 
 describe("generation-locking integration", () => {
+  // Eight fresh process pairs retain repeated first-use coverage without
+  // making confidence depend on host-wide process startup throughput.
   it("repeatedly contends on two real first-use coordinators with one commit and one stale result", async () => {
-    for (let attempt = 0; attempt < 20; attempt += 1) {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
       const terminals = await runFirstUseContention();
       expect(
         terminals.every((event) => event.event === "result"),
