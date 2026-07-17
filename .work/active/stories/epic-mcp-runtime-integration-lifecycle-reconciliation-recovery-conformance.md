@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-lifecycle-reconciliation-recovery-conformance
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-lifecycle-reconciliation
 depends_on: [epic-mcp-runtime-integration-lifecycle-reconciliation-reconciliation-participant, epic-mcp-runtime-integration-lifecycle-reconciliation-runtime-lease-cleanup]
@@ -53,3 +53,16 @@ Production lifecycle/recovery source should not gain an MCP-specific mutation pa
 ## Ordering constraint
 
 Depends on both the reconciliation participant and runtime-lease cleanup. The final integration/native-handoff checkpoint depends on this proof.
+
+## Implementation notes
+
+- Added a test-only `LifecycleReloadPort` that maps only MCP `applied | unchanged` to accepted, independently obtains strict skill/hook and MCP observations, and composes them through the existing whole-plugin observation contract.
+- Exercised the real `createLifecycleTransitionReconciler` with exact whole-bundle update finalization, partial/lost-response candidate compensation, failed restore, crash-after-publication finalization, crash-during-partial-publication rollback, explicit offline no-MCP finalization, and unregister-before-cleanup recovery-required retention.
+- Extended the fake's absent replacement semantics so publication must clean same-owner residue left by partial removal before it may return `applied`. Cleanup failure preserves process/lease residue and safe pending evidence rather than claiming inactive or restored state.
+- Recovery uses only the existing transition record, pending marker, state generation CAS/rebase, reload observation, settlement, and recovery-required outcomes. No MCP journal, transaction, state store, retry worker, commit path, or recovery classifier was added.
+
+## Verification
+
+- Focused MCP lifecycle/recovery/runtime/fake/conformance/plugin-lifecycle suites: **69 passed, 0 failed**.
+- `npm run typecheck`: passed.
+- `npm run boundaries`: passed (**237 modules, 1,444 dependencies**, no violations).

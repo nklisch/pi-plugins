@@ -237,7 +237,10 @@ function providerShapeIsValid(request: McpSourceReplaceRequest): boolean {
  */
 export class FakeMcpRuntime implements McpRuntimePort {
   private readonly records = new Map<string, StoredSource>();
-  private readonly cleanupResidue = new Map<string, Set<ExecutionState>>();
+  private readonly cleanupResidue = new Map<string, Readonly<{
+    identity: McpSourceIdentity;
+    executions: Set<ExecutionState>;
+  }>>();
   private readonly runtimeCapabilities: McpRuntimeCapabilities;
   private nextReplacementFailure: ErrorCode | undefined;
   private nextReplacementEffect: "partial" | "lost-response" | undefined;
@@ -305,14 +308,14 @@ export class FakeMcpRuntime implements McpRuntimePort {
   executionCount(identity?: McpSourceIdentity): number {
     if (identity === undefined) {
       return [...this.records.values()].reduce((count, record) => count + record.executions.size, 0) +
-        [...this.cleanupResidue.values()].reduce((count, executions) => count + executions.size, 0);
+        [...this.cleanupResidue.values()].reduce((count, residue) => count + residue.executions.size, 0);
     }
     const exact = exactIdentityKey(identity);
     const record = this.records.get(ownerKey(identity));
     const active = record !== undefined && exactIdentityKey(record.registration.source.identity) === exact
       ? record.executions.size
       : 0;
-    return active + (this.cleanupResidue.get(exact)?.size ?? 0);
+    return active + (this.cleanupResidue.get(exact)?.executions.size ?? 0);
   }
 
   private async closeExecution(state: ExecutionState, signal: AbortSignal): Promise<void> {
@@ -320,7 +323,7 @@ export class FakeMcpRuntime implements McpRuntimePort {
     await state.record.runtimeLeases.release(state.lease, signal);
     state.closed = true;
     state.record.executions.delete(state);
-    this.cleanupResidue.get(exactIdentityKey(state.record.registration.source.identity))?.delete(state);
+    this.cleanupResidue.get(exactIdentityKey(state.record.registration.source.identity))?.executions.delete(state);
   }
 
   private async closeAll(record: StoredSource): Promise<void> {
@@ -379,16 +382,23 @@ export class FakeMcpRuntime implements McpRuntimePort {
       });
     }
 
-    // Cleanup is part of the runtime's atomic source publication contract.
-    if (previous !== undefined) {
-      try {
-        await this.closeAll(previous);
-      } catch {
-        return McpSourceReplaceResultSchema.parse({
-          kind: "rejected",
-          diagnostics: [rejection(ErrorCodeRegistry.mcpLaunchCleanupFailed, "replaceMcpSource")],
-        });
+    // Cleanup is part of the runtime's atomic source publication contract,
+    // including residue left by an unregister-before-cleanup failure.
+    try {
+      if (previous !== undefined) await this.closeAll(previous);
+      for (const [residueKey, residue] of [...this.cleanupResidue]) {
+        if (ownerKey(residue.identity) !== key) continue;
+        const cleanupSignal = new AbortController().signal;
+        for (const execution of [...residue.executions]) {
+          await this.closeExecution(execution, cleanupSignal);
+        }
+        this.cleanupResidue.delete(residueKey);
       }
+    } catch {
+      return McpSourceReplaceResultSchema.parse({
+        kind: "rejected",
+        diagnostics: [rejection(ErrorCodeRegistry.mcpLaunchCleanupFailed, "replaceMcpSource")],
+      });
     }
     signal.throwIfAborted();
     const replacement: StoredSource = {
@@ -437,11 +447,11 @@ export class FakeMcpRuntime implements McpRuntimePort {
     if (current === undefined && residue === undefined) {
       return McpSourceRemoveResultSchema.parse({ kind: "absent" });
     }
-    const executions = current?.executions ?? residue!;
+    const executions = current?.executions ?? residue!.executions;
     if (current !== undefined && this.nextRemovalFailure === "after-unregister") {
       this.nextRemovalFailure = undefined;
       this.records.delete(key);
-      this.cleanupResidue.set(exact, executions);
+      this.cleanupResidue.set(exact, { identity: requested, executions });
       throw new FakeMcpRuntimeFailure(ErrorCodeRegistry.mcpLaunchCleanupFailed);
     }
     try {
