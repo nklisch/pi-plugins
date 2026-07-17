@@ -28,7 +28,7 @@ const location = SourceLocationSchema.parse({
   pointer: "/mcpServers/search",
 });
 const componentId = ComponentIdSchema.parse(`component-v1:mcp-server:${"a".repeat(64)}`);
-const serverKey = `mcp-server-v1:${"b".repeat(64)}`;
+const serverKey = `mcp-server-v1:${"a".repeat(64)}`;
 const digest = (hex: string) => ContentDigestSchema.parse(`sha256:${hex.repeat(64).slice(0, 64)}`);
 const identity = {
   schemaVersion: 1 as const,
@@ -80,7 +80,12 @@ function setup(options: Readonly<{
         componentId,
         nativeKey: "search",
         transport: template.transport,
-        options: {},
+        options: {
+          schemaVersion: 1,
+          auth: template.transport === "streamable-http" && template.bearerToken !== undefined
+            ? { kind: "bearer-environment" }
+            : { kind: "none" },
+        },
         projection: {
           schemaVersion: 1,
           componentId,
@@ -205,14 +210,88 @@ describe("trusted MCP launch value provider", () => {
     fixture.provider.dispose(values);
   });
 
+  it("keeps structured environment selectors distinct from trusted root templates", async () => {
+    const template = httpTemplate({
+      headers: [
+        { name: "X-Configured", value: { kind: "environment", name: "CLAUDE_PLUGIN_OPTION_NAME" } },
+        { name: "X-Structured", value: { kind: "environment", name: "PLUGIN_ROOT" } },
+        { name: "X-Template", value: { kind: "template", template: "${PLUGIN_ROOT}" } },
+      ],
+      bearerToken: undefined,
+    });
+    const fixture = setup({ template, ambient: { PLUGIN_ROOT: "ambient-plugin-root" } });
+    const values = await fixture.provider.resolve(fixture.request, new AbortController().signal);
+    expect(values.transport).toBe("streamable-http");
+    if (values.transport !== "streamable-http") throw new Error("expected HTTP values");
+    expect(values.headers).toEqual({
+      "X-Configured": "demo",
+      "X-Structured": "ambient-plugin-root",
+      "X-Template": "/plugin",
+    });
+    expect(fixture.environment.requests).toEqual([["PLUGIN_ROOT"]]);
+    fixture.provider.dispose(values);
+  });
+
   it.each([
-    ["unknown namespace", stdioTemplate({ command: "${unknown.name}" }), "posix"],
-    ["unclosed token", stdioTemplate({ command: "${PLUGIN_ROOT" }), "posix"],
-    ["nested token", stdioTemplate({ command: "${PLUGIN_${ROOT}}" }), "posix"],
+    {
+      abortAt: "has" as const,
+      reason: { name: "AbortError", code: "ABORT_ERR", message: "CANARY_FACADE_CANCEL" },
+      expectedCode: McpLaunchErrorCodes.cancelled,
+    },
+    {
+      abortAt: "substitute" as const,
+      reason: { name: "TimeoutError", code: "TIMEOUT", message: "CANARY_FACADE_TIMEOUT" },
+      expectedCode: McpLaunchErrorCodes.timeout,
+    },
+  ])(
+    "propagates cancellation identity when ambient facade $abortAt aborts and disposes before rejection",
+    async ({ abortAt, reason, expectedCode }) => {
+      const template = httpTemplate({
+        headers: [{ name: "X-Ambient", value: { kind: "environment", name: "HEADER_VALUE" } }],
+        bearerToken: undefined,
+      });
+      const fixture = setup({ template });
+      const controller = new AbortController();
+      const events: string[] = [];
+      fixture.environment.withResolved = async (_names, _signal, use) => {
+        const facade = Object.freeze({
+          has() {
+            events.push("has");
+            if (abortAt === "has") controller.abort(reason);
+            return true;
+          },
+          substitute() {
+            events.push("substitute");
+            if (abortAt === "substitute") controller.abort(reason);
+            return "CANARY_FACADE_VALUE";
+          },
+          redact: (text: string) => text,
+          toString: () => "[REDACTED]" as const,
+          toJSON: () => "[REDACTED]" as const,
+        });
+        try {
+          await use(facade);
+        } finally {
+          events.push("disposed");
+        }
+      };
+      const failure = await fixture.provider.resolve(fixture.request, controller.signal)
+        .catch((error: unknown) => {
+          events.push("rejected");
+          return error;
+        });
+      expect(failure).toBe(reason);
+      expect(classifyMcpLaunchFailure(failure, controller.signal)).toBe(expectedCode);
+      expect(events.at(-2)).toBe("disposed");
+      expect(events.at(-1)).toBe("rejected");
+      if (abortAt === "has") expect(events).not.toContain("substitute");
+      expect(JSON.stringify(failure)).toMatch(/CANARY_FACADE_(?:CANCEL|TIMEOUT)/u);
+    },
+  );
+
+  it.each([
     ["missing configured variable", stdioTemplate({ command: "${CLAUDE_PLUGIN_OPTION_MISSING}" }), "posix"],
     ["prototype-like ambient variable", stdioTemplate({ command: "${__proto__}" }), "posix"],
-    ["empty token", stdioTemplate({ command: "${}" }), "posix"],
-    ["NUL command", stdioTemplate({ command: "before\0after" }), "posix"],
     ["Windows collision", stdioTemplate({ env: [{ name: "PATH", value: "one" }, { name: "Path", value: "two" }] }), "windows"],
     ["reserved collision", stdioTemplate({ env: [{ name: "PLUGIN_ROOT", value: "other" }] }), "posix"],
   ] as const)("rejects %s without partial output", async (_name, template, platform) => {
@@ -224,14 +303,27 @@ describe("trusted MCP launch value provider", () => {
   });
 
   it.each([
-    httpTemplate({ url: "file:///tmp/server", headers: [] }),
-    httpTemplate({ url: "https://user:password@example.invalid/mcp", headers: [] }),
-    httpTemplate({ url: "https://example.invalid/mcp\n", headers: [] }),
-    httpTemplate({ headers: [{ name: "X-Test", value: { kind: "template", template: "one\r\ntwo" } }] }),
-    httpTemplate({ headers: [{ name: "Authorization", value: { kind: "template", template: "Bearer ${HEADER_VALUE}" } }], bearerToken: { kind: "environment", name: "HEADER_VALUE" } }),
-    httpTemplate({ bearerToken: { kind: "template", template: "white space" } }),
-  ])("rejects unsafe HTTP outputs with a stable redacted code", async (template) => {
-    const fixture = setup({ template });
+    {
+      template: httpTemplate({ url: "https://${HOST}/mcp", headers: [], bearerToken: undefined }),
+      ambient: { HOST: "user:password@example.invalid" },
+    },
+    {
+      template: httpTemplate({ url: "https://example.invalid/${PATH_VALUE}", headers: [], bearerToken: undefined }),
+      ambient: { PATH_VALUE: "one\ntwo" },
+    },
+    {
+      template: httpTemplate({
+        headers: [{ name: "X-Test", value: { kind: "environment", name: "HEADER_VALUE" } }],
+        bearerToken: undefined,
+      }),
+      ambient: { HEADER_VALUE: "one\r\ntwo" },
+    },
+    {
+      template: httpTemplate({ headers: [], bearerToken: { kind: "environment", name: "HEADER_VALUE" } }),
+      ambient: { HEADER_VALUE: "white space" },
+    },
+  ])("rejects unsafe HTTP outputs with a stable redacted code", async ({ template, ambient }) => {
+    const fixture = setup({ template, ambient });
     const error = await fixture.provider.resolve(fixture.request, new AbortController().signal)
       .catch((value: unknown) => value);
     expect(code(error)).toBe(McpLaunchErrorCodes.valueInvalid);
@@ -265,6 +357,17 @@ describe("trusted MCP launch value provider", () => {
     expect(left.transport).toBe("stdio");
     first.provider.dispose(left);
     first.provider.dispose(right);
+  });
+
+  it("rejects a tampered request key before context or environment dependencies", async () => {
+    const fixture = setup();
+    const error = await fixture.provider.resolve({
+      ...fixture.request,
+      serverKey: `mcp-server-v1:${"f".repeat(64)}`,
+    }, new AbortController().signal).catch((value: unknown) => value);
+    expect(code(error)).toBe(McpLaunchErrorCodes.authorityRejected);
+    expect(fixture.callbacks).toBe(0);
+    expect(fixture.environment.requests).toEqual([]);
   });
 
   it("copies registered source/template state before caller mutation", async () => {

@@ -6,6 +6,7 @@ import {
   McpLaunchValueRequestSchema,
   McpRuntimeCapabilitiesSchemaV1,
   McpRuntimeServerKeySchemaV1,
+  deriveMcpRuntimeServerKey,
   McpToolAliasSegmentSchema,
   McpToolAliasTemplateSchemaV1,
   McpSourceIdentitySchemaV1,
@@ -31,7 +32,7 @@ const location = SourceLocationSchema.parse({
   pointer: "/mcpServers/search",
 });
 const componentId = ComponentIdSchema.parse(`component-v1:mcp-server:${"a".repeat(64)}`);
-const serverKey = `mcp-server-v1:${"b".repeat(64)}`;
+const serverKey = `mcp-server-v1:${"a".repeat(64)}`;
 const plugin = PluginKeySchema.parse("demo@community");
 const digest = (hex: string) => ContentDigestSchema.parse(`sha256:${hex.repeat(64).slice(0, 64)}`);
 
@@ -55,7 +56,7 @@ function source(overrides: Record<string, unknown> = {}): McpConfigSource {
         componentId,
         nativeKey: "search",
         transport: "stdio",
-        options: { timeoutMs: 1000 },
+        options: { schemaVersion: 1, startupTimeoutMs: 1000, auth: { kind: "none" } },
         projection: {
           schemaVersion: 1,
           componentId,
@@ -150,7 +151,7 @@ describe("portable MCP runtime contract", () => {
     }).success).toBe(false);
     expect(McpSourceServerSchemaV1.safeParse({
       ...source().servers[serverKey],
-      options: { nested: Number.NaN },
+      options: { ...source().servers[serverKey]!.options, startupTimeoutMs: Number.NaN },
     }).success).toBe(false);
     expect(McpSourceServerSchemaV1.safeParse({
       ...source().servers[serverKey],
@@ -168,6 +169,40 @@ describe("portable MCP runtime contract", () => {
         headers: [],
       },
     }).success).toBe(false);
+  });
+
+  it("derives and enforces the only server key for each component id", () => {
+    expect(deriveMcpRuntimeServerKey(componentId)).toBe(serverKey);
+    const tamperedKey = `mcp-server-v1:${"f".repeat(64)}`;
+    const tampered = {
+      ...source(),
+      servers: { [tamperedKey]: source().servers[serverKey] },
+    };
+    expect(McpConfigSourceSchemaV1.safeParse(tampered).success).toBe(false);
+  });
+
+  it("rejects secret-bearing options and templates at the public schema boundary", () => {
+    const optionCanary = "CANARY_PUBLIC_OPTION";
+    const templateCanary = "CANARY_PUBLIC_TEMPLATE";
+    const candidate = {
+      ...source(),
+      servers: {
+        [serverKey]: {
+          ...source().servers[serverKey],
+          options: { ...source().servers[serverKey]!.options, secret: optionCanary },
+          launchTemplate: {
+            schemaVersion: 1,
+            transport: "stdio",
+            command: "safe-command",
+            args: [],
+            env: [{ name: "JWT", value: templateCanary }],
+          },
+        },
+      },
+    };
+    const parsed = McpConfigSourceSchemaV1.safeParse(candidate);
+    expect(parsed.success).toBe(false);
+    expect(JSON.stringify(parsed)).not.toMatch(/CANARY_PUBLIC_/u);
   });
 
   it("rejects malformed opaque server keys and unsafe or authority-bearing aliases", () => {

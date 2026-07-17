@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createMcpLaunchContextPort } from "../../src/application/mcp-launch-context.js";
-import { deriveMcpRuntimeServerKey } from "../../src/application/mcp-plugin-projection.js";
+import { deriveMcpRuntimeServerKey } from "../../src/application/ports/mcp-runtime.js";
 import { withResolvedPluginConfiguration } from "../../src/application/configuration-resolver.js";
 import type { McpLaunchActiveSelectionPort } from "../../src/application/ports/mcp-launch-context.js";
 import type { McpLaunchEnvironmentPort } from "../../src/application/ports/mcp-launch-environment.js";
@@ -100,7 +100,12 @@ function integratedFixture() {
       componentId: component.id,
       nativeKey: component.nativeKey.value,
       transport: createMcpLaunchTemplate(component, projection.plugin).transport,
-      options: {},
+      options: {
+        schemaVersion: 1,
+        auth: component === remote
+          ? { kind: "bearer-environment" }
+          : { kind: "none" },
+      },
       projection: {
         schemaVersion: 1,
         componentId: component.id,

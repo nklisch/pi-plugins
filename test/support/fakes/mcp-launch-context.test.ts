@@ -15,7 +15,7 @@ const binding = McpLaunchBindingSchemaV1.parse({
     revision: digest("1"),
     projectionDigest: digest("2"),
   },
-  serverKey: `mcp-server-v1:${"4".repeat(64)}`,
+  serverKey: `mcp-server-v1:${"3".repeat(64)}`,
   componentId: ComponentIdSchema.parse(`component-v1:mcp-server:${"3".repeat(64)}`),
   transport: "stdio",
 });

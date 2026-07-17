@@ -345,11 +345,15 @@ export class FakeMcpRuntime implements McpRuntimePort {
         try {
           await record.launchValues.dispose(values);
         } catch {
-          record.serverStatus.set(serverKey, {
-            state: "failed",
-            errorCode: McpLaunchErrorCodes.cleanupFailed,
-          });
-          if (failure === undefined) failure = new FakeMcpLaunchError(McpLaunchErrorCodes.cleanupFailed);
+          // Caller cancellation/timeout is the launch outcome even when
+          // cleanup also fails; disposal still completes before rejection.
+          if (!signal.aborted) {
+            record.serverStatus.set(serverKey, {
+              state: "failed",
+              errorCode: McpLaunchErrorCodes.cleanupFailed,
+            });
+            failure = new FakeMcpLaunchError(McpLaunchErrorCodes.cleanupFailed);
+          }
         }
       }
     }

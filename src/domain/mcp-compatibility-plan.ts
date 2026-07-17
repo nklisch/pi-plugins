@@ -22,6 +22,10 @@ import {
   type Diagnostic,
 } from "./errors.js";
 import { PluginKeySchema, type PluginKey } from "./identity.js";
+import {
+  isPortableMcpHeaderCredential,
+  isPortableMcpValueReference,
+} from "./mcp-late-values.js";
 import { SourceLocationSchema, type SourceLocation } from "./provenance-location.js";
 import { ProvenanceSchema, type Provenance } from "./provenance.js";
 import { JsonValueSchema, type JsonValue } from "./schema.js";
@@ -294,24 +298,32 @@ function resolveGroup<T extends JsonValue>(
   };
 }
 
+/** Resolve registry-owned aliases once so policy and projection cannot drift. */
+export function resolveMcpFieldGroup<T extends JsonValue>(
+  declaration: Readonly<Record<string, JsonValue>>,
+  name: keyof typeof CompatibilityPolicyRegistry.mcp.keys.fieldGroups,
+  parse: (value: JsonValue) => T | undefined,
+): Readonly<{
+  value?: T;
+  conflicts: readonly string[];
+  invalid: readonly string[];
+  claims: readonly Readonly<{ field: string; value: JsonValue }>[];
+}> {
+  return resolveGroup(declaration, fieldGroup(name), parse);
+}
+
 function stringArray(value: JsonValue): value is readonly string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string");
 }
 
-const PORTABLE_VALUE_REFERENCE = /^\$\{(?:user_config\.[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*)\}$/;
 const PORTABLE_ENVIRONMENT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const HTTP_HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
-
-function portableCredentialTemplate(value: string): boolean {
-  return PORTABLE_VALUE_REFERENCE.test(value) ||
-    /^(?:bearer|basic)\s+\$\{(?:user_config\.[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*)\}$/i.test(value);
-}
 
 function invalidEnvironmentFields(value: JsonValue): readonly string[] {
   if (!isRecord(value)) return [""];
   return Object.entries(value)
     .filter(([name, entry]) => !PORTABLE_ENVIRONMENT_NAME.test(name) || typeof entry !== "string" ||
-      (isSensitiveFieldName(name) && !PORTABLE_VALUE_REFERENCE.test(entry)))
+      (isSensitiveFieldName(name) && !isPortableMcpValueReference(entry)))
     .map(([name]) => name)
     .sort(compareUtf8);
 }
@@ -397,7 +409,8 @@ function invalidHeaderFields(value: JsonValue): readonly string[] {
     }
     seen.add(canonicalName);
     if (typeof entry === "string") {
-      if (entry.length === 0 || isSensitiveFieldName(name) && !portableCredentialTemplate(entry)) {
+      if (entry.length === 0 || isSensitiveFieldName(name) &&
+          !isPortableMcpHeaderCredential(name, entry)) {
         invalid.push(name);
       }
     } else if (!isRecord(entry) || Object.keys(entry).length !== allowed.length ||
@@ -600,7 +613,7 @@ function analyze(plugin: PluginKey, component: McpServerComponent): McpCompatibi
         const protocols = transport === "websocket" ? ["ws:", "wss:"] : ["http:", "https:"];
         validUrl = protocols.includes(parsed.protocol) && parsed.username.length === 0 && parsed.password.length === 0 &&
           [...parsed.searchParams].every(([name, value]) =>
-            !isSensitiveQueryName(name) || PORTABLE_VALUE_REFERENCE.test(value));
+            !isSensitiveQueryName(name) || isPortableMcpValueReference(value));
       } catch {
         validUrl = false;
       }
@@ -687,12 +700,12 @@ function analyze(plugin: PluginKey, component: McpServerComponent): McpCompatibi
   }
 
   const headerGroup = fieldGroup("headers");
-  const headerResolution = resolveGroup(declaration, headerGroup, (value) => value);
+  const headerResolution = resolveMcpFieldGroup(declaration, "headers", (value) => value);
   for (const field of headerResolution.conflicts) diagnostics.push(issue(plugin, component, field));
   const header = headerResolution.claims[0];
-  if (header !== undefined) {
+  if (header !== undefined && headerResolution.value !== undefined) {
     if (transport !== undefined && headerGroup.transports.includes(transport)) {
-      for (const name of invalidHeaderFields(header.value)) {
+      for (const name of invalidHeaderFields(headerResolution.value)) {
         diagnostics.push(issue(plugin, component, name === "" ? header.field : `${header.field}.${name}`));
       }
     }

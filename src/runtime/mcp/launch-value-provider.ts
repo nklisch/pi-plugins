@@ -24,6 +24,7 @@ import {
   type McpLateValue,
   type McpLaunchTemplate,
 } from "../../domain/mcp-launch-template.js";
+import { parseMcpTemplateTokens } from "../../domain/mcp-late-values.js";
 import {
   isPluginLaunchRootName,
   type PluginLaunchRootValues,
@@ -31,13 +32,6 @@ import {
 
 export const McpProcessEnvironmentPlatformSchema = z.enum(["posix", "windows"]);
 export type McpProcessEnvironmentPlatform = z.infer<typeof McpProcessEnvironmentPlatformSchema>;
-
-type ParsedToken = Readonly<{
-  raw: string;
-  body: string;
-  kind: "root" | "configuration" | "environment";
-  name: string;
-}>;
 
 type LeaseBacking =
   | Readonly<{
@@ -78,35 +72,6 @@ function launchError(binding: McpLaunchBinding, code: (typeof McpLaunchErrorCode
   });
 }
 
-function parseTokens(template: string): readonly ParsedToken[] {
-  if (typeof template !== "string" || template.includes("\0")) throw new Error("invalid template");
-  const tokens: ParsedToken[] = [];
-  let cursor = 0;
-  while (cursor < template.length) {
-    const start = template.indexOf("${", cursor);
-    if (start < 0) break;
-    const end = template.indexOf("}", start + 2);
-    if (end < 0) throw new Error("invalid template");
-    const body = template.slice(start + 2, end);
-    if (body.length === 0 || body.includes("${") || body.includes("{") || body.includes("}")) {
-      throw new Error("invalid template");
-    }
-    const raw = template.slice(start, end + 1);
-    if (isPluginLaunchRootName(body)) {
-      tokens.push({ raw, body, kind: "root", name: body });
-    } else if (body.startsWith("user_config.")) {
-      const name = body.slice("user_config.".length);
-      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error("invalid template");
-      tokens.push({ raw, body, kind: "configuration", name });
-    } else {
-      McpEnvironmentNameSchema.parse(body);
-      tokens.push({ raw, body, kind: "environment", name: body });
-    }
-    cursor = end + 1;
-  }
-  return tokens;
-}
-
 function templateStrings(template: McpLaunchTemplate): readonly string[] {
   if (template.transport === "stdio") {
     return [
@@ -141,15 +106,20 @@ function ambientNames(
     if (!Object.prototype.hasOwnProperty.call(configured, name)) result.add(name);
   };
   for (const value of templateStrings(template)) {
-    for (const token of parseTokens(value)) {
+    for (const token of parseMcpTemplateTokens(value)) {
       if (token.kind === "environment") inspectName(token.name);
     }
   }
+  const inspectSelector = (name: string) => {
+    // Structured selectors are explicit ambient reads except for the one
+    // configured-option namespace. Root-like names are not reinterpreted.
+    if (!name.startsWith("CLAUDE_PLUGIN_OPTION_")) result.add(name);
+  };
   if (template.transport === "streamable-http") {
     for (const header of template.headers) {
-      if (header.value.kind === "environment") inspectName(header.value.name);
+      if (header.value.kind === "environment") inspectSelector(header.value.name);
     }
-    if (template.bearerToken?.kind === "environment") inspectName(template.bearerToken.name);
+    if (template.bearerToken?.kind === "environment") inspectSelector(template.bearerToken.name);
   }
   return Object.freeze([...result].sort());
 }
@@ -174,30 +144,63 @@ function resolveTemplate(
   configuration: ResolvedConfiguration,
   configured: Readonly<Record<string, string>>,
   environment: ResolvedMcpLaunchEnvironment,
+  signal: AbortSignal,
 ): string {
-  const tokens = parseTokens(template);
+  const tokens = parseMcpTemplateTokens(template);
   if (tokens.length === 0) return template;
   let result = "";
   let cursor = 0;
   for (const token of tokens) {
     const start = template.indexOf(token.raw, cursor);
     result += template.slice(cursor, start);
-    if (token.kind === "root") {
+    if (token.kind === "environment" && isPluginLaunchRootName(token.name)) {
       result += roots[token.name as keyof PluginLaunchRootValues];
     } else if (token.kind === "configuration") {
-      if (!configuration.has(token.name)) throw new Error("configuration value is unavailable");
-      result += configuration.substitute(token.raw);
+      signal.throwIfAborted();
+      const present = configuration.has(token.name);
+      signal.throwIfAborted();
+      if (!present) throw new Error("configuration value is unavailable");
+      const value = configuration.substitute(token.raw);
+      signal.throwIfAborted();
+      result += value;
     } else if (Object.prototype.hasOwnProperty.call(configured, token.name)) {
       result += configured[token.name]!;
     } else {
-      if (token.name.startsWith("CLAUDE_PLUGIN_OPTION_") || !environment.has(token.name)) {
+      if (token.name.startsWith("CLAUDE_PLUGIN_OPTION_")) {
         throw new Error("environment value is unavailable");
       }
-      result += environment.substitute(token.raw);
+      signal.throwIfAborted();
+      const present = environment.has(token.name);
+      signal.throwIfAborted();
+      if (!present) throw new Error("environment value is unavailable");
+      const value = environment.substitute(token.raw);
+      signal.throwIfAborted();
+      result += value;
     }
     cursor = start + token.raw.length;
   }
   return result + template.slice(cursor);
+}
+
+function resolveEnvironmentSelector(
+  name: string,
+  configured: Readonly<Record<string, string>>,
+  environment: ResolvedMcpLaunchEnvironment,
+  signal: AbortSignal,
+): string {
+  if (name.startsWith("CLAUDE_PLUGIN_OPTION_")) {
+    if (!Object.prototype.hasOwnProperty.call(configured, name)) {
+      throw new Error("configured environment value is unavailable");
+    }
+    return configured[name]!;
+  }
+  signal.throwIfAborted();
+  const present = environment.has(name);
+  signal.throwIfAborted();
+  if (!present) throw new Error("environment value is unavailable");
+  const value = environment.substitute(`\${${name}}`);
+  signal.throwIfAborted();
+  return value;
 }
 
 function resolveLateValue(
@@ -206,10 +209,11 @@ function resolveLateValue(
   configuration: ResolvedConfiguration,
   configured: Readonly<Record<string, string>>,
   environment: ResolvedMcpLaunchEnvironment,
+  signal: AbortSignal,
 ): string {
   return value.kind === "template"
-    ? resolveTemplate(value.template, roots, configuration, configured, environment)
-    : resolveTemplate(`\${${value.name}}`, roots, configuration, configured, environment);
+    ? resolveTemplate(value.template, roots, configuration, configured, environment, signal)
+    : resolveEnvironmentSelector(value.name, configured, environment, signal);
 }
 
 function assertText(value: string, options: Readonly<{ empty?: boolean; controls?: RegExp }> = {}): string {
@@ -244,6 +248,7 @@ function processEnvironment(
   configured: Readonly<Record<string, string>>,
   environment: ResolvedMcpLaunchEnvironment,
   platform: McpProcessEnvironmentPlatform,
+  signal: AbortSignal,
 ): Readonly<Record<string, string>> {
   const entries: Array<readonly [string, string]> = [];
   const seen = new Set<string>();
@@ -256,7 +261,7 @@ function processEnvironment(
   for (const name of Object.keys(roots).sort()) append(name, roots[name as keyof PluginLaunchRootValues]);
   for (const name of Object.keys(configured).sort()) append(name, configured[name]!);
   for (const entry of template.env) {
-    append(entry.name, resolveTemplate(entry.value, roots, configuration, configured, environment));
+    append(entry.name, resolveTemplate(entry.value, roots, configuration, configured, environment, signal));
   }
   entries.sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
   return nullPrototypeRecord(entries);
@@ -272,17 +277,18 @@ function renderValues(
   }>,
   environment: ResolvedMcpLaunchEnvironment,
   platform: McpProcessEnvironmentPlatform,
+  signal: AbortSignal,
 ): LeaseBacking {
   const roots = rootValues(context);
   const configured = configuredEnvironment(context.configuration);
   if (template.transport === "stdio") {
-    const command = assertText(resolveTemplate(template.command, roots, context.configuration, configured, environment));
+    const command = assertText(resolveTemplate(template.command, roots, context.configuration, configured, environment, signal));
     const args = Object.freeze(template.args.map((value) =>
-      assertText(resolveTemplate(value, roots, context.configuration, configured, environment), { empty: true })));
+      assertText(resolveTemplate(value, roots, context.configuration, configured, environment, signal), { empty: true })));
     const cwd = template.cwd === undefined
       ? undefined
-      : assertText(resolveTemplate(template.cwd, roots, context.configuration, configured, environment));
-    const env = processEnvironment(template, roots, context.configuration, configured, environment, platform);
+      : assertText(resolveTemplate(template.cwd, roots, context.configuration, configured, environment, signal));
+    const env = processEnvironment(template, roots, context.configuration, configured, environment, platform, signal);
     return Object.freeze({
       transport: "stdio" as const,
       command,
@@ -292,7 +298,7 @@ function renderValues(
     });
   }
 
-  const url = assertText(resolveTemplate(template.url, roots, context.configuration, configured, environment), {
+  const url = assertText(resolveTemplate(template.url, roots, context.configuration, configured, environment, signal), {
     controls: /[\u0000-\u001f\u007f]/,
   });
   let parsed: URL;
@@ -311,7 +317,7 @@ function renderValues(
     const name = header.name.toLowerCase();
     if (names.has(name)) throw new Error("header name collision");
     names.add(name);
-    const value = assertText(resolveLateValue(header.value, roots, context.configuration, configured, environment), {
+    const value = assertText(resolveLateValue(header.value, roots, context.configuration, configured, environment, signal), {
       empty: true,
       controls: /[\r\n\0]/,
     });
@@ -323,7 +329,7 @@ function renderValues(
   });
   const bearerToken = template.bearerToken === undefined
     ? undefined
-    : assertText(resolveLateValue(template.bearerToken, roots, context.configuration, configured, environment), {
+    : assertText(resolveLateValue(template.bearerToken, roots, context.configuration, configured, environment, signal), {
         controls: /\s/,
       });
   if (bearerToken !== undefined && names.has("authorization")) throw new Error("authorization is ambiguous");
@@ -428,12 +434,18 @@ export function createTrustedMcpLaunchValueProvider(input: Readonly<{
           try {
             await input.environment.withResolved(names, signal, async (environment) => {
               try {
-                const backing = renderValues(selectedTemplate, context, environment, platform);
+                signal.throwIfAborted();
+                const backing = renderValues(selectedTemplate, context, environment, platform, signal);
+                // A facade method may synchronously trigger cancellation while
+                // still returning a value. Do not transfer a lease afterward.
+                signal.throwIfAborted();
                 issued = createLease(backing, states);
               } catch {
+                if (signal.aborted) throw signal.reason;
                 renderFailure = launchError(binding, McpLaunchErrorCodes.valueInvalid);
               }
             });
+            signal.throwIfAborted();
           } catch (error) {
             if (signal.aborted) throw signal.reason;
             if (isAbortRejection(error)) throw error;
@@ -448,16 +460,18 @@ export function createTrustedMcpLaunchValueProvider(input: Readonly<{
         }
       });
 
-      if (renderFailure !== undefined) throw renderFailure;
-      if (issued === undefined) throw launchError(binding, McpLaunchErrorCodes.valueInvalid);
       if (signal.aborted) {
-        const state = states.get(issued as object);
-        if (state !== undefined && !state.disposed) {
-          state.disposed = true;
-          state.backing = undefined;
+        if (issued !== undefined) {
+          const state = states.get(issued as object);
+          if (state !== undefined && !state.disposed) {
+            state.disposed = true;
+            state.backing = undefined;
+          }
         }
         throw signal.reason;
       }
+      if (renderFailure !== undefined) throw renderFailure;
+      if (issued === undefined) throw launchError(binding, McpLaunchErrorCodes.valueInvalid);
       return issued;
     },
 

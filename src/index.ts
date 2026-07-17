@@ -401,6 +401,7 @@ export {
   McpBridgeTransportSchema,
   McpSourceIdentitySchemaV1,
   McpRuntimeServerKeySchemaV1,
+  deriveMcpRuntimeServerKey,
   McpToolAliasSegmentSchema,
   McpToolAliasTemplateSchemaV1,
   McpSourceProjectionBindingSchemaV1,
@@ -441,7 +442,6 @@ export {
   PluginMcpAliasOmissionCodeSchema,
   PluginMcpAliasOmissionSchema,
   PluginMcpProjectionSchemaV1,
-  deriveMcpRuntimeServerKey,
   createPluginMcpProjection,
   verifyPluginMcpProjection,
 } from "./application/mcp-plugin-projection.js";

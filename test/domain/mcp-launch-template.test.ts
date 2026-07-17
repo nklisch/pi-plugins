@@ -102,6 +102,92 @@ describe("canonical MCP launch templates", () => {
     }, "3")).toMatchObject({ bearerToken: { kind: "environment", name: "MCP_TOKEN" } });
   });
 
+  it("collapses only exact-equivalent top-level and nested header aliases", () => {
+    const headers = {
+      Cookie: "session=${SESSION_COOKIE}",
+      "X-Amz-Signature": { env: "AWS_SIGNATURE" },
+      "X-Trace": "safe",
+    };
+    const first = component({
+      type: "http",
+      url: "https://example.invalid/mcp",
+      headers,
+      features: { headers },
+    }, "headers-one");
+    const second = component({
+      features: { headers },
+      headers,
+      url: "https://example.invalid/mcp",
+      type: "http",
+    }, "headers-two");
+    expect(analyzeMcpCompatibility({ plugin: "demo@community", component: first }).kind)
+      .toBe("supported");
+    expect(createMcpLaunchTemplate(first, "demo@community"))
+      .toEqual(createMcpLaunchTemplate(second, "demo@community"));
+
+    const conflict = component({
+      type: "http",
+      url: "https://example.invalid/mcp",
+      headers: { "X-Trace": "one" },
+      features: { headers: { "X-Trace": "CANARY_CONFLICTING_HEADER" } },
+    }, "headers-conflict");
+    const result = analyzeMcpCompatibility({ plugin: "demo@community", component: conflict });
+    expect(result.kind).toBe("incompatible");
+    expect(JSON.stringify(result)).not.toContain("CANARY_CONFLICTING_HEADER");
+    expect(() => createMcpLaunchTemplate(conflict, "demo@community"))
+      .toThrow(McpLaunchTemplateError);
+  });
+
+  it.each([
+    ["Cookie", "CANARY_COOKIE", "1"],
+    ["X-Amz-Signature", "CANARY_AMZ_SIGNATURE", "2"],
+    ["X-Sig", "CANARY_SIG", "3"],
+    ["X-Session-Id", "CANARY_SESSION", "4"],
+    ["X-JWT", "CANARY_JWT", "5"],
+  ])("rejects static %s credential carriers while accepting late-bound equivalents", (name, canary, token) => {
+    const unsafe = component({
+      type: "http",
+      url: "https://example.invalid/mcp",
+      headers: { [name]: canary },
+    }, token);
+    const result = analyzeMcpCompatibility({ plugin: "demo@community", component: unsafe });
+    expect(result.kind).toBe("incompatible");
+    expect(JSON.stringify(result)).not.toContain(canary);
+    expect(() => createMcpLaunchTemplate(unsafe, "demo@community"))
+      .toThrow(McpLaunchTemplateError);
+
+    expect(template({
+      type: "http",
+      url: "https://example.invalid/mcp",
+      headers: { [name]: { env: "LATE_VALUE" } },
+    }, `${token}a`)).toMatchObject({
+      headers: [{ name, value: { kind: "environment", name: "LATE_VALUE" } }],
+    });
+  });
+
+  it.each([
+    ["sig", "6"],
+    ["X-Amz-Signature", "7"],
+    ["session", "8"],
+    ["jwt", "9"],
+  ])(
+    "rejects static %s query credentials without serializing plaintext",
+    (name, token) => {
+      const canary = `CANARY_QUERY_${name}`;
+      const unsafe = component({
+        type: "http",
+        url: `https://example.invalid/mcp?${name}=${canary}`,
+      }, token);
+      const result = analyzeMcpCompatibility({ plugin: "demo@community", component: unsafe });
+      expect(result.kind).toBe("incompatible");
+      expect(JSON.stringify(result)).not.toContain(canary);
+      expect(template({
+        type: "http",
+        url: `https://example.invalid/mcp?${name}=\${LATE_QUERY}`,
+      }, `${token}a`)).toMatchObject({ transport: "streamable-http" });
+    },
+  );
+
   it.each([
     { transport: "stdio", type: "http", command: "node" },
     { command: "node", cwd: "/one", workingDirectory: "/two" },
@@ -118,6 +204,22 @@ describe("canonical MCP launch templates", () => {
       component: candidate,
     }).kind).toBe("incompatible");
     expect(() => createMcpLaunchTemplate(candidate, "demo@community")).toThrow(McpLaunchTemplateError);
+  });
+
+  it.each([
+    "${unknown.name}",
+    "${PLUGIN_ROOT",
+    "${PLUGIN_${ROOT}}",
+    "${}",
+    "before\0after",
+  ])("rejects malformed durable template syntax before provider construction", (command) => {
+    expect(McpLaunchTemplateSchemaV1.safeParse({
+      schemaVersion: 1,
+      transport: "stdio",
+      command,
+      args: [],
+      env: [],
+    }).success).toBe(false);
   });
 
   it("uses strict portable name grammars without caller-spelling normalization", () => {

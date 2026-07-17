@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   createPluginMcpProjection,
-  deriveMcpRuntimeServerKey,
   verifyPluginMcpProjection,
 } from "../../src/application/mcp-plugin-projection.js";
-import { McpRuntimeCapabilitiesSchemaV1 } from "../../src/application/ports/mcp-runtime.js";
+import {
+  McpRuntimeCapabilitiesSchemaV1,
+  deriveMcpRuntimeServerKey,
+} from "../../src/application/ports/mcp-runtime.js";
 import { createPluginRuntimeProjection } from "../../src/application/ports/runtime-projection.js";
 import { evaluateCompatibility } from "../../src/domain/compatibility-evaluator.js";
 import {

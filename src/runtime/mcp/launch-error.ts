@@ -20,10 +20,14 @@ function isCancellation(error: unknown): boolean {
 
 /** Classify only typed codes and reason kind/code; native messages are ignored. */
 export function classifyMcpLaunchFailure(error: unknown, signal: AbortSignal): ErrorCode {
+  if (signal.aborted) {
+    return isTimeout(signal.reason)
+      ? McpLaunchErrorCodes.timeout
+      : McpLaunchErrorCodes.cancelled;
+  }
   if (error instanceof McpLaunchContextError) return error.code;
-  const candidate = signal.aborted ? signal.reason : error;
-  if (isTimeout(candidate)) return McpLaunchErrorCodes.timeout;
-  if (signal.aborted || isCancellation(candidate)) return McpLaunchErrorCodes.cancelled;
+  if (isTimeout(error)) return McpLaunchErrorCodes.timeout;
+  if (isCancellation(error)) return McpLaunchErrorCodes.cancelled;
   return McpLaunchErrorCodes.valueInvalid;
 }
 

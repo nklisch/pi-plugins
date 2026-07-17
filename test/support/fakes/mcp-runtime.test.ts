@@ -39,20 +39,20 @@ function source(sourceIdentity: McpSourceIdentity, keys: readonly string[] = [sh
     schemaVersion: 1,
     identity: sourceIdentity,
     servers: Object.fromEntries(keys.map((key, index) => [key, {
-      componentId: ComponentIdSchema.parse(`component-v1:mcp-server:${(index + 1).toString(16).repeat(64).slice(0, 64)}`),
+      componentId: ComponentIdSchema.parse(`component-v1:mcp-server:${key.slice("mcp-server-v1:".length)}`),
       nativeKey: `native-${index}`,
       transport: "stdio",
-      options: { secret: "CANARY_SOURCE_DEFINITION" },
+      options: { schemaVersion: 1, auth: { kind: "none" } },
       projection: {
         schemaVersion: 1,
-        componentId: ComponentIdSchema.parse(`component-v1:mcp-server:${(index + 1).toString(16).repeat(64).slice(0, 64)}`),
+        componentId: ComponentIdSchema.parse(`component-v1:mcp-server:${key.slice("mcp-server-v1:".length)}`),
         contentRef: `plugin-content-v1:sha256:${"c".repeat(64)}`,
         dataRef: `plugin-data-v1:sha256:${"d".repeat(64)}`,
       },
       launchTemplate: {
         schemaVersion: 1,
         transport: "stdio",
-        command: "CANARY_TEMPLATE",
+        command: "safe-template",
         args: [],
         env: [],
       },
@@ -91,6 +91,43 @@ describe("FakeMcpRuntime", () => {
     });
     const replaced = await runtime.replaceSource({ source: source(current), launchValues }, new AbortController().signal);
     expect(replaced.kind).toBe("applied");
+    expect(counters).toEqual({ resolved: 0, disposed: 0 });
+  });
+
+  it("rejects secret-bearing public sources before storage without reflecting plaintext", async () => {
+    const runtime = new FakeMcpRuntime();
+    const counters = { resolved: 0, disposed: 0 };
+    const current = identity();
+    const unsafe = JSON.parse(JSON.stringify(source(current))) as {
+      servers: Record<string, {
+        options: Record<string, unknown>;
+        launchTemplate: unknown;
+      }>;
+    };
+    const server = unsafe.servers[sharedKey]!;
+    server.options = { ...server.options, secret: "CANARY_DURABLE_OPTION" };
+    server.launchTemplate = {
+      schemaVersion: 1,
+      transport: "stdio",
+      command: "safe-command",
+      args: [],
+      env: [{ name: "SESSION_ID", value: "CANARY_DURABLE_TEMPLATE" }],
+    };
+
+    const validation = await runtime.validateSource(
+      unsafe as never,
+      new AbortController().signal,
+    );
+    expect(validation.ok).toBe(false);
+    const replacement = await runtime.replaceSource({
+      source: unsafe as never,
+      launchValues: provider(counters),
+    }, new AbortController().signal);
+    expect(replacement.kind).toBe("rejected");
+    const statuses = await runtime.inspectSources(new AbortController().signal);
+    const output = JSON.stringify({ validation, replacement, statuses });
+    expect(output).not.toMatch(/CANARY_DURABLE_/u);
+    expect(statuses).toEqual([]);
     expect(counters).toEqual({ resolved: 0, disposed: 0 });
   });
 
@@ -220,6 +257,36 @@ describe("FakeMcpRuntime", () => {
     await runtime.replaceSource({ source: source(cancelIdentity), launchValues: cancelProvider }, signal);
     await expect(runtime.launch(cancelIdentity, sharedKey, controller.signal)).rejects.toThrow("cancelled launch");
     expect(cancelCounters).toEqual({ resolved: 1, disposed: 1 });
+  });
+
+  it("disposes before rejecting and keeps signal classification when cleanup also fails", async () => {
+    const runtime = new FakeMcpRuntime();
+    const current = identity({ revision: digest("e"), projectionDigest: digest("f") });
+    const controller = new AbortController();
+    const reason = { name: "TimeoutError", code: "TIMEOUT", message: "CANARY_TIMEOUT_SIGNAL" };
+    const events: string[] = [];
+    const launchValues: McpLaunchValueProvider = {
+      async resolve() {
+        events.push("resolved");
+        controller.abort(reason);
+        return { transport: "stdio", command: "safe-command", args: [] };
+      },
+      async dispose() {
+        events.push("disposed");
+        throw new Error("CANARY_CLEANUP_FAILURE");
+      },
+    };
+    await runtime.replaceSource({ source: source(current), launchValues }, new AbortController().signal);
+    const failure = await runtime.launch(current, sharedKey, controller.signal)
+      .catch((error: unknown) => {
+        events.push("rejected");
+        return error;
+      });
+    expect(failure).toBe(reason);
+    expect(events).toEqual(["resolved", "disposed", "rejected"]);
+    const status = await runtime.inspectSource(current, new AbortController().signal);
+    expect(status?.servers[0]?.errorCode).toBe("MCP_LAUNCH_TIMEOUT");
+    expect(JSON.stringify(status)).not.toMatch(/CANARY_(?:TIMEOUT_SIGNAL|CLEANUP_FAILURE)/u);
   });
 
   it("keeps inspection and errors redacted, copied, and deterministically ordered", async () => {

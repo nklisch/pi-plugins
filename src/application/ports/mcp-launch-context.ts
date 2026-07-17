@@ -12,6 +12,7 @@ import {
   McpBridgeTransportSchema,
   McpRuntimeServerKeySchemaV1,
   McpSourceIdentitySchemaV1,
+  deriveMcpRuntimeServerKey,
   type McpBridgeTransport,
   type McpSourceIdentity,
   type McpSourceProjectionBinding,
@@ -25,7 +26,21 @@ export const McpLaunchBindingSchemaV1 = z.object({
   serverKey: McpRuntimeServerKeySchemaV1,
   componentId: ComponentIdSchema,
   transport: McpBridgeTransportSchema,
-}).strict().readonly();
+}).strict().readonly().superRefine((binding, context) => {
+  let expectedKey: string | undefined;
+  try {
+    expectedKey = deriveMcpRuntimeServerKey(binding.componentId);
+  } catch {
+    // Report one static issue rather than preserving malformed input.
+  }
+  if (binding.serverKey !== expectedKey) {
+    context.addIssue({
+      code: "custom",
+      path: ["serverKey"],
+      message: "launch server key must be derived from the component id",
+    });
+  }
+});
 export type McpLaunchBinding = z.infer<typeof McpLaunchBindingSchemaV1>;
 
 export type McpLaunchActiveSelection = Readonly<{

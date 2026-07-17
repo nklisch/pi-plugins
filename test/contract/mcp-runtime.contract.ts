@@ -64,13 +64,13 @@ function source(
     schemaVersion: 1,
     identity: sourceIdentity,
     servers: Object.fromEntries(keys.map((key, index) => [key, {
-      componentId: ComponentIdSchema.parse(`component-v1:mcp-server:${(index + 1).toString(16).repeat(64).slice(0, 64)}`),
+      componentId: ComponentIdSchema.parse(`component-v1:mcp-server:${key.slice("mcp-server-v1:".length)}`),
       nativeKey: `native-${index}`,
       transport,
-      options: { timeoutMs: 500 },
+      options: { schemaVersion: 1, toolTimeoutMs: 500, auth: { kind: "none" } },
       projection: {
         schemaVersion: 1,
-        componentId: ComponentIdSchema.parse(`component-v1:mcp-server:${(index + 1).toString(16).repeat(64).slice(0, 64)}`),
+        componentId: ComponentIdSchema.parse(`component-v1:mcp-server:${key.slice("mcp-server-v1:".length)}`),
         contentRef: `plugin-content-v1:sha256:${"c".repeat(64)}`,
         dataRef: `plugin-data-v1:sha256:${"d".repeat(64)}`,
       },

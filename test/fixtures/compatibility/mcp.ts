@@ -394,15 +394,15 @@ export const mcpPreExtractionDifferentialVectors = [
     capabilities: ["pi.mcp.oauth.authorization-code"],
   },
   {
-    id: "duplicate-header-claims",
+    id: "exact-equivalent-header-claims",
     declaration: {
       transport: "streamable-http",
       url: "https://example.invalid/mcp",
       headers: { X_Plugin: "one" },
       features: { headers: { X_Plugin: "one" } },
     },
-    kind: "incompatible",
-    diagnosticFields: ["features.headers"],
+    kind: "supported",
+    options: {},
   },
 ] as const;
 

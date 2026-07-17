@@ -639,7 +639,7 @@ const mcpFieldGroups = {
     target: "launch.headers",
     aliases: ["headers", "features.headers"],
     unit: "headers",
-    collision: "reject-duplicates",
+    collision: "exact-equality",
     transports: remoteMcpTransports,
   },
   authentication: {

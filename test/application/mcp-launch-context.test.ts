@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createMcpLaunchContextPort } from "../../src/application/mcp-launch-context.js";
-import { deriveMcpRuntimeServerKey } from "../../src/application/mcp-plugin-projection.js";
+import { deriveMcpRuntimeServerKey } from "../../src/application/ports/mcp-runtime.js";
 import {
   McpLaunchBindingSchemaV1,
   McpLaunchErrorCodes,
@@ -207,6 +207,28 @@ describe("trusted MCP launch context", () => {
     await expect(port.withContext(input.binding, new AbortController().signal, async () => undefined))
       .rejects.toMatchObject({ code: McpLaunchErrorCodes.authorityRejected });
     expect(calls).toMatchObject({ content: 0, data: 0, configuration: 0, callback: 0 });
+  });
+
+  it("rejects a tampered server key before invoking any authority dependency", async () => {
+    const input = fixture();
+    const configured = setup(input);
+    const tampered = {
+      ...input.binding,
+      serverKey: `mcp-server-v1:${"f".repeat(64)}`,
+    };
+    await expect(configured.port.withContext(
+      tampered as never,
+      new AbortController().signal,
+      async () => undefined,
+    )).rejects.toMatchObject({ code: McpLaunchErrorCodes.authorityRejected });
+    expect(configured.active.calls).toBe(0);
+    expect(configured.calls).toEqual({
+      content: 0,
+      data: 0,
+      configuration: 0,
+      callback: 0,
+      projectTrust: 0,
+    });
   });
 
   it("requires exact trusted project authority for project-scoped sources", async () => {

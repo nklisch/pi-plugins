@@ -107,4 +107,23 @@ describe("structured redaction", () => {
     expect(redactCommand("git", ["fetch", `https://user:${secret}@example.test/repo`], [secret]).args.join(" ")).not.toContain(secret);
     expect(redactEnvironment({ API_TOKEN: secret, HOME: "/tmp" }, [secret]).API_TOKEN).toBe("[REDACTED]");
   });
+
+  it("classifies cookie, signature, session, and JWT-style carriers consistently", () => {
+    const secret = "CANARY_STRUCTURED_CREDENTIAL";
+    const redacted = redactText(
+      `https://example.test/x?sig=${secret}&X-Amz-Signature=${secret}&session=${secret}&jwt=${secret}`,
+    );
+    expect(redacted).not.toContain(secret);
+    expect(redactEnvironment({
+      Cookie: secret,
+      "X-Amz-Signature": secret,
+      SESSION_ID: secret,
+      JWT: secret,
+    })).toEqual({
+      Cookie: "[REDACTED]",
+      "X-Amz-Signature": "[REDACTED]",
+      SESSION_ID: "[REDACTED]",
+      JWT: "[REDACTED]",
+    });
+  });
 });

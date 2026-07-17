@@ -1,4 +1,4 @@
-const SENSITIVE_FIELD_PART = /authorization|authentication|credential|password|passphrase|secret|token|api[-_]?key|(?:^|[-_.])auth(?:$|[-_.])|(?:^|[-_.])key(?:$|[-_.])/i;
+const SENSITIVE_FIELD_PART = /authorization|authentication|credential|password|passphrase|secret|token|api[-_]?key|(?:^|[-_.])(?:auth|key|cookies?|signature|sig|session(?:[-_.]?id)?|jwt)(?:$|[-_.])/i;
 
 /**
  * Classify structured names whose literal values could be credentials. This is
@@ -10,5 +10,5 @@ export function isSensitiveFieldName(name: string): boolean {
 }
 
 export function isSensitiveQueryName(name: string): boolean {
-  return isSensitiveFieldName(name) || /^(?:access_token|api[-_]?key)$/i.test(name);
+  return isSensitiveFieldName(name);
 }

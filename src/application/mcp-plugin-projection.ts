@@ -19,6 +19,7 @@ import {
   McpConfigSourceSchemaV1,
   McpRuntimeCapabilitiesSchemaV1,
   McpRuntimeServerKeySchemaV1,
+  deriveMcpRuntimeServerKey,
   McpSourceIdentitySchemaV1,
   McpSourceProjectionBindingSchemaV1,
   McpToolAliasSegmentSchema,
@@ -106,12 +107,6 @@ function sourceIdentity(projection: PluginRuntimeProjection): McpSourceIdentity 
     revision: projection.revision,
     projectionDigest: projection.digest,
   });
-}
-
-export function deriveMcpRuntimeServerKey(componentId: ComponentId): McpRuntimeServerKey {
-  const match = /^component-v1:mcp-server:([0-9a-f]{64})$/.exec(componentId);
-  if (match === null) fail("INVALID_MCP_COMPONENT_ID");
-  return McpRuntimeServerKeySchemaV1.parse(`mcp-server-v1:${match[1]}`);
 }
 
 function exactSet(values: readonly string[]): readonly string[] {

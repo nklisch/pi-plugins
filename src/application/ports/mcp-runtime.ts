@@ -28,8 +28,9 @@ import {
   PluginContentRefSchema,
   PluginDataRefSchema,
 } from "../../domain/state/references.js";
-import { JsonValueSchema, type JsonValue } from "../../domain/schema.js";
+import type { JsonValue } from "../../domain/schema.js";
 import { hasLoneSurrogate } from "../../domain/canonical-json.js";
+import { McpCanonicalOptionsSchemaV1 } from "../../domain/mcp-compatibility-plan.js";
 import { McpLaunchTemplateSchemaV1 } from "../../domain/mcp-launch-template.js";
 
 /** The only transports that the Plugin Host source bridge may claim. */
@@ -53,15 +54,19 @@ export const McpSourceIdentitySchemaV1 = z
   .readonly();
 export type McpSourceIdentity = z.infer<typeof McpSourceIdentitySchemaV1>;
 
-const SecretFreeJsonRecordSchema = z
-  .record(z.string().min(1), JsonValueSchema)
-  .readonly();
-
 export const McpRuntimeServerKeySchemaV1 = z
   .string()
   .regex(/^mcp-server-v1:[0-9a-f]{64}$/)
   .brand<"McpRuntimeServerKey">();
 export type McpRuntimeServerKey = z.infer<typeof McpRuntimeServerKeySchemaV1>;
+
+/** The server key is a pure projection of its globally stable component id. */
+export function deriveMcpRuntimeServerKey(componentIdInput: ComponentId): McpRuntimeServerKey {
+  const componentId = ComponentIdSchema.parse(componentIdInput);
+  const match = /^component-v1:mcp-server:([0-9a-f]{64})$/.exec(componentId);
+  if (match === null) throw new Error("MCP component id cannot derive a runtime server key");
+  return McpRuntimeServerKeySchemaV1.parse(`mcp-server-v1:${match[1]}`);
+}
 
 export const McpToolAliasSegmentSchema = z
   .string()
@@ -116,7 +121,7 @@ export const McpSourceServerSchemaV1 = z
     componentId: ComponentIdSchema,
     nativeKey: z.string().min(1),
     transport: McpBridgeTransportSchema,
-    options: SecretFreeJsonRecordSchema,
+    options: McpCanonicalOptionsSchemaV1,
     projection: McpSourceProjectionBindingSchemaV1,
     launchTemplate: McpLaunchTemplateSchemaV1,
     toolAliases: z.array(McpToolAliasTemplateSchemaV1).max(1).readonly(),
@@ -139,6 +144,16 @@ export const McpSourceServerSchemaV1 = z
         message: "launch template transport must match the server transport",
       });
     }
+    const templateHasBearer = server.launchTemplate.transport === "streamable-http" &&
+      server.launchTemplate.bearerToken !== undefined;
+    if ((server.options.auth.kind === "bearer-environment") !== templateHasBearer ||
+        server.transport === "stdio" && server.options.auth.kind !== "none") {
+      context.addIssue({
+        code: "custom",
+        path: ["options", "auth"],
+        message: "canonical authentication options must match the launch template",
+      });
+    }
   });
 export type McpSourceServer = z.infer<typeof McpSourceServerSchemaV1>;
 
@@ -155,6 +170,20 @@ export const McpConfigSourceSchemaV1 = z
   .superRefine((source, context) => {
     const componentIds = new Map<ComponentId, string>();
     for (const [serverKey, server] of Object.entries(source.servers)) {
+      let expectedKey: McpRuntimeServerKey | undefined;
+      try {
+        expectedKey = deriveMcpRuntimeServerKey(server.componentId);
+      } catch {
+        // The issue below is deliberately value-free because source input may
+        // contain credential canaries elsewhere in the same server record.
+      }
+      if (serverKey !== expectedKey) {
+        context.addIssue({
+          code: "custom",
+          path: ["servers", serverKey],
+          message: "server key must be derived from the server component id",
+        });
+      }
       const previousKey = componentIds.get(server.componentId);
       if (previousKey !== undefined) {
         context.addIssue({
