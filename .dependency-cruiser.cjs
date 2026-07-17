@@ -130,10 +130,10 @@ module.exports = {
     },
     {
       name: "compatibility-service-only-domain-and-probe-port",
-      comment: "Compatibility reporting is an application boundary over domain policy and one capability probe port only.",
+      comment: "Compatibility reporting is an application boundary over domain policy, shared abort policy, and one capability probe port only.",
       severity: "error",
       from: { path: "^src/application/compatibility-service\\.ts$" },
-      to: { path: "^src/application/(?!ports/runtime-capability-probe\\.ts$)" },
+      to: { path: "^src/application/(?!(?:abort-rejection|ports/runtime-capability-probe)\\.ts$)" },
     },
     {
       name: "runtime-projection-no-authoritative-state-or-transition-imports",

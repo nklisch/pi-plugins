@@ -18,6 +18,7 @@ import {
 } from "../domain/state/scope.js";
 import type { TrustStateRecord } from "../domain/state/trust-state.js";
 import { ProjectTrustAssessmentSchema } from "./ports/project-trust.js";
+import { isAbortRejection } from "./abort-rejection.js";
 
 export type TrustAuthorizationResult =
   | Readonly<{ kind: "authorized"; subject: TrustCandidate["subject"] }>
@@ -25,12 +26,6 @@ export type TrustAuthorizationResult =
       kind: "denied";
       code: "PROJECT_UNTRUSTED" | "TRUST_ABSENT" | "TRUST_REVOKED" | "TRUST_EVIDENCE_INVALID";
     }>;
-
-function isAbortRejection(error: unknown): boolean {
-  if (error === null || typeof error !== "object") return false;
-  const candidate = error as { readonly name?: unknown; readonly code?: unknown };
-  return candidate.name === "AbortError" || candidate.code === "ABORT_ERR";
-}
 
 function adapterFailure(): BoundaryError {
   // Deliberately omit the native cause. Credential/project adapters may put

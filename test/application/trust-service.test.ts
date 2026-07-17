@@ -59,6 +59,12 @@ describe("trust authorization service", () => {
     expect(error).toMatchObject({ code: "ADAPTER_FAILED" });
     expect(JSON.stringify(error)).not.toContain("CANARY_SECRET");
 
+    const abort = Object.assign(new Error("adapter cancelled"), { code: "ABORT_ERR" });
+    await expect(authorizeTrustCandidate({ candidate: project, records: [grantTrust(project, sha256)] }, {
+      projectTrust: { assess: async () => { throw abort; } },
+      sha256,
+    }, new AbortController().signal)).rejects.toBe(abort);
+
     const controller = new AbortController();
     controller.abort(new Error("cancelled"));
     await expect(authorizeTrustCandidate({ candidate: current, records: [] }, { projectTrust, sha256 }, controller.signal))

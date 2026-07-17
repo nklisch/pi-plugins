@@ -18,6 +18,7 @@ import {
   ErrorCodeRegistry,
 } from "../domain/errors.js";
 import type { CompatibilityReport } from "../domain/compatibility.js";
+import { isAbortRejection } from "./abort-rejection.js";
 import type { RuntimeCapabilityProbe } from "./ports/runtime-capability-probe.js";
 
 const OPERATION = "probeRuntimeCapabilities";
@@ -63,12 +64,6 @@ function validateRequest(input: unknown): CompatibilityAssessmentRequest {
   return marketplacePolicy === undefined
     ? { plugin }
     : { plugin, marketplacePolicy };
-}
-
-function isAbortRejection(error: unknown): boolean {
-  if (error === null || typeof error !== "object") return false;
-  const candidate = error as { readonly name?: unknown; readonly code?: unknown };
-  return candidate.name === "AbortError" || candidate.code === "ABORT_ERR";
 }
 
 function adapterFailure(cause: unknown): BoundaryError {

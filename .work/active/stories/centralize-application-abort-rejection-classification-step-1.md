@@ -1,7 +1,7 @@
 ---
 id: centralize-application-abort-rejection-classification-step-1
 kind: story
-stage: implementing
+stage: done
 tags: [refactor, infra]
 parent: centralize-application-abort-rejection-classification
 depends_on: []
@@ -69,3 +69,12 @@ The four consumers import this helper. It is not re-exported from `src/index.ts`
 ## Risk and Rollback
 
 **Risk: Low.** Import mistakes are compile-time failures; semantic risk is limited to accidentally changing the two recognized fields or catch ordering. Roll back by restoring the exact private bodies and deleting the helper. No state, schema, migration, package adapter, or runtime lifecycle effect exists.
+
+## Implementation evidence
+
+- Execution capability: inline GPT-5.6 owner; the bounded, behavior-preserving extraction benefits from one context across helper, consumers, and tests.
+- Added the dependency-free `src/application/abort-rejection.ts` policy helper and migrated compatibility, trust, MCP capability, and subagent capability consumers without moving any catch branches.
+- Updated the compatibility-service dependency boundary to permit only this shared application policy in addition to its existing probe port.
+- Added one focused helper policy test and one trust call-site identity test for the previously uncovered `code === "ABORT_ERR"` shape; existing call-site matrices were retained rather than duplicated.
+- Verification: 5 focused files, 26 tests passed; `npm run typecheck` passed; `npm run boundaries` passed (236 modules, 1421 dependencies, 0 violations); `git diff --check` passed.
+- Review: not applicable — child story checkpoint.
