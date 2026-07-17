@@ -20,6 +20,8 @@ export type InspectionSnapshotBinding = Readonly<{
     generation?: number;
     status: "ready" | "corrupt" | "unavailable";
     corruptionCodes: readonly string[];
+    /** Binds IDs and cursors to the exact quarantined-record evidence, not only its code set. */
+    corruptionDigest?: ContentDigest;
   }>[];
   currentProject: Readonly<{
     projectKey: CurrentProjectRuntimeContext["projectKey"];

@@ -47,6 +47,7 @@ export function createComposedNativeInspectionService(input: Readonly<{
 }>): NativeInspectionService {
   const evidence = createNativeInspectionEvidence({
     state: input.state,
+    catalog: input.marketplace.catalog,
     scopes: input.scopes,
     revalidateProject: input.revalidateProject,
     selections: input.selections,
@@ -66,12 +67,11 @@ export function createComposedNativeInspectionService(input: Readonly<{
     secretCustody: input.secretCustody,
     sha256: input.sha256,
   });
-  const installed = createNativeInstalledInspector({ installed: input.installed, readiness, evidence, sha256: input.sha256 });
+  const installed = createNativeInstalledInspector({ installed: input.installed, readiness, sha256: input.sha256 });
   const candidates = createNativeCandidateInspector({
     catalog: input.marketplace.catalog,
     content: input.candidateContent,
     inspector: input.bundleInspector,
-    evidence,
     readiness,
     sha256: input.sha256,
   });

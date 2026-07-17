@@ -67,11 +67,9 @@ function setup(options: { enabled?: boolean; remote?: "failed" | "needs-auth" | 
     capabilities: capabilities(), runtime: [runtime], recovery: { results: [], deferred: false, processed: 0 },
     startup: { status: "ready", blocked: [], capabilities: { mcp: { status: "available", explanation: "ready" }, subagents: { status: "unavailable", explanation: "none" }, piReload: { status: "available", explanation: "ready" }, secrets: { status: "available", explanation: "ready" } } },
   } as never;
-  const evidence = { validate: vi.fn(async () => "current" as const) };
   const inspector = createNativeInstalledInspector({
     installed: { load: vi.fn(async () => ({ plugin, compatibility: report, marketplaceSource, content, binding: createMaterializationBinding(plugin.source.hash, content.rootDigest, fixtureSha) })) },
     readiness: { trust: vi.fn(async () => "authorized" as const), configuration: vi.fn(async () => []), secretCustody: () => ({ status: "available", explanation: "ready" }) },
-    evidence: evidence as never,
     sha256,
   });
   const subject = { version: 1 as const, subject: "installed" as const, scope: { kind: "user" as const }, plugin: plugin.identity.key, selectedRevision: revision.revision };

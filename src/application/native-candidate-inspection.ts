@@ -8,7 +8,7 @@ import type { PluginInspectionService } from "./inspection-service.js";
 import type { MarketplaceCatalogService } from "./marketplace-catalog-service.js";
 import type { InspectionCandidateContentPort } from "./ports/inspection-candidate-content.js";
 import type { InspectionReadinessPort } from "./ports/inspection-readiness.js";
-import type { InspectionEvidenceSnapshot, NativeInspectionEvidencePort } from "./ports/native-inspection-evidence.js";
+import type { InspectionEvidenceSnapshot } from "./ports/native-inspection-evidence.js";
 import type { Sha256 } from "../domain/source.js";
 import {
   NativeCompatibilityViewSchema,
@@ -39,7 +39,6 @@ export type CandidateInspectionDependencies = Readonly<{
   catalog: MarketplaceCatalogResolverPort;
   content: InspectionCandidateContentPort;
   inspector: PluginInspectionService;
-  evidence: NativeInspectionEvidencePort;
   readiness: InspectionReadinessPort;
   sha256: Sha256;
 }>;
@@ -56,6 +55,15 @@ function sourceRevision(source: import("../domain/source.js").ResolvedPluginSour
 
 function finding(key: NativeDiagnosticInput["findings"][number]["key"], subjectId: import("./native-inspection-contract.js").InspectionDetailId, componentId?: import("../domain/components.js").ComponentId): NativeDiagnosticInput["findings"][number] {
   return { key, subjectId, ...(componentId === undefined ? {} : { componentId }) };
+}
+
+function catalogFinding(
+  snapshot: InspectionEvidenceSnapshot,
+  registrationId: CandidateInspectionSubject["registrationId"],
+  detailId: import("./native-inspection-contract.js").InspectionDetailId,
+): NativeDiagnosticInput["findings"][number] {
+  const cache = snapshot.binding.catalogs.find((catalog) => catalog.registrationId === registrationId)?.cache;
+  return finding(cache?.kind === "corrupt" ? "catalogCorrupt" : "catalogUnavailable", detailId);
 }
 
 /** Exact, read-only candidate detail projection with disposable acquisition. */
@@ -77,7 +85,7 @@ export function createNativeCandidateInspector(dependencies: CandidateInspection
         resolved = await dependencies.catalog.resolve({ candidateId: subject.candidateId, snapshot: subject.catalogSnapshot }, signal);
       } catch (error) {
         if (signal.aborted) throw signal.reason ?? error;
-        const diagnostics = compileNativeDiagnostics({ findings: [finding("catalogUnavailable", detailId)] }, dependencies.sha256);
+        const diagnostics = compileNativeDiagnostics({ findings: [catalogFinding(snapshot, subject.registrationId, detailId)] }, dependencies.sha256);
         const names = parsePluginKey(subject.plugin);
         const summary = NativeInspectionSummarySchema.parse({
           detailId, subject: subject.subject, scope: subject.scope, plugin: subject.plugin,
@@ -90,7 +98,7 @@ export function createNativeCandidateInspector(dependencies: CandidateInspection
       if (resolved.kind === "candidate-stale") return NativeInspectionDetailResultSchema.parse({ kind: "stale", action: "retry-read" });
       if (resolved.kind === "candidate-missing") return NativeInspectionDetailResultSchema.parse({ kind: "missing" });
       if (resolved.kind === "catalog-unavailable") {
-        const diagnostics = compileNativeDiagnostics({ findings: [finding("catalogUnavailable", detailId)] }, dependencies.sha256);
+        const diagnostics = compileNativeDiagnostics({ findings: [catalogFinding(snapshot, subject.registrationId, detailId)] }, dependencies.sha256);
         const names = parsePluginKey(subject.plugin);
         const summary = NativeInspectionSummarySchema.parse({
           detailId,
@@ -183,8 +191,9 @@ export function createNativeCandidateInspector(dependencies: CandidateInspection
             if (option.required && option.sensitive && option.state === "unavailable") findings.push(finding("secretCustodyUnavailable", detailId));
           }
           const catalogBinding = snapshot.binding.catalogs.find((catalog) => catalog.registrationId === subject.registrationId);
-          if (catalogBinding?.cache.kind === "stale") findings.push(finding("catalogStale", detailId));
-          else if (catalogBinding === undefined || ["unavailable", "corrupt", "not-materialized"].includes(catalogBinding.cache.kind)) findings.push(finding("catalogUnavailable", detailId));
+          if (catalogBinding?.cache.kind === "corrupt") findings.push(finding("catalogCorrupt", detailId));
+          else if (catalogBinding?.cache.kind === "stale") findings.push(finding("catalogStale", detailId));
+          else if (catalogBinding === undefined || ["unavailable", "not-materialized"].includes(catalogBinding.cache.kind)) findings.push(finding("catalogUnavailable", detailId));
           const diagnostics = compileNativeDiagnostics({ findings }, dependencies.sha256);
           const condition = deriveNativeInspectionCondition(diagnostics);
           const names = parsePluginKey(subject.plugin);
@@ -214,9 +223,6 @@ export function createNativeCandidateInspector(dependencies: CandidateInspection
               provenance: projectSafeProvenance(assessment.requirement.provenance),
             })).sort((left, right) => compareUtf8(left.id, right.id)),
           });
-          if (await dependencies.evidence.validate(snapshot.binding, signal) === "stale") {
-            return NativeInspectionDetailResultSchema.parse({ kind: "stale", action: "retry-read" });
-          }
           return NativeInspectionDetailResultSchema.parse({
             kind: "found",
             detail: NativeInspectionDetailSchema.parse({

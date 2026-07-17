@@ -3,6 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 import { createNativeInspectionEvidence } from "../../src/composition/native-inspection-evidence.js";
 import { createRuntimeSelectionCatalog } from "../../src/composition/runtime-selection-catalog.js";
 import { capabilities } from "../fixtures/compatibility/common.js";
+import { createContentManifest, createMaterializationBinding } from "../../src/domain/content-manifest.js";
+import { createMarketplaceSnapshotRecord } from "../../src/domain/state/installed-state.js";
+import { createMarketplaceConfigurationRecord } from "../../src/domain/update-policy.js";
+import { createResolvedMarketplaceSource } from "../../src/domain/source.js";
+import { deriveMarketplaceRegistrationId } from "../../src/domain/marketplace-registration.js";
+import type { MarketplaceCacheStatus } from "../../src/application/marketplace-management-contract.js";
 
 const sha256 = (bytes: Uint8Array) => new Uint8Array(createHash("sha256").update(bytes).digest());
 const digest = `sha256:${"11".repeat(32)}` as never;
@@ -13,10 +19,21 @@ function fixture() {
   let generation = 0;
   let trust: "trusted" | "untrusted" = "trusted";
   let now = 100;
+  let quarantined = false;
+  let catalogCache: MarketplaceCacheStatus;
   const currentProject = () => ({ identity: projectIdentity, projectKey, trust: { kind: trust } as const });
+  const source = { kind: "github" as const, repository: "example/community" };
+  const resolved = createResolvedMarketplaceSource({ declared: source, revision: "a".repeat(40) }, sha256);
+  const contentManifest = createContentManifest([], sha256);
+  const marketplaceSnapshot = createMarketplaceSnapshotRecord({ marketplace: "community", source: resolved, content: contentManifest, binding: createMaterializationBinding(resolved.hash, contentManifest.rootDigest, sha256) }, sha256);
+  const registration = createMarketplaceConfigurationRecord({ marketplace: "community", source, refresh: { nextScheduledAt: 1_000, consecutiveFailures: 0 } });
+  const registrationId = deriveMarketplaceRegistrationId({ scope: { kind: "user" }, source }, sha256);
+  catalogCache = { kind: "ready", validator: { kind: "git-commit", revision: resolved.revision }, etag: { kind: "not-applicable" } };
+  const corruption = { document: "installedUser", scope: { kind: "user" }, code: "RECORD_INVALID", recordIdentity: "broken@community", location: { kind: "pointer", value: "/plugins/0" }, summary: "state record was quarantined" } as const;
+  const catalogSearch = vi.fn(async () => ({ candidates: [], observations: [{ registrationId, marketplace: "community", status: catalogCache.kind === "ready" ? "ready" : catalogCache.kind, cache: catalogCache }] }));
   const state = {
     read: vi.fn(async (scope: { kind: "user" | "project" }) => scope.kind === "user"
-      ? { ok: true as const, snapshot: { scope: { kind: "user" as const }, generation, corruptions: [], installed: { plugins: [{ plugin: "demo@market", activation: "disabled", selectedRevision: digest, revisions: [] }], marketplaces: [] }, config: { records: [] }, trust: { records: [] } } }
+      ? { ok: true as const, snapshot: { scope: { kind: "user" as const }, generation, corruptions: quarantined ? [corruption] : [], installed: { plugins: [{ plugin: "demo@market", activation: "disabled", selectedRevision: digest, revisions: [] }], marketplaces: [marketplaceSnapshot] }, config: { records: [registration] }, trust: { records: [] } } }
       : { ok: true as const, snapshot: { scope: { kind: "project" as const, identity: projectIdentity, projectKey }, generation, corruptions: [], project: { plugins: [], marketplaces: [], marketplaceUpdates: [] } } }),
     commit: vi.fn(() => { throw new Error("must not mutate"); }),
   };
@@ -33,10 +50,12 @@ function fixture() {
     hookComponentIds: [],
   } })) };
   const mcp = { status: vi.fn(async (owner: any) => ({ kind: "ready" as const, owner, status: null })) };
+  const revalidateProject = vi.fn(async () => currentProject() as never);
   const port = createNativeInspectionEvidence({
     state: state as never,
+    catalog: { search: catalogSearch } as never,
     scopes: [{ kind: "user" }, { kind: "project", identity: projectIdentity, projectKey }] as never,
-    revalidateProject: async () => currentProject() as never,
+    revalidateProject,
     selections,
     desired: () => undefined,
     skillHook,
@@ -58,8 +77,12 @@ function fixture() {
     selections,
     skillHook,
     mcp,
+    catalogSearch,
+    revalidateProject,
     currentProject,
     setGeneration: (value: number) => { generation = value; },
+    setQuarantined: (value: boolean) => { quarantined = value; },
+    setCatalogCache: (value: MarketplaceCacheStatus) => { catalogCache = value; },
     setTrust: (value: "trusted" | "untrusted") => { trust = value; },
     setNow: (value: number) => { now = value; },
   };
@@ -76,6 +99,7 @@ describe("native inspection evidence", () => {
     expect(snapshot.runtime[0]?.skillsHooks.kind).toBe("ready");
     expect(snapshot.runtime[0]?.mcp.status).toEqual({ kind: "ready", status: null });
     expect(value.state.commit).not.toHaveBeenCalled();
+    expect(value.revalidateProject).toHaveBeenCalledOnce();
     expect(value.skillHook.observe).toHaveBeenCalledOnce();
     expect(value.mcp.status).toHaveBeenCalledOnce();
   });
@@ -95,6 +119,24 @@ describe("native inspection evidence", () => {
     const third = await runtimeChange.port.capture(new AbortController().signal);
     await runtimeChange.selections.replace([], runtimeChange.currentProject() as never);
     expect(await runtimeChange.port.validate(third.binding, new AbortController().signal)).toBe("stale");
+  });
+
+  it("binds quarantined v3 records while preserving readable siblings", async () => {
+    const value = fixture();
+    value.setQuarantined(true);
+    const snapshot = await value.port.capture(new AbortController().signal);
+    expect(snapshot.binding.scopes[0]).toMatchObject({ status: "corrupt", corruptionCodes: ["RECORD_INVALID"] });
+    expect(snapshot.binding.scopes[0]?.corruptionDigest).toMatch(/^sha256:/u);
+    expect(snapshot.states[0]?.ok).toBe(true);
+    expect(snapshot.runtime).toHaveLength(1);
+  });
+
+  it("consumes the catalog service's finalized publication corruption evidence", async () => {
+    const value = fixture();
+    value.setCatalogCache({ kind: "corrupt" });
+    const snapshot = await value.port.capture(new AbortController().signal);
+    expect(snapshot.binding.catalogs).toMatchObject([{ cache: { kind: "corrupt" } }]);
+    expect(value.catalogSearch).toHaveBeenCalledOnce();
   });
 
   it("does not make elapsed capture time stale by itself", async () => {

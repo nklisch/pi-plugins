@@ -11,7 +11,7 @@ const candidateId = `marketplace-candidate-v1:sha256:${"22".repeat(32)}` as neve
 const catalogSnapshot = `marketplace-snapshot-v1:sha256:${"33".repeat(32)}` as never;
 const subject = { version: 1 as const, subject: "marketplace-candidate" as const, scope: { kind: "user" as const }, plugin: "fixture@compatibility" as never, registrationId, candidateId, catalogSnapshot };
 
-function setup(validate: "current" | "stale" = "current") {
+function setup() {
   const plugin = directPlugin();
   const content = createContentManifest([], fixtureSha);
   const materialized = { root: "/scratch/secret", source: plugin.source, content, binding: createMaterializationBinding(plugin.source.hash, content.rootDigest, fixtureSha) };
@@ -27,12 +27,10 @@ function setup(validate: "current" | "stale" = "current") {
       source: { value: { kind: "git", url: "https://example.invalid/plugin.git" }, provenance: [fixtureProvenance()] },
     },
   } as never;
-  const evidence = { validate: vi.fn(async () => validate) };
   const inspector = createNativeCandidateInspector({
     catalog: { resolve: vi.fn(async () => ({ kind: "resolved" as const, candidate })) },
     content: { withMaterialized: vi.fn(async (_candidate, _signal, use) => use(materialized)) },
     inspector: { inspect: vi.fn(async () => ({ ok: true as const, value: plugin, diagnostics: [] })) },
-    evidence: evidence as never,
     readiness: { trust: vi.fn(async () => "authorized" as const), configuration: vi.fn(async () => []), secretCustody: () => ({ status: "available", explanation: "ready" }) },
     sha256,
   });
@@ -54,7 +52,7 @@ function setup(validate: "current" | "stale" = "current") {
     recovery: { results: [], deferred: false, processed: 0 },
     startup: { status: "ready", blocked: [], capabilities: { mcp: { status: "unavailable", explanation: "none" }, subagents: { status: "unavailable", explanation: "none" }, piReload: { status: "available", explanation: "yes" }, secrets: { status: "available", explanation: "yes" } } },
   } as never;
-  return { inspector, snapshot, evidence };
+  return { inspector, snapshot };
 }
 
 describe("native candidate inspection", () => {
@@ -68,12 +66,16 @@ describe("native candidate inspection", () => {
     expect(result.detail.lifecycle.installed).toBe(false);
     expect(JSON.stringify(result)).not.toContain("/scratch/secret");
     expect(JSON.stringify(result)).not.toContain("/market/private");
-    expect(value.evidence.validate).toHaveBeenCalledOnce();
   });
 
-  it("rejects a mid-acquisition authority change as stale", async () => {
-    const value = setup("stale");
-    await expect(value.inspector.inspect(subject, value.snapshot, new AbortController().signal)).resolves.toEqual({ kind: "stale", action: "retry-read" });
+  it("distinguishes corrupt published catalog evidence from ordinary unavailability", async () => {
+    const value = setup();
+    value.snapshot.binding.catalogs[0].cache = { kind: "corrupt" };
+    const result = await value.inspector.inspect(subject, value.snapshot, new AbortController().signal);
+    expect(result.kind).toBe("found");
+    if (result.kind !== "found") return;
+    expect(result.detail.summary.condition).toBe("blocked");
+    expect(result.detail.diagnostics.map((diagnostic) => diagnostic.code)).toContain("CATALOG_CORRUPT");
   });
 
   it("maps acquisition failures to stable diagnostics without native leakage", async () => {
@@ -82,7 +84,6 @@ describe("native candidate inspection", () => {
       catalog: { resolve: async () => { throw new Error("NATIVE_CAUSE_SECRET"); } },
       content: { withMaterialized: async () => { throw new Error("unused"); } },
       inspector: { inspect: async () => { throw new Error("unused"); } },
-      evidence: value.evidence as never,
       readiness: { trust: async () => "authorized", configuration: async () => [], secretCustody: () => ({ status: "available", explanation: "ready" }) },
       sha256,
     } as never);

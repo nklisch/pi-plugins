@@ -1,6 +1,7 @@
 import { compareUtf8 } from "../domain/canonical-json.js";
 import { parsePluginKey } from "../domain/identity.js";
 import { toScopeReference } from "../domain/state/scope.js";
+import type { StateCorruption } from "../domain/state/codec.js";
 import { normalizeMarketplaceQuery } from "./marketplace-search.js";
 import type { MarketplaceCatalogService } from "./marketplace-catalog-service.js";
 import type { AdoptionService } from "./adoption-service.js";
@@ -94,11 +95,26 @@ function queryMatches(summary: NativeInspectionSummary, tokens: readonly string[
   return tokens.every((token) => searchable.includes(token));
 }
 
-function pageCondition(items: readonly NativeInspectionSummary[], observations: readonly { status: "ready" | "corrupt" | "unavailable" }[]): NativeInspectionCondition {
-  if (observations.some((observation) => observation.status === "corrupt") || items.some((item) => item.condition === "blocked")) return "blocked";
+function pageCondition(
+  items: readonly NativeInspectionSummary[],
+  observations: readonly { status: "ready" | "corrupt" | "unavailable" }[],
+  catalogs: InspectionEvidenceSnapshot["binding"]["catalogs"],
+): NativeInspectionCondition {
+  if (observations.some((observation) => observation.status === "corrupt") || catalogs.some((catalog) => catalog.cache.kind === "corrupt") || items.some((item) => item.condition === "blocked")) return "blocked";
   if (items.length > 0 && items.every((item) => item.condition === "unavailable")) return "unavailable";
-  if (observations.some((observation) => observation.status === "unavailable") || items.some((item) => item.condition !== "ready")) return "degraded";
+  if (observations.some((observation) => observation.status === "unavailable") || catalogs.some((catalog) => ["stale", "unavailable", "not-materialized"].includes(catalog.cache.kind)) || items.some((item) => item.condition !== "ready")) return "degraded";
   return "ready";
+}
+
+function corruptionFacts(corruption: StateCorruption): NonNullable<NativeDiagnosticInput["findings"][number]["facts"]> {
+  const location = corruption.location === undefined
+    ? undefined
+    : corruption.location.kind === "field" ? corruption.location.id : corruption.location.value;
+  return [
+    { key: "corruption-code", value: safe(corruption.code) },
+    ...(corruption.recordIdentity === undefined ? [] : [{ key: "record", value: safe(corruption.recordIdentity) }]),
+    ...(location === undefined ? [] : [{ key: "location", value: safe(location) }]),
+  ];
 }
 
 function basicCandidateSummary(
@@ -118,8 +134,9 @@ function basicCandidateSummary(
   const detailId = deriveInspectionDetailId(subject, sha256);
   const observation = snapshot.binding.catalogs.find((entry) => entry.registrationId === candidate.registrationId);
   const findings: NativeDiagnosticInput["findings"][number][] = [];
-  if (observation?.cache.kind === "stale") findings.push({ key: "catalogStale", subjectId: detailId });
-  else if (observation === undefined || ["unavailable", "corrupt", "not-materialized"].includes(observation.cache.kind)) findings.push({ key: "catalogUnavailable", subjectId: detailId });
+  if (observation?.cache.kind === "corrupt") findings.push({ key: "catalogCorrupt", subjectId: detailId });
+  else if (observation?.cache.kind === "stale") findings.push({ key: "catalogStale", subjectId: detailId });
+  else if (observation === undefined || ["unavailable", "not-materialized"].includes(observation.cache.kind)) findings.push({ key: "catalogUnavailable", subjectId: detailId });
   const diagnostics = compileNativeDiagnostics({ findings }, sha256);
   const available = candidate.available.kind === "marketplace-snapshot"
     ? candidate.available.declaredVersion ?? candidate.available.marketplaceRevision
@@ -247,7 +264,7 @@ export function createNativeInspectionService(dependencies: Readonly<{
       if (await dependencies.evidence.validate(snapshot.binding, signal) === "stale") throw new NativeInspectionError("SNAPSHOT_STALE");
       return NativeInspectionPageSchema.parse({
         snapshotId,
-        condition: pageCondition(items, observations),
+        condition: pageCondition(items, observations, snapshot.binding.catalogs),
         items,
         observations,
         ...(nextCursor === undefined ? {} : { nextCursor }),
@@ -261,7 +278,11 @@ export function createNativeInspectionService(dependencies: Readonly<{
       if (subject === undefined) return NativeInspectionDetailResultSchema.parse({ kind: "invalid-id" });
       const { snapshot, stale } = await captureFor(request.snapshotId, signal);
       if (stale) return NativeInspectionDetailResultSchema.parse({ kind: "stale", action: "retry-read" });
-      return routeDetail(subject, snapshot, signal);
+      const result = await routeDetail(subject, snapshot, signal);
+      if (await dependencies.evidence.validate(snapshot.binding, signal) === "stale") {
+        return NativeInspectionDetailResultSchema.parse({ kind: "stale", action: "retry-read" });
+      }
+      return result;
     },
 
     async diagnose(requestInput, signal): Promise<NativeDiagnosticReport> {
@@ -279,7 +300,9 @@ export function createNativeInspectionService(dependencies: Readonly<{
         const subject = decodeInspectionDetailId(request.target.detailId, dependencies.sha256);
         if (subject === undefined) throw new NativeInspectionError("CURSOR_INVALID");
         const result = await routeDetail(subject, snapshot, signal);
-        if (result.kind === "stale") throw new NativeInspectionError("SNAPSHOT_STALE");
+        if (result.kind === "stale" || await dependencies.evidence.validate(snapshot.binding, signal) === "stale") {
+          throw new NativeInspectionError("SNAPSHOT_STALE");
+        }
         const diagnostics = result.kind === "found" ? result.detail.diagnostics
           : result.kind === "unavailable" ? result.diagnostics
           : compileNativeDiagnostics({ findings: [{ key: "candidateMissing" }] }, dependencies.sha256);
@@ -288,17 +311,25 @@ export function createNativeInspectionService(dependencies: Readonly<{
 
       const findings: NativeDiagnosticInput["findings"][number][] = [];
       for (const scope of snapshot.binding.scopes) {
-        if (scope.status === "corrupt") findings.push({ key: "stateCorrupt" });
-        else if (scope.status === "unavailable") findings.push(unavailableEvidenceFinding("state"));
+        if (scope.status === "corrupt") {
+          const loaded = snapshot.states.find((result) => result.ok && JSON.stringify(toScopeReference(result.snapshot.scope)) === JSON.stringify(scope.scope));
+          if (loaded?.ok && loaded.snapshot.corruptions.length > 0) {
+            findings.push(...loaded.snapshot.corruptions.map((corruption) => ({ key: "recordCorrupt" as const, facts: corruptionFacts(corruption) })));
+          } else {
+            findings.push({ key: "stateCorrupt" });
+          }
+        } else if (scope.status === "unavailable") findings.push(unavailableEvidenceFinding("state"));
       }
+      if (snapshot.startup.status === "blocked") findings.push({ key: "startupBlocked" });
       for (const result of snapshot.recovery.results) {
         if (result.kind === "blocked") findings.push({ key: "recoveryBlocked" });
         else if (result.kind === "deferred") findings.push({ key: "recoveryDeferred" });
       }
       if (snapshot.binding.capability.status === "unavailable") findings.push({ key: "capabilityUnavailable" });
       for (const catalog of snapshot.binding.catalogs) {
-        if (catalog.cache.kind === "stale") findings.push({ key: "catalogStale" });
-        else if (["unavailable", "corrupt", "not-materialized"].includes(catalog.cache.kind)) findings.push({ key: "catalogUnavailable" });
+        if (catalog.cache.kind === "corrupt") findings.push({ key: "catalogCorrupt" });
+        else if (catalog.cache.kind === "stale") findings.push({ key: "catalogStale" });
+        else if (["unavailable", "not-materialized"].includes(catalog.cache.kind)) findings.push({ key: "catalogUnavailable" });
       }
       if (request.includeAdoption) {
         try {

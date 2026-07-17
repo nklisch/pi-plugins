@@ -7,12 +7,12 @@ import { LifecycleRecoveryResultSchema, type LifecycleRecoveryResult } from "../
 import { createInactiveProjectionExpectation, type ProjectionExpectation } from "../application/ports/runtime-projection.js";
 import type { LifecycleStateStore } from "../application/ports/lifecycle-state-store.js";
 import type { LifecycleClock } from "../application/ports/lifecycle-clock.js";
+import type { MarketplaceCatalogService } from "../application/marketplace-catalog-service.js";
 import type { CurrentProjectRuntimeContext } from "../application/ports/project-trust.js";
 import type { SkillHookContributionObservationResult } from "../runtime/skills/resource-discovery.js";
 import type { McpLifecycleParticipant, McpLifecycleStatusResult } from "../runtime/mcp/lifecycle-participant.js";
 import type { Sha256 } from "../domain/source.js";
 import { marketplaceSnapshots, marketplaceUpdateRecords } from "../application/marketplace-update-state.js";
-import { createMarketplaceRegistrationView } from "../application/marketplace-state.js";
 import type { StateLoadResult } from "../application/state-contract.js";
 import type { RuntimeDesiredState } from "./runtime-desired-state.js";
 import type { RuntimeSelectionCatalog } from "./runtime-selection-catalog.js";
@@ -105,6 +105,7 @@ type AuthorityCapture = Readonly<{
  */
 export function createNativeInspectionEvidence(input: Readonly<{
   state: LifecycleStateStore;
+  catalog: Pick<MarketplaceCatalogService, "search">;
   scopes: readonly ScopeContext[];
   revalidateProject(signal: AbortSignal): Promise<CurrentProjectRuntimeContext>;
   selections: RuntimeSelectionCatalog;
@@ -134,16 +135,22 @@ export function createNativeInspectionEvidence(input: Readonly<{
       try {
         const result = await input.state.read(scope, signal);
         states.push(result);
-        scopeBindings.push(result.ok
-          ? { scope: toScopeReference(scope), generation: result.snapshot.generation, status: "ready", corruptionCodes: result.snapshot.corruptions.map((item) => item.code).sort(compareUtf8) }
-          : { scope: toScopeReference(scope), status: "corrupt", corruptionCodes: result.corruptions.map((item) => item.code).sort(compareUtf8) });
+        const corruptions = result.ok ? result.snapshot.corruptions : result.corruptions;
+        const corruptionCodes = corruptions.map((item) => item.code).sort(compareUtf8);
+        scopeBindings.push({
+          scope: toScopeReference(scope),
+          ...(result.ok ? { generation: result.snapshot.generation } : {}),
+          status: result.ok && corruptions.length === 0 ? "ready" : "corrupt",
+          corruptionCodes,
+          ...(corruptions.length === 0 ? {} : { corruptionDigest: digest("inspection-state-corruption-v1", corruptions, input.sha256) }),
+        });
       } catch (error) {
         if (signal.aborted) throw error;
         scopeBindings.push({ scope: toScopeReference(scope), status: "unavailable", corruptionCodes: [] });
       }
     }
 
-    const catalogs: InspectionSnapshotBinding["catalogs"][number][] = [];
+    let catalogs: InspectionSnapshotBinding["catalogs"][number][] = [];
     for (const result of states) {
       if (!result.ok) continue;
       const scope = result.snapshot.scope;
@@ -152,19 +159,27 @@ export function createNativeInspectionEvidence(input: Readonly<{
       for (const record of marketplaceUpdateRecords(result.snapshot)) {
         const registrationId = deriveMarketplaceRegistrationId({ scope: scopeReference, source: record.source }, input.sha256);
         const selected = snapshots.find((snapshot) => snapshot.marketplace === record.marketplace);
-        const view = await createMarketplaceRegistrationView({
-          scope,
-          record,
-          ...(selected === undefined ? {} : { snapshot: selected }),
-          now: input.clock.nowEpochMilliseconds(),
-          signal,
-          sha256: input.sha256,
-        });
         catalogs.push({
           registrationId,
           ...(selected === undefined ? {} : { snapshot: deriveMarketplaceSnapshotToken({ scope: scopeReference, registrationId, snapshot: selected }, input.sha256) }),
-          cache: view.cache,
+          // Replaced below by the catalog service's publication-verified
+          // observation. A missing observation is unavailable, never guessed.
+          cache: { kind: "unavailable" },
         });
+      }
+    }
+    if (catalogs.length > 0) {
+      try {
+        // The catalog service owns selected-publication verification and
+        // normalized catalog inspection. Reusing its observations keeps this
+        // binding aligned with corrupt/unavailable distinctions at that exact
+        // authority boundary instead of copying content rules here.
+        const page = await input.catalog.search({ scope: "all-current", query: "", limit: 1 }, signal);
+        const observations = new Map(page.observations.map((observation) => [observation.registrationId, observation.cache]));
+        catalogs = catalogs.map((catalog) => ({ ...catalog, cache: observations.get(catalog.registrationId) ?? { kind: "unavailable" } }));
+      } catch (error) {
+        if (signal.aborted) throw error;
+        catalogs = catalogs.map((catalog) => ({ ...catalog, cache: { kind: "unavailable" } }));
       }
     }
     catalogs.sort((left, right) => compareUtf8(left.registrationId, right.registrationId));

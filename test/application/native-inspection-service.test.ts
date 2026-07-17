@@ -90,6 +90,46 @@ describe("native inspection service", () => {
     expect(report.diagnostics).toEqual([]);
   });
 
+  it("reports granular quarantines, corrupt publication, and blocked startup without hiding valid state", async () => {
+    const value = setup();
+    const current = value.current() as any;
+    const corruption = {
+      document: "installedUser", scope: { kind: "user" }, code: "RECORD_INVALID",
+      recordIdentity: "broken@market", location: { kind: "pointer", value: "/plugins/0" },
+      summary: "state record was quarantined",
+    };
+    current.binding.scopes[0] = { ...current.binding.scopes[0], status: "corrupt", corruptionCodes: ["RECORD_INVALID"] };
+    current.states[0].snapshot.corruptions = [corruption];
+    current.binding.catalogs[0].cache = { kind: "corrupt" };
+    current.startup = { ...current.startup, status: "blocked", blocked: [{ plugin: "host-runtime", code: "RUNTIME_RECONSTRUCTION_FAILED", explanation: "fixed" }] };
+
+    const report = await value.service.diagnose({ target: { kind: "host" }, includeAdoption: false }, new AbortController().signal);
+    expect(report.condition).toBe("blocked");
+    expect(report.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      "RECORD_CORRUPT", "HOST_STARTUP_BLOCKED", "CATALOG_CORRUPT",
+    ]);
+    expect(report.diagnostics[0]?.facts.map((fact) => fact.value.text)).toEqual(["RECORD_INVALID", "/plugins/0", "broken@market"]);
+  });
+
+  it("keeps corrupt selected catalog evidence visible even when no candidate can be projected", async () => {
+    const value = setup();
+    (value.current() as any).binding.catalogs[0].cache = { kind: "corrupt" };
+    value.catalog.search.mockResolvedValueOnce({ candidates: [], observations: [{ status: "corrupt", cache: { kind: "corrupt" } }] });
+    const page = await value.service.list({ subjects: ["marketplace-candidate"], scope: "all-current", query: "", limit: 50 }, new AbortController().signal);
+    expect(page.items).toEqual([]);
+    expect(page.condition).toBe("blocked");
+  });
+
+  it("revalidates authority before returning unavailable or found detail outcomes", async () => {
+    const value = setup();
+    const current = value.current();
+    value.evidence.validate.mockResolvedValueOnce("stale");
+    await expect(value.service.detail({
+      snapshotId: deriveInspectionEvidenceSnapshotId(current.binding, sha256),
+      detailId: deriveInspectionDetailId({ version: 1, subject: "installed", scope: { kind: "user" }, plugin: "zeta@market", selectedRevision: revision }, sha256),
+    }, new AbortController().signal)).resolves.toEqual({ kind: "stale", action: "retry-read" });
+  });
+
   it("returns invalid-id without probing detail inspectors", async () => {
     const value = setup();
     const result = await value.service.detail({ snapshotId: deriveInspectionEvidenceSnapshotId(value.current().binding, sha256), detailId: "inspection-detail-v1:bad." + "0".repeat(64) as never }, new AbortController().signal);

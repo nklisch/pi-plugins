@@ -20,6 +20,11 @@ describe("native inspection disclosure", () => {
     expect(json).not.toContain("password");
     expect(json).not.toContain(canaries.query);
     expect(json).not.toContain("secret");
+
+    const scp = projectRedactedUrl(`git@example.invalid:repo/plugin.git?token=${canaries.query}#secret`);
+    expect(scp).toMatchObject({ scheme: "ssh", queryPresent: true, fragmentPresent: true });
+    expect(JSON.stringify(scp)).not.toContain(canaries.query);
+    expect(JSON.stringify(scp)).not.toContain("secret");
   });
 
   it("retains source identity without canonical source strings", () => {

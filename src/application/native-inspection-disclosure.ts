@@ -45,10 +45,12 @@ export function projectRedactedUrl(value: string) {
     parsed = new URL(value);
   } catch {
     const scp = /^(?:[^@\s]+@)?([^:\s]+):(.+)$/u.exec(value);
+    const rawPath = scp?.[2] ?? "[unavailable]";
+    const redactedPath = rawPath.split(/[?#]/u, 1)[0] || "[unavailable]";
     return NativeRedactedUrlSchema.parse({
       scheme: scp === null ? "unknown" : "ssh",
       host: safeLabel(scp?.[1] ?? "[unavailable]"),
-      path: safePath(scp?.[2] ?? "[unavailable]"),
+      path: safePath(redactedPath),
       queryPresent: value.includes("?"),
       fragmentPresent: value.includes("#"),
     });

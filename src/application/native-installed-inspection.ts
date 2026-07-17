@@ -8,7 +8,7 @@ import { toScopeReference, type ScopeContext, type ScopeReference } from "../dom
 import { createTrustCandidate } from "../domain/trust-policy.js";
 import type { InstalledPluginLoader } from "./ports/installed-plugin-loader.js";
 import type { InspectionReadinessPort } from "./ports/inspection-readiness.js";
-import type { InspectionEvidenceSnapshot, InstalledRuntimeEvidence, NativeInspectionEvidencePort } from "./ports/native-inspection-evidence.js";
+import type { InspectionEvidenceSnapshot, InstalledRuntimeEvidence } from "./ports/native-inspection-evidence.js";
 import { digestCompatibilityReport } from "./ports/runtime-projection.js";
 import { marketplaceUpdateRecords } from "./marketplace-update-state.js";
 import type { Sha256 } from "../domain/source.js";
@@ -141,7 +141,6 @@ function participantStatus(input: Readonly<{
 export function createNativeInstalledInspector(dependencies: Readonly<{
   installed: InstalledPluginLoader;
   readiness: InspectionReadinessPort;
-  evidence: NativeInspectionEvidencePort;
   sha256: Sha256;
 }>): NativeInstalledInspector {
   if (dependencies === null || typeof dependencies !== "object" || typeof dependencies.sha256 !== "function") {
@@ -317,9 +316,6 @@ export function createNativeInstalledInspector(dependencies: Readonly<{
           ...(server.errorCode === undefined ? {} : { errorCode: server.errorCode }),
         })),
       });
-      if (await dependencies.evidence.validate(snapshot.binding, signal) === "stale") {
-        return NativeInspectionDetailResultSchema.parse({ kind: "stale", action: "retry-read" });
-      }
       return NativeInspectionDetailResultSchema.parse({
         kind: "found",
         detail: NativeInspectionDetailSchema.parse({
