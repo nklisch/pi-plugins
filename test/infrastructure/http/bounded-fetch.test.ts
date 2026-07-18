@@ -1,7 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createBoundedFetch, createNpmCredentialProvider, type BoundedFetchResponse, type NpmCredentialProvider } from "../../../src/infrastructure/http/bounded-fetch.js";
+import { createNetworkEgressPolicy } from "../../../src/infrastructure/network/network-egress-policy.js";
 
 const signal = (): AbortSignal => new AbortController().signal;
+const egress = (options: Readonly<{
+  credentials?: readonly string[];
+  redirects?: readonly string[];
+}> = {}) => createNetworkEgressPolicy({
+  lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+  privateOrigins: [
+    "https://registry.example.test",
+    "https://cdn.example.test",
+    "https://unapproved.example.test",
+  ],
+  credentialOrigins: options.credentials,
+  redirectOrigins: options.redirects,
+});
 
 function credentials(seen: Headers[]): NpmCredentialProvider {
   return {
@@ -42,7 +56,14 @@ describe("bounded HTTPS fetch", () => {
       }
       return new Response(new TextEncoder().encode("bytes"), { status: 200 });
     };
-    const response = await createBoundedFetch({ fetch, credentials: credentials(seen) }).request({
+    const response = await createBoundedFetch({
+      fetch,
+      credentials: credentials(seen),
+      egress: egress({
+        credentials: ["https://registry.example.test", "https://cdn.example.test"],
+        redirects: ["https://cdn.example.test"],
+      }),
+    }).request({
       url: "https://registry.example.test/package",
       maxBytes: 100,
       signal: signal(),
@@ -56,15 +77,36 @@ describe("bounded HTTPS fetch", () => {
     expect(seen).toHaveLength(2);
   });
 
+  it("does not resolve credentials or contact an unapproved redirect authority", async () => {
+    const apply = vi.fn(() => { throw new Error("CREDENTIAL_CANARY"); });
+    const requests: string[] = [];
+    const bounded = createBoundedFetch({
+      fetch: async (input) => {
+        requests.push(String(input));
+        return new Response(null, { status: 302, headers: { location: "https://unapproved.example.test/private" } });
+      },
+      credentials: { apply },
+      egress: egress(),
+    });
+    await expect(bounded.request({
+      url: "https://registry.example.test/package",
+      maxBytes: 100,
+      signal: signal(),
+    })).rejects.toMatchObject({ kind: "redirect" });
+    expect(apply).not.toHaveBeenCalled();
+    expect(requests).toEqual(["https://registry.example.test/package"]);
+  });
+
   it("rejects HTTP redirects and enforces streamed byte limits without retaining the body", async () => {
     const fetch = async (): Promise<Response> => new Response(new TextEncoder().encode("too long"), { status: 200 });
-    const bounded = createBoundedFetch({ fetch, credentials: noCredentials });
+    const bounded = createBoundedFetch({ fetch, credentials: noCredentials, egress: egress() });
     const response = await bounded.request({ url: "https://registry.example.test/package", maxBytes: 3, signal: signal() });
     await expect((async () => { for await (const _chunk of response.body) { /* consume */ } })()).rejects.toMatchObject({ kind: "limit" });
 
     const httpRedirect = createBoundedFetch({
       fetch: async () => new Response(null, { status: 302, headers: { location: "http://evil.test/package" } }),
       credentials: noCredentials,
+      egress: egress(),
     });
     await expect(httpRedirect.request({ url: "https://registry.example.test/package", maxBytes: 100, signal: signal() })).rejects.toMatchObject({ kind: "redirect" });
   });
@@ -98,6 +140,7 @@ describe("bounded HTTPS fetch", () => {
       maxRedirects: 1,
       fetch: async (input) => new Response(null, { status: 302, headers: { location: `${String(input)}-next` } }),
       credentials: noCredentials,
+      egress: egress(),
     });
     await expect(bounded.request({ url: "https://registry.example.test/package", maxBytes: 100, signal: signal() })).rejects.toMatchObject({ kind: "redirect" });
   });

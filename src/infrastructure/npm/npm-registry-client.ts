@@ -255,6 +255,9 @@ function requestFailure(operation: string, error: unknown): SourceMaterializatio
     if (error.kind === "network") {
       return safeFailure("SOURCE_RESOLUTION_FAILED", "transient", operation, "npm registry network request failed");
     }
+    if (error.kind === "policy") {
+      return safeFailure("SOURCE_RESOLUTION_FAILED", "security", operation, "npm registry destination is not permitted");
+    }
     if (error.kind === "credential") {
       return safeFailure("ADAPTER_FAILED", "permanent", operation, "npm credential adapter failed");
     }

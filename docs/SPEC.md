@@ -535,7 +535,9 @@ lifecycle-facing content verifier rewalks and incrementally rehashes the on-disk
 tree against its manifest before promotion; manifest verification is bounded by
 one normalized path map and aggregate entry/path limits.
 
-Install and update operations never run npm lifecycle scripts. npm sources are resolved from bounded HTTPS packuments, require canonical SHA-512 integrity, and have their tarball bytes verified before hardened extraction; materialization never runs `npm install` or installs package dependencies. Runtime dependencies required by a plugin are installed only through an explicitly declared and trusted plugin operation.
+Install and update operations never run npm lifecycle scripts. npm sources are resolved from bounded, DNS-pinned HTTPS packuments, require canonical SHA-512 integrity, and have their tarball bytes verified before hardened extraction; materialization never runs `npm install` or installs package dependencies. Runtime dependencies required by a plugin are installed only through an explicitly declared and trusted plugin operation.
+
+Before any catalog-derived remote materialization, the Node acquisition boundary normalizes an exact origin and rejects loopback, link-local, private, mapped-private, and special IPv4/IPv6 destinations. DNS results are pinned into the actual Git or HTTPS connection, and redirect authority is checked before target resolution. Exact configured private enterprise origins remain supported. Credential and SSH configuration/agent use have separate exact source-origin approvals; unapproved origins receive isolated Git/SSH configuration and no ambient credential material. Ambient proxies are disabled for all acquisition because they would bypass DNS pinning.
 
 Git sources resolve to a full commit SHA. A declared full SHA is authoritative over an accompanying ref; otherwise qualified branch/tag names resolve exactly and an unqualified name shared by a branch and tag is rejected as ambiguous. Submodule-bearing source trees are unsupported and fail closed rather than producing an incomplete bundle.
 

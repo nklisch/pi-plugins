@@ -9,6 +9,7 @@ import type { NativePluginControlService } from "../application/native-control-s
 import type { McpRuntimePort } from "../application/ports/mcp-runtime.js";
 import type { UpdateNotificationPublisherPort } from "../application/ports/update-notification-publisher.js";
 import type { HostCapabilityStatus, HostStartupResult } from "../application/host-observation-contract.js";
+import type { NetworkEgressPolicyOptions } from "../infrastructure/network/network-egress-policy.js";
 export type { HostCapabilityStatus, HostStartupResult } from "../application/host-observation-contract.js";
 
 export const PackagedPluginHostErrorCode = {
@@ -44,6 +45,7 @@ export type PackagedPluginHostRuntimeParticipants = Readonly<{
 
 export type PackagedPluginHostSourceOptions = Readonly<{
   fetch?: typeof globalThis.fetch;
+  networkPolicy?: NetworkEgressPolicyOptions;
 }>;
 
 export type PackagedPluginHostOptions = Readonly<{

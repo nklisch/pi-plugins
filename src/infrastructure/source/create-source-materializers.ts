@@ -20,6 +20,10 @@ import {
 } from "../http/bounded-fetch.js";
 import { createNpmRegistryClient } from "../npm/npm-registry-client.js";
 import { createNpmSourceAcquirer } from "../npm/npm-source-acquirer.js";
+import {
+  createNetworkEgressPolicy,
+  type NetworkEgressPolicyOptions,
+} from "../network/network-egress-policy.js";
 import { createNodeCommandRunner } from "../process/command-runner.js";
 
 /**
@@ -31,6 +35,7 @@ export type NodeSourceMaterializerOptions = Readonly<{
   gitExecutable?: string;
   fetch?: typeof globalThis.fetch;
   credentialProvider?: NpmCredentialProvider;
+  networkPolicy?: NetworkEgressPolicyOptions;
   limits?: Partial<MaterializationLimits>;
 }>;
 
@@ -50,20 +55,21 @@ export function createNodeSourceMaterializers(
     throw new TypeError("Node source materializer options must be an object");
   }
 
-  const configuredFetch = options.fetch ?? globalThis.fetch;
-  if (typeof configuredFetch !== "function") {
-    throw new TypeError("Node source materializers require fetch");
+  if (options.fetch !== undefined && typeof options.fetch !== "function") {
+    throw new TypeError("Node source materializer fetch adapter is invalid");
   }
 
   const credentials = options.credentialProvider ?? createDefaultNpmCredentialProvider();
+  const egress = createNetworkEgressPolicy(options.networkPolicy);
   const sha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(bytes).digest());
   const command = createNodeCommandRunner();
   const limitOptions = options.limits === undefined ? {} : { limits: options.limits };
   const archive = createTarReader(limitOptions);
   const content = createSecureContentWriterFactory({ sha256, ...limitOptions });
   const boundedFetch = createBoundedFetch({
-    fetch: configuredFetch,
+    ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     credentials,
+    egress,
     ...(options.limits?.maxRedirects === undefined ? {} : { maxRedirects: options.limits.maxRedirects }),
   });
   const registry = createNpmRegistryClient({
@@ -77,6 +83,7 @@ export function createNodeSourceMaterializers(
     command,
     archive,
     sha256,
+    egress,
     ...limitOptions,
   });
   const npm = createNpmSourceAcquirer({

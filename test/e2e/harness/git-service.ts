@@ -136,9 +136,13 @@ export async function startGitService(
   catch (error) { await stop(); throw error; }
   sandbox.env.GIT_SSL_CAINFO = fixturePath("tls", "localhost-ca.pem");
   sandbox.env.GIT_SSL_VERIFY = "true";
+  const url = `https://127.0.0.1:${port}/${repository.name}.git`;
+  // The production policy remains fail-closed; the local TLS fixture is an
+  // exact operator-approved private origin for this isolated E2E process.
+  sandbox.env.PI_PLUGIN_HOST_PRIVATE_ORIGINS = JSON.stringify([`https://127.0.0.1:${port}`]);
   const value: GitService = Object.freeze({
     process: child,
-    url: `https://127.0.0.1:${port}/${repository.name}.git`,
+    url,
     phaseFile,
     requestFile,
     controlFile,

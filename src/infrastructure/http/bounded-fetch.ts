@@ -1,6 +1,13 @@
 import { homedir } from "node:os";
 import { readFile } from "node:fs/promises";
+import { request as httpsRequest } from "node:https";
+import type { LookupFunction } from "node:net";
 import { join } from "node:path";
+import { Readable } from "node:stream";
+import type {
+  ApprovedNetworkTarget,
+  NetworkEgressPolicy,
+} from "../network/network-egress-policy.js";
 
 /** A response body exposed as bytes only; callers must consume it exactly once. */
 export type BoundedFetchResponse = Readonly<{
@@ -32,12 +39,14 @@ export type NpmCredentialProvider = Readonly<{
 }> | ((url: URL, headers: Headers, signal: AbortSignal) => void | Promise<void>);
 
 export type BoundedFetchOptions = Readonly<{
-  fetch: typeof globalThis.fetch;
+  /** Trusted test/host adapter. Production uses the DNS-pinned Node HTTPS path. */
+  fetch?: typeof globalThis.fetch;
   credentials: NpmCredentialProvider;
+  egress: NetworkEgressPolicy;
   maxRedirects?: number;
 }>;
 
-export type BoundedFetchErrorKind = "network" | "credential" | "redirect" | "response" | "limit";
+export type BoundedFetchErrorKind = "network" | "policy" | "credential" | "redirect" | "response" | "limit";
 
 /** Errors contain only safe classification data; the requested URL is not retained. */
 export class BoundedFetchError extends Error {
@@ -138,6 +147,53 @@ function safeUrl(input: string): URL {
   return value;
 }
 
+function pinnedLookup(target: ApprovedNetworkTarget): LookupFunction {
+  return ((
+    _hostname: string,
+    options: unknown,
+    callback: (...args: unknown[]) => void,
+  ) => {
+    if (options !== null && typeof options === "object" && "all" in options && options.all === true) {
+      callback(null, [{ address: target.address, family: target.family }]);
+    } else {
+      callback(null, target.address, target.family);
+    }
+  }) as unknown as LookupFunction;
+}
+
+function appendResponseHeaders(target: Headers, source: import("node:http").IncomingHttpHeaders): void {
+  for (const [name, value] of Object.entries(source)) {
+    if (Array.isArray(value)) for (const item of value) target.append(name, item);
+    else if (value !== undefined) target.append(name, value);
+  }
+}
+
+function requestPinnedHttps(
+  target: ApprovedNetworkTarget,
+  headers: Headers,
+  signal: AbortSignal,
+): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const request = httpsRequest(target.url, {
+      method: "GET",
+      headers: Object.fromEntries(headers.entries()),
+      lookup: pinnedLookup(target),
+      servername: target.hostname,
+      signal,
+    }, (incoming) => {
+      const responseHeaders = new Headers();
+      appendResponseHeaders(responseHeaders, incoming.headers);
+      resolve(new Response(Readable.toWeb(incoming) as ReadableStream<Uint8Array>, {
+        status: incoming.statusCode ?? 500,
+        ...(incoming.statusMessage === undefined ? {} : { statusText: incoming.statusMessage }),
+        headers: responseHeaders,
+      }));
+    });
+    request.once("error", reject);
+    request.end();
+  });
+}
+
 async function discard(response: Response, signal: AbortSignal): Promise<void> {
   throwIfAborted(signal);
   try {
@@ -149,9 +205,13 @@ async function discard(response: Response, signal: AbortSignal): Promise<void> {
 }
 
 export function createBoundedFetch(options: BoundedFetchOptions): BoundedFetch {
-  if (typeof options?.fetch !== "function") throw new TypeError("bounded fetch requires fetch");
+  if (options?.fetch !== undefined && typeof options.fetch !== "function") throw new TypeError("bounded fetch adapter is invalid");
   if (options.credentials === null || options.credentials === undefined) {
     throw new TypeError("bounded fetch requires a credential provider");
+  }
+  if (options.egress === null || typeof options.egress?.origin !== "function" ||
+      typeof options.egress.authorize !== "function" || typeof options.egress.redirectAllowed !== "function") {
+    throw new TypeError("bounded fetch requires an egress policy");
   }
   const maxRedirects = options.maxRedirects ?? 5;
   if (!Number.isSafeInteger(maxRedirects) || maxRedirects < 0) {
@@ -168,23 +228,45 @@ export function createBoundedFetch(options: BoundedFetchOptions): BoundedFetch {
       throwIfAborted(input.signal);
 
       let current = safeUrl(input.url);
+      let initialOrigin: string | undefined;
       for (let redirects = 0; ; redirects += 1) {
         throwIfAborted(input.signal);
-        const headers = new Headers({ accept: "application/json, application/octet-stream" });
+        let candidateOrigin: string;
         try {
-          await applyCredentials(input.credentials ?? options.credentials, current, headers, input.signal);
+          candidateOrigin = options.egress.origin(current.toString());
+        } catch (error) {
+          throw new BoundedFetchError({ kind: "policy", message: "HTTP destination authority is invalid", cause: error });
+        }
+        initialOrigin ??= candidateOrigin;
+        if (!options.egress.redirectAllowed(initialOrigin, candidateOrigin)) {
+          throw new BoundedFetchError({ kind: "redirect", message: "HTTP redirect changed authority" });
+        }
+        let target: ApprovedNetworkTarget;
+        try {
+          target = await options.egress.authorize(current.toString(), "https:");
         } catch (error) {
           if (input.signal.aborted) throw abortError(input.signal);
-          throw new BoundedFetchError({ kind: "credential", message: "HTTP credential adapter failed", cause: error });
+          throw new BoundedFetchError({ kind: "policy", message: "HTTP destination is not permitted", cause: error });
+        }
+        const headers = new Headers({ accept: "application/json, application/octet-stream" });
+        if (target.credentialsApproved) {
+          try {
+            await applyCredentials(input.credentials ?? options.credentials, current, headers, input.signal);
+          } catch (error) {
+            if (input.signal.aborted) throw abortError(input.signal);
+            throw new BoundedFetchError({ kind: "credential", message: "HTTP credential adapter failed", cause: error });
+          }
         }
         let response: Response;
         try {
-          response = await options.fetch(current, {
-            method: "GET",
-            headers,
-            redirect: "manual",
-            signal: input.signal,
-          });
+          response = options.fetch === undefined
+            ? await requestPinnedHttps(target, headers, input.signal)
+            : await options.fetch(current, {
+                method: "GET",
+                headers,
+                redirect: "manual",
+                signal: input.signal,
+              });
         } catch (error) {
           if (input.signal.aborted) throw abortError(input.signal);
           throw new BoundedFetchError({ kind: "network", message: "HTTP request failed", cause: error });

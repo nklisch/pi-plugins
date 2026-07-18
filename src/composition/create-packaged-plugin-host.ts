@@ -28,6 +28,7 @@ import { createNodeHookExecutableResolver } from "../infrastructure/process/hook
 import { createNodeCommandRunner } from "../infrastructure/process/command-runner.js";
 import { createProcessRefreshClaimOwner } from "../infrastructure/process/refresh-claim-owner.js";
 import { createNodeSourceMaterializers } from "../infrastructure/source/create-source-materializers.js";
+import { networkEgressPolicyOptionsFromEnvironment } from "../infrastructure/network/network-egress-policy.js";
 import { createManifestContentReader } from "../infrastructure/filesystem/manifest-content-reader.js";
 import { readClaudeMarketplace } from "../formats/claude/marketplace-reader.js";
 import { readCodexMarketplace } from "../formats/codex/marketplace-reader.js";
@@ -303,7 +304,11 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         });
         const mutations = createGenerationMutationCoordinator({ scheduler: createKeyedMutationScheduler(), locks, state: state.state });
         const reconciler = createLifecycleTransitionReconciler({ mutations, state: state.state, reload, transitions: recoveryAdapters.transitionStore, sha256 });
-        const materializers = createNodeSourceMaterializers(options.source);
+        const sourceOptions = {
+          ...(options.source ?? {}),
+          networkPolicy: options.source?.networkPolicy ?? networkEgressPolicyOptionsFromEnvironment(process.env),
+        };
+        const materializers = createNodeSourceMaterializers(sourceOptions);
         const lifecycleComposition = createPluginLifecycleComposition({
           state: state.state,
           mutations,

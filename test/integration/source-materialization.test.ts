@@ -5,7 +5,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createNodeSourceMaterializers,
   verifyContentManifest,
@@ -17,6 +17,13 @@ import {
 const execFile = promisify(execFileCallback);
 const sha256: Sha256 = (bytes) => new Uint8Array(createHash("sha256").update(bytes).digest());
 const roots: string[] = [];
+const networkPolicy = {
+  lookup: async () => [{ address: "93.184.216.34", family: 4 as const }],
+  privateOrigins: [
+    "https://fixture.test",
+    "https://registry.fixture.test",
+  ],
+};
 
 async function runGit(cwd: string, args: readonly string[]): Promise<string> {
   const result = await execFile("git", [...args], { cwd, encoding: "utf8" });
@@ -136,6 +143,7 @@ describe("Node source materializer composition", () => {
       gitExecutable: git,
       fetch: npmFetch(tarball),
       credentialProvider: { apply() {} },
+      networkPolicy,
     });
 
     const marketplaces = await Promise.all([
@@ -183,10 +191,40 @@ describe("Node source materializer composition", () => {
     await expect(readFile(join(plugins[3]!.root, "should-not-run"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("enforces catalog-derived egress before Git/fetch execution or content writes", async () => {
+    const fetch = vi.fn(async () => new Response("must not run", { status: 200 }));
+    const binRoot = await mkdtemp(join(tmpdir(), "pi-no-network-bin-"));
+    roots.push(binRoot);
+    const materializers = createNodeSourceMaterializers({
+      gitExecutable: join(binRoot, "credential-canary-git"),
+      fetch,
+      credentialProvider: { apply() { throw new Error("credential canary must not resolve"); } },
+    });
+
+    const gitDestination = await slot();
+    await expect(materializers.plugins.materialize(
+      { kind: "git", url: "https://2130706433/catalog-plugin.git" },
+      { kind: "external" },
+      gitDestination,
+      new AbortController().signal,
+    )).rejects.toMatchObject({ code: "SOURCE_RESOLUTION_FAILED", classification: "security" });
+    await expect(readdir(gitDestination.root)).resolves.toEqual([]);
+
+    const npmDestination = await slot();
+    await expect(materializers.plugins.materialize(
+      { kind: "npm", package: "catalog-plugin", registry: "https://[::ffff:127.0.0.1]/" },
+      { kind: "external" },
+      npmDestination,
+      new AbortController().signal,
+    )).rejects.toMatchObject({ code: "SOURCE_RESOLUTION_FAILED", classification: "security" });
+    expect(fetch).not.toHaveBeenCalled();
+    await expect(readdir(npmDestination.root)).resolves.toEqual([]);
+  });
+
   it("preserves cancellation and transient failure semantics without leaving staging paths", async () => {
     const repository = await fixtureRepository();
     const git = await gitWrapper(repository.root);
-    const materializers = createNodeSourceMaterializers({ gitExecutable: git, credentialProvider: { apply() {} } });
+    const materializers = createNodeSourceMaterializers({ gitExecutable: git, credentialProvider: { apply() {} }, networkPolicy });
     const controller = new AbortController();
     const reason = new Error("fixture cancellation");
     controller.abort(reason);
@@ -199,6 +237,7 @@ describe("Node source materializer composition", () => {
     const failing = createNodeSourceMaterializers({
       fetch: async () => new Response("temporary", { status: 503 }),
       credentialProvider: { apply() {} },
+      networkPolicy,
     });
     const npmDestination = await slot();
     await expect(failing.plugins.materialize(

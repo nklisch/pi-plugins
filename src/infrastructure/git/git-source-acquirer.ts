@@ -22,6 +22,10 @@ import {
 import type { TarReader } from "../archive/tar-reader.js";
 import type { CommandResult, CommandRunner } from "../../application/ports/process-runner.js";
 import type { CommandCapturePolicy } from "../../application/ports/process-runner.js";
+import type {
+  ApprovedNetworkTarget,
+  NetworkEgressPolicy,
+} from "../network/network-egress-policy.js";
 
 const SELECTED_REF = "refs/materialization/selected";
 const FULL_SHA = /^[0-9a-f]{40}$/;
@@ -35,6 +39,7 @@ type GitSourceAcquirerOptions = Readonly<{
   command: CommandRunner;
   archive: TarReader;
   sha256: Sha256;
+  egress: NetworkEgressPolicy;
   limits?: Partial<MaterializationLimits>;
 }>;
 
@@ -251,22 +256,63 @@ function remoteForPlugin(source: Extract<PluginSource, { kind: "git" | "git-subd
   return { url: source.url, local: false };
 }
 
-function gitEnvironment(): Readonly<Record<string, string | undefined>> {
-  // Credential helpers, SSH_AUTH_SOCK, HOME, and the user's SSH config remain
-  // inherited. A caller-provided SSH command is retained and only gets the
-  // noninteractive option required by this adapter; it is never logged.
-  const configuredSsh = process.env.GIT_SSH_COMMAND?.trim();
-  const sshCommand = configuredSsh === undefined || configuredSsh.length === 0
-    ? "ssh -o BatchMode=yes"
-    : /(?:^|\s)-o\s+BatchMode=yes(?:\s|$)/.test(configuredSsh)
-      ? configuredSsh
-      : `${configuredSsh} -o BatchMode=yes`;
-  return {
+function sshCommand(target: ApprovedNetworkTarget): string {
+  const options = [
+    "ssh",
+    "-o BatchMode=yes",
+    `-o HostName=${target.address}`,
+    `-o HostKeyAlias=${target.hostname}`,
+    `-o Port=${target.port}`,
+    "-o ForwardAgent=no",
+    "-o ProxyCommand=none",
+    "-o ProxyJump=none",
+  ];
+  if (!target.credentialsApproved) {
+    options.push("-F none", "-o IdentitiesOnly=yes", "-o IdentityAgent=none", "-o IdentityFile=none");
+  }
+  return options.join(" ");
+}
+
+function gitEnvironment(target?: ApprovedNetworkTarget): Readonly<Record<string, string | undefined>> {
+  const values: Record<string, string | undefined> = {
     GIT_TERMINAL_PROMPT: "0",
     GCM_INTERACTIVE: "Never",
-    GIT_ASKPASS: "true",
-    GIT_SSH_COMMAND: sshCommand,
   };
+  if (target?.protocol === "ssh:") values.GIT_SSH_COMMAND = sshCommand(target);
+  if (target !== undefined && !target.credentialsApproved) {
+    values.GIT_CONFIG_NOSYSTEM = "1";
+    values.GIT_CONFIG_GLOBAL = process.platform === "win32" ? "NUL" : "/dev/null";
+    values.GIT_ASKPASS = undefined;
+    values.SSH_ASKPASS = undefined;
+    values.SSH_ASKPASS_REQUIRE = "never";
+    values.SSH_AUTH_SOCK = undefined;
+    values.SSH_AGENT_PID = undefined;
+  }
+  if (target !== undefined) {
+    // Git proxy configuration can resolve or redirect the destination outside
+    // the pinned target. Acquisition therefore never inherits ambient proxies.
+    for (const name of ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]) {
+      values[name] = undefined;
+    }
+  }
+  return values;
+}
+
+function networkConfig(target?: ApprovedNetworkTarget): readonly string[] {
+  if (target === undefined) return [];
+  const config = ["-c", "http.followRedirects=false", "-c", "remote.origin.proxy=", "-c", "core.gitProxy="];
+  if (target.protocol === "https:") {
+    const address = target.family === 6 ? `[${target.address}]` : target.address;
+    const originUrl = `${target.url.protocol}//${target.url.host}/`;
+    config.push(
+      "-c", `http.${originUrl}.followRedirects=false`,
+      "-c", `http.${originUrl}.proxy=`,
+      "-c", `http.curloptResolve=${target.hostname}:${target.port}:${address}`,
+    );
+    if (!target.credentialsApproved) config.push("-c", "credential.helper=", "-c", "http.extraHeader=");
+    config.push("-c", "http.proxy=");
+  }
+  return config;
 }
 
 async function prepareLocalSource(source: RemoteSource): Promise<RemoteSource> {
@@ -373,12 +419,13 @@ async function queryRemote(
   args: readonly string[],
   signal: AbortSignal,
   env: Readonly<Record<string, string | undefined>>,
+  target: ApprovedNetworkTarget | undefined,
   operation: string,
 ): Promise<RemoteRef[]> {
   const output = await runCapture(
     options.command,
     options.gitExecutable ?? "git",
-    ["-c", "http.followRedirects=false", "ls-remote", ...args],
+    [...networkConfig(target), "ls-remote", ...args],
     scratch,
     signal,
     env,
@@ -396,11 +443,12 @@ async function fetchRef(
   expectedObject: string,
   signal: AbortSignal,
   env: Readonly<Record<string, string | undefined>>,
+  target: ApprovedNetworkTarget | undefined,
 ): Promise<string> {
   await runCommand(
     options.command,
     options.gitExecutable ?? "git",
-    ["-c", "http.followRedirects=false", "fetch", "--no-tags", "--no-recurse-submodules", "--force", "origin", `+${remoteRef}:${SELECTED_REF}`],
+    [...networkConfig(target), "fetch", "--no-tags", "--no-recurse-submodules", "--force", "origin", `+${remoteRef}:${SELECTED_REF}`],
     scratch,
     signal,
     env,
@@ -432,11 +480,12 @@ async function fetchSha(
   sha: string,
   signal: AbortSignal,
   env: Readonly<Record<string, string | undefined>>,
+  target: ApprovedNetworkTarget | undefined,
 ): Promise<string> {
   await runCommand(
     options.command,
     options.gitExecutable ?? "git",
-    ["-c", "http.followRedirects=false", "fetch", "--no-tags", "--no-recurse-submodules", "--force", "origin", sha],
+    [...networkConfig(target), "fetch", "--no-tags", "--no-recurse-submodules", "--force", "origin", sha],
     scratch,
     signal,
     env,
@@ -507,36 +556,37 @@ async function resolveRevision(
   sha: string | undefined,
   signal: AbortSignal,
   env: Readonly<Record<string, string | undefined>>,
+  target: ApprovedNetworkTarget | undefined,
 ): Promise<string> {
-  if (sha !== undefined) return fetchSha(options, scratch, sha, signal, env);
+  if (sha !== undefined) return fetchSha(options, scratch, sha, signal, env, target);
 
   if (ref !== undefined && FULL_SHA.test(ref)) {
-    return fetchSha(options, scratch, ref, signal, env);
+    return fetchSha(options, scratch, ref, signal, env, target);
   }
 
   if (ref === undefined) {
-    const refs = await queryRemote(options, scratch, ["--symref", "origin", "HEAD"], signal, env, "resolveGitSource");
+    const refs = await queryRemote(options, scratch, ["--symref", "origin", "HEAD"], signal, env, target, "resolveGitSource");
     const head = refs.find((entry) => entry.name === "HEAD");
     if (head === undefined) throw safeFailure("SOURCE_RESOLUTION_FAILED", "permanent", "resolveGitSource", "Git remote HEAD is unavailable");
-    return fetchRef(options, scratch, "HEAD", head.object, signal, env);
+    return fetchRef(options, scratch, "HEAD", head.object, signal, env, target);
   }
 
   if (ref.startsWith("refs/heads/") || ref.startsWith("refs/tags/")) {
-    const refs = await queryRemote(options, scratch, ["--refs", "origin", ref], signal, env, "resolveGitSource");
+    const refs = await queryRemote(options, scratch, ["--refs", "origin", ref], signal, env, target, "resolveGitSource");
     const match = refs.find((entry) => entry.name === ref);
     if (match === undefined) throw safeFailure("SOURCE_RESOLUTION_FAILED", "permanent", "resolveGitSource", "Git ref is missing");
-    return fetchRef(options, scratch, match.name, match.object, signal, env);
+    return fetchRef(options, scratch, match.name, match.object, signal, env, target);
   }
 
   const branchName = `refs/heads/${ref}`;
   const tagName = `refs/tags/${ref}`;
-  const refs = await queryRemote(options, scratch, ["--refs", "origin", branchName, tagName], signal, env, "resolveGitSource");
+  const refs = await queryRemote(options, scratch, ["--refs", "origin", branchName, tagName], signal, env, target, "resolveGitSource");
   const matches = refs.filter((entry) => entry.name === branchName || entry.name === tagName);
   if (matches.length === 0) throw safeFailure("SOURCE_RESOLUTION_FAILED", "permanent", "resolveGitSource", "Git ref is missing");
   if (matches.length > 1) throw safeFailure("SOURCE_RESOLUTION_FAILED", "permanent", "resolveGitSource", "Git ref is ambiguous between a branch and tag");
   const match = matches[0];
   if (match === undefined) throw safeFailure("SOURCE_RESOLUTION_FAILED", "permanent", "resolveGitSource", "Git ref is missing");
-  return fetchRef(options, scratch, match.name, match.object, signal, env);
+  return fetchRef(options, scratch, match.name, match.object, signal, env, target);
 }
 
 function treePathFromRecord(record: string): Readonly<{ mode: string; path: string }> | undefined {
@@ -777,18 +827,33 @@ async function acquire(
   marketplace: boolean,
 ): Promise<ResolvedMarketplaceSource | ResolvedPluginSource> {
   const limits = effectiveLimits(options.limits);
-  const env = gitEnvironment();
   const remote = await prepareLocalSource(
     marketplace
       ? remoteForMarketplace(source as MarketplaceSource)
       : remoteForPlugin(source as Extract<PluginSource, { kind: "git" | "git-subdir" }>),
   );
+  let target: ApprovedNetworkTarget | undefined;
+  if (!remote.local) {
+    try {
+      const protocol = remote.url.startsWith("https:") ? "https:" : "ssh:";
+      target = await options.egress.authorize(remote.url, protocol);
+    } catch (error) {
+      const resolution = error !== null && typeof error === "object" && "kind" in error && error.kind === "resolution";
+      throw safeFailure(
+        "SOURCE_RESOLUTION_FAILED",
+        resolution ? "transient" : "security",
+        "resolveGitSource",
+        resolution ? "Git destination could not be resolved" : "Git destination is not permitted",
+      );
+    }
+  }
+  const env = gitEnvironment(target);
   const normalizedSubdirectory = subdirectory === undefined ? undefined : validateSubdirectory(subdirectory);
   return withScratch(signal, sink.workRoot ?? "", async (scratch) => {
     await initializeScratch(options, scratch, signal, env);
     await addRemote(options, scratch, remote, signal, env);
     await verifyEffectiveRemote(options, scratch, remote, signal, env);
-    const revision = await resolveRevision(options, scratch, ref, sha, signal, env);
+    const revision = await resolveRevision(options, scratch, ref, sha, signal, env, target);
     if (normalizedSubdirectory !== undefined) await ensureSubdirectory(options, scratch, revision, normalizedSubdirectory, signal, env);
     await inspectTree(options, scratch, revision, normalizedSubdirectory, signal, env, limits);
     await archiveTree(options, scratch, revision, normalizedSubdirectory, sink, signal, env, limits);
@@ -803,6 +868,7 @@ export function createGitSourceAcquirer(options: GitSourceAcquirerOptions): GitS
   if (typeof options.command?.run !== "function") throw new TypeError("Git source acquirer requires a command runner");
   if (typeof options.archive?.read !== "function") throw new TypeError("Git source acquirer requires a tar reader");
   if (typeof options.sha256 !== "function") throw new TypeError("Git source acquirer requires SHA-256");
+  if (options.egress === null || typeof options.egress?.authorize !== "function") throw new TypeError("Git source acquirer requires an egress policy");
   const sha256 = options.sha256;
 
   return {

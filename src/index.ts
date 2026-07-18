@@ -744,6 +744,13 @@ export type {
 } from "./application/source-materialization.js";
 
 export { createNodeSourceMaterializers } from "./infrastructure/source/create-source-materializers.js";
+export type {
+  ApprovedNetworkTarget,
+  NetworkAddress,
+  NetworkEgressPolicy,
+  NetworkEgressPolicyOptions,
+  NetworkLookup,
+} from "./infrastructure/network/network-egress-policy.js";
 export { createNodeContentStore } from "./infrastructure/filesystem/create-content-store.js";
 export { verifyMaterializedContent } from "./infrastructure/filesystem/secure-content-writer.js";
 export type { NodeSourceMaterializerOptions } from "./infrastructure/source/create-source-materializers.js";
