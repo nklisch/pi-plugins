@@ -10,8 +10,8 @@ import { runChecked, waitForCondition } from "../harness/process.js";
 import { assertAllSqliteIntegrity } from "../harness/state-inspector.js";
 
 let sandbox: CleanE2ESandbox | undefined;
-afterEach(async () => {
-  if (sandbox !== undefined) await cleanupSandbox(sandbox);
+afterEach(async (context) => {
+  if (sandbox !== undefined) await cleanupSandbox(sandbox, context);
   sandbox = undefined;
 });
 
@@ -27,7 +27,7 @@ async function renameMarketplace(sandbox: CleanE2ESandbox, working: string, bare
 }
 
 describe("packed multiprocess contention, network loss, and clock regression", () => {
-  it.fails("serializes same registration authority and lets distinct registrations converge [idea-distinct-marketplace-add-contention]", async () => {
+  it("serializes same registration authority and lets distinct registrations converge [idea-distinct-marketplace-add-contention]", async () => {
     sandbox = await createCleanE2ESandbox("chaos-multiprocess-contention");
     await installPackedProduct(sandbox);
     const first = await createGitFixtureRepository(sandbox, "marketplace");

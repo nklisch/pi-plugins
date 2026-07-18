@@ -50,6 +50,10 @@ export class PiPtyProcess {
       label: `Pi PTY ${options.sandbox.id} ${columns}x${rows}`,
     });
     const pty = new PiPtyProcess(child, columns, rows);
+    options.sandbox.diagnostics.push({
+      name: `pty-${options.sandbox.diagnostics.length + 1}`,
+      capture: () => ({ columns, rows, raw: pty.rawOutput(), semantic: pty.semanticOutput() }),
+    });
     options.sandbox.cleanups.push(async () => { await pty.shutdown(); });
     await waitForCondition(
       "Pi PTY startup",

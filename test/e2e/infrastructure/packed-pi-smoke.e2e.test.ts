@@ -14,8 +14,8 @@ import { runCommand, runChecked } from "../harness/process.js";
 import { assertNoConsumerCheckoutResolution, assertAllSqliteIntegrity, fileInventory } from "../harness/state-inspector.js";
 
 let sandbox: CleanE2ESandbox | undefined;
-afterEach(async () => {
-  if (sandbox !== undefined) await cleanupSandbox(sandbox);
+afterEach(async (context) => {
+  if (sandbox !== undefined) await cleanupSandbox(sandbox, context);
   sandbox = undefined;
 });
 

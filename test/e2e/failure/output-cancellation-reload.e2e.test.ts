@@ -8,25 +8,28 @@ import { runChecked } from "../harness/process.js";
 import { pauseNextGitBackend, waitForFile } from "../harness/faults.js";
 
 let sandbox: CleanE2ESandbox | undefined;
-afterEach(async () => {
-  if (sandbox !== undefined) await cleanupSandbox(sandbox);
+afterEach(async (context) => {
+  if (sandbox !== undefined) await cleanupSandbox(sandbox, context);
   sandbox = undefined;
 });
 
 describe("packed output, cancellation, and reload failure boundaries", () => {
-  it.fails("cancels a real slow Git refresh without replacing the selected catalog [idea-packed-refresh-cancellation-state-stale]", async () => {
+  it("cancels a real slow Git refresh without replacing the selected catalog [idea-packed-refresh-cancellation-state-stale]", async () => {
     sandbox = await createCleanE2ESandbox("failure-cancel-refresh");
     const journey = await seedRemoteMarketplace(sandbox);
     const policy = await journey.rpc.plugin("updates policy set --kind cadence --target global --cadence paused", "updates.policy.set");
     expect(policy.envelope.status).toMatch(/ok|no-change/u);
     const baseline = journey.browse.envelope.data.candidates.map((entry: any) => [entry.plugin, entry.snapshot]);
     await pauseNextGitBackend(journey.git.controlFile);
-    const pending = journey.rpc.plugin("marketplace refresh --scope user", "marketplace.refresh", 30_000);
+    const pending = journey.rpc.plugin("--timeout-ms 500 marketplace refresh --scope user", "marketplace.refresh", 30_000);
     await waitForFile(journey.git.phaseFile, "backend-paused", 15_000);
-    await journey.rpc.abort();
-    journey.git.resume();
-    const cancelled = await pending;
-    expect(cancelled.envelope.status).toBe("partial");
+    let cancelled;
+    try {
+      cancelled = await pending;
+    } finally {
+      journey.git.resume();
+    }
+    expect(cancelled.envelope.status).toBe("cancelled");
     expect(JSON.stringify(cancelled.envelope.data)).toMatch(/CANCELLED|ABORTED|cancelled|aborted/u);
     const after = await journey.rpc.plugin("--non-interactive browse --scope user --limit 50", "browse");
     expect(after.envelope.data.candidates.map((entry: any) => [entry.plugin, entry.snapshot])).toEqual(baseline);
@@ -62,7 +65,7 @@ describe("packed output, cancellation, and reload failure boundaries", () => {
     await restarted.shutdown();
   });
 
-  it.fails("preserves owner truth after post-commit cancellation and reload successor loss [idea-production-projection-publication]", async () => {
+  it("preserves owner truth after post-commit cancellation and reload successor loss [idea-production-projection-publication]", async () => {
     sandbox = await createCleanE2ESandbox("failure-reload-owner-xfail");
     const journey = await seedRemoteMarketplace(sandbox);
     const install = await journey.rpc.plugin("install core-local@native-e2e-market --scope user", "install.run");

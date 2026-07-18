@@ -19,6 +19,7 @@ export type GitService = Readonly<{
   requestFile: string;
   controlFile: string;
   requestCount(): Promise<number>;
+  requests(): Promise<readonly Readonly<{ method: string; path: string; query: string; protocol: string }>[]>;
   pause(): void;
   resume(): void;
   kill(): Promise<void>;
@@ -53,6 +54,23 @@ export async function createGitFixtureRepository(
   await runChecked(sandbox.capabilities.git, ["remote", "add", "origin", bare], { cwd: working, env: sandbox.env });
   await runChecked(sandbox.capabilities.git, ["--git-dir", bare, "update-server-info"], { env: sandbox.env });
   return Object.freeze({ working, bare, name });
+}
+
+export async function publishFixtureConfigurationFreeRevision(
+  sandbox: CleanE2ESandbox,
+  repository: GitFixtureRepository,
+  version: string,
+): Promise<string> {
+  const manifestPath = join(repository.working, "plugins", "core-local", ".claude-plugin", "plugin.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+  manifest.version = version;
+  delete manifest.userConfig;
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  await runChecked(sandbox.capabilities.git, ["add", "."], { cwd: repository.working, env: sandbox.env });
+  await runChecked(sandbox.capabilities.git, ["commit", "--quiet", "-m", `fixture configuration-free ${version}`], { cwd: repository.working, env: sandbox.env });
+  await runChecked(sandbox.capabilities.git, ["push", "--quiet", "origin", "main"], { cwd: repository.working, env: sandbox.env });
+  await runChecked(sandbox.capabilities.git, ["--git-dir", repository.bare, "update-server-info"], { env: sandbox.env });
+  return (await runChecked(sandbox.capabilities.git, ["rev-parse", "HEAD"], { cwd: repository.working, env: sandbox.env })).stdout.trim();
 }
 
 export async function publishFixtureRevision(
@@ -127,6 +145,13 @@ export async function startGitService(
     async requestCount(): Promise<number> {
       const text = await readFile(requestFile, "utf8");
       return text.split("\n").filter(Boolean).length;
+    },
+    async requests() {
+      const text = await readFile(requestFile, "utf8");
+      return Object.freeze(text.split("\n").filter(Boolean).map((line) => {
+        const request = JSON.parse(line) as { method: string; path: string; query: string; protocol: string };
+        return Object.freeze({ method: request.method, path: request.path, query: request.query, protocol: request.protocol });
+      }));
     },
     pause(): void { child.signal("SIGSTOP"); },
     resume(): void { child.signal("SIGCONT"); },

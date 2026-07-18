@@ -10,13 +10,13 @@ import { runChecked } from "../harness/process.js";
 import { assertAllSqliteIntegrity, fileInventory, mutateCurrentPointer, publicStateDigest } from "../harness/state-inspector.js";
 
 let sandbox: CleanE2ESandbox | undefined;
-afterEach(async () => {
-  if (sandbox !== undefined) await cleanupSandbox(sandbox);
+afterEach(async (context) => {
+  if (sandbox !== undefined) await cleanupSandbox(sandbox, context);
   sandbox = undefined;
 });
 
 describe("packed corruption and stale authority failures", () => {
-  it.fails("diagnoses a digest-corrupt pointer without rewriting it and keeps project scope readable [idea-packed-corruption-startup-diagnosis]", async () => {
+  it("diagnoses a digest-corrupt pointer without rewriting it and keeps project scope readable [idea-packed-corruption-startup-diagnosis]", async () => {
     sandbox = await createCleanE2ESandbox("failure-corrupt-pointer");
     const initial = await startPackedRpc(sandbox);
     await initial.shutdown();
@@ -73,7 +73,7 @@ describe("packed corruption and stale authority failures", () => {
     await journey.rpc.shutdown();
   });
 
-  it.fails("rebuilds missing projection and isolates immutable installed-content tamper [idea-production-projection-publication]", async () => {
+  it("rebuilds missing projection and isolates immutable installed-content tamper [idea-production-projection-publication]", async () => {
     sandbox = await createCleanE2ESandbox("failure-installed-corruption-xfail");
     const journey = await seedRemoteMarketplace(sandbox);
     const install = await journey.rpc.plugin("install core-local@native-e2e-market --scope user", "install.run");
@@ -90,7 +90,8 @@ describe("packed corruption and stale authority failures", () => {
     expect(resources.data.commands).toContainEqual(expect.objectContaining({ name: "skill:core-local" }));
     await rebuilt.shutdown();
 
-    const metadata = (await fileInventory(sandbox.agentDir)).find((entry) => /stores\/plugins\/v1\/.+\/metadata\.json$/u.test(entry.path));
+    const afterRebuildInventory = await fileInventory(sandbox.agentDir);
+    const metadata = afterRebuildInventory.find((entry) => /stores\/v1\/plugins\/.+\/metadata\.json$/u.test(entry.path));
     expect(metadata).toBeDefined();
     const metadataPath = join(sandbox.agentDir, metadata!.path);
     await runChecked(sandbox.capabilities.chmod, ["u+w", metadataPath]);

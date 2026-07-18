@@ -7,8 +7,8 @@ import { mutateOpaqueToken, mutationCorpus, type MutationVector } from "../harne
 import { publicStateDigest } from "../harness/state-inspector.js";
 
 let sandbox: CleanE2ESandbox | undefined;
-afterEach(async () => {
-  if (sandbox !== undefined) await cleanupSandbox(sandbox);
+afterEach(async (context) => {
+  if (sandbox !== undefined) await cleanupSandbox(sandbox, context);
   sandbox = undefined;
 });
 

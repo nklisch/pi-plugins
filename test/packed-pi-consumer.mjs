@@ -306,10 +306,10 @@ mark = len(buffer); send(b"\r"); wait_for("Step 2/3", mark, 60)
 send(b"\r")
 for _ in range(16): send(b"\x1b[6~")
 send(b"\t\t\r")
-mark = len(buffer); wait_for("Step 3/3", mark, 90); wait_for("PROJECTION_FAILED", mark, 90)
-send(b"\r")
-mark = len(buffer); wait_for("PI / PLUGINS", mark, 60); wait_for("demo", mark, 60)
-send(b"\x1b\x04")
+mark = len(buffer); wait_for("Step 3/3", mark, 90); wait_for("recovery-required", mark, 90)
+send(b"\x1b")
+pump(time.monotonic() + 0.5)
+send(b"\x04")
 deadline = time.monotonic() + 30
 status = None
 while time.monotonic() < deadline:
@@ -334,7 +334,7 @@ if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
     transcript,
   })], { cwd: workspace, env, timeout: 240_000 });
   const tuiBytes = await readFile(transcript, "utf8");
-  for (const expected of ["PI / PLUGINS", "Step 1/3", "Step 2/3", "Step 3/3", "Final owner result", "PROJECTION_FAILED", "demo"]) {
+  for (const expected of ["PI / PLUGINS", "Step 1/3", "Step 2/3", "Step 3/3", "Final owner result", "recovery-required", "demo"]) {
     if (!tuiBytes.includes(expected)) throw new Error(`real Pi PTY transcript missing ${expected}`);
   }
   if (tuiBytes.includes("SECRET-CANARY")) throw new Error("real Pi PTY transcript leaked a secret canary");

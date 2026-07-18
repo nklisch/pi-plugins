@@ -1,10 +1,12 @@
 import { access, cp, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { onTestFailed } from "vitest";
 import { constants as fsConstants } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   E2E_CHECKOUT_ROOT,
   E2E_PI_VERSION,
+  E2E_SECRET_CANARY,
   E2E_TIMEOUTS,
 } from "./constants.js";
 import { runChecked } from "./process.js";
@@ -53,6 +55,10 @@ export type CleanE2ESandbox = {
   readonly env: NodeJS.ProcessEnv;
   readonly capabilities: E2ECapabilities;
   readonly cleanups: Array<() => Promise<void>>;
+  readonly diagnostics: Array<Readonly<{ name: string; capture(): unknown }>>;
+  testFailed?: boolean;
+  failureEvidence?: Readonly<{ inventory: readonly string[]; logs: Readonly<Record<string, string>> }>;
+  cleanupFailures?: readonly unknown[];
   installedList?: string;
 };
 
@@ -101,7 +107,7 @@ async function faketimeCapability(): Promise<E2ECapabilities["libfaketime"]> {
 
 export async function diagnoseE2ECapabilities(): Promise<E2ECapabilities> {
   const [npm, git, shell, script, stty, tar, copy, chmod, libfaketime] = await Promise.all([
-    executable("npm"), executable("git"), executable("sh"), executable("script", false),
+    executable("npm"), executable("git"), executable("bash"), executable("script", false),
     executable("stty", false), executable("tar"), executable("cp"), executable("chmod"),
     faketimeCapability(),
   ]);
@@ -271,13 +277,30 @@ export async function createCleanE2ESandbox(id: string): Promise<CleanE2ESandbox
     linkTool(base.bin, "npm", artifact.capabilities.npm),
     linkTool(base.bin, "git", artifact.capabilities.git),
     linkTool(base.bin, "sh", artifact.capabilities.shell),
+    linkTool(base.bin, "bash", artifact.capabilities.shell),
     linkTool(base.bin, "script", artifact.capabilities.script),
     linkTool(base.bin, "stty", artifact.capabilities.stty),
   ]);
   await writeFile(join(root, "npmrc"), "offline=true\nignore-scripts=true\naudit=false\nfund=false\n");
-  await writeFile(join(root, "gitconfig"), "[user]\n\tname = Pi Plugin Host E2E\n\temail = e2e@example.invalid\n[init]\n\tdefaultBranch = main\n");
-  const sandboxWithoutEnvironment = { ...base, cleanups: [] as Array<() => Promise<void>> };
+  await writeFile(join(root, "gitconfig"), "[user]\n\tname = Pi Plugin Host E2E\n\temail = e2e@example.invalid\n[init]\n\tdefaultBranch = main\n[protocol]\n\tversion = 2\n");
+  const sandboxWithoutEnvironment = {
+    ...base,
+    cleanups: [] as Array<() => Promise<void>>,
+    diagnostics: [] as Array<Readonly<{ name: string; capture(): unknown }>>,
+  };
   const sandbox: CleanE2ESandbox = { ...sandboxWithoutEnvironment, env: cleanEnvironment(sandboxWithoutEnvironment) };
+  onTestFailed(async ({ task }) => {
+    sandbox.testFailed = true;
+    // Vitest reports the test outcome after afterEach has removed the disposable
+    // root. cleanupSandbox snapshots bounded, redacted evidence beforehand so
+    // this late hook can still persist useful diagnostics outside that root.
+    const errors = task.result?.errors ?? sandbox.cleanupFailures ?? [];
+    await retainFailureArtifacts(
+      sandbox,
+      errors,
+      sandbox.failureEvidence ?? { inventory: [], logs: {} },
+    );
+  });
   return sandbox;
 }
 
@@ -306,12 +329,112 @@ async function makeWritable(path: string, chmod: string): Promise<void> {
   await runChecked(chmod, ["-R", "u+w", path], { timeoutMs: E2E_TIMEOUTS.shutdown }).catch(() => undefined);
 }
 
-export async function cleanupSandbox(sandbox: CleanE2ESandbox): Promise<void> {
+function failedTestContext(context: unknown): boolean {
+  if (context === null || typeof context !== "object") return false;
+  const task = (context as { task?: { result?: { state?: string; errors?: readonly unknown[] } } }).task;
+  return task?.result?.state === "fail" || (task?.result?.errors?.length ?? 0) > 0;
+}
+
+function redactedText(value: string, sandbox: CleanE2ESandbox): string {
+  if (value.includes(E2E_SECRET_CANARY)) throw new Error("secret canary reached E2E diagnostics");
+  let safe = value;
+  for (const [path, replacement] of [
+    [sandbox.root, "[sandbox]"],
+    [E2E_CHECKOUT_ROOT, "[checkout]"],
+  ] as const) safe = safe.replaceAll(path, replacement);
+  return safe.length <= 65_536 ? safe : `${safe.slice(0, 65_536)}\n[truncated]`;
+}
+
+function redactDiagnostic(value: unknown, sandbox: CleanE2ESandbox): unknown {
+  if (typeof value === "string") return redactedText(value, sandbox);
+  if (value === null || typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) return value.slice(0, 512).map((entry) => redactDiagnostic(entry, sandbox));
+  if (typeof value === "object") {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).slice(0, 512).map(([key, entry]) => [key, redactDiagnostic(entry, sandbox)]));
+  }
+  return String(value);
+}
+
+async function sandboxEvidence(sandbox: CleanE2ESandbox): Promise<Readonly<{ inventory: readonly string[]; logs: Readonly<Record<string, string>> }>> {
+  const inventory: string[] = [];
+  const logs: Record<string, string> = {};
+  const scannedRoots = [sandbox.agentDir, sandbox.home, sandbox.project, sandbox.sessionDir, sandbox.logs];
+  async function visit(root: string, path: string): Promise<void> {
+    for (const entry of await readdir(path, { withFileTypes: true }).catch(() => [])) {
+      if (inventory.length >= 4_096) return;
+      const child = join(path, entry.name);
+      const relativePath = relative(root, child);
+      if (entry.isDirectory()) await visit(root, child);
+      else if (entry.isFile()) {
+        const info = await stat(child);
+        inventory.push(`${relative(sandbox.root, child)}\t${info.size}`);
+        if (info.size <= 1_048_576) {
+          const bytes = await readFile(child);
+          if (bytes.includes(Buffer.from(E2E_SECRET_CANARY))) throw new Error(`secret canary reached owned file ${relative(sandbox.root, child)}`);
+          if (root === sandbox.logs && info.size <= 262_144) logs[relativePath] = redactedText(bytes.toString("utf8"), sandbox);
+        }
+      }
+    }
+  }
+  for (const root of scannedRoots) await visit(root, root);
+  inventory.sort();
+  return Object.freeze({ inventory: Object.freeze(inventory), logs: Object.freeze(logs) });
+}
+
+async function retainFailureArtifacts(
+  sandbox: CleanE2ESandbox,
+  failures: readonly unknown[],
+  evidence: Awaited<ReturnType<typeof sandboxEvidence>>,
+): Promise<void> {
+  await rm(sandbox.artifacts, { recursive: true, force: true });
+  await mkdir(sandbox.artifacts, { recursive: true });
+  const diagnostics = sandbox.diagnostics.map(({ name, capture }) => {
+    try { return { name, value: redactDiagnostic(capture(), sandbox) }; }
+    catch (error) { return { name, captureError: error instanceof Error ? error.name : "unknown" }; }
+  });
+  const summary = {
+    schemaVersion: 1,
+    testId: sandbox.id,
+    failures: failures.map((error) => {
+      if (error instanceof Error) return { name: error.name, message: redactedText(error.message, sandbox) };
+      if (error !== null && typeof error === "object") {
+        const value = error as { name?: unknown; message?: unknown };
+        return {
+          name: typeof value.name === "string" ? redactedText(value.name, sandbox) : "unknown",
+          ...(typeof value.message === "string" ? { message: redactedText(value.message, sandbox) } : {}),
+        };
+      }
+      return { name: "unknown" };
+    }),
+    inventory: evidence.inventory,
+    logs: evidence.logs,
+    diagnostics,
+  };
+  await writeFile(join(sandbox.artifacts, "failure.json"), `${JSON.stringify(summary, null, 2)}\n`, { mode: 0o600 });
+}
+
+export async function cleanupSandbox(sandbox: CleanE2ESandbox, testContext?: unknown): Promise<void> {
   const failures: unknown[] = [];
   for (const cleanup of [...sandbox.cleanups].reverse()) {
     try { await cleanup(); } catch (error) { failures.push(error); }
   }
   try { await assertAllSqliteIntegrity(sandbox.agentDir); } catch (error) { failures.push(error); }
+  let evidence: Awaited<ReturnType<typeof sandboxEvidence>> = { inventory: [], logs: {} };
+  try { evidence = await sandboxEvidence(sandbox); } catch (error) { failures.push(error); }
+  for (const diagnostic of sandbox.diagnostics) {
+    try {
+      const serialized = JSON.stringify(diagnostic.capture());
+      if (serialized.includes(E2E_SECRET_CANARY)) throw new Error(`secret canary reached ${diagnostic.name} diagnostics`);
+    } catch (error) { failures.push(error); }
+  }
+  sandbox.failureEvidence = evidence;
+  sandbox.cleanupFailures = failures;
+  const failed = sandbox.testFailed === true || failedTestContext(testContext) || failures.length > 0;
+  if (failed) {
+    try { await retainFailureArtifacts(sandbox, failures, evidence); } catch (error) { failures.push(error); }
+  } else {
+    await rm(sandbox.artifacts, { recursive: true, force: true });
+  }
   if (process.env.PI_PLUGIN_HOST_E2E_KEEP === "1") {
     console.error(`PI Plugin Host E2E sandbox retained: ${sandbox.root}`);
   } else {

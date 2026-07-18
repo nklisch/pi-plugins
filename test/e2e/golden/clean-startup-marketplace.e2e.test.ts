@@ -4,8 +4,8 @@ import { cleanupSandbox, createCleanE2ESandbox, type CleanE2ESandbox } from "../
 import { candidate, seedRemoteMarketplace, startPackedRpc } from "../harness/journey.js";
 
 let sandbox: CleanE2ESandbox | undefined;
-afterEach(async () => {
-  if (sandbox !== undefined) await cleanupSandbox(sandbox);
+afterEach(async (context) => {
+  if (sandbox !== undefined) await cleanupSandbox(sandbox, context);
   sandbox = undefined;
 });
 
@@ -49,15 +49,18 @@ describe("packed golden startup, marketplace, browse, and inspection", () => {
     const secondRead = await journey.rpc.plugin("--non-interactive browse --scope user --limit 50", "browse");
     expect(candidate(secondRead, plugins[0]!).id).toBe(core.id);
     expect(candidate(secondRead, plugins[0]!).snapshot).toBe(core.snapshot);
+    const gitRequests = await journey.git.requests();
+    expect(gitRequests).toContainEqual(expect.objectContaining({
+      method: "GET",
+      query: expect.stringContaining("service=git-upload-pack"),
+      protocol: "version=2",
+    }));
     expect(JSON.stringify(secondRead)).not.toContain(E2E_CHECKOUT_ROOT);
     await journey.rpc.shutdown();
   });
 
-  // idea-fix-packed-candidate-inspection: packed candidate detail currently
-  // collapses to CONTROL_INTERNAL after successful browse. Keep the exact
-  // expected detail and unavailable-sibling assertions executable as an xfail.
-  it.fails("exposes exact candidate detail and unavailable siblings [idea-fix-packed-candidate-inspection]", async () => {
-    sandbox = await createCleanE2ESandbox("golden-candidate-inspection-xfail");
+  it("exposes exact candidate detail and unavailable siblings", async () => {
+    sandbox = await createCleanE2ESandbox("golden-candidate-inspection");
     const journey = await seedRemoteMarketplace(sandbox);
     const detail = await journey.rpc.plugin(`--non-interactive show ${plugins[0]} --scope user`, "inspection.show");
     expect(detail.envelope).toMatchObject({
@@ -74,10 +77,20 @@ describe("packed golden startup, marketplace, browse, and inspection", () => {
         },
       },
     });
-    for (const plugin of plugins.slice(2)) {
+    const unavailable = new Map([
+      ["secret-required@native-e2e-market", { compatibility: "activatable", diagnostic: "SECRET_CUSTODY_UNAVAILABLE" }],
+      ["mcp-required@native-e2e-market", { compatibility: "incompatible", capability: "pi.mcp.runtime" }],
+      ["subagent-required@native-e2e-market", { compatibility: "incompatible", capability: "pi.subagents.lifecycle-interception" }],
+      ["incompatible@native-e2e-market", { compatibility: "incompatible", diagnostic: "COMPATIBILITY_INCOMPATIBLE" }],
+    ]);
+    for (const [plugin, expected] of unavailable) {
       const report = await journey.rpc.plugin(`--non-interactive show ${plugin} --scope user`, "inspection.show");
-      expect(report.envelope).toMatchObject({ status: "ok", data: { kind: "found" } });
-      expect(report.envelope.data.detail.compatibility.status).not.toBe("activatable");
+      expect(report.envelope, plugin).toMatchObject({ status: "ok", data: { kind: "found", detail: { compatibility: { status: expected.compatibility } } } });
+      if ("diagnostic" in expected) {
+        expect(report.envelope.data.detail.diagnostics.map((item: any) => item.code), plugin).toContain(expected.diagnostic);
+      } else {
+        expect(report.envelope.data.detail.compatibility.requirements, plugin).toContainEqual(expect.objectContaining({ capability: expect.objectContaining({ text: expected.capability }), status: "unavailable" }));
+      }
     }
     await journey.rpc.shutdown();
   });

@@ -1,6 +1,6 @@
 {
   "name": "incompatible",
-  "description": "Declares an unsupported agent runtime",
+  "description": "Unsupported runtime fixture",
   "version": "1.0.0",
   "agents": "./agents"
 }

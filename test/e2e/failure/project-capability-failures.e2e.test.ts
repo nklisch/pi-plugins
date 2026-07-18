@@ -9,8 +9,8 @@ import { runChecked } from "../harness/process.js";
 import { scanForbiddenValues } from "../harness/state-inspector.js";
 
 let sandbox: CleanE2ESandbox | undefined;
-afterEach(async () => {
-  if (sandbox !== undefined) await cleanupSandbox(sandbox);
+afterEach(async (context) => {
+  if (sandbox !== undefined) await cleanupSandbox(sandbox, context);
   sandbox = undefined;
 });
 
@@ -59,21 +59,34 @@ describe("packed project trust, foreign state, and unavailable capabilities", ()
     const marketplaces = await rpc.plugin("--non-interactive marketplace list --scope user", "marketplace.list");
     expect(marketplaces.envelope.data.registrations).toEqual([]);
     await rpc.shutdown();
+    // Remove deliberate hostile source fixtures after proving byte preservation;
+    // any canary that remains elsewhere is then an actual custody leak.
+    await Promise.all([
+      rm(join(sandbox.home, ".claude"), { recursive: true, force: true }),
+      rm(join(sandbox.home, ".codex"), { recursive: true, force: true }),
+    ]);
   });
 
-  it.fails("reports exact secret/MCP/subagent/incompatible candidate diagnostics [idea-fix-packed-candidate-inspection]", async () => {
+  it("reports exact secret/MCP/subagent/incompatible candidate diagnostics", async () => {
     sandbox = await createCleanE2ESandbox("failure-capability-diagnostics-xfail");
     const journey = await seedRemoteMarketplace(sandbox);
-    const expected = new Map([
-      ["secret-required", "SECRET_CUSTODY_UNAVAILABLE"],
-      ["mcp-required", "MCP"],
-      ["subagent-required", "SUBAGENT"],
-      ["incompatible", "INCOMPATIBLE"],
-    ]);
-    for (const [name, code] of expected) {
-      const detail = await journey.rpc.plugin(`--non-interactive show ${name}@native-e2e-market --scope user`, "inspection.show");
-      expect(detail.envelope.status).toBe("ok");
-      expect(JSON.stringify(detail.envelope.data)).toContain(code);
+    const expected = [
+      { name: "secret-required", diagnostic: "SECRET_CUSTODY_UNAVAILABLE" },
+      { name: "mcp-required", diagnostic: "RUNTIME_REQUIREMENT_UNAVAILABLE", capability: "pi.mcp.runtime" },
+      { name: "subagent-required", diagnostic: "RUNTIME_REQUIREMENT_UNAVAILABLE", capability: "pi.subagents.lifecycle-interception" },
+      { name: "incompatible", diagnostic: "COMPATIBILITY_INCOMPATIBLE" },
+    ] as const;
+    for (const expectation of expected) {
+      const report = await journey.rpc.plugin(`--non-interactive show ${expectation.name}@native-e2e-market --scope user`, "inspection.show");
+      expect(report.envelope.status).toBe("ok");
+      const detail = report.envelope.data.detail;
+      expect(detail.diagnostics.map((diagnostic: any) => diagnostic.code)).toContain(expectation.diagnostic);
+      if ("capability" in expectation) {
+        expect(detail.compatibility.requirements).toContainEqual(expect.objectContaining({
+          capability: expect.objectContaining({ text: expectation.capability }),
+          status: "unavailable",
+        }));
+      }
     }
     const installed = await journey.rpc.plugin("--non-interactive list --scope user", "inspection.list");
     expect(installed.envelope.data.items).toEqual([]);

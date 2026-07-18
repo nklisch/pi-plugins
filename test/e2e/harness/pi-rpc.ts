@@ -113,6 +113,10 @@ export class PiRpcProcess {
       label: `Pi RPC ${options.sandbox.id}`,
     });
     const rpc = new PiRpcProcess(child, options.sandbox, options.ui ?? defaultUi);
+    options.sandbox.diagnostics.push({
+      name: `rpc-${options.sandbox.diagnostics.length + 1}`,
+      capture: () => ({ output: child.output(), events: rpc.events }),
+    });
     options.sandbox.cleanups.push(async () => { await rpc.shutdown(); });
     const commands = await rpc.request({ type: "get_commands" }, E2E_TIMEOUTS.startup);
     const extension = await realpath(options.sandbox.extensionPath);
@@ -209,7 +213,8 @@ export class PiRpcProcess {
         const observed = leaf === null || leaf === undefined
           ? await this.getEntries()
           : await this.request({ type: "get_entries", since: leaf });
-        const reports = controlReports(observed).filter((report) => expectedCommand === undefined || report.envelope.command.id === expectedCommand);
+        const allReports = controlReports(observed);
+        const reports = allReports.filter((report) => expectedCommand === undefined || report.envelope.command.id === expectedCommand);
         if (reports.length > 1) throw new Error(`Pi emitted duplicate control reports for ${args}: ${JSON.stringify(reports)}`);
         return reports[0];
       },

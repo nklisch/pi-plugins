@@ -1,6 +1,6 @@
 {
   "name": "mcp-required",
-  "description": "Requires a production MCP runtime",
+  "description": "MCP capability fixture",
   "version": "1.0.0",
   "mcpServers": {
     "fixture": {

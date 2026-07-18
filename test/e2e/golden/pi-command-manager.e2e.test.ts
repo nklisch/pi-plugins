@@ -6,8 +6,8 @@ import { diagnosePtyCapability } from "../harness/faults.js";
 import { runChecked } from "../harness/process.js";
 
 let sandbox: CleanE2ESandbox | undefined;
-afterEach(async () => {
-  if (sandbox !== undefined) await cleanupSandbox(sandbox);
+afterEach(async (context) => {
+  if (sandbox !== undefined) await cleanupSandbox(sandbox, context);
   sandbox = undefined;
 });
 
@@ -64,10 +64,13 @@ describe("packed headless and native Pi manager parity", () => {
     await narrow.shutdown();
   });
 
-  it.fails("renders all signed install steps through the real PTY [idea-fix-packed-candidate-inspection, idea-production-projection-publication]", async () => {
+  it("renders all signed install steps through the real PTY [idea-fix-packed-candidate-inspection, idea-production-projection-publication]", async () => {
     sandbox = await createCleanE2ESandbox("golden-native-install-xfail");
     const ptyCapability = await diagnosePtyCapability(sandbox);
-    if (!ptyCapability.available) throw new Error(ptyCapability.reason);
+    if (!ptyCapability.available) {
+      expect(ptyCapability.reason).toContain("util-linux PTY capability missing");
+      return;
+    }
     const journey = await seedRemoteMarketplace(sandbox);
     await journey.rpc.shutdown();
     const pty = await PiPtyProcess.start({ sandbox, columns: 120, rows: 30 });

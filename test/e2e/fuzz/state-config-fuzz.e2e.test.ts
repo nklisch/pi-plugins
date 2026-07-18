@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { cleanupSandbox, createCleanE2ESandbox, installPackedProduct, type CleanE2ESandbox } from "../harness/environment.js";
 import { startPackedRpc } from "../harness/journey.js";
@@ -13,8 +13,8 @@ import {
 import { E2E_SECRET_CANARY } from "../harness/constants.js";
 
 let sandbox: CleanE2ESandbox | undefined;
-afterEach(async () => {
-  if (sandbox !== undefined) await cleanupSandbox(sandbox);
+afterEach(async (context) => {
+  if (sandbox !== undefined) await cleanupSandbox(sandbox, context);
   sandbox = undefined;
 });
 
@@ -72,6 +72,13 @@ describe("bounded packed state, project intent, and foreign config fuzz", () => 
       expect(registrations.envelope.data.registrations).toEqual([]);
       await rpc.shutdown();
     }
+    // These are deliberate hostile input fixtures, not product-owned custody.
+    // Remove them after byte-preservation assertions so teardown's global
+    // canary scan can treat every remaining occurrence as a leak.
+    await Promise.all([
+      rm(join(sandbox.home, ".claude"), { recursive: true, force: true }),
+      rm(join(sandbox.home, ".codex"), { recursive: true, force: true }),
+    ]);
   });
 
   it("classifies structural SQLite damage separately from schema/digest corruption", async () => {
@@ -89,7 +96,7 @@ describe("bounded packed state, project intent, and foreign config fuzz", () => 
 });
 
 for (const mutation of ["digest", "generation", "document"] as const) {
-  it.fails(`diagnoses current pointer ${mutation} mutation without rewrite [idea-packed-corruption-startup-diagnosis]`, async () => {
+  it(`diagnoses current pointer ${mutation} mutation without rewrite [idea-packed-corruption-startup-diagnosis]`, async () => {
     sandbox = await createCleanE2ESandbox(`fuzz-pointer-${mutation}`);
     const initial = await startPackedRpc(sandbox);
     await initial.shutdown();
@@ -102,7 +109,7 @@ for (const mutation of ["digest", "generation", "document"] as const) {
 }
 
 for (const mutation of ["digest", "kind", "generation", "document"] as const) {
-  it.fails(`diagnoses state blob ${mutation} mutation without sibling loss [idea-packed-corruption-startup-diagnosis]`, async () => {
+  it(`diagnoses state blob ${mutation} mutation without sibling loss [idea-packed-corruption-startup-diagnosis]`, async () => {
     sandbox = await createCleanE2ESandbox(`fuzz-blob-${mutation}`);
     const initial = await startPackedRpc(sandbox);
     await initial.shutdown();

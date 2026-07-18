@@ -8,8 +8,8 @@ import { PiRpcProcess } from "../harness/pi-rpc.js";
 import { fileInventory, scanForbiddenValues } from "../harness/state-inspector.js";
 
 let sandbox: CleanE2ESandbox | undefined;
-afterEach(async () => {
-  if (sandbox !== undefined) await cleanupSandbox(sandbox);
+afterEach(async (context) => {
+  if (sandbox !== undefined) await cleanupSandbox(sandbox, context);
   sandbox = undefined;
 });
 
@@ -29,11 +29,8 @@ async function installCore(rpc: PiRpcProcess): Promise<any> {
 }
 
 describe("packed golden install and lifecycle journeys", () => {
-  // These xfails are deliberately exact. Candidate inspection currently blocks
-  // open first; once fixed, production projection publication remains the
-  // separately parked activation blocker.
-  it.fails("completes exact open/configure/consent/activation and runtime observation [idea-fix-packed-candidate-inspection, idea-production-projection-publication]", async () => {
-    sandbox = await createCleanE2ESandbox("golden-install-runtime-xfail");
+  it("completes exact open/configure/consent/activation and runtime observation", async () => {
+    sandbox = await createCleanE2ESandbox("golden-install-runtime");
     const journey = await seedRemoteMarketplace(sandbox);
     await installCore(journey.rpc);
     await journey.rpc.shutdown();
@@ -49,7 +46,7 @@ describe("packed golden install and lifecycle journeys", () => {
     await fresh.shutdown();
   });
 
-  it.fails("disables, enables, updates to V2, and uninstalls with retained data [idea-production-projection-publication]", async () => {
+  it("disables, enables, updates to V2, and uninstalls with retained data", async () => {
     sandbox = await createCleanE2ESandbox("golden-lifecycle-xfail");
     const journey = await seedRemoteMarketplace(sandbox);
     await installCore(journey.rpc);
@@ -75,7 +72,7 @@ describe("packed golden install and lifecycle journeys", () => {
     await journey.rpc.shutdown();
   });
 
-  it.fails("blocks secret/MCP/subagent candidates without plaintext or partial installs [idea-fix-packed-candidate-inspection]", async () => {
+  it("blocks secret/MCP/subagent candidates without plaintext or partial installs", async () => {
     sandbox = await createCleanE2ESandbox("golden-unavailable-capabilities-xfail");
     const journey = await seedRemoteMarketplace(sandbox);
     for (const plugin of ["secret-required", "mcp-required", "subagent-required", "incompatible"]) {

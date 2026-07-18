@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    container:
+      image: node:24-bookworm
+    env:
+      CI: "1"
+      PI_PLUGIN_HOST_E2E_REQUIRE_PTY: "1"
+      PI_PLUGIN_HOST_E2E_REQUIRE_LIBFAKETIME: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install required native E2E capabilities
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git \
+            util-linux \
+            libfaketime=0.9.10-2.1
+          test "$(dpkg-query -W -f='${Version}' libfaketime)" = "0.9.10-2.1"
+          rm -rf /var/lib/apt/lists/*
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify unit, boundaries, build, exports, and package
+        run: npm test
+      - name: Verify packed clean-environment E2E
+        run: npm run test:e2e

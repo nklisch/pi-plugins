@@ -1,4 +1,4 @@
-import { cp, lstat, mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readFile, readdir, realpath, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, join, relative } from "node:path";
@@ -111,29 +111,6 @@ export async function publicStateDigest(rpc: PiRpcProcess): Promise<string> {
     },
   };
   return createHash("sha256").update(JSON.stringify(publicState)).digest("hex");
-}
-
-export async function captureFailureArtifacts(
-  sandbox: CleanE2ESandbox,
-  input: Readonly<{ error: unknown; rpc?: PiRpcProcess; terminal?: string; phase?: string }>,
-): Promise<void> {
-  await mkdir(sandbox.artifacts, { recursive: true });
-  const inventory = await fileInventory(sandbox.root);
-  const integrity: Record<string, readonly string[]> = {};
-  for (const path of await sqliteFiles(sandbox.agentDir)) integrity[relative(sandbox.root, path)] = sqliteIntegrity(path);
-  const payload = {
-    testId: sandbox.id,
-    error: input.error instanceof Error ? { name: input.error.name, message: input.error.message, stack: input.error.stack } : String(input.error),
-    phase: input.phase,
-    rpcEvents: input.rpc?.events,
-    rpcOutput: input.rpc?.process.output(),
-    terminal: input.terminal,
-    inventory,
-    integrity,
-  };
-  const text = `${JSON.stringify(payload, null, 2)}\n`;
-  if (text.includes(E2E_SECRET_CANARY)) throw new Error("failure artifact contained the secret canary and was not retained");
-  await writeFile(join(sandbox.artifacts, "failure.json"), text);
 }
 
 export async function cloneOwnedTree(source: string, destination: string): Promise<void> {

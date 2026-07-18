@@ -1,6 +1,6 @@
 {
   "name": "subagent-required",
-  "description": "Requires subagent lifecycle interception",
+  "description": "Subagent interception fixture",
   "version": "1.0.0",
   "hooks": "./hooks/hooks.json"
 }

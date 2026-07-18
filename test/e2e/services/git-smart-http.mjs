@@ -18,9 +18,16 @@ const key = await readFile(required("E2E_GIT_TLS_KEY"));
 const cert = await readFile(required("E2E_GIT_TLS_CERT"));
 let sequence = 0;
 const children = new Set();
+let recordTail = Promise.resolve();
+let faultTail = Promise.resolve();
 
-async function record(file, value) {
-  await appendFile(file, `${JSON.stringify({ at: Date.now(), ...value })}\n`);
+function record(file, value) {
+  // Concurrent smart-HTTP requests must not race independent appendFile opens:
+  // a lost/rejected diagnostic write would otherwise strand the request before
+  // its backend is wired, turning fixture observability into a network hang.
+  const write = recordTail.then(() => appendFile(file, `${JSON.stringify({ at: Date.now(), ...value })}\n`));
+  recordTail = write.catch(() => undefined);
+  return write;
 }
 
 function parseHeaders(bytes) {
@@ -42,17 +49,31 @@ function parseHeaders(bytes) {
   return { end, status, headers };
 }
 
-async function takeFaultMode() {
-  const command = await readFile(controlFile, "utf8").catch(() => "");
-  const mode = command.includes("close-next") ? "close" : command.includes("pause-next") ? "pause" : "none";
-  if (mode !== "none") await writeFile(controlFile, "");
-  return mode;
+function takeFaultMode() {
+  // "next" is a single-consumer instruction even when Git starts concurrent
+  // discovery requests. Serialize read-and-clear as one fixture transaction.
+  const take = faultTail.then(async () => {
+    const command = await readFile(controlFile, "utf8").catch(() => "");
+    const mode = command.includes("close-next") ? "close" : command.includes("pause-next") ? "pause" : "none";
+    if (mode !== "none") await writeFile(controlFile, "");
+    return mode;
+  });
+  faultTail = take.then(() => undefined, () => undefined);
+  return take;
 }
 
 const server = createServer({ key, cert }, async (request, response) => {
   const id = ++sequence;
   const url = new URL(request.url ?? "/", `https://${request.headers.host ?? "127.0.0.1"}`);
-  await record(requestFile, { id, method: request.method, path: url.pathname, query: url.search.slice(1) });
+  const protocolHeader = request.headers["git-protocol"];
+  const gitProtocol = Array.isArray(protocolHeader) ? protocolHeader[0] : protocolHeader;
+  if (gitProtocol !== undefined && gitProtocol !== "version=2") {
+    await record(phaseFile, { id, phase: "protocol-rejected" });
+    response.writeHead(400, { "content-type": "text/plain" });
+    response.end("Unsupported Git protocol\n");
+    return;
+  }
+  await record(requestFile, { id, method: request.method, path: url.pathname, query: url.search.slice(1), protocol: gitProtocol ?? "unspecified" });
   await record(phaseFile, { id, phase: "request-start" });
   const faultMode = await takeFaultMode();
   if (faultMode === "close") {
@@ -75,6 +96,7 @@ const server = createServer({ key, cert }, async (request, response) => {
       SERVER_PROTOCOL: `HTTP/${request.httpVersion}`,
       SERVER_NAME: "127.0.0.1",
       SERVER_PORT: String(port),
+      ...(gitProtocol === undefined ? {} : { GIT_PROTOCOL: gitProtocol }),
     },
     stdio: ["pipe", "pipe", "pipe"],
   });

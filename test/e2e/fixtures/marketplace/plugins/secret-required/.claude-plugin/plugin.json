@@ -1,6 +1,6 @@
 {
   "name": "secret-required",
-  "description": "Requires unavailable secret custody",
+  "description": "Secret custody unavailable fixture",
   "version": "1.0.0",
   "skills": ["./skills/secret-required"],
   "userConfig": {
