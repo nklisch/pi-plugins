@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-production-runtime-acceptance
 kind: feature
-stage: review
+stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-clean-environment-core-e2e, epic-mcp-runtime-integration-config-source-bridge-production-adapter, epic-mcp-runtime-integration-lifecycle-reconciliation, epic-skills-hook-runtime-subagent-interception-production-adapter]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-18
+updated: 2026-07-17
 ---
 
 # Production Runtime Packaging and Acceptance
@@ -563,3 +563,17 @@ All six child stories are implemented and `stage: done` in dependency order.
 - Golden lifecycle, failure/recovery/drift, contention/offline/presentation/security, and from-empty offline registry journeys are green. Canonical MCP access works while the honest alias limitation remains `RUNTIME_ALIAS_UNAVAILABLE`; sensitive custody remains unavailable and plaintext-free.
 - Verification at handoff: 16 focused receipt/adapter tests; 332 unit files / 1,613 tests; 17 infrastructure E2E files / 54 tests; 5 production E2E files / 10 tests; typecheck; 426-module dependency boundary scan; 847 compiled exports; 3 Pi exports; and isolated packed Pi 0.80.8 RPC/JSON/PTY acceptance. All passed.
 - No package was published, no tag/release/PR was created, and every item remains unbound. The independent standard feature review is intentionally left to the orchestrator.
+
+## Standard feature review — 2026-07-18
+
+**Verdict: APPROVE.** One independent cross-model, fresh-context pass reviewed all six stories and the complete packed production path. No material blockers were found.
+
+The review verified package rename/private metadata, receipt-before-import ordering, one top-level Pi install with a receipt-gated bundled subagent resource, exact SRI/tree/manifest/API/license/engine/peer/conformance checks, real packed bytes and registry-resolved installation, same-session subagent continuation, MCP late-value custody and honest alias unavailability, full-bundle lifecycle/recovery/drift/concurrency/offline/presentation/security coverage, secret and checkout-path non-retention, deterministic cleanup, and from-empty offline lock/SRI replay.
+
+Three lower-risk findings were parked without implementation:
+
+- `idea-update-stale-subagent-boundary-package-name`
+- `idea-assert-subagent-pi-extension-receipt`
+- `idea-document-subagent-package-probe-cache-lifetime`
+
+The feature advances from `review` to `done` without a second review pass.
