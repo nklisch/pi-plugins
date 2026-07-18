@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-config-source-bridge
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration
 depends_on: []
@@ -502,3 +502,11 @@ The operator selected the maintained-fork fallback on 2026-07-16. The planned de
 3. `epic-mcp-runtime-integration-config-source-bridge-upstream-contribution` — rebase the proven generic seam onto current upstream, open a fresh PR referencing issue #85 and PR #56, and track return to an upstream release.
 
 This amendment supersedes earlier wait-only/external-blocker wording. It does not weaken the package gate: local or unpublished fork bytes, deep imports, and method-presence checks still cannot report production availability.
+
+## Upstream contribution closure — 2026-07-18
+
+All seven child stories are now `stage: done`. The final child opened https://github.com/nicobailon/pi-mcp-adapter/pull/191 from exact upstream base `82724dccc13a49310530898f922bafff12b7f3fe` at exact head `4f1a2af656f48581e0d9d8c9a5719e7dbf83fb55`. The PR contains the complete generic source lifecycle, focused tests, public package export, rationale/example, no-regression evidence, and a release request; it contains no Plugin Host policy or maintained-fork metadata.
+
+Integrated feature verification remains the production receipt already recorded above: exact published fork bytes pass the unchanged portable contract, real Pi/package ordering and isolation, lifecycle cancellation/cleanup, redaction, clean packed acceptance, full `npm test`, and infrastructure E2E. The upstream branch independently passes its 51-file / 457-test suite, 30 OAuth-provider tests, compiled and packed export/CLI/license checks, and the unchanged portable lifecycle contract through its generic public API.
+
+The feature advances from `implementing` to `review`. Per caller instruction, this transition stops at the feature review boundary; independent feature review remains the orchestrator's responsibility and was not self-run here.
