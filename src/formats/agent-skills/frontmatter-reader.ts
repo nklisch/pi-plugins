@@ -241,49 +241,60 @@ function convertNode(
   throw new FrontmatterFailure("YAML node is not JSON-compatible");
 }
 
+function isBlockScalarIndicator(line: string, index: number): boolean {
+  const suffix = line.slice(index);
+  if (!/^[|>](?:(?:[1-9][+-]?)|(?:[+-][1-9]?))?\s*(?:#.*)?$/u.test(suffix)) return false;
+  const prefix = line.slice(0, index).trimEnd();
+  return prefix.length === 0 || prefix.endsWith(":") || prefix.endsWith("-");
+}
+
 function rejectExcessiveFlowNesting(source: string, maxDepth: number): void {
   let depth = 0;
   let quote: "single" | "double" | undefined;
   let escaped = false;
-  let comment = false;
-  for (let index = 0; index < source.length; index += 1) {
-    const character = source[index]!;
-    if (comment) {
-      if (character === "\n") comment = false;
-      continue;
+  let blockParentIndent: number | undefined;
+  for (const line of source.split("\n")) {
+    const indent = /^ */u.exec(line)?.[0].length ?? 0;
+    if (blockParentIndent !== undefined) {
+      if (line.trim().length === 0 || indent > blockParentIndent) continue;
+      blockParentIndent = undefined;
     }
-    if (quote === "double") {
-      if (escaped) escaped = false;
-      else if (character === "\\") escaped = true;
-      else if (character === '"') quote = undefined;
-      continue;
-    }
-    if (quote === "single") {
-      if (character !== "'") continue;
-      if (source[index + 1] === "'") index += 1;
-      else quote = undefined;
-      continue;
-    }
-    if (character === '"') {
-      quote = "double";
-      continue;
-    }
-    if (character === "'") {
-      quote = "single";
-      continue;
-    }
-    if (character === "#" && (index === 0 || /\s/u.test(source[index - 1]!))) {
-      comment = true;
-      continue;
-    }
-    if (character === "[" || character === "{") {
-      depth += 1;
-      // yaml's compose phase was historically recursive. Rejecting at the
-      // lexical boundary keeps hostile flow collections away from that phase,
-      // even if a future parser regression reintroduces unbounded recursion.
-      if (depth > maxDepth) throw new FrontmatterFailure("YAML nesting depth limit exceeded");
-    } else if ((character === "]" || character === "}") && depth > 0) {
-      depth -= 1;
+    for (let index = 0; index < line.length; index += 1) {
+      const character = line[index]!;
+      if (quote === "double") {
+        if (escaped) escaped = false;
+        else if (character === "\\") escaped = true;
+        else if (character === '"') quote = undefined;
+        continue;
+      }
+      if (quote === "single") {
+        if (character !== "'") continue;
+        if (line[index + 1] === "'") index += 1;
+        else quote = undefined;
+        continue;
+      }
+      if (character === '"') {
+        quote = "double";
+        continue;
+      }
+      if (character === "'") {
+        quote = "single";
+        continue;
+      }
+      if (character === "#" && (index === 0 || /\s/u.test(line[index - 1]!))) break;
+      if ((character === "|" || character === ">") && isBlockScalarIndicator(line, index)) {
+        blockParentIndent = indent;
+        break;
+      }
+      if (character === "[" || character === "{") {
+        depth += 1;
+        // yaml's compose phase was historically recursive. Rejecting at the
+        // lexical boundary keeps hostile flow collections away from that phase,
+        // even if a future parser regression reintroduces unbounded recursion.
+        if (depth > maxDepth) throw new FrontmatterFailure("YAML nesting depth limit exceeded");
+      } else if ((character === "]" || character === "}") && depth > 0) {
+        depth -= 1;
+      }
     }
   }
 }

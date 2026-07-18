@@ -43,6 +43,15 @@ describe("bounded YAML frontmatter", () => {
     });
   });
 
+  it("does not treat quoted or block-scalar brackets as YAML collection depth", () => {
+    const brackets = "[".repeat(32);
+    const result = readBoundedFrontmatter(
+      `---\nname: demo\nquoted: "${brackets}"\ndescription: |\n  ${brackets}\n---\n# body\n`,
+      provenance,
+    );
+    expect(result.ok).toBe(true);
+  });
+
   it("rejects unsafe YAML constructs without returning partial attributes", () => {
     for (const name of ["anchors.md", "tags.md", "merge.md", "duplicate.md", "prototype-key.md", "multidocument.md", "unterminated.md"]) {
       const result = readBoundedFrontmatter(fixture(name), provenance);
