@@ -125,23 +125,41 @@ custody.
    authentication, discovery, elicitation, sampling, and process lifecycle stay
    in the dedicated runtime.
 
-## Current project decision
+## Current project integration
 
-On 2026-07-16 the operator authorized option 2 rather than waiting indefinitely:
+The maintained fallback is published and production-qualified:
 
-1. establish `nklisch/pi-mcp-adapter` and publish the planned
-   `@nklisch/pi-mcp-adapter` package from verified upstream history;
-2. keep the patch limited to the generic source lifecycle and unchanged
-   conformance, preserving standalone extension/CLI behavior;
-3. integrate only published, pinned, qualifying bytes through the existing host
-   wrapper;
-4. then rebase the proven generic commits onto current upstream, open a fresh PR
-   referencing issue #85 and PR #56, and track return to an upstream release.
+- Exact package: `@nklisch/pi-mcp-adapter@2.11.0-nklisch.0`, loaded only through
+  the documented `@nklisch/pi-mcp-adapter/programmatic` export with foreign file
+  discovery disabled. The standalone extension and CLI remain outside Plugin
+  Host composition.
+- Immutable publication: registry integrity
+  `sha512-kkMQwrNbggAhSCJCJUxVLKKiMswKjYaEbOLNSZrZlYY2teoxrtKld2+3MQpvsHDJYFypi1PPHuAS2YC/0z+7tg==`,
+  installed-tree digest
+  `sha256:4f427e1aae57a5b7738a07df7311f4a758e13c61b8b1d50924fd70599e3b3bf5`,
+  release commit `1c1cd71fd069bc65cc06bf49399d83ff9e3d008b`, annotated
+  tag object `39c0c367db35ecb125b05ad0b9b639bc6b09b97d`, and upstream
+  base `82724dccc13a49310530898f922bafff12b7f3fe`.
+- Qualification: the exact package receipt, complete package-owned tree,
+  manifest exports/Pi resource, MIT license, Node `>=22.19.0`, Pi peer
+  `>=0.79.1 <1`, initial-source ordering, source isolation, atomic lifecycle,
+  cleanup, cancellation, redaction, late-value disposal, unchanged standalone
+  behavior, and portable plus real-Pi conformance all pass. Production MCP is
+  available only while this complete evidence remains exact.
+- Fail-closed behavior: version, integrity, tree, manifest, API, license, range,
+  or conformance drift makes MCP unavailable before package import or execution.
+  Plugins requiring MCP then remain inactive; unrelated plugins continue.
+- Upstream contribution: [nicobailon/pi-mcp-adapter#191](https://github.com/nicobailon/pi-mcp-adapter/pull/191),
+  opened from exact base `82724dccc13a49310530898f922bafff12b7f3fe` at exact
+  head `4f1a2af656f48581e0d9d8c9a5719e7dbf83fb55`. It contains the generic
+  source lifecycle and tests without Plugin Host policy or maintained-fork
+  metadata.
 
-This authorization removes the wait-only blocker, not the qualification gate.
-Unpublished fork bytes cannot make production MCP availability truthful.
-Package-independent Plugin Host ports, schemas, capability mapping, fakes, and
-conformance remain package-neutral.
+The verified upstream 2.11.0 analysis above remains the baseline for package
+shape and the reason the maintained export is required. Package-independent
+Plugin Host ports, schemas, capability mapping, fakes, and conformance remain
+package-neutral while the project tracks return to a qualifying upstream
+release.
 
 ## Minimum contract invariants
 
@@ -178,3 +196,6 @@ semantics, not merely matching TypeScript names.
 - pinned manager: <https://github.com/nicobailon/pi-mcp-adapter/blob/82724dccc13a49310530898f922bafff12b7f3fe/server-manager.ts>
 - issue #85: <https://github.com/nicobailon/pi-mcp-adapter/issues/85>
 - PR #56: <https://github.com/nicobailon/pi-mcp-adapter/pull/56>
+- maintained package: <https://www.npmjs.com/package/@nklisch/pi-mcp-adapter/v/2.11.0-nklisch.0>
+- maintained release: <https://github.com/nklisch/pi-mcp-adapter/releases/tag/v2.11.0-nklisch.0>
+- upstream contribution: <https://github.com/nicobailon/pi-mcp-adapter/pull/191>
