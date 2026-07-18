@@ -645,15 +645,27 @@ observation are local and offline-safe; remote connection, authentication,
 tool-discovery, and launch failures remain redacted per-server health rather
 than activation identity.
 
-A conforming runtime must receive initial plugin sources before MCP tool
-registration with foreign file discovery isolated. No production runtime is
-selected merely because the portable port, fake, and conformance suite pass.
-The authorized maintained fork and later production adapter must implement the
-same unchanged contract and pass package-specific initial-source ordering,
-source isolation, cleanup, supported Node/Pi, exact registry SRI plus canonical
-installed-tree provenance, manifest/API/license qualification, and behavioral
-conformance before MCP availability is reported. The standalone package
-extension and file/cache discovery remain outside host composition.
+Production composition uses the exact published
+`@nklisch/pi-mcp-adapter@2.11.0-nklisch.0` package through its documented
+`@nklisch/pi-mcp-adapter/programmatic` export, with initial plugin sources
+registered before MCP tools and foreign file discovery disabled. Before package
+code executes, the wrapper verifies registry SRI
+`sha512-kkMQwrNbggAhSCJCJUxVLKKiMswKjYaEbOLNSZrZlYY2teoxrtKld2+3MQpvsHDJYFypi1PPHuAS2YC/0z+7tg==`,
+installed-tree digest
+`sha256:4f427e1aae57a5b7738a07df7311f4a758e13c61b8b1d50924fd70599e3b3bf5`,
+release tag object `39c0c367db35ecb125b05ad0b9b639bc6b09b97d`, release commit
+`1c1cd71fd069bc65cc06bf49399d83ff9e3d008b`, upstream base
+`82724dccc13a49310530898f922bafff12b7f3fe`, MIT license digest
+`2d20dfacd9742706e564470dc77438608a1e54b0ed46959f080709389209093c`, manifest
+exports (`.` and `./programmatic`) and Pi resource (`./index.ts`), Node
+`>=22.19.0`, and Pi peer range `>=0.79.1 <1`.
+Package-specific ordering, source isolation, replace/remove cleanup,
+cancellation, redaction, late-value disposal, unchanged standalone behavior,
+and portable plus real-Pi conformance must also remain exact. Any version,
+tree, manifest, API, license, range, or conformance drift leaves MCP unavailable
+before the drifted package is imported or executed; dependent plugins fail
+closed while unrelated plugins continue. The standalone package extension and
+file/cache discovery remain outside host composition.
 
 MCP server names derive from plugin identity and the native server key.
 Compatibility aliases preserve foreign tool references where the MCP runtime
