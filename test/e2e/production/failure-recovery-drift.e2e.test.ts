@@ -1,4 +1,5 @@
-import { access, cp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, cp, readFile, rm, writeFile } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanupSandbox, loadSuiteArtifact, type CleanE2ESandbox } from "../harness/environment.js";
@@ -24,14 +25,53 @@ afterEach(async (context) => {
   sandbox = undefined;
 });
 
-const activeV1 = {
-  revision: "v1" as const,
+const active = (revision: "v1" | "v2") => ({
+  revision,
   skill: "present" as const,
   ordinaryHooks: "active" as const,
   subagent: "injected-and-continued" as const,
   mcp: "registered" as const,
   alias: "runtime-unavailable-omission" as const,
-};
+});
+const activeV1 = active("v1");
+
+function pendingProductionTransition(): Record<string, any> | undefined {
+  const journalPath = join(sandbox!.agentDir, "plugin-host", "recovery", "journal", "v1", "user.sqlite");
+  const statePath = join(sandbox!.agentDir, "plugin-host", "state", "v1", "user.sqlite");
+  let journal: DatabaseSync | undefined;
+  let state: DatabaseSync | undefined;
+  try {
+    journal = new DatabaseSync(journalPath, { readOnly: true });
+    const row = journal.prepare("SELECT record_json FROM lifecycle_transitions WHERE plugin = ? AND status = 'prepared' ORDER BY prepared_at DESC LIMIT 1").get(PRODUCTION_PLUGIN) as { record_json: string } | undefined;
+    if (row === undefined) return undefined;
+    const record = JSON.parse(row.record_json) as Record<string, any>;
+    state = new DatabaseSync(statePath, { readOnly: true });
+    const pointer = state.prepare("SELECT pointer_json FROM current_pointer WHERE singleton = 1").get() as { pointer_json: string } | undefined;
+    if (pointer === undefined) return undefined;
+    const documents = (JSON.parse(pointer.pointer_json) as { documents: Array<{ blob: string }> }).documents;
+    const selected = documents.map((document) => state!.prepare("SELECT document FROM state_blobs WHERE blob_ref = ?").get(document.blob) as { document: string } | undefined);
+    return selected.some((document) => document?.document.includes(String(record.reference))) ? record : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    state?.close();
+    journal?.close();
+  }
+}
+
+async function assertRecoveredProductionBundle(rpc: PiRpcProcess, model: Awaited<ReturnType<typeof startProductionModelService>>): Promise<"v1" | "v2" | "recovery-required"> {
+  const detail = await rpc.plugin(`--non-interactive show ${PRODUCTION_PLUGIN} --scope user`, "inspection.show");
+  if (detail.envelope.status === "ok" && detail.envelope.data?.kind === "found" && detail.envelope.data.detail.lifecycle.transition === "none") {
+    const version = detail.envelope.data.detail.summary.revision.installed.text;
+    const revision = version === "1.0.0" ? "v1" : version === "2.0.0" ? "v2" : undefined;
+    expect(revision).toBeDefined();
+    await observeProductionBundle(rpc, active(revision!), model);
+    return revision!;
+  }
+  const diagnosis = await rpc.plugin(`--non-interactive diagnose ${PRODUCTION_PLUGIN} --scope user`, "inspection.diagnose");
+  expect(JSON.stringify({ detail: detail.envelope, diagnosis: diagnosis.envelope })).toMatch(/RECOVERY_REQUIRED|PENDING_TRANSITION/u);
+  return "recovery-required";
+}
 
 async function commitFixture(repository: { working: string; bare: string }, message: string): Promise<void> {
   await runChecked(sandbox!.capabilities.git, ["add", "."], { cwd: repository.working, env: sandbox!.env });
@@ -70,6 +110,62 @@ describe("production failure, recovery, and package drift", () => {
     const recovered = await PiRpcProcess.start({ sandbox, extraArgs: productionModelArgs });
     await observeProductionBundle(recovered, activeV1, model);
     expect(JSON.stringify(await recovered.plugin(`--non-interactive diagnose ${PRODUCTION_PLUGIN} --scope user`, "inspection.diagnose"))).not.toMatch(/PARTIAL|mixed/iu);
+    await recovered.shutdown();
+    await assertAllSqliteIntegrity(sandbox.agentDir);
+  });
+
+  it("recovers an owner killed after a production-bundle state commit to one whole revision", async () => {
+    sandbox = await createProductionE2ESandbox("production-transition-kill");
+    const model = await startProductionModelService(sandbox);
+    const journey = await seedRemoteMarketplace(sandbox, { extraArgs: productionModelArgs });
+    await installProductionBundle({ sandbox, rpc: journey.rpc, version: "v1" });
+    await publishProductionBundleRevision(sandbox, journey.repository, "v2");
+    expect((await journey.rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh")).envelope.status).toBe("ok");
+
+    const update = journey.rpc.plugin(`update ${PRODUCTION_PLUGIN} --scope user --yes`, "lifecycle.update", 60_000);
+    await waitForCondition("durable pending production transition", pendingProductionTransition, 15_000);
+    journey.rpc.process.signal("SIGSTOP");
+    journey.rpc.process.signal("SIGKILL");
+    await journey.rpc.process.waitForExit(10_000);
+    await update.catch(() => undefined);
+
+    const recovered = await PiRpcProcess.start({ sandbox, extraArgs: productionModelArgs });
+    expect(["v1", "v2", "recovery-required"]).toContain(await assertRecoveredProductionBundle(recovered, model));
+    await recovered.shutdown();
+    await assertAllSqliteIntegrity(sandbox.agentDir);
+  });
+
+  it("rejects corrupted candidate projection evidence without exposing a mixed production bundle", async () => {
+    sandbox = await createProductionE2ESandbox("production-candidate-projection-corrupt");
+    const model = await startProductionModelService(sandbox);
+    const journey = await seedRemoteMarketplace(sandbox, { extraArgs: productionModelArgs });
+    await installProductionBundle({ sandbox, rpc: journey.rpc, version: "v1" });
+    await publishProductionBundleRevision(sandbox, journey.repository, "v2");
+    expect((await journey.rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh")).envelope.status).toBe("ok");
+
+    const update = journey.rpc.plugin(`update ${PRODUCTION_PLUGIN} --scope user --yes`, "lifecycle.update", 60_000);
+    const transition = await waitForCondition("candidate projection committed for transition", pendingProductionTransition, 15_000);
+    journey.rpc.process.signal("SIGSTOP");
+    try {
+      const projectionRef = transition.candidateProjection?.projectionRef;
+      if (typeof projectionRef !== "string" || !projectionRef.startsWith("runtime-projection-v1:sha256:")) throw new Error("prepared transition has no candidate projection reference");
+      const markerPath = join(sandbox.agentDir, "plugin-host", "generated", "v1", projectionRef.slice("runtime-projection-v1:sha256:".length));
+      const marker = JSON.parse(await readFile(markerPath, "utf8")) as { payload?: string };
+      if (typeof marker.payload !== "string" || !/^\.payload-[0-9a-f]{32}$/u.test(marker.payload)) throw new Error("candidate projection marker has no payload");
+      const candidateProjection = join(sandbox.agentDir, "plugin-host", "generated", "v1", marker.payload, "projection.json");
+      await chmod(candidateProjection, 0o600);
+      await writeFile(candidateProjection, "{\"corrupt\":true}\n");
+    } finally {
+      journey.rpc.process.signal("SIGKILL");
+      await journey.rpc.process.waitForExit(10_000);
+    }
+    await update.catch(() => undefined);
+
+    const recovered = await PiRpcProcess.start({ sandbox, extraArgs: productionModelArgs });
+    const outcome = await assertRecoveredProductionBundle(recovered, model);
+    expect(["v1", "recovery-required"]).toContain(outcome);
+    const diagnosis = await recovered.plugin(`--non-interactive diagnose ${PRODUCTION_PLUGIN} --scope user`, "inspection.diagnose");
+    expect(JSON.stringify(diagnosis.envelope.data)).not.toMatch(/mixed/iu);
     await recovered.shutdown();
     await assertAllSqliteIntegrity(sandbox.agentDir);
   });
