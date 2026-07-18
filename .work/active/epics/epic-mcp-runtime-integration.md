@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration
 kind: epic
-stage: review
+stage: done
 tags: [compatibility, infra]
 parent: null
 depends_on: [epic-transactional-plugin-lifecycle]
@@ -88,3 +88,13 @@ Mockups skipped: the epic introduces no screen, flow, modal, or visual component
 ## Aggregate review readiness — 2026-07-18
 
 All four child features are `stage: done`, including the exact published production MCP adapter and upstream PR #191. The epic advances to `review` for its independent aggregate pass.
+
+## Standard aggregate review — 2026-07-18
+
+**Verdict: APPROVE.** One independent cross-model, fresh-context aggregate pass reviewed all four features and their integration with lifecycle, recovery, and native composition. No material blockers were found.
+
+Review verification included **1,613 full-suite tests**, **147 MCP-focused tests**, clean typecheck, and **426 modules / 3,002 dependency edges** with zero boundary violations. The pass independently checked the single compatibility/projection policy authority, canonical identities and collisions, exact published-package receipt and source lifecycle, late secret delivery/disposal, complete projection evidence, crash recovery and rollback, revision leases, offline registration, failure isolation, transport/auth/alias truth, secret-free status, package boundaries, and full-bundle coordination.
+
+One lower-risk receipt gap was parked without implementation as `idea-verify-mcp-zod-peer-receipt`. The hard-pinned capability profile remains intentional fail-closed behavior: legitimate package growth requires explicit requalification rather than silently expanding support.
+
+The epic advances from `review` to `done` without a second review pass.
