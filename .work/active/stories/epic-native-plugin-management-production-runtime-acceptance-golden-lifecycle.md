@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-production-runtime-acceptance-golden-lifecycle
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management-production-runtime-acceptance
 depends_on: [epic-native-plugin-management-production-runtime-acceptance-full-bundle-harness]
@@ -39,3 +39,11 @@ Implement Unit 3 from the parent feature in `test/e2e/production/golden-full-bun
 ## Ordering and risk
 
 Depends only on the production harness. It may implement in the same feature-owner stride as failure coverage, but shared fixture/harness edits must stay serialized. The main risk is a mixed V1/V2 observation passing through separate assertions; use one revision-bound observation helper and fail on any component disagreement.
+
+## Implementation notes
+
+- Added a real V1 lifecycle journey through signed install input/consent, fresh-process skill and ordinary-hook observation, source-qualified MCP status/list/call with late root/data/channel values, and exact real subagent start injection plus same-session Stop continuation.
+- Disable and enable now prove the whole bundle absent/restored through user-visible tools and plugin-owned evidence. V2 publication changes skill, hooks, subagent markers, MCP identity, and immutable revision, and the shared observation rejects mixed markers.
+- Uninstall with delete-data is followed by a fresh process proving installed state and all four contribution surfaces absent while marketplace registration remains.
+- Canonical MCP access remains usable while status exposes `RUNTIME_ALIAS_UNAVAILABLE`; no foreign alias is fabricated.
+- Verified `golden-full-bundle.e2e.test.ts` green against packed/public Pi 0.80.8 and both receipt-qualified production adapters.
