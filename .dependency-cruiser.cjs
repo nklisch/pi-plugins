@@ -99,6 +99,13 @@ module.exports = {
       to: { path: "^@nklisch/pi-subagents(?:/|$)" },
     },
     {
+      name: "mcp-package-import-only-in-production-adapter",
+      comment: "The selected MCP package identity is confined to its objectively qualified production wrapper.",
+      severity: "error",
+      from: { path: "^src/(?!runtime/mcp/pi-mcp-adapter-runtime\\.ts$)" },
+      to: { path: "^@nklisch/pi-mcp-adapter(?:/|$)" },
+    },
+    {
       name: "lifecycle-policy-no-host-adapters",
       comment: "Whole-plugin lifecycle policy is portable; reload, projection, storage, and Pi adapters remain injected ports.",
       severity: "error",

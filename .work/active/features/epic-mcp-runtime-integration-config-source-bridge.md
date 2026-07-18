@@ -12,7 +12,7 @@ research_refs:
   - .agents/skills/pi-mcp-adapter-v2/SKILL.md
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-18
 ---
 
 # Plugin-Scoped MCP Configuration-Source Bridge
@@ -483,14 +483,15 @@ The production adapter story unblocks only when **one** path satisfies all crite
 
 No UI surface and no mockups. The bridge returns typed capability and status evidence for `epic-native-plugin-management` to present later.
 
-## Partial implementation and verification
+## Integrated implementation and verification
 
-- Execution capability: Luna xhigh, direct sequential ownership across the dependency DAG; no nested agents, peeragent, or feature review were used per caller instruction.
-- Completed child checkpoints: portable contract (`e04833e`), capability probe (`7586ecc`), fake runtime (`97974bd`), and conformance suite (`b6e5bf6`) are each at `stage: done` with their own implementation notes and commits.
-- Integrated files: the adapter-neutral MCP source/status/capability schemas and port; existing capability registry/policy mapping; test-only fake; reusable conformance contract and adversarial harness tests; deliberate public export allowlist updates.
-- Verification: full `npm test` passed — 127 test files, 675 tests, no type errors, no dependency-boundary violations, and compiled package allowlist import passed with 450 exports. The baseline was 122 files, 653 tests, and 438 exports.
-- Production boundary: no `pi-mcp-adapter` dependency, deep import, file/settings mutation, process-global secret workaround, SDK runtime, or production adapter was added. The feature remains `stage: implementing` because the production-adapter child is still externally blocked.
-- Review posture: no feature review or summary-to-review transition was performed; the parent and feature remain implementing as requested.
+- Execution capability: direct sequential ownership across the dependency DAG; no nested agents, peeragent, or feature review were used per caller instruction.
+- Completed child checkpoints: portable contract (`e04833e`), capability probe (`7586ecc`), fake runtime (`97974bd`), conformance suite (`b6e5bf6`), maintained fork (`de6c2ef`), and production adapter are each at `stage: done` with their own implementation evidence.
+- Integrated files: adapter-neutral MCP source/status/capability schemas and port; existing capability registry/policy mapping; test-only fake; reusable conformance contract; exact published package wrapper; central-qualification-backed packaged Pi composition; real-process and clean packed acceptance.
+- Production qualification: `@nklisch/pi-mcp-adapter@2.11.0-nklisch.0` is exact in the manifest/lock with npm integrity `sha512-kkMQwrNbggAhSCJCJUxVLKKiMswKjYaEbOLNSZrZlYY2teoxrtKld2+3MQpvsHDJYFypi1PPHuAS2YC/0z+7tg==`. The documented programmatic export, MIT notice, Node 24, Pi 0.80.8, disabled file/import discovery, source ordering/isolation, lifecycle cleanup, cancellation, redaction, late-value disposal, and unchanged host conformance all passed against registry bytes.
+- Verification: full `npm test` passed — 418 modules / 2,980 dependency edges, 328 Vitest files / 1,600 tests, no type errors, exact 847 root exports / 3 Pi exports, and packed real Pi 0.80.8 RPC/JSON/PTY acceptance. `npm run test:e2e:infrastructure` also passed 1 clean-environment file / 2 tests.
+- Authority boundary: the package import exists only in `src/runtime/mcp/pi-mcp-adapter-runtime.ts`; composition starts with no sources and the existing full-bundle desired-state/reconciliation path remains authoritative. No deep import, file/settings/argument/environment workaround, MCP SDK reimplementation, or fork-specific application/domain branch was added.
+- Remaining feature work: the feature intentionally remains `stage: implementing` because `epic-mcp-runtime-integration-config-source-bridge-upstream-contribution` is still implementing. No feature review or summary-to-review transition was performed.
 
 ## Plan amendment — maintained fork and upstream return
 

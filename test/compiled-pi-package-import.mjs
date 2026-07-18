@@ -14,6 +14,9 @@ const metadata = JSON.parse(await readFile(new URL("../package.json", import.met
 if (!metadata.keywords?.includes("pi-package") || JSON.stringify(metadata.pi?.extensions) !== JSON.stringify(["./dist/pi/extension.js"])) {
   throw new Error("Pi package discovery metadata is invalid");
 }
+if (metadata.dependencies?.["@nklisch/pi-mcp-adapter"] !== "2.11.0-nklisch.0") {
+  throw new Error("published MCP runtime dependency is not exact");
+}
 if (metadata.devDependencies?.["@earendil-works/pi-coding-agent"] !== "0.80.8" || metadata.devDependencies?.["@earendil-works/pi-tui"] !== "0.80.8") {
   throw new Error("Pi 0.80.8 development contracts are not exact");
 }

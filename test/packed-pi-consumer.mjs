@@ -187,7 +187,7 @@ try {
   const cli = join(piRoot, piMetadata.bin.pi);
   const extension = join(packageRoot, hostMetadata.pi.extensions[0]);
   const collision = join(consumer, "collision-extension.mjs");
-  await writeFile(collision, `export default function (pi) { pi.registerCommand("plugin", { description: "Acceptance collision", handler: async (_args, ctx) => { ctx.ui.notify("collision command", "info"); } }); }\n`);
+  await writeFile(collision, `export default function (pi) { pi.registerCommand("plugin", { description: "Acceptance collision", handler: async (_args, ctx) => { ctx.ui.notify("collision command", "info"); } }); pi.registerCommand("acceptance-tools", { description: "Report active acceptance tools", handler: async (_args, ctx) => { ctx.ui.notify(JSON.stringify(pi.getAllTools().map((tool) => tool.name).sort()), "info"); } }); }\n`);
   const commonArgs = [
     "--offline",
     "--approve",
@@ -222,8 +222,15 @@ try {
   if (!rpc.events.some((event) => event.type === "extension_ui_request" && event.method === "notify" && String(event.message).includes(`/${owned.name}`))) {
     throw new Error("real Pi collision notification did not name the exact suffixed command");
   }
+  await rpc.request({ type: "prompt", message: "/acceptance-tools" });
+  if (!rpc.events.some((event) => event.type === "extension_ui_request" && event.method === "notify" && String(event.message).includes('"mcp"'))) {
+    throw new Error("real Pi did not register the isolated production MCP gateway");
+  }
 
-  await runControlCommand(rpc, `/${owned.name} status`, (envelope) => envelope.command?.id === "status", "status completion");
+  const productionStatus = await runControlCommand(rpc, `/${owned.name} status`, (envelope) => envelope.command?.id === "status", "status completion");
+  if (productionStatus.data?.capabilities?.mcp?.status !== "available") {
+    throw new Error(`published MCP runtime did not pass concrete production qualification: ${JSON.stringify(productionStatus)}`);
+  }
   await runControlCommand(rpc, `/${owned.name} marketplace add ${marketplace} --source-kind local-git --scope user`, (envelope) => envelope.command?.id === "marketplace.add", "marketplace registration completion");
   await runControlCommand(rpc, `/${owned.name} browse demo --scope user --limit 50`, (envelope) => envelope.command?.id === "browse", "catalog browse completion");
   const entries = await rpc.request({ type: "get_entries" });

@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-config-source-bridge-production-adapter
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-config-source-bridge
 depends_on: [epic-mcp-runtime-integration-config-source-bridge-capability-probe, epic-mcp-runtime-integration-config-source-bridge-conformance-suite, epic-mcp-runtime-integration-config-source-bridge-maintained-fork]
@@ -12,7 +12,7 @@ research_refs:
   - .agents/skills/pi-mcp-adapter-v2/SKILL.md
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-18
 ---
 
 # Integrate a Qualifying Production MCP Adapter Package
@@ -87,12 +87,12 @@ Initial sources are supplied before invoking the returned Pi extension. The fact
 
 ## Acceptance evidence
 
-- [ ] The pinned supported package passes the unchanged portable conformance contract.
-- [ ] Pi integration proves source-before-tool-registration and complete native file/import isolation without mutating files, settings, arguments, or process environment.
-- [ ] Colliding native server keys remain isolated across plugin/scope through real tool/cache/process/status identity.
-- [ ] Real replacement/removal/cancellation preserve exact ownership and old-source rollback evidence.
-- [ ] Late callback values are consumed only immediately before launch/connect and disposed on every outcome; canaries never enter status/errors/log fixtures.
-- [ ] Only a passing package changes `pi.mcp.runtime` from unavailable; fake success alone never claims production activation.
+- [x] The pinned supported package passes the unchanged portable conformance contract.
+- [x] Pi integration proves source-before-tool-registration and complete native file/import isolation without mutating files, settings, arguments, or process environment.
+- [x] Colliding native server keys remain isolated across plugin/scope through real tool/cache/process/status identity.
+- [x] Real replacement/removal/cancellation preserve exact ownership and old-source rollback evidence.
+- [x] Late callback values are consumed only immediately before launch/connect and disposed on every outcome; canaries never enter status/errors/log fixtures.
+- [x] Only a passing package changes `pi.mcp.runtime` from unavailable; fake success alone never claims production activation.
 
 ## Ordering
 
@@ -107,21 +107,34 @@ Portable sibling features may design and implement against the contract/fake wit
 
 The highest risk is a package whose TypeScript shape looks sufficient while tool/cache/process ownership or eager behavior violates semantics. The conformance and Pi-specific integration tests are the gate. Rollback removes the concrete dependency/wrapper and selects no runtime, making all MCP facts unavailable while preserving portable contracts and authoritative plugin state. File/settings/global workarounds are not rollback options.
 
-## Blocker re-verification
+## Published package qualification and implementation — 2026-07-18
 
-Reverified for this partial implementation against the committed research evidence for npm `pi-mcp-adapter@2.11.0`, GitHub release `v2.11.0`, and upstream `main`, all pinned to `82724dccc13a49310530898f922bafff12b7f3fe`:
+The maintained-fork gate is satisfied by exact public registry bytes:
 
-- The published package is a Pi extension package with `pi.extensions: ["./index.ts"]` and no documented `exports`, `main`, or `module` library entry. Its `loadMcpConfig`/`initializeMcp` path performs file discovery and direct/proxy tool registration around extension construction/session startup.
-- No supported exported source lifecycle exists for initial source injection before tool registration, disabled file/import discovery, complete source validation, atomic replace, exact removal, source-qualified redacted inspection, complete capability facts, cancellable source lifecycle, or source-scoped late launch-value callbacks with mandatory disposal.
-- Existing `McpServerManager` and configuration helpers are implementation internals; using them would require a deep import and would not supply the missing ownership, atomicity, registration-order, or secret-custody semantics.
-- Upstream issue #85 remains an unmerged request, and PR #56 remains an open stale/dirty, semantically incomplete provider proposal. No maintained qualifying fork is declared or published in this repository.
+- Package: `@nklisch/pi-mcp-adapter@2.11.0-nklisch.0` from the npm registry.
+- npm integrity: `sha512-kkMQwrNbggAhSCJCJUxVLKKiMswKjYaEbOLNSZrZlYY2teoxrtKld2+3MQpvsHDJYFypi1PPHuAS2YC/0z+7tg==`; SHA-1 `4f810535dbe25bcc1e683913931ab6c625b625a2`.
+- Fork commit: `1c1cd71fd069bc65cc06bf49399d83ff9e3d008b`; annotated tag object `39c0c367db35ecb125b05ad0b9b639bc6b09b97d`; upstream base `82724dccc13a49310530898f922bafff12b7f3fe`.
+- Package export: documented `@nklisch/pi-mcp-adapter/programmatic`; manager/deep subpaths are denied by `exports`.
+- License: MIT, shipped `LICENSE` SHA-256 `2d20dfacd9742706e564470dc77438608a1e54b0ed46959f080709389209093c`.
 
-No objective unblock criterion is met. The story remains `stage: implementing` and the exact unblock gate is unchanged: either a published MIT upstream release with a documented package export and all required lifecycle/cancellation/redaction/timing semantics, pinned with registry integrity and immutable provenance, or an explicitly selected, published, maintained MIT fork from a verified current upstream base with the identical API, ownership, security/rebase responsibility, pins, license evidence, unchanged conformance/Pi integration/Node 24 test evidence, and an upstream return path. Until then, production MCP availability remains fail-closed/unavailable and no adapter implementation is honest.
+Implementation installs the exact dependency and confines it to `src/runtime/mcp/pi-mcp-adapter-runtime.ts`. The wrapper translates every `McpRuntimePort` input, callback, result, capability, status, compare-and-replace, and removal handoff through Plugin Host schemas; preserves exact abort reasons; retains plaintext launch values and runtime leases only in caller-owned weak custody; and maps unexpected package/schema drift to static redacted `BoundaryError` evidence. No application, domain, lifecycle, or public package contract names the fork.
+
+`createProductionMcpRuntimeCandidate()` selects one isolated empty candidate for packaged Pi composition. The adapter extension attaches before host startup so environment-aware facts exist when the existing central `qualifyRuntimeParticipants()` authority runs. Only complete published-package evidence admits the runtime; malformed or incomplete facts remain unavailable. Initial composition is empty so existing full-bundle desired-state reconstruction and reconciliation remain the sole production source-publication authority.
+
+### Verification evidence
+
+- Unchanged portable conformance passed directly against the concrete registry-backed wrapper.
+- Focused production tests passed: 5 tests covering package provenance/exports/license, side-effect-free factory and validation, source-before-tool order, complete file/import/cache isolation, exact capability selection and fail-closed drift, source-key collisions, real standard-I/O process/tool/status isolation, replacement, exact/idempotent removal, cancellation, rollback, offline registration, late-value disposal, lease cleanup, and redaction/non-retention.
+- Full `npm test` passed: typecheck; 418-module / 2,980-edge dependency boundaries; 328 Vitest files / 1,600 tests with no type errors; build; exact 847 root exports and 3 Pi exports; isolated packed real Pi 0.80.8 RPC/JSON/PTY acceptance.
+- `npm run test:e2e:infrastructure` passed: 1 file / 2 tests against an offline clean packed consumer and exact Pi 0.80.8.
+- `npm run build`, exact package manifest/lock integrity probe, MIT digest probe, documented-export import, and manager-subpath rejection passed on Node 24.17.0.
 
 ## Implementation notes
 
-- Execution capability: Luna xhigh; blocker verification only. No production source, dependency, package patch, deep import, external PR claim, fork publication, or workaround was added.
-- Review weight: standard by project convention; no feature review or production-story review was run because the caller explicitly required the feature and production story to remain implementing.
-- Files changed: this item and its parent feature body only for the blocker record and partial implementation evidence.
-- Verification: the package-independent bridge/fake/conformance work passed the full `npm test`; production qualification remains unrun because the objective external gate is unmet.
+- Execution capability: GPT-5.6 Sol, direct cohesive story ownership; the concrete package boundary and its real-process qualification required one context and the caller prohibited nested agents.
+- Review weight: standard by project convention; review is not applicable to this child-story checkpoint, which advances directly to `done` on green verification.
+- Files changed: exact package manifest/lock; sole runtime wrapper; existing MCP composition/Pi extension selection; dependency boundary; focused conformance/integration fixtures; packed/clean acceptance assertions; this item and parent evidence.
+- Tests added: unchanged concrete conformance registration, real registry/Pi/process lifecycle integration, and one plain JSON-RPC standard-I/O fixture. Existing package/extension/E2E acceptance was tightened to require the production candidate.
+- Simplification: no file/settings/argument/environment path, package policy branch, manager deep import, MCP SDK runtime, transport/auth duplication, or second projection/reconciliation authority was introduced.
+- Discrepancies from design: the implemented initial-source shape follows the feature's current complete contract (`registration`, `launchValues`, and `runtimeLeases`), which supersedes the older abbreviated factory sketch.
 - Adjacent issues parked: none.

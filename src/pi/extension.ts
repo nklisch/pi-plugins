@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createPackagedPluginHost } from "../composition/create-packaged-plugin-host.js";
+import { createProductionMcpRuntimeCandidate } from "../composition/create-mcp-runtime.js";
 import { createPiControlChannel } from "./pi-control-channel.js";
 import { createPluginCommandAdapter } from "./plugin-command.js";
 import { createPluginManagerLifecycle } from "./plugin-manager-lifecycle.js";
@@ -11,9 +12,18 @@ import { createPluginManagerSession } from "./manager/plugin-manager-session.js"
 /** Construct-only Pi extension entry; host startup remains session_start-owned. */
 export default function packagedPluginHostExtension(pi: ExtensionAPI): void {
   const publisher = createPiUpdateNotificationPublisher({ pi });
-  // Host construction registers its lifecycle delegates first. Presentation is
-  // registered below so startup/shutdown ordering remains host → UI.
-  const host = createPackagedPluginHost({ pi, update: { publisher } });
+  // The isolated MCP candidate attaches before host startup, so its session
+  // context is available when central qualification captures environment-aware
+  // facts. It starts empty; authoritative full-bundle reconciliation remains
+  // the only source publication path.
+  const mcp = createProductionMcpRuntimeCandidate();
+  mcp.extension(pi);
+  // Host construction registers its lifecycle delegates before presentation.
+  const host = createPackagedPluginHost({
+    pi,
+    runtime: { mcp: mcp.runtime },
+    update: { publisher },
+  });
   const handoff = createPiManagerReloadHandoff();
   const manager = createPluginManagerSession({ host, handoff });
   const channel = createPiControlChannel({ pi });
