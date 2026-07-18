@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-subagent-interception
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime
 depends_on: [epic-skills-hook-runtime-guarded-command-hooks]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: [docs/research/pi-subagents-lifecycle-interception.md]
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-17
 ---
 
 # Subagent Lifecycle Interception
@@ -569,3 +569,10 @@ The operator selected the maintained-fork fallback on 2026-07-16. The planned de
 3. `epic-skills-hook-runtime-subagent-interception-upstream-contribution` — rebase the proven generic provider seam onto current `gotgenes/pi-packages`, open a focused PR, and track return to a qualifying upstream release.
 
 This amendment supersedes earlier wait-only/external-blocker wording. It does not permit observational events, unpublished fork bytes, internal imports, or method-presence checks to claim production capability.
+
+## Review readiness — 2026-07-17
+
+All seven direct child stories are `stage: done`, including the upstream contribution recorded at [PR #614](https://github.com/gotgenes/pi-packages/pull/614).
+The feature is therefore moved to `review`.
+The configured standard review requires an independent fresh-context pass, but this task explicitly prohibits nested agents and no different-model reviewer is available in this execution.
+The feature remains review-ready rather than falsely advancing to `done`; a subsequent permitted review pass must assess the complete portable contract, published-fork composition, upstream PR scope, and upstream-release return plan.
