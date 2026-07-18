@@ -185,6 +185,7 @@ try {
   if (await realpath(packageRoot) === project) throw new Error("packed package resolved to the source checkout");
 
   const cli = join(piRoot, piMetadata.bin.pi);
+  const subagentsExtension = join(packageRoot, hostMetadata.pi.extensions[0]);
   const extension = join(packageRoot, hostMetadata.pi.extensions[1]);
   const collision = join(consumer, "collision-extension.mjs");
   await writeFile(collision, `export default function (pi) { pi.registerCommand("plugin", { description: "Acceptance collision", handler: async (_args, ctx) => { ctx.ui.notify("collision command", "info"); } }); pi.registerCommand("acceptance-tools", { description: "Report active acceptance tools", handler: async (_args, ctx) => { ctx.ui.notify(JSON.stringify(pi.getAllTools().map((tool) => tool.name).sort()), "info"); } }); }\n`);
@@ -197,6 +198,7 @@ try {
     "--no-themes",
     "--no-context-files",
     "-e", collision,
+    "-e", subagentsExtension,
     "-e", extension,
   ];
   const env = {
@@ -230,6 +232,9 @@ try {
   const productionStatus = await runControlCommand(rpc, `/${owned.name} status`, (envelope) => envelope.command?.id === "status", "status completion");
   if (productionStatus.data?.capabilities?.mcp?.status !== "available") {
     throw new Error(`published MCP runtime did not pass concrete production qualification: ${JSON.stringify(productionStatus)}`);
+  }
+  if (productionStatus.data?.capabilities?.subagents?.status !== "available") {
+    throw new Error(`bundled subagent extension did not resolve Pi peers and publish its qualified lifecycle: ${JSON.stringify(productionStatus)}`);
   }
   await runControlCommand(rpc, `/${owned.name} marketplace add ${marketplace} --source-kind local-git`, (envelope) => envelope.command?.id === "marketplace.add", "marketplace registration completion");
   await runControlCommand(rpc, `/${owned.name} browse demo --scope user --limit 50`, (envelope) => envelope.command?.id === "browse", "catalog browse completion");
@@ -306,7 +311,7 @@ wait_for("Plugin Host command collision", 0, 60)
 mark = len(buffer); send(("/" + args["command"] + " status\r").encode()); wait_for("Plugin operation", mark, 60); wait_for("Final owner result", mark, 60); send(b"\x1b"); pump(time.monotonic() + 0.5)
 mark = len(buffer); send(b"/reload\r"); wait_for("Plugin Host command collision", mark, 60)
 mark = len(buffer); send(("/" + args["command"] + "\r").encode()); wait_for("PI / PLUGINS", mark, 60)
-mark = len(buffer); send(b"\x1b[C\x1b[C"); wait_for("demo", mark, 60)
+mark = len(buffer); send(b"\x1b[C"); wait_for("demo", mark, 60)
 send(b"\t\t\r"); wait_for("Component inventory", mark, 60)
 mark = len(buffer); send(b"\t\t\x1b[B\r"); wait_for("Step 1/3", mark, 60)
 mark = len(buffer); send(b"\r"); wait_for("Step 2/3", mark, 60)

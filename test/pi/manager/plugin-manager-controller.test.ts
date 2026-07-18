@@ -61,6 +61,32 @@ describe("plugin manager controller", () => {
     expect(controller.state().updateCounts).toEqual({ unread: 2, unresolved: 3 });
   });
 
+  it("loads the Health section from the public host status envelope", async () => {
+    const execute = vi.fn(async (argv: readonly string[]) => ({
+      envelope: createNativeControlEnvelope({
+        executionId, command: "status", status: "ok", data: {
+          status: "degraded",
+          local: { recovery: "settled", runtime: "degraded" },
+          update: { state: "standby", unresolvedCount: 1, unreadCount: 2, scopes: [] },
+          blocked: [],
+          capabilities: {
+            mcp: { status: "available", explanation: "ready" },
+            subagents: { status: "unavailable", explanation: "not composed" },
+            piReload: { status: "available", explanation: "ready" },
+            secrets: { status: "unavailable", explanation: "not configured" },
+          },
+        } as never,
+      }),
+      delivery: "complete" as const,
+      deliveredThrough: -1,
+    }));
+    const controller = createPluginManagerController({ execute });
+    controller.dispatch({ type: "set-view", view: "health" });
+    await controller.idle();
+    expect(execute).toHaveBeenCalledWith(["status"], expect.any(AbortSignal));
+    expect(controller.state().page.rows).toMatchObject([{ key: { subject: "health" }, title: "Plugin host", status: "degraded" }]);
+  });
+
   it("uses latest-intent-wins for search and ignores a late aborted response", async () => {
     const pending: Array<{ argv: readonly string[]; resolve: (value: NativeControlExecutionReport) => void; signal: AbortSignal }> = [];
     const execute = vi.fn((argv: readonly string[], signal: AbortSignal) => new Promise<NativeControlExecutionReport>((resolve) => pending.push({ argv, resolve, signal })));

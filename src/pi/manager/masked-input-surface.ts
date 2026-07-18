@@ -27,7 +27,7 @@ function ordinaryText(data: string): string | undefined {
 }
 
 /** Fresh TUI-only secret editor with no plaintext rendering or value getter. */
-export class MaskedInputOverlay implements Component, Focusable {
+export class MaskedInputSurface implements Component, Focusable {
   focused = false;
   private readonly theme: Theme;
   private readonly keybindings: KeybindingsManager;

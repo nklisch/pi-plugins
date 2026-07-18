@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { CURSOR_MARKER, Key, matchesKey, visibleWidth } from "@earendil-works/pi-tui";
 import { withSensitiveValue } from "../../../src/application/sensitive-value.js";
-import { MaskedInputOverlay } from "../../../src/pi/manager/masked-input-overlay.js";
+import { MaskedInputSurface } from "../../../src/pi/manager/masked-input-surface.js";
 
 function create() {
   const done = vi.fn();
@@ -9,12 +9,12 @@ function create() {
   const keybindings = {
     matches: (data: string, id: string) => id.includes("cancel") || id === "app.interrupt" ? matchesKey(data, Key.escape) : id.includes("confirm") ? matchesKey(data, Key.enter) : false,
   } as any;
-  const overlay = new MaskedInputOverlay({ theme, keybindings, label: "API token", done });
+  const overlay = new MaskedInputSurface({ theme, keybindings, label: "API token", done });
   overlay.focused = true;
   return { overlay, done };
 }
 
-describe("masked secret overlay", () => {
+describe("masked secret surface", () => {
   it("accepts editing and bracketed paste without rendering or retaining plaintext output", () => {
     const canary = "SECRET-CANARY-界";
     const { overlay, done } = create();

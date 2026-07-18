@@ -419,6 +419,8 @@ cancellation still emits a terminal cancelled envelope. `--non-interactive`
 never opens a TUI or prompt: a command whose declared input class cannot be
 satisfied by the selected channel returns explicit input-required evidence.
 
+Default human help and slash completion present the concise product routes: `add`, `remove`, `update`, `enable`, `disable`, `list`, `doctor`, `status`, and source management under `marketplace`. Compatibility aliases remain parseable. The complete registry below also includes advanced automation and protocol-phase routes; those routes are retained for deterministic integrations but are not advertised as ordinary interactive tasks.
+
 The table below is checked mechanically against `NativeControlCommandRegistry`.
 Angle brackets are positionals or option values; brackets are optional; a
 trailing `...` is repeatable.
@@ -427,26 +429,26 @@ trailing `...` is repeatable.
 | ID | Canonical form | Safety | Input | Summary |
 |---|---|---|---|---|
 | `presentation` | `/plugin` | `pure` | `decision` | Open plugin management |
-| `help` | `/plugin help [<path>...]` | `pure` | `none` | Show exact command help |
+| `help` | `/plugin help [<path>...]` | `pure` | `none` | Show command help |
 | `grammar` | `/plugin grammar [--version <value>]` | `pure` | `none` | Show grammar metadata |
-| `marketplace.add` | `/plugin marketplace add <source> [--source-kind github\|git\|local-git] [--ref <value>]` | `mutation` | `none` | Register a global marketplace |
-| `marketplace.remove` | `/plugin marketplace remove <registration-id> --yes` | `mutation` | `confirmation` | Remove a global marketplace registration |
-| `marketplace.list` | `/plugin marketplace list [--limit <integer>]` | `local-read` | `none` | List global marketplace registrations |
-| `marketplace.refresh` | `/plugin marketplace refresh [<registration-id>...]` | `mutation` | `none` | Refresh global marketplace registrations |
+| `marketplace.add` | `/plugin marketplace add <source> [--source-kind github\|git\|local-git] [--ref <value>]` | `mutation` | `none` | Add a plugin source |
+| `marketplace.remove` | `/plugin marketplace remove <registration-id> --yes` | `mutation` | `confirmation` | Remove a plugin source |
+| `marketplace.list` | `/plugin marketplace list [--limit <integer>]` | `local-read` | `none` | List plugin sources |
+| `marketplace.refresh` | `/plugin marketplace refresh [<registration-id>...]` | `mutation` | `none` | Refresh plugin sources |
 | `marketplace.adopt.preview` | `/plugin marketplace adopt preview` | `local-read` | `none` | Preview foreign marketplace adoption |
 | `marketplace.adopt.import` | `/plugin marketplace adopt import <candidate-id>... --yes` | `mutation` | `confirmation` | Import selected foreign marketplaces globally |
 | `browse` | `/plugin browse [<query>] [--scope user\|project\|all-current] [--marketplace-id <value>]... [--availability available\|installed-by-default\|not-available]... [--cursor <value>] [--limit <integer>]` | `local-read` | `none` | Browse marketplace candidates |
-| `inspection.list` | `/plugin list [--scope user\|project\|all-current] [--query <value>] [--condition ready\|attention\|blocked\|unavailable]... [--cursor <value>] [--limit <integer>]` | `local-read` | `none` | List installed plugins |
+| `inspection.list` | `/plugin list [--scope user\|project\|all-current] [--query <value>] [--condition ready\|attention\|blocked\|unavailable]... [--cursor <value>] [--limit <integer>]` | `local-read` | `none` | List my plugins |
 | `inspection.show` | `/plugin show <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>]` | `local-read` | `none` | Show exact plugin detail |
-| `inspection.diagnose` | `/plugin diagnose [<plugin-key>] [--scope user\|project] [--snapshot-id <value>] [--detail-id <value>] [--include-adoption]` | `local-read` | `none` | Diagnose host or plugin state |
+| `inspection.diagnose` | `/plugin doctor [<plugin-key>] [--scope user\|project] [--snapshot-id <value>] [--detail-id <value>] [--include-adoption]` | `local-read` | `none` | Check plugin host or plugin health |
 | `install.open` | `/plugin install open <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>]` | `mutation` | `none` | Open a trusted installation |
 | `install.apply` | `/plugin install apply <install-token>` | `mutation` | `configuration` | Apply a trusted installation |
 | `install.recover` | `/plugin install recover <install-token>` | `mutation` | `configuration` | Recover a trusted installation |
-| `install.run` | `/plugin install <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>]` | `mutation` | `configuration` | Install through the trusted workflow |
-| `lifecycle.enable` | `/plugin enable <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>] [--preview-only] [--yes]` | `mutation` | `confirmation` | Enable an installed plugin |
-| `lifecycle.disable` | `/plugin disable <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>] [--preview-only] [--yes]` | `mutation` | `confirmation` | Disable an installed plugin |
-| `lifecycle.update` | `/plugin update <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>] [--preview-only] [--yes] [--candidate-snapshot-id <value>] [--candidate-detail-id <value>]` | `mutation` | `configuration` | Update an installed plugin |
-| `lifecycle.uninstall` | `/plugin uninstall <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>] [--preview-only] [--yes] [--keep-data] [--delete-data]` | `mutation` | `confirmation` | Uninstall a plugin |
+| `install.run` | `/plugin add <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>]` | `mutation` | `configuration` | Add a plugin |
+| `lifecycle.enable` | `/plugin enable <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>] [--preview-only] [--yes]` | `mutation` | `confirmation` | Enable a plugin |
+| `lifecycle.disable` | `/plugin disable <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>] [--preview-only] [--yes]` | `mutation` | `confirmation` | Disable a plugin |
+| `lifecycle.update` | `/plugin update <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>] [--preview-only] [--yes] [--candidate-snapshot-id <value>] [--candidate-detail-id <value>]` | `mutation` | `configuration` | Update a plugin |
+| `lifecycle.uninstall` | `/plugin remove <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>] [--preview-only] [--yes] [--keep-data] [--delete-data]` | `mutation` | `confirmation` | Remove a plugin |
 | `project.sync` | `/plugin project sync --mode apply-intent\|publish-intent\|merge [--preview-only] [--yes]` | `mutation` | `decision` | Synchronize current project intent |
 | `updates.status` | `/plugin updates status [--scope user\|project\|all-current] [--plugin <value>]` | `local-read` | `none` | Show update status |
 | `updates.policy.preview` | `/plugin updates policy preview --kind application\|cadence --target global\|scope\|marketplace\|plugin [--scope user\|project\|all-current] [--marketplace-id <value>] [--plugin <value>] [--mode inherit\|manual\|automatic] [--cadence paused\|conservative\|balanced\|frequent]` | `local-read` | `none` | Preview an update policy change |
@@ -455,7 +457,7 @@ trailing `...` is repeatable.
 | `updates.notices.list` | `/plugin updates notices list [--scope user\|project\|all-current] [--plugin <value>] [--after <value>] [--limit <integer>]` | `local-read` | `none` | List update notices |
 | `updates.notices.acknowledge` | `/plugin updates notices acknowledge <notice-id>...` | `mutation` | `none` | Acknowledge update notices |
 | `updates.automatic.run` | `/plugin updates automatic run [--notice-id <value>]... [--limit <integer>]` | `mutation` | `none` | Run admitted automatic updates |
-| `status` | `/plugin status` | `local-read` | `none` | Show local host status |
+| `status` | `/plugin status` | `local-read` | `none` | Show plugin host status |
 | `operation.status` | `/plugin operation status <token>` | `operation-control` | `none` | Poll an existing operation |
 | `operation.cancel` | `/plugin operation cancel <token>` | `operation-control` | `none` | Cancel an existing operation |
 <!-- native-control-registry:end -->
@@ -469,7 +471,10 @@ The registry aliases are exact alternate paths, never fuzzy matches:
 | `/plugin adopt preview` | `/plugin marketplace adopt preview` |
 | `/plugin adopt import` | `/plugin marketplace adopt import` |
 | `/plugin inspect` | `/plugin show` |
-| `/plugin install run` | `/plugin install` |
+| `/plugin diagnose` | `/plugin doctor` |
+| `/plugin install` | `/plugin add` |
+| `/plugin install run` | `/plugin add` |
+| `/plugin uninstall` | `/plugin remove` |
 | `/plugin project-sync` | `/plugin project sync` |
 | `/plugin updates notices ack` | `/plugin updates notices acknowledge` |
 <!-- native-control-aliases:end -->
@@ -521,8 +526,8 @@ valid | /plugin updates policy preview --kind application --target marketplace -
 valid | /plugin updates notices acknowledge update-notice-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000 update-notice-v1:sha256:1111111111111111111111111111111111111111111111111111111111111111
 valid | /plugin updates automatic run --notice-id update-notice-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000 --limit 20
 invalid:CONTROL_INPUT_CHANNEL_CONFLICT | /plugin --input-stdin --input-file ./request.json status
-invalid:CONTROL_OPTION_CONFLICT | /plugin uninstall demo@market --scope user --yes --keep-data --delete-data
-invalid:CONTROL_RETENTION_REQUIRED | /plugin uninstall demo@market --scope user --yes
+invalid:CONTROL_OPTION_CONFLICT | /plugin remove demo@market --scope user --yes --keep-data --delete-data
+invalid:CONTROL_RETENTION_REQUIRED | /plugin remove demo@market --scope user --yes
 ```
 <!-- native-control-examples:end -->
 

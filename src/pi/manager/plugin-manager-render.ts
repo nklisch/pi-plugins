@@ -8,14 +8,15 @@ import {
 import { NativeInspectionDetailResultSchema } from "../../application/native-inspection-contract.js";
 import type { NativeControlEnvelope } from "../../application/native-control-contract.js";
 import { projectTerminalText } from "./pi-terminal-text.js";
-import { PluginManagerActionRegistry, pluginManagerRowActions, rowKeyIdentity, type PluginManagerRow, type PluginManagerState, type PluginManagerView } from "./plugin-manager-model.js";
+import { PluginManagerActionRegistry, pluginManagerAvailableActions, rowKeyIdentity, type PluginManagerRow, type PluginManagerState, type PluginManagerView } from "./plugin-manager-model.js";
 import { NativeControlStatusTone, pluginManagerStatusTone, type PluginManagerStatusTone } from "./plugin-manager-status.js";
 
 const VIEW_LABELS: Readonly<Record<PluginManagerView, string>> = Object.freeze({
-  installed: "Installed",
+  installed: "My Plugins",
+  browse: "Discover",
+  marketplaces: "Sources",
   updates: "Updates",
-  browse: "Browse",
-  marketplaces: "Marketplaces",
+  health: "Health",
 });
 
 function plain(value: unknown, limit = 2_048): string {
@@ -102,14 +103,31 @@ function detailSegments(state: PluginManagerState, theme: Theme): DetailSegments
   if (row === undefined) return {
     summary: [theme.fg("muted", `No ${VIEW_LABELS[state.view].toLowerCase()} details`)],
     disclosure: [],
-    actions: [theme.fg("accent", "Actions"), "  Refresh"],
+    actions: [theme.fg("accent", "Actions"), ...pluginManagerAvailableActions(state).map((action) => `  ${PluginManagerActionRegistry[action].label}`)],
   };
   const summary: string[] = [
     theme.bold(plain(row.plugin ?? row.title)),
     styledStatus(theme, row.status, row.statusTone),
     "",
-    `${theme.fg("muted", "scope")} ${plain(scopeName(row))}`,
+    ...(row.key.subject === "health" ? [] : [`${theme.fg("muted", "scope")} ${plain(scopeName(row))}`]),
   ];
+  if (row.key.subject === "health" && row.data !== null && typeof row.data === "object") {
+    const health = row.data as { local?: { recovery?: unknown; runtime?: unknown }; update?: { state?: unknown; unreadCount?: unknown; unresolvedCount?: unknown }; capabilities?: Record<string, { status?: unknown; explanation?: unknown }>; blocked?: readonly { plugin?: unknown; code?: unknown }[] };
+    summary.push(
+      `${theme.fg("muted", "recovery")} ${plain(health.local?.recovery)}`,
+      `${theme.fg("muted", "runtime")} ${plain(health.local?.runtime)}`,
+      `${theme.fg("muted", "updates")} ${plain(health.update?.state)} · ${plain(health.update?.unreadCount)} unread · ${plain(health.update?.unresolvedCount)} unresolved`,
+      "",
+      theme.fg("accent", "Capabilities"),
+    );
+    for (const [name, capability] of Object.entries(health.capabilities ?? {})) {
+      summary.push(`  ${styledStatus(theme, `${name} · ${plain(capability.status)}`)}`, `    ${theme.fg("muted", plain(capability.explanation))}`);
+    }
+    if ((health.blocked?.length ?? 0) > 0) {
+      summary.push("", theme.fg("error", "Blocked plugins"));
+      for (const blocked of health.blocked ?? []) summary.push(`  ${plain(blocked.plugin)} · ${plain(blocked.code)}`);
+    }
+  }
   const disclosure: string[] = [];
   const parsed = NativeInspectionDetailResultSchema.safeParse(state.detail.envelope?.data);
   if (parsed.success && parsed.data.kind === "found") {
@@ -161,7 +179,7 @@ function detailSegments(state: PluginManagerState, theme: Theme): DetailSegments
     );
   }
   const actions: string[] = ["", theme.fg("accent", "Actions")];
-  for (const action of pluginManagerRowActions(row)) {
+  for (const action of pluginManagerAvailableActions(state)) {
     const label = PluginManagerActionRegistry[action].label;
     const focused = state.focus.pane === "actions" && state.focus.action === action;
     actions.push(focused ? theme.bg("selectedBg", `> ${label}`) : `  ${label}`);
@@ -174,7 +192,7 @@ function detailLines(state: PluginManagerState, theme: Theme): Readonly<{ lines:
   const lines = [...segments.summary, ...segments.disclosure, ...segments.actions];
   if (state.focus.pane === "actions") {
     const row = selectedRow(state);
-    const focusedIndex = pluginManagerRowActions(row).findIndex((action) => action === state.focus.action);
+    const focusedIndex = pluginManagerAvailableActions(state).findIndex((action) => action === state.focus.action);
     // Keep the exact focused action visible even when a small terminal cannot
     // display the summary, disclosures, and full action list together.
     const focusOffset = focusedIndex < 0 ? 0 : focusedIndex;
@@ -196,7 +214,18 @@ function listLines(state: PluginManagerState, theme: Theme, focused: boolean): s
   const query = plain(state.query, 256);
   const lines = [`${theme.fg(state.focus.pane === "query" ? "accent" : "muted", "/ filter")} ${query}${marker}${state.focus.pane === "query" ? "_" : ""}`];
   if (state.page.errorCode !== undefined) lines.push(theme.fg("error", `! ${plain(state.page.errorCode, 64)}`));
-  if (state.page.rows.length === 0) lines.push(theme.fg("muted", `No ${VIEW_LABELS[state.view].toLowerCase()} plugins or records`));
+  if (state.page.rows.length === 0) {
+    const empty = state.view === "installed"
+      ? "No plugins added yet · press A to discover plugins"
+      : state.view === "browse"
+        ? "No plugins available · press A to add a source"
+        : state.view === "marketplaces"
+          ? "No sources configured · press A to add a GitHub marketplace"
+          : state.view === "updates"
+            ? "No pending plugin updates"
+            : "Plugin host health is unavailable · press R to retry";
+    lines.push(theme.fg("muted", empty));
+  }
   for (const row of state.page.rows) {
     const selected = state.focus.row !== undefined && rowKeyIdentity(state.focus.row) === rowKeyIdentity(row.key);
     const title = `${selected ? ">" : " "} ${plain(row.title, 256)}  ${styledStatus(theme, row.status, row.statusTone)}`;
@@ -209,8 +238,8 @@ function listLines(state: PluginManagerState, theme: Theme, focused: boolean): s
 }
 
 function tabLine(state: PluginManagerState, theme: Theme): string {
-  const tabs = (Object.keys(VIEW_LABELS) as PluginManagerView[]).map((view) => {
-    const count = view === "updates" ? ` ${state.updateCounts.unresolved}` : view === "installed" ? ` ${state.page.rows.length}` : "";
+  const tabs = (["installed", "browse", "marketplaces", "updates", "health"] as const).map((view) => {
+    const count = view === "updates" ? ` ${state.updateCounts.unresolved}` : view === "installed" ? ` ${state.installedCount}` : "";
     const label = `${VIEW_LABELS[view]}${count}`;
     return state.view === view ? theme.bg("selectedBg", theme.fg("accent", `[${label}]`)) : theme.fg("muted", label);
   });
@@ -219,7 +248,7 @@ function tabLine(state: PluginManagerState, theme: Theme): string {
 
 function footer(theme: Theme, keybindings: KeybindingsManager): string {
   const key = (id: Parameters<KeybindingsManager["getKeys"]>[0], fallback: string) => plain(keybindings.getKeys(id)[0] ?? fallback, 32);
-  return theme.fg("dim", `${key("tui.select.up", "up")}/${key("tui.select.down", "down")} move · ${key("tui.select.pageUp", "pageUp")}/${key("tui.select.pageDown", "pageDown")} scroll · ${key("tui.select.confirm", "enter")} inspect/action · tab focus · / search · r refresh · ? help · ${key("app.interrupt", "escape")} back/close`);
+  return theme.fg("dim", `${key("tui.select.up", "up")}/${key("tui.select.down", "down")} move · ${key("tui.select.confirm", "enter")} open/action · tab focus · A add · / search · r refresh · ? help · ${key("app.interrupt", "escape")} back/close`);
 }
 
 function operationLines(state: PluginManagerState, theme: Theme): string[] {
@@ -272,7 +301,7 @@ export function renderPluginManager(input: Readonly<{
     }
   }
   if (input.state.help) {
-    body = [input.theme.fg("warning", "Help: tab/shift-tab traverses every pane; configured page keys scroll the focused region; Enter activates."), ...body].slice(0, bodyHeight);
+    body = [input.theme.fg("warning", "Help: ←/→ section · tab/shift-tab focus · ↑/↓ move · Enter activate · A add · R refresh · Escape back."), ...body].slice(0, bodyHeight);
   }
   return Object.freeze([title, ...body.map((line) => finish(line, width)), bottom].slice(0, height));
 }

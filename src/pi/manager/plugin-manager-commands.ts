@@ -57,6 +57,7 @@ export function pageCommand(input: Readonly<{
   if (input.view === "marketplaces") {
     return nativeControlArgv("marketplace.list", [], { limit: 50 });
   }
+  if (input.view === "health") return nativeControlArgv("status");
   return nativeControlArgv("updates.notices.list", [], {
     scope: "all-current",
     after: input.next,

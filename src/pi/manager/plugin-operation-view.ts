@@ -3,6 +3,7 @@ import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, type Component } fr
 import type { NativeControlEnvelope } from "../../application/native-control-contract.js";
 import { TrustedInstallActivationResultSchema } from "../../application/trusted-install-contract.js";
 import { NativeControlFrameSchema, type NativeControlFrame } from "../../application/native-control-progress.js";
+import { nativeControlHumanLines } from "../native-control-human.js";
 import { projectTerminalText } from "./pi-terminal-text.js";
 
 function safe(value: unknown, limit = 2_048): string {
@@ -67,7 +68,6 @@ export class PluginOperationView implements Component {
     if (this.envelope !== undefined) {
       lines.push(this.theme.fg("accent", "Final owner result"));
       lines.push(`${safe(this.envelope.command.id)} ${safe(this.envelope.status)} · ${safe(this.envelope.exit.classification)} (${this.envelope.exit.code})`);
-      for (const field of this.envelope.human) lines.push(safe(field.text));
       const install = TrustedInstallActivationResultSchema.safeParse(this.envelope.data);
       if (install.success) {
         lines.push(this.theme.fg("accent", "Activation result"), safe(install.data.kind));
@@ -78,8 +78,10 @@ export class PluginOperationView implements Component {
         else if (install.data.kind === "rolled-back") lines.push(`${safe(install.data.failure)} · ${install.data.restored ? "restored" : "restore incomplete"}`);
         else if (install.data.kind === "stale" || install.data.kind === "conflict") lines.push(`refresh required · ${safe(install.data.reason)}`);
         if ("progress" in install.data) for (const event of install.data.progress) lines.push(`#${event.sequence} ${safe(event.phase)} ${safe(event.state)}${event.code === undefined ? "" : ` ${safe(event.code)}`}`);
+        for (const diagnostic of this.envelope.diagnostics) lines.push(`${safe(diagnostic.severity)} ${safe(diagnostic.code)} · ${safe(diagnostic.action)}`);
+      } else {
+        lines.push(...nativeControlHumanLines(this.envelope).map((line) => safe(line)));
       }
-      for (const diagnostic of this.envelope.diagnostics) lines.push(`${safe(diagnostic.severity)} ${safe(diagnostic.code)} · ${safe(diagnostic.action)}`);
     }
     lines.push(this.theme.fg("dim", this.envelope === undefined ? "Configured up/down/page keys scroll · Escape cancels once and waits" : "Configured up/down/page keys scroll · Escape closes result"));
     return lines;

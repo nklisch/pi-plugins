@@ -42,7 +42,7 @@ function context(mode: "tui" | "rpc" | "json" | "print") {
       resolve,
     );
     component.focused = true;
-    if (component.constructor.name === "MaskedInputOverlay") {
+    if (component.constructor.name === "MaskedInputSurface") {
       component.handleInput(canary);
       component.handleInput("\r");
     } else {

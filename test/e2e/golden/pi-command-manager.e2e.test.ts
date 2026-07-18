@@ -25,7 +25,7 @@ describe("packed headless and native Pi manager parity", () => {
       "--mode", "text", "--print", "--no-session", "/plugin status",
     ], { cwd: sandbox.project, env: sandbox.env, timeoutMs: 30_000 });
     const userOutput = `${printed.stdout}${printed.stderr}`;
-    expect(userOutput).toContain("Show local host status");
+    expect(userOutput).toContain("Host ready · recovery settled · runtime reconciled");
     expect(userOutput).not.toContain("\u001b");
     expect(userOutput.length).toBeLessThan(65_536);
   });
@@ -45,8 +45,8 @@ describe("packed headless and native Pi manager parity", () => {
     wide.send("/plugin\r");
     await wide.waitFor("PI / PLUGINS", start, 60_000);
     const browse = wide.mark();
-    wide.send("\u001b[C\u001b[C");
-    await wide.waitFor("Browse", browse);
+    wide.send("\u001b[C");
+    await wide.waitFor("Discover", browse);
     await wide.waitFor("core-local", browse, 60_000);
     wide.send("?\u001b");
     wide.send("\u001b\u0004");
@@ -56,10 +56,11 @@ describe("packed headless and native Pi manager parity", () => {
     const narrowStart = narrow.mark();
     narrow.send("/plugin\r");
     const output = await narrow.waitFor("PI / PLUGINS", narrowStart, 60_000);
-    expect(output.slice(narrowStart)).toContain("Installed");
+    expect(output.slice(narrowStart)).toContain("My Plugins");
+    expect(output.slice(narrowStart)).toContain("Discover");
+    expect(output.slice(narrowStart)).toContain("Sources");
     expect(output.slice(narrowStart)).toContain("Updates");
-    expect(output.slice(narrowStart)).toContain("Browse");
-    expect(output.slice(narrowStart)).toContain("Marketplaces");
+    expect(output.slice(narrowStart)).toContain("Health");
     narrow.send("\u001b\u0004");
     await narrow.shutdown();
   });
@@ -78,16 +79,16 @@ describe("packed headless and native Pi manager parity", () => {
     pty.send("/plugin\r");
     await pty.waitFor("PI / PLUGINS", mark, 60_000);
     mark = pty.mark();
-    pty.send("\u001b[C\u001b[C");
+    pty.send("\u001b[C");
     await pty.waitFor("core-local", mark, 60_000);
     pty.send("\t\t\r");
     await pty.waitFor("Component inventory", mark, 60_000);
     mark = pty.mark();
     pty.send("\t\t\u001b[B\r");
-    await pty.waitFor("Step 1/3 · Choose and inspect", mark, 60_000);
+    await pty.waitFor("Step 1/3 · Review plugin", mark, 60_000);
     mark = pty.mark();
     pty.send("\r");
-    await pty.waitFor("Step 2/3 · Configure and trust", mark, 60_000);
+    await pty.waitFor("Step 2/3 · Configure and review trust", mark, 60_000);
     pty.send("e2e-value\r");
     mark = pty.mark();
     await pty.waitFor("Step 3/3 · Activation result", mark, 90_000);

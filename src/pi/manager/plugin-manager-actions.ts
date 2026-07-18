@@ -20,6 +20,8 @@ export type PluginManagerActionIntent =
   | Readonly<{ action: "uninstall-keep" | "uninstall-delete"; row: PluginManagerRow }>
   | Readonly<{ action: "install-open" | "install-run"; row: PluginManagerRow; snapshotId: string; detailId: string }>
   | Readonly<{ action: "install-apply" | "install-recover"; token: string }>
+  | Readonly<{ action: "marketplace-add"; source: string; sourceKind?: "github" | "git" | "local-git"; ref?: string }>
+  | Readonly<{ action: "diagnose-host" }>
   | Readonly<{ action: "marketplace-refresh" | "marketplace-remove"; row: PluginManagerRow }>
   | Readonly<{ action: "notice-acknowledge"; row: PluginManagerRow }>
   | Readonly<{ action: "project-sync"; mode: "apply-intent" | "publish-intent" | "merge" }>
@@ -101,7 +103,7 @@ export function pluginManagerActionConfirmation(intent: ConfirmedPluginManagerAc
       : undefined;
   return Object.freeze({
     action: intent.action,
-    title: intent.action.startsWith("uninstall-") ? "Confirm plugin uninstall" : `Confirm plugin ${intent.action}`,
+    title: intent.action.startsWith("uninstall-") ? "Remove plugin?" : `Confirm plugin ${intent.action}`,
     lines: Object.freeze([
       `plugin: ${row.plugin}`,
       `scope: ${row.scope}`,
@@ -143,6 +145,10 @@ function actionArgv(intent: PluginManagerActionIntent, confirmed: boolean): read
   }
   if (intent.action === "install-apply" || intent.action === "install-recover") {
     return nativeControlArgv(intent.action === "install-apply" ? "install.apply" : "install.recover", [intent.token]);
+  }
+  if (intent.action === "diagnose-host") return nativeControlArgv("inspection.diagnose");
+  if (intent.action === "marketplace-add") {
+    return nativeControlArgv("marketplace.add", [intent.source], { sourceKind: intent.sourceKind, ref: intent.ref });
   }
   if (intent.action === "marketplace-refresh") {
     return nativeControlArgv("marketplace.refresh", [intent.row.key.key]);

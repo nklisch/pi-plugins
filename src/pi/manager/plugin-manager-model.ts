@@ -1,33 +1,37 @@
+import { NativeInspectionDetailResultSchema } from "../../application/native-inspection-contract.js";
 import type { NativeControlDynamicCandidate } from "../../application/native-control-help.js";
 import type { NativeControlEnvelope } from "../../application/native-control-contract.js";
 import type { NativeControlFrame } from "../../application/native-control-progress.js";
 import type { JsonValue } from "../../domain/schema.js";
 import type { PluginManagerStatusTone } from "./plugin-manager-status.js";
 
-export type PluginManagerView = "installed" | "updates" | "browse" | "marketplaces";
+export type PluginManagerView = "installed" | "browse" | "marketplaces" | "updates" | "health";
 export type PluginManagerPane = "tabs" | "query" | "list" | "detail" | "disclosure" | "actions";
 export type PluginManagerScrollRegion = "list" | "detail" | "actions" | "disclosure" | "operation";
 export type PluginManagerScreen = "manager" | "install-inspect" | "install-configure" | "install-result" | "operation-result";
 
 export const PluginManagerActionRegistry = Object.freeze({
   inspect: { label: "Inspect" },
-  install: { label: "Install complete plugin" },
+  install: { label: "Add plugin" },
   enable: { label: "Enable" },
   disable: { label: "Disable" },
   update: { label: "Review update" },
-  "uninstall-keep": { label: "Uninstall, keep data" },
-  "uninstall-delete": { label: "Uninstall, delete data" },
-  "marketplace-refresh": { label: "Refresh marketplace" },
+  "uninstall-keep": { label: "Remove, keep data" },
+  "uninstall-delete": { label: "Remove and delete data" },
+  "marketplace-add": { label: "Add source" },
+  "marketplace-refresh": { label: "Refresh source" },
   "marketplace-remove": { label: "Remove marketplace" },
   "notice-acknowledge": { label: "Acknowledge notice" },
   "project-sync-apply": { label: "Project sync · apply intent" },
   "project-sync-publish": { label: "Project sync · publish intent" },
   "project-sync-merge": { label: "Project sync · resolve merge" },
+  "browse-plugins": { label: "Discover plugins" },
+  "diagnose-host": { label: "Run diagnostics" },
 } as const);
 export type PluginManagerActionId = keyof typeof PluginManagerActionRegistry;
 
 export type PluginManagerRowKey = Readonly<{
-  subject: "installed" | "candidate" | "marketplace" | "notice";
+  subject: "installed" | "candidate" | "marketplace" | "notice" | "health";
   key: string;
   snapshotId?: string;
   detailId?: string;
@@ -74,6 +78,7 @@ export type PluginManagerState = Readonly<{
     errorCode?: string;
   }>;
   detail: PluginManagerDetailState;
+  installedCount: number;
   updateCounts: Readonly<{ unread: number; unresolved: number }>;
   operation: PluginManagerOperationState;
   disclosure: ReadonlySet<string>;
@@ -137,6 +142,7 @@ export function createPluginManagerState(): PluginManagerState {
     query: "",
     page: Object.freeze({ rows: Object.freeze([]), loading: false, request: 0, pages: 0, append: false }),
     detail: Object.freeze({ loading: false, request: 0 }),
+    installedCount: 0,
     updateCounts: Object.freeze({ unread: 0, unresolved: 0 }),
     operation: EMPTY_OPERATION,
     disclosure: new Set<string>(),
@@ -156,14 +162,40 @@ function sameRow(left: PluginManagerRowKey | undefined, right: PluginManagerRowK
 }
 
 export function pluginManagerRowActions(row: PluginManagerRow | undefined): readonly PluginManagerActionId[] {
-  if (row === undefined) return Object.freeze([]);
+  if (row === undefined || row.key.subject === "health") return Object.freeze([]);
   if (row.key.subject === "candidate") return Object.freeze(["inspect", "install"]);
   if (row.key.subject === "marketplace") return Object.freeze(["marketplace-refresh", "marketplace-remove"]);
   if (row.key.subject === "notice") return Object.freeze(["inspect", "notice-acknowledge"]);
-  return Object.freeze([
-    "inspect", "enable", "disable", "update", "uninstall-keep", "uninstall-delete",
-    ...(row.scope === "project" ? ["project-sync-apply", "project-sync-publish", "project-sync-merge"] as const : []),
-  ]);
+  return Object.freeze(["inspect", "uninstall-keep", "uninstall-delete"]);
+}
+
+/** Derive actions from the selected authoritative detail rather than offering contradictory lifecycle verbs. */
+export function pluginManagerAvailableActions(state: PluginManagerState): readonly PluginManagerActionId[] {
+  const row = state.focus.row === undefined
+    ? state.page.rows[0]
+    : state.page.rows.find((candidate) => rowKeyIdentity(candidate.key) === rowKeyIdentity(state.focus.row!));
+  if (state.view === "marketplaces") return Object.freeze(["marketplace-add", ...pluginManagerRowActions(row)]);
+  if (state.view === "health") return Object.freeze(["diagnose-host"]);
+  if (row === undefined) {
+    if (state.view === "installed") return Object.freeze(["browse-plugins", "marketplace-add"]);
+    if (state.view === "browse") return Object.freeze(["marketplace-add"]);
+    return Object.freeze([]);
+  }
+  if (row.key.subject !== "installed") return pluginManagerRowActions(row);
+  const detail = NativeInspectionDetailResultSchema.safeParse(
+    state.detail.row !== undefined && rowKeyIdentity(state.detail.row) === rowKeyIdentity(row.key)
+      ? state.detail.envelope?.data
+      : undefined,
+  );
+  if (!detail.success || detail.data.kind !== "found") return Object.freeze(["inspect"]);
+  const lifecycle = detail.data.detail.lifecycle;
+  const actions: PluginManagerActionId[] = ["inspect"];
+  if (lifecycle?.activationIntent === "enabled") actions.push("disable");
+  else if (lifecycle?.activationIntent === "disabled") actions.push("enable");
+  if (lifecycle?.update !== undefined && !["current", "not-applicable", "unknown"].includes(lifecycle.update)) actions.push("update");
+  actions.push("uninstall-keep", "uninstall-delete");
+  if (row.scope === "project") actions.push("project-sync-apply", "project-sync-publish", "project-sync-merge");
+  return Object.freeze(actions);
 }
 
 function selectedIndex(state: PluginManagerState): number {
@@ -200,7 +232,7 @@ function reduceIntent(state: PluginManagerState, intent: PluginManagerIntent): P
   }
   if (intent.type === "move-action") {
     const row = state.page.rows[Math.max(0, selectedIndex(state))];
-    const actions = pluginManagerRowActions(row);
+    const actions = pluginManagerAvailableActions(state);
     if (actions.length === 0) return state;
     const current = Math.max(0, actions.indexOf(state.focus.action as PluginManagerActionId));
     const action = actions[(current + intent.delta + actions.length) % actions.length]!;
@@ -228,7 +260,7 @@ function reduceIntent(state: PluginManagerState, intent: PluginManagerIntent): P
     const direction = intent.type === "focus-next" ? 1 : -1;
     const pane = order[(current + direction + order.length) % order.length]!;
     const row = state.page.rows[Math.max(0, selectedIndex(state))];
-    const action = pane === "actions" ? pluginManagerRowActions(row)[0] : undefined;
+    const action = pane === "actions" ? pluginManagerAvailableActions(state)[0] : undefined;
     const disclosure = pane === "disclosure" ? "components" : undefined;
     return Object.freeze({ ...state, focus: Object.freeze({ pane, ...(state.focus.row === undefined ? row === undefined ? {} : { row: row.key } : { row: state.focus.row }), ...(action === undefined ? {} : { action }), ...(disclosure === undefined ? {} : { disclosure }) }) });
   }
@@ -278,6 +310,7 @@ export function pluginManagerReducer(state: PluginManagerState, event: PluginMan
     return Object.freeze({
       ...state,
       focus: Object.freeze({ pane: state.focus.pane, ...(row === undefined ? {} : { row }), ...(state.focus.action === undefined ? {} : { action: state.focus.action }) }),
+      installedCount: state.view === "installed" ? rows.length : state.installedCount,
       page: Object.freeze({ rows, loading: false, request: event.request, pages: Math.min(5, pages), append: event.append, ...(event.next === undefined ? {} : { next: event.next }) }),
     });
   }

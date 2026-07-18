@@ -39,8 +39,8 @@ describe("plugin manager renderer", () => {
     expect(lines.length).toBeLessThanOrEqual(24);
     expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
     expect(lines.join("\n")).toContain("PI / PLUGINS");
-    expect(lines.join("\n")).toContain("Installed");
-    expect(lines.join("\n")).toContain("Updates 3");
+    expect(lines.join("\n")).toContain("My Plugins");
+    if (width >= 80) expect(lines.join("\n")).toContain("Updates 3");
     expect(lines.join("\n")).not.toContain("bad\u0007");
   });
 
@@ -68,7 +68,7 @@ describe("plugin manager renderer", () => {
     });
     value = pluginManagerReducer(value, { type: "focus", pane: "actions", action: "uninstall-delete" });
     const actionView = renderPluginManager({ state: value, width: 70, height: 8, theme, keybindings, focused: true }).join("\n");
-    expect(actionView).toContain("Uninstall, delete data");
+    expect(actionView).toContain("Remove and delete data");
   });
 
   it("preserves signed information groups and explicit empty/degraded state", () => {
@@ -82,6 +82,6 @@ describe("plugin manager renderer", () => {
     empty = pluginManagerReducer(empty, { type: "page-failed", request: 1, code: "HOST_BLOCKED" });
     const error = renderPluginManager({ state: empty, width: 60, height: 16, theme, keybindings, focused: true }).join("\n");
     expect(error).toContain("HOST_BLOCKED");
-    expect(error).toContain("No installed plugins");
+    expect(error).toContain("No plugins added yet");
   });
 });

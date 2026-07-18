@@ -5,8 +5,8 @@ import type {
   NativeControlInputResult,
 } from "../../application/ports/native-control-input.js";
 import type { SensitiveValue } from "../../application/sensitive-value.js";
-import { ConfirmationOverlay } from "./confirmation-overlay.js";
-import { MaskedInputOverlay, type MaskedInputResult } from "./masked-input-overlay.js";
+import { ConfirmationSurface } from "./confirmation-surface.js";
+import { MaskedInputSurface, type MaskedInputResult } from "./masked-input-surface.js";
 import { formatMcpEndpoint, projectTerminalText } from "./pi-terminal-text.js";
 
 export interface PiControlInputPort extends NativeControlInputPort {
@@ -46,8 +46,8 @@ export function createPiControlInputPort(input: Readonly<{
     try {
       return await input.context.ui.custom<MaskedInputResult>((_tui, theme, keybindings, done) => {
         settle = done;
-        return new MaskedInputOverlay({ theme, keybindings, label, done });
-      }, { overlay: true, overlayOptions: { anchor: "center", width: "60%", minWidth: 36, maxHeight: 7, margin: 1 } });
+        return new MaskedInputSurface({ theme, keybindings, label, done });
+      });
     } finally {
       signal.removeEventListener("abort", abort);
       if (cancelActive === abort) cancelActive = undefined;
@@ -83,8 +83,8 @@ export function createPiControlInputPort(input: Readonly<{
     try {
       return await input.context.ui.custom<boolean>((tui, theme, keybindings, done) => {
         settle = done;
-        return new ConfirmationOverlay({ theme, keybindings, title: "Confirm exact plugin action", lines, disclosure, height: () => tui.terminal.rows, done });
-      }, { overlay: true, overlayOptions: { anchor: "center", width: "70%", minWidth: 40, maxHeight: "70%", margin: 1 } });
+        return new ConfirmationSurface({ theme, keybindings, title: "Confirm exact plugin action", lines, disclosure, height: () => tui.terminal.rows, done });
+      });
     } finally {
       signal.removeEventListener("abort", abort);
       if (cancelActive === abort) cancelActive = undefined;

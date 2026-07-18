@@ -11,13 +11,13 @@ describe("signed plugin install flow", () => {
   it("preserves choose/inspect → configure/trust → activation-result hierarchy", () => {
     let state = createPluginInstallState(trustedInstallFlowFixture.chooseInspect);
     let lines = renderPluginInstall({ state, width: 84, height: 30, theme });
-    expect(lines.join("\n")).toContain("Step 1/3 · Choose and inspect");
+    expect(lines.join("\n")).toContain("Step 1/3 · Review plugin");
     expect(lines.join("\n")).toContain("Compatibility inventory");
     expect(lines.join("\n")).toContain("1 skills · 1 hooks · 1 MCP servers");
 
     state = pluginInstallReducer(state, { type: "session-opened", session: trustedInstallFlowFixture.states.missingInput.session });
     lines = renderPluginInstall({ state, width: 84, height: 30, theme });
-    expect(lines.join("\n")).toContain("Step 2/3 · Configure and trust");
+    expect(lines.join("\n")).toContain("Step 2/3 · Configure and review trust");
     expect(lines.join("\n")).toContain("Executable surface");
     expect(lines.join("\n")).toContain("Expand exact executable disclosure");
     expect(lines.join("\n")).not.toContain("bundle-hook");

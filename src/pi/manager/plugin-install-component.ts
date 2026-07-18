@@ -107,7 +107,7 @@ function installContent(state: PluginInstallState, theme: Theme): InstallContent
     const detail = state.candidate;
     return {
       before: [
-        theme.fg("accent", theme.bold("Step 1/3 · Choose and inspect")),
+        theme.fg("accent", theme.bold("Step 1/3 · Review plugin")),
         "Browse and inspect the complete declared surface before continuing.",
         "",
         theme.bold(safe(detail.summary.plugin)),
@@ -122,13 +122,13 @@ function installContent(state: PluginInstallState, theme: Theme): InstallContent
         choice(state, "disclosure", state.disclosure.has("candidate-components") ? "Collapse complete inventory" : "Expand complete inventory", theme),
       ],
       disclosure: state.disclosure.has("candidate-components") ? candidateDisclosure(state, theme) : [],
-      after: ["", ...progressLines(state, theme), ...(state.busy ? [""] : []), choice(state, "back", "Back to browse", theme), choice(state, "continue", state.busy ? "Opening current candidate…" : "Continue", theme)],
+      after: ["", ...progressLines(state, theme), ...(state.busy ? [""] : []), choice(state, "back", "Back to browse", theme), choice(state, "continue", state.busy ? "Loading current plugin…" : "Continue", theme)],
     };
   }
   if (state.step === "configure-trust" && state.session !== undefined) {
     const session = state.session;
     const before: string[] = [
-      theme.fg("accent", theme.bold("Step 2/3 · Configure and trust")),
+      theme.fg("accent", theme.bold("Step 2/3 · Configure and review trust")),
       "Required values and exact executable trust are reviewed together.",
       "",
       theme.fg("accent", "Plugin configuration"),
@@ -158,7 +158,7 @@ function installContent(state: PluginInstallState, theme: Theme): InstallContent
         choice(state, "back", "Back", theme),
         choice(state, "continue", state.busy
           ? `${state.submission === "recover" ? "Recovering" : "Applying"} through application.control…`
-          : state.submission === "recover" ? "Retry owner recovery" : "Install complete plugin", theme),
+          : state.submission === "recover" ? "Retry owner recovery" : "Add plugin", theme),
       ],
     };
   }

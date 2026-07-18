@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { trustedInstallFlowFixture } from "../../fixtures/trusted-install/plugin-install-flow.js";
 import {
   createPluginManagerState,
+  pluginManagerAvailableActions,
   pluginManagerReducer,
   rowKeyIdentity,
   type PluginManagerRow,
@@ -50,10 +52,30 @@ describe("plugin manager reducer", () => {
     }
     expect(state.page.pages).toBe(5);
     expect(state.page.rows.map((entry) => entry.title)).toEqual(["3", "4", "5", "6", "7"]);
+    expect(state.installedCount).toBe(5);
     state = pluginManagerReducer(state, { type: "intent", intent: { type: "set-view", view: "browse" } });
     expect(state.view).toBe("browse");
     expect(state.page.rows).toEqual([]);
     expect(state.focus).toMatchObject({ pane: "tabs" });
+    expect(state.installedCount).toBe(5);
+  });
+
+  it("derives onboarding and lifecycle actions from current presentation evidence", () => {
+    let state = createPluginManagerState();
+    expect(pluginManagerAvailableActions(state)).toEqual(["browse-plugins", "marketplace-add"]);
+    state = pluginManagerReducer(state, { type: "intent", intent: { type: "set-view", view: "marketplaces" } });
+    expect(pluginManagerAvailableActions(state)).toEqual(["marketplace-add"]);
+
+    state = createPluginManagerState();
+    state = pluginManagerReducer(state, { type: "page-loading", request: 1, append: false });
+    state = pluginManagerReducer(state, { type: "page-loaded", request: 1, rows: [row("demo")], append: false });
+    expect(pluginManagerAvailableActions(state)).toEqual(["inspect"]);
+    state = pluginManagerReducer(state, { type: "detail-loading", request: 1, row: row("demo").key });
+    state = pluginManagerReducer(state, {
+      type: "detail-loaded", request: 1, row: row("demo").key,
+      envelope: { data: { kind: "found", detail: { ...trustedInstallFlowFixture.chooseInspect, lifecycle: { ...trustedInstallFlowFixture.chooseInspect.lifecycle, activationIntent: "enabled", update: "current" } } } } as never,
+    });
+    expect(pluginManagerAvailableActions(state)).toEqual(["inspect", "disable", "uninstall-keep", "uninstall-delete"]);
   });
 
   it("keeps independent semantic scroll anchors for list, detail, actions, disclosure, and operation", () => {

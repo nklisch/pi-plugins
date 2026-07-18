@@ -143,7 +143,7 @@ describe("production concurrency, presentation, and secret non-retention", () =>
       sandbox.piCli, "--offline", "--approve", "--no-prompt-templates", "--no-themes", "--no-context-files",
       "--mode", "text", "--print", "--no-session", "/plugin status",
     ], { cwd: sandbox.project, env: sandbox.env, timeoutMs: 30_000 });
-    expect(`${printed.stdout}${printed.stderr}`).toBe("Show local host status\n");
+    expect(`${printed.stdout}${printed.stderr}`).toContain("Host ready · recovery settled · runtime reconciled");
     const json = await runChecked(sandbox.capabilities.node, [
       sandbox.piCli, "--offline", "--approve", "--no-prompt-templates", "--no-themes", "--no-context-files",
       "--mode", "json", "--no-session", "/plugin status",
@@ -160,10 +160,11 @@ describe("production concurrency, presentation, and secret non-retention", () =>
       const output = await pty.waitFor("PI / PLUGINS", mark, 60_000);
       await pty.waitFor("production-bundle", mark, 60_000);
       const semantic = pty.semanticOutput().slice(mark);
-      expect(`${output}${semantic}`).toContain("Installed");
+      expect(`${output}${semantic}`).toContain("My Plugins");
+      expect(semantic).toContain("Discover");
+      expect(semantic).toContain("Sources");
       expect(semantic).toContain("Updates");
-      expect(semantic).toContain("Browse");
-      expect(semantic).toContain("Marketplaces");
+      expect(semantic).toContain("Health");
       pty.send("\u001b\u0004");
       await pty.shutdown();
     }

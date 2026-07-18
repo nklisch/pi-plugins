@@ -2,13 +2,13 @@ import type { ExtensionCommandContext, KeybindingsManager, Theme } from "@earend
 import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import { projectTerminalText } from "./pi-terminal-text.js";
 
-export type ConfirmationOverlayRequest = Readonly<{
+export type ConfirmationSurfaceRequest = Readonly<{
   title: string;
   lines: readonly string[];
   disclosure?: readonly string[];
 }>;
 
-export class ConfirmationOverlay implements Component {
+export class ConfirmationSurface implements Component {
   private readonly theme: Theme;
   private readonly keybindings: KeybindingsManager;
   private readonly title: string;
@@ -64,21 +64,28 @@ export class ConfirmationOverlay implements Component {
   render(width: number): string[] {
     if (this.disposed) return [];
     const height = Math.max(4, this.height());
+    const innerWidth = Math.max(1, width - 2);
     const content = [
       this.theme.fg("warning", this.theme.bold(this.title)),
+      "",
       ...this.lines,
       ...(this.disclosure.length === 0 ? [] : this.disclosed
         ? [this.theme.fg("accent", "Exact executable disclosure"), ...this.disclosure]
         : [this.theme.fg("muted", "Space: show exact skills, hook commands, MCP process/tools, and requirements")]),
-    ].flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width)))
-      .map((line) => truncateToWidth(line, Math.max(1, width), ""));
-    const bodyHeight = Math.max(1, height - 1);
+    ].flatMap((line) => wrapTextWithAnsi(line, innerWidth))
+      .map((line) => truncateToWidth(line, innerWidth, ""));
+    const bodyHeight = Math.max(1, height - 3);
     this.maxOffset = Math.max(0, content.length - bodyHeight);
     this.offset = Math.min(this.offset, this.maxOffset);
     const confirm = this.disclosure.length === 0 || this.disclosed && this.offset >= this.maxOffset
       ? "Enter confirm · Escape cancel"
       : "Review the complete disclosure to the end before confirming · Escape cancel";
-    return [...content.slice(this.offset, this.offset + bodyHeight), this.theme.fg("dim", confirm)];
+    const boundedWidth = Math.max(1, width);
+    const border = this.theme.fg("borderAccent", "─".repeat(boundedWidth));
+    const indent = boundedWidth > 1 ? " " : "";
+    const body = content.slice(this.offset, this.offset + bodyHeight)
+      .map((line) => truncateToWidth(`${indent}${line}`, boundedWidth, ""));
+    return [border, ...body, truncateToWidth(this.theme.fg("dim", `${indent}${confirm}`), boundedWidth, ""), border];
   }
 
   invalidate(): void {}
@@ -86,9 +93,9 @@ export class ConfirmationOverlay implements Component {
 }
 
 /** Open a fresh confirmation component; cancellation never implies approval. */
-export async function presentConfirmationOverlay(
+export async function presentConfirmationSurface(
   context: ExtensionCommandContext,
-  request: ConfirmationOverlayRequest,
+  request: ConfirmationSurfaceRequest,
   signal: AbortSignal,
 ): Promise<boolean> {
   signal.throwIfAborted();
@@ -98,8 +105,8 @@ export async function presentConfirmationOverlay(
   try {
     return await context.ui.custom<boolean>((tui, theme, keybindings, done) => {
       settle = done;
-      return new ConfirmationOverlay({ ...request, theme, keybindings, height: () => tui.terminal.rows, done });
-    }, { overlay: true, overlayOptions: { anchor: "center", width: "70%", minWidth: 40, maxHeight: "70%", margin: 1 } });
+      return new ConfirmationSurface({ ...request, theme, keybindings, height: () => tui.terminal.rows, done });
+    });
   } finally {
     signal.removeEventListener("abort", abort);
     settle = undefined;

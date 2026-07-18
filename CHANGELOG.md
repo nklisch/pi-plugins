@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.1.2
+
+### Features
+
+- Redesign `/plugin` around My Plugins, Discover, Sources, Updates, and Health, with first-run source onboarding and state-sensitive actions.
+- Add concise `add`, `remove`, and `doctor` commands while retaining prior command forms as compatibility aliases.
+
+### Fixes
+
+- Replace garbled experimental confirmation overlays with framed, correctly sized full-screen confirmation and secret-entry surfaces.
+- Render useful bounded command results and concise help instead of command-description placeholders.
+- Activate the bundled subagent extension from one top-level Pi installation by bridging Pi's existing coding-agent, AI, and TUI module identities into the receipt-verified child loader.
+- Keep installed counts stable across manager sections and expose actual host diagnostics through Health.
+
+### Documentation
+
+- Document the distinction between Pi extension packages and managed foreign plugin bundles, the simplified command surface, and transitive runtime activation.
+
 ## v0.1.1
 
 ### Fixes

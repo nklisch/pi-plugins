@@ -9,11 +9,11 @@ import {
 import type { PluginManagerController } from "./plugin-manager-controller.js";
 import { projectTerminalText } from "./pi-terminal-text.js";
 import { renderPluginManager } from "./plugin-manager-render.js";
-import { pluginManagerRowActions, rowKeyIdentity, type PluginManagerScrollRegion, type PluginManagerView } from "./plugin-manager-model.js";
+import { pluginManagerAvailableActions, rowKeyIdentity, type PluginManagerScrollRegion, type PluginManagerView } from "./plugin-manager-model.js";
 
 export type PluginManagerCloseResult = Readonly<{ kind: "closed" | "action"; action?: string }>;
 
-const VIEWS: readonly PluginManagerView[] = ["installed", "updates", "browse", "marketplaces"];
+const VIEWS: readonly PluginManagerView[] = ["installed", "browse", "marketplaces", "updates", "health"];
 
 function safePrintable(data: string): string | undefined {
   if (data.length === 0 || data.includes("\n") || data.includes("\r")) return undefined;
@@ -191,11 +191,19 @@ export class PluginManagerComponent implements Component, Focusable {
     else if (data === "u") {
       const state = this.controller.state();
       const row = state.page.rows.find((entry) => state.focus.row !== undefined && rowKeyIdentity(entry.key) === rowKeyIdentity(state.focus.row)) ?? state.page.rows[0];
-      if (pluginManagerRowActions(row).includes("update")) this.activateAction("update");
+      if (pluginManagerAvailableActions(state).includes("update")) this.activateAction("update");
     } else if (data === " ") {
       const state = this.controller.state();
       const row = state.page.rows.find((entry) => state.focus.row !== undefined && rowKeyIdentity(entry.key) === rowKeyIdentity(state.focus.row)) ?? state.page.rows[0];
-      if (pluginManagerRowActions(row).includes("enable")) this.activateAction("enable");
+      const actions = pluginManagerAvailableActions(state);
+      if (actions.includes("enable")) this.activateAction("enable");
+      else if (actions.includes("disable")) this.activateAction("disable");
+    }
+    else if (data.toLowerCase() === "a") {
+      const actions = pluginManagerAvailableActions(this.controller.state());
+      if (actions.includes("install")) this.activateAction("install");
+      else if (actions.includes("browse-plugins")) this.activateAction("browse-plugins");
+      else if (actions.includes("marketplace-add")) this.activateAction("marketplace-add");
     }
     else if (data === "r") this.controller.dispatch({ type: "refresh", scope: "all" });
     else if (data === "?") this.controller.dispatch({ type: "toggle-help" });

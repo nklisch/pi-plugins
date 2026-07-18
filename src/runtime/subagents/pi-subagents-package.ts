@@ -1,7 +1,10 @@
 import { join } from "node:path";
+import * as piAi from "@earendil-works/pi-ai";
+import * as piCodingAgent from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import * as piTui from "@earendil-works/pi-tui";
 import type { SubagentsService } from "@nklisch/pi-subagents";
-import { createJiti } from "jiti/static";
+import { createJiti, type Jiti } from "jiti/static";
 import {
   probePublishedPackage,
   type PublishedPackageProbeResult,
@@ -29,6 +32,24 @@ type RootModule = Readonly<{
 }>;
 
 let verifiedPackage: Promise<PublishedPackageProbeResult> | undefined;
+let packageLoader: Jiti | undefined;
+
+/**
+ * Pi supplies extension peer modules through its own Jiti aliases/virtual
+ * modules rather than installing another coding-agent tree beside each package.
+ * The nested verified extension is loaded by our Jiti instance, so explicitly
+ * bridge those already-loaded module identities into that child loader.
+ */
+function loader(): Jiti {
+  packageLoader ??= createJiti(import.meta.url, {
+    virtualModules: {
+      "@earendil-works/pi-ai": piAi,
+      "@earendil-works/pi-coding-agent": piCodingAgent,
+      "@earendil-works/pi-tui": piTui,
+    },
+  });
+  return packageLoader;
+}
 
 function probe(signal: AbortSignal): Promise<PublishedPackageProbeResult> {
   verifiedPackage ??= probePublishedPackage({
@@ -53,7 +74,7 @@ export async function loadVerifiedPiSubagentsExtension(
   if (result.kind !== "verified") return undefined;
   signal.throwIfAborted();
   try {
-    const module = await createJiti(import.meta.url).import(join(result.packageRoot, PI_SUBAGENTS_RECEIPT.piExtensions[0]!));
+    const module = await loader().import(join(result.packageRoot, PI_SUBAGENTS_RECEIPT.piExtensions[0]!));
     const extension = module !== null && typeof module === "object"
       ? (module as { default?: unknown }).default
       : undefined;
@@ -74,7 +95,7 @@ export async function loadVerifiedPiSubagentsService(
   if (result.kind !== "verified") return undefined;
   signal.throwIfAborted();
   try {
-    const module = rootModule(await createJiti(import.meta.url).import(result.entry));
+    const module = rootModule(await loader().import(result.entry));
     return module?.getSubagentsService();
   } catch {
     if (signal.aborted) throw signal.reason;

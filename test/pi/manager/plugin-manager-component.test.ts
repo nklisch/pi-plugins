@@ -64,6 +64,12 @@ describe("plugin manager component", () => {
     expect(h.component.render(70).join("\n")).not.toContain(CURSOR_MARKER);
   });
 
+  it("offers direct Add onboarding from an empty plugin list", () => {
+    const h = harness();
+    h.component.handleInput("A");
+    expect(h.done).toHaveBeenCalledWith({ kind: "action", action: "browse-plugins" });
+  });
+
   it("closes the manager surface before presenting a mutating action", () => {
     const h = harness();
     h.setState({

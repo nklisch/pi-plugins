@@ -289,8 +289,10 @@ function completion(inputValue: NativeControlCompletionRequest): NativeControlCo
   const matched = pathMatch(completed);
   if (matched === undefined && completed.length === 0) {
     for (const definition of Object.values(NativeControlCommandRegistry)) {
+      if (definition.visibility !== "primary") continue;
       if (definition.path.length > 0) add(definition.path.join(" "), "command");
-      for (const alias of definition.aliases) add(alias.path.join(" "), "command", false, alias.deprecatedSince);
+      // Compatibility aliases remain parseable but do not crowd the normal
+      // command picker with protocol-shaped or superseded vocabulary.
     }
   } else if (matched !== undefined) {
     const definition = NativeControlCommandRegistry[matched.id];

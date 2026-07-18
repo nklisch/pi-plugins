@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { Key, matchesKey, visibleWidth } from "@earendil-works/pi-tui";
-import { ConfirmationOverlay } from "../../../src/pi/manager/confirmation-overlay.js";
+import { ConfirmationSurface } from "../../../src/pi/manager/confirmation-surface.js";
 
 const theme = {
   fg: (_token: string, text: string) => text,
@@ -16,10 +16,10 @@ const keybindings = {
               id === "tui.select.pageDown" ? matchesKey(data, Key.pageDown) : false,
 } as any;
 
-describe("confirmation overlay", () => {
+describe("confirmation surface", () => {
   it("requires the complete executable disclosure to be reachable before confirmation", () => {
     const done = vi.fn();
-    const overlay = new ConfirmationOverlay({
+    const overlay = new ConfirmationSurface({
       theme,
       keybindings,
       title: "Confirm exact trust",
@@ -47,7 +47,7 @@ describe("confirmation overlay", () => {
 
   it("cancels a fresh confirmation without approval", () => {
     const done = vi.fn();
-    const overlay = new ConfirmationOverlay({ theme, keybindings, title: "Delete data", lines: ["plugin: demo"], done });
+    const overlay = new ConfirmationSurface({ theme, keybindings, title: "Delete data", lines: ["plugin: demo"], done });
     overlay.handleInput("\u001b");
     overlay.handleInput("\r");
     expect(done).toHaveBeenCalledOnce();

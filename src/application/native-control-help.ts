@@ -102,7 +102,7 @@ function commandHelp(id: NativeControlCommandId) {
 export function createNativeControlHelp(path: readonly string[] = []): NativeControlHelp {
   const matches = (Object.keys(NativeControlCommandRegistry) as NativeControlCommandId[]).filter((id) => {
     const definition = NativeControlCommandRegistry[id];
-    if (path.length === 0) return id !== "presentation";
+    if (path.length === 0) return id !== "presentation" && definition.visibility === "primary";
     return path.every((segment, index) => definition.path[index] === segment) ||
       definition.aliases.some((alias) => path.every((segment, index) => alias.path[index] === segment));
   });

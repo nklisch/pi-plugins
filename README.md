@@ -19,23 +19,34 @@ Native plugin management for [Pi](https://github.com/badlogic/pi-mono), with com
 ## Install
 
 ```bash
-pi install npm:@nklisch/pi-plugins@0.1.1
+pi install npm:@nklisch/pi-plugins@0.1.2
 ```
 
-Then start Pi and run:
-
-```text
-/plugin
-```
-
-Use `/plugin help` for deterministic command-mode usage. Marketplace registration is global, while plugin installation remains user- or project-scoped:
+Then start Pi and run `/plugin`. The manager is organized around **My Plugins**, **Discover**, **Sources**, **Updates**, and **Health**. On a clean installation, open Sources and choose **Add Source**, or use:
 
 ```text
 /plugin marketplace add nklisch/skills
-/plugin install <plugin@marketplace> --scope user
+/plugin add <plugin@marketplace> --scope user
 ```
 
-GitHub shorthand is the default marketplace source; use `--source-kind git` or `--source-kind local-git` only for those source forms. The interactive manager opens only in a TUI session.
+`/plugin add` adds the complete plugin to the selected user or project plugin list, collects any required configuration and executable trust, installs and enables it, and reloads Pi when activation changes. Use `/plugin help` for the concise command surface:
+
+```text
+/plugin add <plugin> --scope user|project
+/plugin remove <plugin> --scope user|project --keep-data|--delete-data
+/plugin update <plugin> --scope user|project
+/plugin enable <plugin> --scope user|project
+/plugin disable <plugin> --scope user|project
+/plugin list
+/plugin doctor [plugin]
+/plugin marketplace add|list|refresh|remove ...
+```
+
+The older `install`, `uninstall`, and `diagnose` forms remain accepted as compatibility aliases. Workflow-phase and operation-token routes remain available to automation but are intentionally omitted from normal help and completion.
+
+Marketplace registration is global; plugin installation remains user- or project-scoped. GitHub shorthand is the default marketplace source. Use `--source-kind git` or `--source-kind local-git` for those source forms. The interactive manager opens only in a TUI session.
+
+This package manages compatible foreign marketplace plugins as complete bundles. It does **not** replace Pi's package manager: use `pi list`, `pi install`, `pi update`, and `pi config` for ordinary Pi extension packages.
 
 ## Security
 
@@ -50,7 +61,7 @@ The current production package pins and verifies:
 - `@nklisch/pi-mcp-adapter@2.11.0-nklisch.0`
 - `@nklisch/pi-subagents@18.0.4-nklisch.0`
 
-Executable dependencies are receipt-checked before import. Package, API, runtime-range, installed-tree, or behavioral drift makes the affected capability unavailable rather than partially activating it.
+Executable dependencies are receipt-checked before import. The MCP and subagent packages are transitive dependencies: one top-level `pi install npm:@nklisch/pi-plugins` installs and activates both through verified wrappers, so they do not need separate `pi install` entries. The bundled subagent loader reuses Pi's already-loaded coding-agent, AI, and TUI module identities rather than installing a second Pi runtime tree. Package, API, runtime-range, installed-tree, or behavioral drift makes the affected capability unavailable rather than partially activating it.
 
 See [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) for the complete compatibility contract.
 

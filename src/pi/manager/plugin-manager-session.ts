@@ -15,7 +15,7 @@ import {
 import type { PackagedPluginHost } from "../../composition/packaged-plugin-host-contract.js";
 import type { PluginManagerLiveOperation, PluginManagerPresentation } from "../plugin-command.js";
 import type { PiManagerReloadHandoff, PluginManagerDestination } from "../pi-manager-reload-handoff.js";
-import { presentConfirmationOverlay } from "./confirmation-overlay.js";
+import { presentConfirmationSurface } from "./confirmation-surface.js";
 import { createPiControlInputPort } from "./pi-control-input.js";
 import { createPiManagerFrameSink } from "./pi-manager-frame-sink.js";
 import { PluginInstallComponent, type PluginInstallComponentAction } from "./plugin-install-component.js";
@@ -50,6 +50,7 @@ function actionIntent(action: string, state: PluginManagerState): PluginManagerA
   if (action === "project-sync-apply") return { action: "project-sync", mode: "apply-intent" };
   if (action === "project-sync-publish") return { action: "project-sync", mode: "publish-intent" };
   if (action === "project-sync-merge") return { action: "project-sync", mode: "merge" };
+  if (action === "diagnose-host") return { action };
   throw new TypeError("plugin manager action is unavailable for this row");
 }
 
@@ -94,7 +95,7 @@ export function createPluginManagerSession(input: Readonly<{
       session: { sessionId: context.sessionManager.getSessionId(), cwd: context.cwd },
       ...(options.onFrame === undefined ? {} : { onFrame: options.onFrame }),
       ...(options.confirm === true ? {
-        confirm: (confirmation: PluginManagerActionConfirmation, signal: AbortSignal) => presentConfirmationOverlay(context, {
+        confirm: (confirmation: PluginManagerActionConfirmation, signal: AbortSignal) => presentConfirmationSurface(context, {
           title: confirmation.title,
           lines: confirmation.lines,
         }, signal),
@@ -269,6 +270,18 @@ export function createPluginManagerSession(input: Readonly<{
     const actions = {
       async run(action: string, state: PluginManagerState) {
         if (action === "install") return runInstallFlow(context, state);
+        let resolvedIntent: PluginManagerActionIntent;
+        if (action === "marketplace-add") {
+          const sourceType = await context.ui.select("Source type", ["GitHub repository", "Git URL", "Local Git checkout"]);
+          if (sourceType === undefined) return Object.freeze({ kind: "cancelled" as const, presentation: "local" as const });
+          const sourceKind = sourceType === "Git URL" ? "git" as const : sourceType === "Local Git checkout" ? "local-git" as const : "github" as const;
+          const placeholder = sourceKind === "github" ? "owner/repository" : sourceKind === "git" ? "https://example.com/plugins.git" : "/path/to/plugins";
+          const source = await context.ui.input("Source location", placeholder);
+          if (source === undefined || source.trim().length === 0) return Object.freeze({ kind: "cancelled" as const, presentation: "local" as const });
+          const ref = await context.ui.input("Git ref (optional)", "branch, tag, or commit; leave empty for default");
+          if (ref === undefined) return Object.freeze({ kind: "cancelled" as const, presentation: "local" as const });
+          resolvedIntent = { action: "marketplace-add", source: source.trim(), sourceKind, ...(ref.trim().length === 0 ? {} : { ref: ref.trim() }) };
+        } else resolvedIntent = actionIntent(action, state);
         const port = createPiControlInputPort({ context, mode: "tui" });
         const runner = freshRunner(context, {
           input: port,
@@ -277,7 +290,7 @@ export function createPluginManagerSession(input: Readonly<{
             if (!presentationDetached) controller.observe({ type: "frame", frame });
           },
         });
-        try { return await runner.run(actionIntent(action, state)); }
+        try { return await runner.run(resolvedIntent); }
         finally {
           port.dispose();
           runner.close(closingReason ?? "quit");

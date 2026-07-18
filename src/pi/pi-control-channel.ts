@@ -9,6 +9,7 @@ import type {
   NativeControlExecutionReport,
   NativeControlFrameSink,
 } from "../application/ports/native-control-execution.js";
+import { nativeControlHumanLines } from "./native-control-human.js";
 
 const CONTROL_REPORT_ENTRY = "plugin-host:control-report-v1";
 const CONTROL_FRAME_ENTRY = "plugin-host:control-frame-v1";
@@ -42,9 +43,7 @@ function frameLines(frame: NativeControlFrame): readonly string[] {
   if (frame.type === "progress") {
     return [`${frame.phase} ${frame.state}${frame.code === undefined ? "" : ` ${frame.code}`}`];
   }
-  if (frame.result.human.length > 0) return frame.result.human.map((field) => field.text);
-  if (frame.result.diagnostics.length > 0) return frame.result.diagnostics.map((diagnostic) => diagnostic.code);
-  return [`${frame.result.command.id} ${frame.result.status} (${frame.result.exit.classification})`];
+  return nativeControlHumanLines(frame.result);
 }
 
 async function write(output: Writable, text: string, signal: AbortSignal): Promise<void> {
@@ -102,7 +101,22 @@ export function createPiControlChannel(options: Readonly<{
       });
     },
     async publishReport(context: ExtensionContext, report: NativeControlExecutionReport): Promise<void> {
-      if (context.mode === "print") return;
+      if (context.mode === "print") {
+        // Parse/help/presentation failures are produced before a frame sink is
+        // admitted. Print mode still owes the caller a useful terminal result,
+        // while admitted reports were already delivered through their sink.
+        if (report.deliveredThrough >= 0) return;
+        const signal = context.signal ?? new AbortController().signal;
+        const lines = nativeControlHumanLines(report.envelope).slice(0, MAX_PRINT_LINES);
+        let scalars = 0;
+        for (const raw of lines) {
+          if (scalars >= MAX_PRINT_SCALARS) break;
+          const line = boundedLine(raw).slice(0, Math.min(MAX_PRINT_LINE_SCALARS, MAX_PRINT_SCALARS - scalars));
+          scalars += line.length;
+          await write(output, `${line}\n`, signal);
+        }
+        return;
+      }
       if (context.mode === "rpc" || context.mode === "json") {
         // appendEntry is Pi's structured protocol/session channel. The envelope
         // has already crossed the facade's redaction and JSON-schema boundary.

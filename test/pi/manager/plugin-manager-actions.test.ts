@@ -65,8 +65,8 @@ describe("plugin manager action runner", () => {
   it.each([
     [{ action: "disable", row }, ["disable", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes"]],
     [{ action: "update", row }, ["update", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes"]],
-    [{ action: "uninstall-keep", row }, ["uninstall", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes", "--keep-data"]],
-    [{ action: "uninstall-delete", row }, ["uninstall", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes", "--delete-data"]],
+    [{ action: "uninstall-keep", row }, ["remove", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes", "--keep-data"]],
+    [{ action: "uninstall-delete", row }, ["remove", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes", "--delete-data"]],
     [{ action: "marketplace-remove", row: marketplaceRow }, ["marketplace", "remove", "registration-1", "--yes"]],
     [{ action: "project-sync", mode: "apply-intent" }, ["project", "sync", "--mode", "apply-intent", "--yes"]],
     [{ action: "project-sync", mode: "publish-intent" }, ["project", "sync", "--mode", "publish-intent", "--yes"]],
@@ -78,6 +78,27 @@ describe("plugin manager action runner", () => {
     await runner.run(intent);
     expect(confirm).toHaveBeenCalledOnce();
     expect(execute).toHaveBeenCalledWith(expectedArgv, expect.objectContaining({ sink: expect.any(Object) }), expect.any(AbortSignal));
+  });
+
+  it("runs host diagnostics through the concise doctor command without confirmation", async () => {
+    const execute = vi.fn(async () => ({ envelope: result(), delivery: "complete" as const, deliveredThrough: -1 }));
+    const confirm = vi.fn(confirmed);
+    const runner = createPluginManagerActionRunner({ execute, confirm });
+    await runner.run({ action: "diagnose-host" });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(execute).toHaveBeenCalledWith(["doctor"], expect.objectContaining({ sink: expect.any(Object) }), expect.any(AbortSignal));
+  });
+
+  it("adds a marketplace source through the registry-owned facade path without confirmation", async () => {
+    const execute = vi.fn(async () => ({ envelope: result(), delivery: "complete" as const, deliveredThrough: -1 }));
+    const confirm = vi.fn(confirmed);
+    const runner = createPluginManagerActionRunner({ execute, confirm });
+    await runner.run({ action: "marketplace-add", source: "owner/repository" });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(execute).toHaveBeenCalledWith(["marketplace", "add", "owner/repository"], expect.objectContaining({ sink: expect.any(Object) }), expect.any(AbortSignal));
+
+    await runner.run({ action: "marketplace-add", source: "/plugins", sourceKind: "local-git", ref: "main" });
+    expect(execute).toHaveBeenLastCalledWith(["marketplace", "add", "/plugins", "--source-kind", "local-git", "--ref", "main"], expect.objectContaining({ sink: expect.any(Object) }), expect.any(AbortSignal));
   });
 
   it("routes workflow recovery through the public install recover command", async () => {

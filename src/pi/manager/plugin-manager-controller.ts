@@ -9,6 +9,7 @@ import {
   NativeUpdateStatusSchema,
 } from "../../application/native-update-contract.js";
 import type { NativeControlDynamicCandidate } from "../../application/native-control-help.js";
+import { HostStatusSnapshotSchema } from "../../application/host-observation-contract.js";
 import type { NativeControlExecutionReport } from "../../application/ports/native-control-execution.js";
 import type { NativeControlEnvelope } from "../../application/native-control-contract.js";
 import type { NativeControlFrame } from "../../application/native-control-progress.js";
@@ -112,6 +113,20 @@ function marketplaceRows(envelope: NativeControlEnvelope): readonly PluginManage
   }));
 }
 
+function healthRows(envelope: NativeControlEnvelope): readonly PluginManagerRow[] | undefined {
+  const parsed = HostStatusSnapshotSchema.safeParse(envelope.data);
+  if (!parsed.success) return undefined;
+  return Object.freeze([Object.freeze({
+    key: Object.freeze({ subject: "health" as const, key: "host" }),
+    title: "Plugin host",
+    subtitle: `${parsed.data.local.recovery} recovery · ${parsed.data.local.runtime} runtime`,
+    status: parsed.data.status,
+    statusTone: parsed.data.status === "ready" ? "success" as const : parsed.data.status === "degraded" ? "warning" as const : "error" as const,
+    completion: Object.freeze({ category: "plugin" as const, value: "host", safe: safe("Plugin host") }),
+    data: parsed.data as unknown as JsonValue,
+  })]);
+}
+
 function noticeRows(envelope: NativeControlEnvelope): readonly PluginManagerRow[] | undefined {
   const parsed = NativeUpdateNotificationPageSchema.safeParse(envelope.data);
   if (!parsed.success) return undefined;
@@ -135,6 +150,7 @@ function rowsFor(view: PluginManagerState["view"], envelope: NativeControlEnvelo
   if (view === "installed") return installedRows(envelope);
   if (view === "browse") return browseRows(envelope);
   if (view === "marketplaces") return marketplaceRows(envelope);
+  if (view === "health") return healthRows(envelope);
   return noticeRows(envelope);
 }
 
@@ -270,7 +286,10 @@ export function createPluginManagerController(input: Readonly<{
       else if (intent.type === "next-page" && model.page.next !== undefined && !model.page.loading) schedule(() => loadPage(true));
       else if (intent.type === "open-detail" || intent.type === "select-row" || intent.type === "action" && intent.action === "inspect") schedule(loadDetail);
       else if (intent.type === "refresh") schedule(() => refresh(intent.scope));
-      else if (intent.type === "cancel-operation") {
+      else if (intent.type === "action" && intent.action === "browse-plugins") {
+        apply({ type: "intent", intent: { type: "set-view", view: "browse" } });
+        schedule(() => refresh("all"));
+      } else if (intent.type === "cancel-operation") {
         if (previous.operation.state !== "running") return;
         input.actions?.cancel();
         apply({ type: "operation-cancelling" });
@@ -295,7 +314,9 @@ export function createPluginManagerController(input: Readonly<{
               return;
             }
             apply({ type: "operation-finished", envelope: result.envelope });
-            if (result.envelope.status === "stale" || result.envelope.status === "conflict") await refresh("all");
+            // Refresh behind the result screen so Escape returns to current
+            // authoritative state (especially after adding/removing a source).
+            await refresh("all");
           } catch {
             if (closed) return;
             apply({ type: "intent", intent: { type: "return-manager" } });

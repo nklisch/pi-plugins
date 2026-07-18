@@ -777,9 +777,16 @@ after a committed change requires resource replacement.
 The Pi adapter contains no installation rules. It renders domain results and
 sends typed commands to application services.
 
-`/plugin` uses native Pi selection, confirmation, input, notification, and
-status components. Command subcommands call the same application services as
-the interactive manager.
+`/plugin` presents five user-centered sections: My Plugins, Discover, Sources,
+Updates, and Health. Empty states provide Add Source and Discover onboarding,
+and lifecycle actions are derived from current facade detail rather than shown
+unconditionally. Trust and destructive confirmation use a framed replacement
+surface, not Pi's experimental floating-overlay path. Command subcommands call
+the same application services as the interactive manager.
+
+Default help and completion expose the concise add/remove/update/enable/disable/
+list/doctor vocabulary plus source management. Protocol-phase routes remain
+parseable for automation without being advertised as ordinary user tasks.
 
 Non-interactive modes return explicit text or structured errors instead of
 attempting terminal-only UI.

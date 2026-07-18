@@ -52,7 +52,7 @@ describe("Node native control headless runner", () => {
       stdout: captured.output,
     });
     expect(exit).toBe(0);
-    expect(captured.text()).toBe("Show local host status\n");
+    expect(captured.text()).toBe("Show plugin host status\n");
     expect(captured.text()).not.toContain("{");
   });
 
