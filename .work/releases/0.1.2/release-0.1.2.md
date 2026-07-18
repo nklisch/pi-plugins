@@ -1,7 +1,7 @@
 ---
 id: release-0.1.2
 kind: release
-stage: releasing
+stage: done
 tags: [tui, compatibility, infra]
 parent: null
 depends_on: [simplify-plugin-manager-experience, fix-bundled-subagent-peer-resolution]
@@ -12,7 +12,7 @@ updated: 2026-07-18
 
 # 0.1.2
 
-Release `@nklisch/pi-plugins@0.1.2` as the plugin-manager usability and bundled-subagent activation patch.
+Released `@nklisch/pi-plugins@0.1.2` from commit `24ac136` and tag `v0.1.2` as the plugin-manager usability and bundled-subagent activation patch.
 
 ## Included work
 
@@ -23,4 +23,10 @@ Release `@nklisch/pi-plugins@0.1.2` as the plugin-manager usability and bundled-
 
 - Local `npm test`: typecheck, dependency boundaries, 336 files / 1,667 tests, build/import checks, and isolated packed Pi 0.80.8 RPC/JSON/PTY acceptance.
 - Full local release E2E: 17 files / 57 tests passed, including golden manager, production presentation/security, concurrency, recovery, and from-empty registry journeys.
-- Publication workflow evidence pending.
+- GitHub Actions publish run `29663048434`: complete `npm test` and OIDC provenance publication succeeded.
+- npm registry integrity: `sha512-khtjVtQuFEtkUmuThvBOLqCNAGpDoybNZtSDG0AtPJigKZb8cy2TbLlBolSJq6zJk9N9OwbBczoK5piTHm/i/w==`.
+
+## Release links
+
+- GitHub: https://github.com/nklisch/pi-plugins/releases/tag/v0.1.2
+- npm: https://www.npmjs.com/package/@nklisch/pi-plugins/v/0.1.2
