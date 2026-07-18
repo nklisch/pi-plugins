@@ -87,6 +87,7 @@ export function fixtureMcpRegistration(input: Readonly<{
           : {
               schemaVersion: 1,
               transport: "streamable-http",
+              endpointSecurity: "tls",
               url: "https://template.invalid/mcp",
               headers: [],
             },

@@ -62,6 +62,22 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     }),
   },
   {
+    id: "mcp-transport-security",
+    ruleId: "mcp.transport.security",
+    positive: () => directPlugin({ components: { mcpServers: [mcp({ transport: "streamable-http", url: "http://example.invalid/mcp" }, "security")] } }),
+    negative: () => directPlugin({ components: { mcpServers: [mcp({ transport: "streamable-http", url: "http://127.0.0.1:8080/mcp" }, "loopback")] } }),
+    positiveVerdict: "incompatible",
+    diagnosticRuleId: "mcp.transport.security",
+    positiveExpected: expectedOutcome(["incompatible"], false, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["mcp.transport.security"],
+      diagnosticSourcePointers: ["/mcpServers/server-security/url"],
+    }),
+    negativeExpected: expectedOutcome(["supported"], true, {
+      requirements: mcpRequirements("loopback", "streamable-http"),
+    }),
+  },
+  {
     id: "mcp-transport-sse",
     ruleId: "mcp.transport.sse",
     positive: () => directPlugin({ components: { mcpServers: [mcp({ transport: "sse", url: "https://example.invalid/mcp" }, "5")] } }),
