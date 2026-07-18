@@ -28,5 +28,5 @@ jobs:
         run: npm ci
       - name: Verify unit, boundaries, build, exports, and package
         run: npm test
-      - name: Verify packed clean-environment E2E
+      - name: Verify packed clean-environment and from-empty registry E2E
         run: npm run test:e2e

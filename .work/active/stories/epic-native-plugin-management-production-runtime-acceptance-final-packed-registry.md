@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-production-runtime-acceptance-final-packed-registry
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management-production-runtime-acceptance
 depends_on: [epic-native-plugin-management-production-runtime-acceptance-concurrency-presentation-security]
@@ -40,3 +40,11 @@ Implement Unit 6 from the parent feature in `test/e2e/production/final-packed-re
 ## Ordering and risk
 
 Depends on concurrency/presentation/security, which transitively requires every earlier production checkpoint. Registry snapshot preparation may use public network; the final install and runtime are offline. Any public-byte or dependency-resolution drift is a release blocker, not permission to copy the checkout or weaken integrity.
+
+## Implementation notes
+
+- Added the release-critical from-empty helper and acceptance. It starts without `node_modules`, copies only package/lock/candidate inputs, and runs offline `npm ci --ignore-scripts` against the test-owned cache before any Pi process starts.
+- The generated lock records every ordinary public dependency with HTTPS/SRI. Pi 0.80.8's self-contained but undeclared nested dependency tree is honestly marked as owned by the exact Pi tarball SRI, and its public manifest closure is declared in the acceptance consumer so npm's lock validation is replayable.
+- Audited `npm ls`, all realpaths/links, exact Pi/Pi TUI 0.80.8, candidate identity, bundled subagent tree receipt, MCP receipt, unset `NODE_PATH`, isolated HOME/XDG/npm/Git state, and absence of checkout/global/Claude/Codex resolution.
+- One top-level candidate installation completed V1 skill/hook/subagent/MCP observation, disable/enable, V2 update, offline restart, uninstall/delete-data, and final absence using only packed/public bytes and user-visible outcomes.
+- Added focused production/final E2E scripts and made the CI step explicitly name the from-empty registry lane. Verified the final acceptance and the complete 10-test production suite green; no publish, tag, release, or binding occurred.
