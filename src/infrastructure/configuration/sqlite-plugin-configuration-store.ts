@@ -33,10 +33,12 @@ export class PluginConfigurationAdapterError extends Error {
 }
 
 function initialize(database: DatabaseSync): void {
+  // The journal pragma itself can contend with another process performing the
+  // same first-open initialization, so install the wait policy before it.
   database.exec(`
+    PRAGMA busy_timeout = 5000;
     PRAGMA journal_mode = DELETE;
     PRAGMA synchronous = FULL;
-    PRAGMA busy_timeout = 5000;
     CREATE TABLE IF NOT EXISTS protocol (
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
       protocol TEXT NOT NULL,
