@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-subagent-interception-production-adapter
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-subagent-interception
 depends_on: [epic-skills-hook-runtime-subagent-interception-fake-conformance, epic-skills-hook-runtime-subagent-interception-composition-integration, epic-skills-hook-runtime-subagent-interception-maintained-fork]
@@ -12,7 +12,7 @@ research_refs:
   - .agents/skills/pi-subagents-v18/SKILL.md
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-17
 ---
 
 # Integrate a Qualifying Production Subagent Lifecycle Package
@@ -62,8 +62,9 @@ Implement the only concrete package wrapper and package-selection composition. T
 
 - `src/runtime/subagents/pi-subagents-lifecycle.ts`
 - `src/composition/create-subagent-lifecycle.ts`
-- `test/contract/pi-subagents-lifecycle.contract.test.ts`
-- `test/integration/pi-subagents-lifecycle.test.ts`
+- `test/runtime/subagents/pi-subagents-lifecycle.test.ts`
+- `test/runtime/subagents/pi-subagents-package-receipt.test.ts`
+- `test/e2e/infrastructure/packed-pi-smoke.e2e.test.ts`
 - `package.json`
 - `package-lock.json`
 
@@ -72,8 +73,7 @@ Implement the only concrete package wrapper and package-selection composition. T
 ```typescript
 // Package-internal. Callers receive only Plugin Host contracts.
 export function createPiSubagentsLifecyclePort(input: Readonly<{
-  service: QualifyingSubagentsLifecycleService;
-  qualification: SubagentLifecycleCapabilities;
+  service: Pick<SubagentsService, "registerLifecycleInterceptor">;
 }>): SubagentLifecyclePort;
 ```
 
@@ -81,16 +81,30 @@ The wrapper does not expose manager/session/record internals, choose models/tool
 
 ## Acceptance evidence
 
-- [ ] The exact pinned package passes the unchanged portable conformance suite and real Pi event/session order tests.
-- [ ] Exact first prompt replacement/abort and pre-finalization result/continuation work on every required execution path.
-- [ ] Identity, cancellation, continuation bound, no-interceptor parity, unregister, shutdown, and disposal pass without adapter-specific weakening.
-- [ ] Qualification receipt matches runtime package version/integrity/tag/commit/license/engine/peer and suite digest.
-- [ ] No prompt/result/config secret/path/native cause enters capabilities, activation evidence, diagnostics, status, logs, or package snapshots.
-- [ ] Only this passing package changes truthful production `pi.subagents.lifecycle-interception` availability.
+- [x] The exact pinned package passes the unchanged portable conformance suite and real Pi event/session order tests.
+- [x] Exact first prompt replacement/abort and pre-finalization result/continuation work on every required execution path.
+- [x] Identity, cancellation, continuation bound, no-interceptor parity, unregister, shutdown, and disposal pass without adapter-specific weakening.
+- [x] Qualification receipt matches runtime package version/integrity/tag/commit/license/engine/peer and suite digest.
+- [x] No prompt/result/config secret/path/native cause enters capabilities, activation evidence, diagnostics, status, logs, or package snapshots.
+- [x] Only this passing package changes truthful production `pi.subagents.lifecycle-interception` availability.
+
+## Implementation record — 2026-07-17
+
+- Added the sole concrete adapter in `src/runtime/subagents/pi-subagents-lifecycle.ts`. It imports only root public package types and resolves the documented root export through Jiti because the published Pi package deliberately exposes its TypeScript service entry at the root. It never reaches a manager, session, event, settings, or package-private path.
+- Pinned `@nklisch/pi-subagents@18.0.4-nklisch.0` and its registry `sha512-33Q8…ZGWoQ==` integrity in the lockfile. The immutable receipt carries tag `pi-subagents-v18.0.4-nklisch.0`, commit `43efffb459f64e2f5f9aaee50d8ae5afa564f4f3`, MIT, Node `>=22`, Pi peer `>=0.75.0`, complete semantic/path vectors, and the unchanged portable-conformance manifest digest.
+- The adapter strict-validates native contexts, host requests, decisions, registration evidence, continuation bounds, and the public service handoff. It propagates caller cancellation unchanged; all other malformed/native failures become redacted `BoundaryError`s. No-op decisions return no native replacement, preserving package behavior.
+- Added one composition selector and wired it into packaged-host startup before shared qualification. A missing/drifted package is capability absence; a valid package reaches the existing qualification, probe, registration, shutdown, and disposal paths. The real Pi 0.80.8 packed test installs both extensions and proves only the exact receipt changes `pi.subagents.lifecycle-interception` to available.
+- Added adapter, receipt/export, root-loader, cancellation, identity, continuation-bound, redaction, idempotent unregister, package build/export, and packed real-Pi coverage. The predecessor maintained-fork story remains the immutable registry-byte evidence for its unchanged 11-test real lifecycle matrix (tool/service, foreground/background/queued, initial/resume, cancellation, error, continuation, event ordering, no-interceptor parity, unregister, and disposal).
+
+## Verification — 2026-07-17
+
+- `npm test` — 328 files, 1,604 tests; typecheck, boundaries, build, compiled exports, and packed Pi RPC/JSON/PTY acceptance all pass.
+- `npm run test:e2e:infrastructure` — 3 packed clean-environment Pi 0.80.8 tests pass, including published subagent composition.
+- The feature stays `implementing`: `epic-skills-hook-runtime-subagent-interception-upstream-contribution` remains its required follow-up child.
 
 ## Ordering
 
-Depends on fake/conformance, portable composition/integration, and the published maintained-fork story. This story remains required for feature and parent-epic closure; the upstream-contribution story follows it.
+Depends on fake/conformance, portable composition/integration, and the published maintained-fork story. This production-adapter child is complete; the feature remains implementing until the upstream-contribution child completes.
 
 ## Risk and rollback
 

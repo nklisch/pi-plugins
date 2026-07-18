@@ -23,7 +23,9 @@ The correct direction is:
 2. if no qualifying upstream release is available inside the delivery window, use a narrowly maintained MIT fork exposing the **identical public port**;
 3. never approximate interception with events, deep imports, monkeypatching, package patching, or a reimplementation of the subagent service.
 
-**Blocker:** production Plugin Host integration is externally blocked today. Portable Plugin Host ports, schemas, capability probes, fakes, and an adapter conformance suite can be implemented without the package. A production adapter and an `available` result for `pi.subagents.lifecycle-interception` cannot be implemented honestly until a qualifying upstream release or maintained fork passes the gate in this document.
+**Original blocker:** at the 2026-07-16 evaluation, production Plugin Host integration was externally blocked. The portable port, schemas, capability probe, fakes, and package-independent conformance suite proceeded without claiming availability.
+
+**Current integration:** the published maintained fork `@nklisch/pi-subagents@18.0.4-nklisch.0` satisfies this document's gate and is integrated through one root-export adapter. Its registry integrity is `sha512-33Q8JDffXUuiT1M3XjLXCI4If9p+3AOwsUp/b5f1+B7Y5JI8Z8SVU+Dncq0umAG2IjgVYKnT9FHToFHNoZGWoQ==`; release tag `pi-subagents-v18.0.4-nklisch.0` resolves to `43efffb459f64e2f5f9aaee50d8ae5afa564f4f3`. Plugin Host reports `pi.subagents.lifecycle-interception` available only when that exact validated receipt and service are composed; drift or absence remains plugin-scoped unavailability.
 
 ## Project constraints used for evaluation
 
@@ -359,7 +361,7 @@ For a fallback fork, additionally require:
 - automated upstream-update and CI evidence, with an identified maintainer in project dependency policy;
 - a clean switch back to upstream by changing package selection only, not Plugin Host domain/application code.
 
-Until that gate passes, `pi.subagents.lifecycle-interception` remains unavailable.
+The maintained fork now passes this gate. `pi.subagents.lifecycle-interception` remains unavailable whenever the exact receipt or public service is absent, malformed, or runtime-incompatible.
 
 ## What can proceed while production is blocked
 
@@ -373,13 +375,12 @@ Implementable locally and portably:
 - a package-independent conformance suite/probe that can run against upstream or fork;
 - compatibility behavior that marks only plugins declaring subagent hooks unavailable when the capability is absent.
 
-Blocked production work:
+Production work resolved by the published maintained fork:
 
-- importing a supported real interceptor registration API;
-- claiming exact first-prompt mutation/denial;
-- claiming pre-status final-result continuation;
-- reporting `pi.subagents.lifecycle-interception` available;
-- end-to-end compatibility acceptance for `SubagentStart` or `SubagentStop`.
+- import only the supported root interceptor-registration API;
+- preserve exact first-prompt mutation/denial and pre-status result continuation;
+- report `pi.subagents.lifecycle-interception` available only from the pinned behavioral receipt;
+- verify packed real-Pi composition while keeping all lifecycle execution policy in the package.
 
 ## Recommendation
 

@@ -598,16 +598,21 @@ does not reinterpret raw manifest JSON.
 
 ### Subagent adapter
 
-The subagent adapter integrates with `@gotgenes/pi-subagents`; Plugin Host does
+The subagent adapter integrates with the pinned published
+`@nklisch/pi-subagents@18.0.4-nklisch.0` lifecycle contract; Plugin Host does
 not implement its own subagent runtime. Faithful `SubagentStart` and
-`SubagentStop` hooks require lifecycle interception before the child prompt and
-before final completion so hooks can inject context or continue the child.
-Observational completion events alone are insufficient.
+`SubagentStop` hooks run before the exact child prompt and before final
+completion, so hooks can inject context, deny a turn, replace a result, or
+request bounded same-session continuation. Observational completion events
+alone are insufficient.
 
-The integration therefore depends on a typed subagent lifecycle-hook contract.
-If upstream exposes that contract, the package consumes it. Otherwise, a
-narrowly maintained fork implements the same port. A plugin declaring subagent
-hooks is incompatible when the required interception contract is unavailable.
+The concrete wrapper is the only package boundary. It resolves the documented
+root service export, validates every lifecycle handoff, and maps unexpected
+package failures to redacted boundary errors. Its published receipt pins the
+registry integrity, release tag, commit, MIT license, Node/Pi ranges, and the
+unchanged conformance vectors. A missing, malformed, or runtime-incompatible
+service leaves only `pi.subagents.lifecycle-interception` unavailable; a plugin
+declaring subagent hooks is then incompatible while ordinary plugins continue.
 
 ### MCP adapter
 
