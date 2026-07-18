@@ -1,0 +1,62 @@
+name: Publish package
+
+# Releases are deliberate: a maintainer dispatches this workflow from main
+# after the version bump and changelog have landed. npm authenticates the
+# workflow through OIDC, so no long-lived registry token is stored in GitHub.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: publish-package
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Verify and publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the main branch
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Packages may only be published from main (got $GITHUB_REF)." >&2
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node for npm trusted publishing
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Install dependencies from the lockfile
+        run: npm ci
+
+      - name: Verify package
+        run: npm test
+
+      - name: Check whether this version is already published
+        id: registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          name=$(node -p 'require("./package.json").name')
+          version=$(node -p 'require("./package.json").version')
+          if npm view "${name}@${version}" version >/dev/null 2>&1; then
+            echo "Version ${name}@${version} is already published; skipping."
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Publishing ${name}@${version}."
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish with npm OIDC provenance
+        if: steps.registry.outputs.published != 'true'
+        run: npm publish --access public --provenance
