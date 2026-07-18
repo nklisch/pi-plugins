@@ -93,10 +93,10 @@ module.exports = {
     },
     {
       name: "subagent-package-import-only-in-production-adapter",
-      comment: "Only the future objectively qualified production wrapper may import the selected subagent package.",
+      comment: "Only the qualified production wrapper may import the selected subagent package.",
       severity: "error",
       from: { path: "^src/(?!runtime/subagents/pi-subagents-lifecycle\\.ts$)" },
-      to: { path: "^@gotgenes/pi-subagents(?:/|$)" },
+      to: { path: "^@nklisch/pi-subagents(?:/|$)" },
     },
     {
       name: "lifecycle-policy-no-host-adapters",

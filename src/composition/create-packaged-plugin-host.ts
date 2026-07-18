@@ -43,6 +43,7 @@ import { createNodeProjectIntentFilePort } from "../infrastructure/project/node-
 import { deriveInspectionDetailId, deriveInspectionEvidenceSnapshotId } from "../application/native-inspection-identifiers.js";
 import { createHostConfigurationServices } from "./create-host-configuration.js";
 import { createNodePiRuntimeCapabilityProbe } from "./node-pi-runtime-capability-probe.js";
+import { createPublishedSubagentLifecyclePort } from "./create-subagent-lifecycle.js";
 import { buildRuntimeDesiredState, type HostBlockedPlugin, type RuntimeDesiredState } from "./runtime-desired-state.js";
 import { createRuntimeSelectionCatalog } from "./runtime-selection-catalog.js";
 import { createComposedSkillHookRuntime } from "./create-skill-hook-runtime.js";
@@ -163,12 +164,15 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         const binding = createPiSessionBinding(context);
         activeBinding = binding;
         const startupSignal = new AbortController().signal;
+        // The packaged host has one lifecycle package selection. Test fakes
+        // exercise the package-neutral port below its composition boundary.
+        const subagentLifecycle = await createPublishedSubagentLifecyclePort();
         const qualification = await qualifyRuntimeParticipants({
           pi: options.pi,
           nodeVersion: process.versions.node,
           piVersion: PI_VERSION,
           ...(options.runtime?.mcp === undefined ? {} : { mcp: options.runtime.mcp }),
-          ...(options.runtime?.subagents === undefined ? {} : { subagents: options.runtime.subagents }),
+          ...(subagentLifecycle === undefined ? {} : { subagents: subagentLifecycle }),
           signal: startupSignal,
         });
         const successor = broker.claimSuccessor(binding.current());

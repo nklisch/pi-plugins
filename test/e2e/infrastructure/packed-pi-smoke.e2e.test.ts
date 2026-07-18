@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { E2E_CHECKOUT_ROOT, E2E_PI_VERSION } from "../harness/constants.js";
 import {
@@ -63,6 +64,34 @@ describe("packed clean-environment Pi infrastructure", () => {
     await assertAllSqliteIntegrity(sandbox.agentDir);
     const piManifest = await import(`${sandbox.consumer}/node_modules/@earendil-works/pi-coding-agent/package.json`, { with: { type: "json" } });
     expect((piManifest.default as { version: string }).version).toBe(E2E_PI_VERSION);
+  });
+
+  it("composes the exact published subagent lifecycle receipt with real Pi 0.80.8", async () => {
+    sandbox = await createCleanE2ESandbox("published-subagents");
+    const subagents = join(
+      sandbox.consumer,
+      "node_modules",
+      "@nklisch",
+      "pi-subagents",
+    );
+    await runChecked(sandbox.capabilities.node, [sandbox.piCli, "install", subagents], {
+      cwd: sandbox.project,
+      env: sandbox.env,
+      timeoutMs: 60_000,
+      label: "install published subagent extension",
+    });
+    await installPackedProduct(sandbox);
+
+    const rpc = await PiRpcProcess.start({ sandbox });
+    const status = await rpc.plugin("--non-interactive status", "status");
+    expect(status.envelope.data).toMatchObject({
+      capabilities: {
+        subagents: { status: "available" },
+      },
+    });
+    expect(JSON.stringify(status)).not.toContain("@nklisch/pi-subagents");
+    expect(JSON.stringify(status)).not.toContain(sandbox.consumer);
+    await rpc.shutdown();
   });
 
   it("serves a bare fixture through real HTTPS git-http-backend and exposes deterministic external faults", async () => {
