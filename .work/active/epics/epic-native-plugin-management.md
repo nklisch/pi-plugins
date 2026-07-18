@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management
 kind: epic
-stage: review
+stage: done
 tags: [compatibility]
 parent: null
 depends_on: [epic-skills-hook-runtime, epic-mcp-runtime-integration]
@@ -131,3 +131,19 @@ This shape keeps locally implementable composition and acceptance moving while p
 ## Aggregate review readiness — 2026-07-18
 
 All ten child features are `stage: done`, including clean-environment core E2E, the Pi-native manager, and exact published-runtime production acceptance. Both prerequisite runtime epics have completed their feature-level implementations. Native Plugin Management advances to `review` for its independent aggregate pass.
+
+## Standard aggregate review — 2026-07-18
+
+**Verdict: APPROVE.** One independent cross-model, fresh-context aggregate pass reviewed all ten features, both prerequisite runtime epics, signed mockups, clean E2E, and from-empty production acceptance. No material blockers were found.
+
+The pass independently verified one facade/container/authority, whole-plugin capability and projection evidence, live project trust checks, crash recovery and rollback, secret/configuration custody, offline startup, deterministic headless control, Pi 0.80.8 TUI and reload/session lifetime, clean and production E2E, non-self-confirming outcomes, and current docs/mockup alignment. The release candidate remains correctly private as `@nklisch/pi-plugins@0.0.0` pending final release gates.
+
+Five lower-risk observations were parked without implementation:
+
+- `idea-bound-native-cleanup-timeouts`
+- `idea-document-host-epoch-session-restart`
+- `idea-track-pi-append-entry-compatibility`
+- `idea-monitor-bundled-subagent-extension-conflicts`
+- `idea-add-non-linux-process-identity-support`
+
+The epic advances from `review` to `done` without a second review pass.
