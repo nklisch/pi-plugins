@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { VERSION as PI_VERSION, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createMcpAdapter } from "@nklisch/pi-mcp-adapter/programmatic";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { qualifyRuntimeParticipants } from "../../src/composition/runtime-participant-qualification.js";
 import { BoundaryError } from "../../src/domain/errors.js";
@@ -173,6 +174,7 @@ describe("published Pi MCP adapter boundary", () => {
     const providers = stdioProviders("initial");
     const registration = fixtureMcpRegistration();
     const candidate = createPiMcpRuntime({
+      packageFactory: createMcpAdapter,
       initialSources: [{ registration, ...providers }],
       fileDiscovery: "disabled",
     });
@@ -234,6 +236,7 @@ describe("published Pi MCP adapter boundary", () => {
     let failure: unknown;
     try {
       createPiMcpRuntime({
+        packageFactory: createMcpAdapter,
         initialSources: [{
           registration: { schemaVersion: 1, source: { schemaVersion: 1, identity: { plugin: canary }, servers: {} }, digest: canary },
           ...providers,
@@ -258,6 +261,7 @@ describe("published Pi MCP adapter boundary", () => {
     const alphaProviders = stdioProviders("alpha");
     const betaProviders = stdioProviders("beta");
     const candidate = createPiMcpRuntime({
+      packageFactory: createMcpAdapter,
       initialSources: [
         { registration: alpha, ...alphaProviders },
         { registration: beta, ...betaProviders },
@@ -323,6 +327,7 @@ describe("published Pi MCP adapter boundary", () => {
       },
     });
     const candidate = createPiMcpRuntime({
+      packageFactory: createMcpAdapter,
       initialSources: [{ registration, ...previousProviders }],
       fileDiscovery: "disabled",
     });

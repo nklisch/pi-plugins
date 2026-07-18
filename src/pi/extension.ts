@@ -10,18 +10,18 @@ import { createPiControlInputPort } from "./manager/pi-control-input.js";
 import { createPluginManagerSession } from "./manager/plugin-manager-session.js";
 
 /** Construct-only Pi extension entry; host startup remains session_start-owned. */
-export default function packagedPluginHostExtension(pi: ExtensionAPI): void {
+export default async function packagedPluginHostExtension(pi: ExtensionAPI): Promise<void> {
   const publisher = createPiUpdateNotificationPublisher({ pi });
   // The isolated MCP candidate attaches before host startup, so its session
   // context is available when central qualification captures environment-aware
   // facts. It starts empty; authoritative full-bundle reconciliation remains
   // the only source publication path.
-  const mcp = createProductionMcpRuntimeCandidate();
-  mcp.extension(pi);
+  const mcp = await createProductionMcpRuntimeCandidate();
+  mcp?.extension(pi);
   // Host construction registers its lifecycle delegates before presentation.
   const host = createPackagedPluginHost({
     pi,
-    runtime: { mcp: mcp.runtime },
+    ...(mcp === undefined ? {} : { runtime: { mcp: mcp.runtime } }),
     update: { publisher },
   });
   const handoff = createPiManagerReloadHandoff();

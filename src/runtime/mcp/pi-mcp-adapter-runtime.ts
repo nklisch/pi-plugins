@@ -1,5 +1,6 @@
-import { createMcpAdapter } from "@nklisch/pi-mcp-adapter/programmatic";
 import type {
+  McpAdapterInstance,
+  McpAdapterOptions,
   McpInitialSource as PackageInitialSource,
   McpLaunchValueProvider as PackageLaunchValueProvider,
   McpLaunchValues as PackageLaunchValues,
@@ -58,9 +59,11 @@ type InitialSource = Readonly<{
 }>;
 
 export type PiMcpRuntimeAdapter = Readonly<{
-  extension: ReturnType<typeof createMcpAdapter>["extension"];
+  extension: McpAdapterInstance["extension"];
   runtime: McpRuntimePort;
 }>;
+
+export type PiMcpAdapterFactory = (options: McpAdapterOptions) => McpAdapterInstance;
 
 function safeIdentity(identity: McpSourceIdentity | undefined): McpSourceIdentity | undefined {
   if (identity === undefined) return undefined;
@@ -406,15 +409,17 @@ function createRuntime(packageRuntime: McpProgrammaticRuntime): McpRuntimePort {
  * side effects and is invoked separately by composition.
  */
 export function createPiMcpRuntime(input: Readonly<{
+  packageFactory: PiMcpAdapterFactory;
   initialSources: readonly InitialSource[];
   fileDiscovery: "disabled";
 }>): PiMcpRuntimeAdapter {
   try {
-    if (!isRecord(input) || input.fileDiscovery !== "disabled" || !Array.isArray(input.initialSources)) {
+    if (!isRecord(input) || typeof input.packageFactory !== "function" ||
+        input.fileDiscovery !== "disabled" || !Array.isArray(input.initialSources)) {
       throw new TypeError("isolated MCP runtime options are invalid");
     }
     const initialSources = input.initialSources.map(packageInitialSource);
-    const adapter = createMcpAdapter({ initialSources, fileDiscovery: "disabled" });
+    const adapter = input.packageFactory({ initialSources, fileDiscovery: "disabled" });
     if (!isRecord(adapter) || typeof adapter.extension !== "function" || !isRecord(adapter.runtime) ||
         !["capabilities", "validateSource", "replaceSource", "removeSource", "inspectSource", "inspectSources"]
           .every((name) => typeof (adapter.runtime as unknown as Record<string, unknown>)[name] === "function")) {

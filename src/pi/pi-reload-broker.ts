@@ -5,7 +5,7 @@ import type { PendingTransitionRef } from "../domain/state/references.js";
 import type { ScopeReference } from "../domain/state/scope.js";
 import type { PiSessionBinding } from "../composition/packaged-plugin-host-contract.js";
 
-const REGISTRY = Symbol.for("@nklisch/pi-plugin-host/reload-broker-v1");
+const REGISTRY = Symbol.for("@nklisch/pi-plugins/reload-broker-v1");
 
 type TicketState = {
   id: string;

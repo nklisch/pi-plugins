@@ -1,4 +1,4 @@
-import { createJiti } from "jiti/static";
+import { loadVerifiedPiSubagentsService } from "./pi-subagents-package.js";
 import type {
   SubagentLifecycleCompletionContext as NativeCompletionContext,
   SubagentLifecycleCompletionDecision as NativeCompletionDecision,
@@ -432,28 +432,10 @@ export function createPiSubagentsLifecyclePort(input: Readonly<{
   });
 }
 
-/** Resolve the selected package through its documented root export only. */
+/** Resolve the selected package through its receipt-gated documented root export only. */
 export async function createPublishedPiSubagentsLifecyclePort(): Promise<
   SubagentLifecyclePort | undefined
 > {
-  try {
-    // The published package intentionally exposes its Pi extension source as
-    // the root default export. Jiti loads that documented root entry in both
-    // Pi and packed Node hosts; no package-internal path is resolved here.
-    const module = await createJiti(import.meta.url).import(PACKAGE_NAME);
-    const getSubagentsService =
-      module !== null && typeof module === "object"
-        ? (module as { readonly getSubagentsService?: unknown })
-            .getSubagentsService
-        : undefined;
-    if (typeof getSubagentsService !== "function") return undefined;
-    const service = getSubagentsService();
-    return service === undefined
-      ? undefined
-      : createPiSubagentsLifecyclePort({ service });
-  } catch {
-    // Package drift is capability absence, not host startup failure. Native
-    // loader details remain at the package boundary and never reach status.
-    return undefined;
-  }
+  const service = await loadVerifiedPiSubagentsService();
+  return service === undefined ? undefined : createPiSubagentsLifecyclePort({ service });
 }

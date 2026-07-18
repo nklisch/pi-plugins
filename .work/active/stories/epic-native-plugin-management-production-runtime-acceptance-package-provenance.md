@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-production-runtime-acceptance-package-provenance
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management-production-runtime-acceptance
 depends_on: []
@@ -60,3 +60,10 @@ Implement Unit 1 from the parent feature. Rename the still-private candidate to 
 ## Ordering and risk
 
 No sibling dependency. This must finish before the production harness can name or install the final candidate. Highest risk is receipt-before-execution for a transitive Pi extension; if public Pi package loading cannot preserve that order, remain honestly unavailable rather than use manual global installation or a private deep import.
+
+## Implementation notes
+
+- Renamed the private `0.0.0` candidate to `@nklisch/pi-plugins`, updated active self-imports and process-global namespaces, and retained exact adapter dependencies without publishing, tagging, or release binding.
+- Added one canonical package-owned tree verifier and exact MCP/subagent receipts. Both package loaders resolve without evaluation, verify manifest/export/Pi-resource/license/engine/peer/SRI provenance plus installed bytes, then dynamically load only the documented boundary. Drift returns capability absence before package execution.
+- Bundled `@nklisch/pi-subagents` and added the candidate-owned receipt wrapper before the host extension. MCP remains isolated through only `./programmatic` with file discovery disabled. Runtime alias status now reports the truthful `RUNTIME_ALIAS_UNAVAILABLE` limitation.
+- Verified focused receipt/adapter contracts (16 tests), typecheck, boundaries, compiled exports, packed package RPC/JSON/PTY acceptance, and the one-install packed Pi 0.80.8 infrastructure lane.

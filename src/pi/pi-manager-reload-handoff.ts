@@ -33,7 +33,7 @@ type Registry = { byId: Map<string, Slot>; bySession: Map<string, Slot> };
 function key(sessionId: string, cwd: string): string { return `${sessionId}\0${cwd}`; }
 
 function registry(namespace: string): Registry {
-  const symbol = Symbol.for(`@nklisch/pi-plugin-host/manager-handoff-v1/${namespace}`);
+  const symbol = Symbol.for(`@nklisch/pi-plugins/manager-handoff-v1/${namespace}`);
   const root = globalThis as typeof globalThis & { [key: symbol]: Registry | undefined };
   const existing = root[symbol];
   if (existing !== undefined) return existing;

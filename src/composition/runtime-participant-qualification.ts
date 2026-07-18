@@ -108,7 +108,9 @@ export async function qualifyRuntimeParticipants(input: Readonly<{
       if (capabilities.provider !== undefined && completeLifecycle &&
           publishedProviderCompatible(capabilities.provider, input.nodeVersion, input.piVersion)) {
         mcp = Object.freeze({
-          ...available("published MCP runtime evidence satisfies complete lifecycle and Node/Pi ranges"),
+          ...available(capabilities.features.pluginToolAliases
+            ? "published MCP runtime evidence satisfies complete lifecycle and Node/Pi ranges"
+            : "published MCP runtime evidence satisfies complete lifecycle and Node/Pi ranges; RUNTIME_ALIAS_UNAVAILABLE"),
           capabilities,
           runtime: pinnedMcp(input.mcp, capabilities),
         });

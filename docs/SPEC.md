@@ -21,12 +21,19 @@ Individual components are not independently managed.
 - Module system: ESM
 - Runtime: Node.js 24 or newer
 - Host: Pi coding agent
-- Distribution: Pi package containing the plugin-host extension and its runtime
-  dependencies
+- Distribution: private `@nklisch/pi-plugins` Pi package (candidate version
+  `0.0.0`) containing the plugin-host extension and its runtime dependencies;
+  one top-level Pi installation loads the receipt-gated bundled subagent
+  extension before the host extension
 - Validation: runtime schemas at every external configuration boundary
 - Tests: Vitest with isolated filesystem, Git, process, and Pi-host adapters
 
-The package does not require Claude Code or OpenAI Codex to be installed.
+The package does not require Claude Code or OpenAI Codex to be installed. Its
+published MCP and subagent adapters are admitted only when the exact registry
+SRI receipt, canonical installed package-owned tree digest, manifest exports and
+Pi resources, license, Node/Pi ranges, documented API, and behavioral
+qualification remain exact. Drift leaves only the affected capability
+unavailable before dependent plugin activation.
 
 ## Marketplace sources
 

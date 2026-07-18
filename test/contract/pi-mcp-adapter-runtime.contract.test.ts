@@ -1,3 +1,4 @@
+import { createMcpAdapter } from "@nklisch/pi-mcp-adapter/programmatic";
 import { defineMcpRuntimeContract } from "./mcp-runtime.contract.js";
 import type {
   McpLaunchValues,
@@ -20,7 +21,7 @@ function exactKey(identity: McpSourceIdentity): string {
  * Package/Pi integration tests exercise the concrete manager and tool boundary.
  */
 function createHarness() {
-  const concrete = createPiMcpRuntime({ initialSources: [], fileDiscovery: "disabled" });
+  const concrete = createPiMcpRuntime({ packageFactory: createMcpAdapter, initialSources: [], fileDiscovery: "disabled" });
   const current = new Map<string, McpSourceReplaceRequest>();
   const active = new Map<string, Set<{ closed: boolean }>>();
   let rejectNext = false;

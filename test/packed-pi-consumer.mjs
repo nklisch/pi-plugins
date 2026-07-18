@@ -172,7 +172,7 @@ try {
   // Install the package-under-test tarball beside the exact package-pinned Pi
   // runtime without importing any source checkout files.
   await cp(join(project, "node_modules"), join(consumer, "node_modules"), { recursive: true, dereference: true });
-  const packageRoot = join(consumer, "node_modules", "@nklisch", "pi-plugin-host");
+  const packageRoot = join(consumer, "node_modules", "@nklisch", "pi-plugins");
   await rm(packageRoot, { recursive: true, force: true });
   await mkdir(packageRoot, { recursive: true });
   checked("tar", ["-xzf", join(root, filename), "--strip-components=1", "-C", packageRoot]);
@@ -181,11 +181,11 @@ try {
   const piMetadata = JSON.parse(await readFile(join(piRoot, "package.json"), "utf8"));
   const hostMetadata = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
   if (piMetadata.version !== "0.80.8") throw new Error(`real Pi acceptance requires exact 0.80.8, got ${piMetadata.version}`);
-  if (JSON.stringify(hostMetadata.pi?.extensions) !== JSON.stringify(["./dist/pi/extension.js"])) throw new Error("packed extension discovery metadata missing");
+  if (JSON.stringify(hostMetadata.pi?.extensions) !== JSON.stringify(["./dist/pi/production-subagents-extension.js", "./dist/pi/extension.js"])) throw new Error("packed extension discovery metadata missing");
   if (await realpath(packageRoot) === project) throw new Error("packed package resolved to the source checkout");
 
   const cli = join(piRoot, piMetadata.bin.pi);
-  const extension = join(packageRoot, hostMetadata.pi.extensions[0]);
+  const extension = join(packageRoot, hostMetadata.pi.extensions[1]);
   const collision = join(consumer, "collision-extension.mjs");
   await writeFile(collision, `export default function (pi) { pi.registerCommand("plugin", { description: "Acceptance collision", handler: async (_args, ctx) => { ctx.ui.notify("collision command", "info"); } }); pi.registerCommand("acceptance-tools", { description: "Report active acceptance tools", handler: async (_args, ctx) => { ctx.ui.notify(JSON.stringify(pi.getAllTools().map((tool) => tool.name).sort()), "info"); } }); }\n`);
   const commonArgs = [

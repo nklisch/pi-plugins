@@ -1,4 +1,4 @@
-import * as api from "@nklisch/pi-plugin-host";
+import * as api from "@nklisch/pi-plugins";
 
 const expectedExports = [
   "NativeControlAdmissionError",

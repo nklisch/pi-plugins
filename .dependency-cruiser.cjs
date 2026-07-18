@@ -93,16 +93,16 @@ module.exports = {
     },
     {
       name: "subagent-package-import-only-in-production-adapter",
-      comment: "Only the qualified production wrapper may import the selected subagent package.",
+      comment: "Only the receipt-gated package loader and qualified production wrapper may import the selected subagent package.",
       severity: "error",
-      from: { path: "^src/(?!runtime/subagents/pi-subagents-lifecycle\\.ts$)" },
+      from: { path: "^src/(?!runtime/subagents/pi-subagents-(?:package|lifecycle)\\.ts$)" },
       to: { path: "^@nklisch/pi-subagents(?:/|$)" },
     },
     {
       name: "mcp-package-import-only-in-production-adapter",
-      comment: "The selected MCP package identity is confined to its objectively qualified production wrapper.",
+      comment: "The selected MCP package identity is confined to its receipt-gated loader and qualified production wrapper.",
       severity: "error",
-      from: { path: "^src/(?!runtime/mcp/pi-mcp-adapter-runtime\\.ts$)" },
+      from: { path: "^src/(?!runtime/mcp/pi-mcp-adapter-(?:package|runtime)\\.ts$)" },
       to: { path: "^@nklisch/pi-mcp-adapter(?:/|$)" },
     },
     {

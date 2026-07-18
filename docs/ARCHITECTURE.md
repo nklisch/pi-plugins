@@ -76,11 +76,13 @@ ambiguous identity prevent activation.
 
 ## Package shape
 
-Source is TypeScript 7.0. The package builds ESM JavaScript for Node.js 24 and
-publishes compiled entry points rather than relying on Pi's runtime TypeScript
-loader. Zod 4 schemas are the runtime contract source of truth; public
-TypeScript types are inferred from those schemas rather than maintained as
-parallel interfaces.
+Source is TypeScript 7.0. The private `@nklisch/pi-plugins@0.0.0` candidate
+builds ESM JavaScript for Node.js 24 and publishes compiled entry points rather
+than relying on Pi's runtime TypeScript loader. Its Pi resource list loads a
+candidate-owned receipt wrapper for the bundled subagent extension before the
+host extension, so one top-level Pi installation composes both runtimes. Zod 4
+schemas are the runtime contract source of truth; public TypeScript types are
+inferred from those schemas rather than maintained as parallel interfaces.
 
 ```text
 src/
@@ -606,13 +608,16 @@ completion, so hooks can inject context, deny a turn, replace a result, or
 request bounded same-session continuation. Observational completion events
 alone are insufficient.
 
-The concrete wrapper is the only package boundary. It resolves the documented
-root service export, validates every lifecycle handoff, and maps unexpected
-package failures to redacted boundary errors. Its published receipt pins the
-registry integrity, release tag, commit, MIT license, Node/Pi ranges, and the
-unchanged conformance vectors. A missing, malformed, or runtime-incompatible
-service leaves only `pi.subagents.lifecycle-interception` unavailable; a plugin
-declaring subagent hooks is then incompatible while ordinary plugins continue.
+The concrete wrapper is the only package boundary. Before evaluating package
+code, it verifies the exact registry provenance receipt and a canonical digest
+of the bundled package-owned tree, then resolves the documented root service
+export, validates every lifecycle handoff, and maps unexpected package failures
+to redacted boundary errors. Its receipt also pins the release tag and commit,
+upstream base, MIT license, manifest exports and Pi resource, Node/Pi ranges,
+and unchanged conformance vectors. A missing, malformed, drifted, or
+runtime-incompatible service leaves only `pi.subagents.lifecycle-interception`
+unavailable; a plugin declaring subagent hooks is then incompatible while
+ordinary plugins continue.
 
 ### MCP adapter
 
@@ -642,8 +647,10 @@ registration with foreign file discovery isolated. No production runtime is
 selected merely because the portable port, fake, and conformance suite pass.
 The authorized maintained fork and later production adapter must implement the
 same unchanged contract and pass package-specific initial-source ordering,
-source isolation, cleanup, supported Node/Pi, and published-byte provenance
-qualification before MCP availability is reported.
+source isolation, cleanup, supported Node/Pi, exact registry SRI plus canonical
+installed-tree provenance, manifest/API/license qualification, and behavioral
+conformance before MCP availability is reported. The standalone package
+extension and file/cache discovery remain outside host composition.
 
 MCP server names derive from plugin identity and the native server key.
 Compatibility aliases preserve foreign tool references where the MCP runtime

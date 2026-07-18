@@ -9,7 +9,7 @@ import {
   PackagedPluginHostErrorCode,
 } from "../composition/packaged-plugin-host-contract.js";
 
-const REGISTRY = Symbol.for("@nklisch/pi-plugin-host/composition-v1");
+const REGISTRY = Symbol.for("@nklisch/pi-plugins/composition-v1");
 
 type SessionOwner = {
   readonly claim: object;
