@@ -5,7 +5,7 @@ stage: done
 tags: [tui, compatibility, perf]
 parent: null
 depends_on: []
-release_binding: null
+release_binding: 0.1.4
 created: 2026-07-18
 updated: 2026-07-18
 ---
