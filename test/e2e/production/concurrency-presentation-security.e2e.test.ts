@@ -33,10 +33,11 @@ const activeV2 = {
 };
 
 describe("production concurrency, presentation, and secret non-retention", () => {
-  it("serializes two real Pi process mutations and converges on one exact whole-bundle revision", async () => {
+  it("serializes two real Pi process mutations while an unrelated third mutation converges", async () => {
     sandbox = await createProductionE2ESandbox("production-multiprocess");
     const model = await startProductionModelService(sandbox);
     const journey = await seedRemoteMarketplace(sandbox, { extraArgs: productionModelArgs });
+    expect((await journey.rpc.plugin("install core-local@native-e2e-market --scope user", "install.run")).envelope.data.kind).toBe("succeeded");
     await installProductionBundle({ sandbox, rpc: journey.rpc, version: "v1" });
     await publishProductionBundleRevision(sandbox, journey.repository, "v2");
     await journey.rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh");
@@ -46,11 +47,29 @@ describe("production concurrency, presentation, and secret non-retention", () =>
     const [first, second, sibling] = await Promise.all([
       journey.rpc.plugin(`update ${PRODUCTION_PLUGIN} --scope user --yes`, "lifecycle.update"),
       peer.plugin(`update ${PRODUCTION_PLUGIN} --scope user --yes`, "lifecycle.update"),
-      siblingOwner.plugin("--non-interactive show core-local@native-e2e-market --scope user", "inspection.show"),
+      siblingOwner.plugin("disable core-local@native-e2e-market --scope user --yes", "lifecycle.disable"),
     ]);
-    expect([first, second].some((report) => report.envelope.data?.kind === "succeeded")).toBe(true);
-    expect([first, second].every((report) => ["ok", "no-change", "stale", "conflict", "failed"].includes(report.envelope.status))).toBe(true);
-    expect(sibling.envelope).toMatchObject({ status: "ok", data: { kind: "found" } });
+    const updateOutcomes = [first, second].map((report) => ({
+      status: report.envelope.status,
+      kind: report.envelope.data?.kind,
+      reason: report.envelope.data?.reason,
+    })).sort((left, right) => left.status.localeCompare(right.status));
+    expect(updateOutcomes.filter((outcome) => outcome.status === "ok" && outcome.kind === "succeeded")).toHaveLength(1);
+    const contender = updateOutcomes.find((outcome) => outcome.status !== "ok");
+    expect([
+      { status: "conflict", kind: "conflict", reason: "target-changed" },
+      { status: "stale", kind: "stale", reason: "configuration" },
+    ]).toContainEqual(contender);
+    expect(sibling.envelope).toMatchObject({
+      status: "recovery-required",
+      data: {
+        kind: "recovery-required",
+        operation: "disable",
+        code: "PENDING_TRANSITION",
+        action: "run-recovery",
+        committed: expect.any(Number),
+      },
+    });
     await Promise.all([journey.rpc.shutdown(), peer.shutdown(), siblingOwner.shutdown()]);
 
     const freshA = await PiRpcProcess.start({ sandbox, extraArgs: productionModelArgs });
@@ -59,8 +78,22 @@ describe("production concurrency, presentation, and secret non-retention", () =>
       freshA.plugin(`--non-interactive show ${PRODUCTION_PLUGIN} --scope user`, "inspection.show"),
       freshB.plugin(`--non-interactive show ${PRODUCTION_PLUGIN} --scope user`, "inspection.show"),
     ]);
+    const [coreA, coreB] = await Promise.all([
+      freshA.plugin("--non-interactive show core-local@native-e2e-market --scope user", "inspection.show"),
+      freshB.plugin("--non-interactive show core-local@native-e2e-market --scope user", "inspection.show"),
+    ]);
+    const [commandsA, commandsB] = await Promise.all([
+      freshA.request({ type: "get_commands" }),
+      freshB.request({ type: "get_commands" }),
+    ]);
     expect(showA.envelope.data.detail.summary.revision).toEqual(showB.envelope.data.detail.summary.revision);
     expect(JSON.stringify(showA.envelope.data.detail.summary.revision)).toContain("2.0.0");
+    expect(coreA.envelope.data.detail.summary).toEqual(coreB.envelope.data.detail.summary);
+    expect(coreA.envelope.data.detail.lifecycle).toMatchObject({ installed: true, activationIntent: "disabled", transition: "none" });
+    expect(coreA.envelope.data.detail.activation).toMatchObject({ intent: "disabled", state: "inactive" });
+    for (const commands of [commandsA, commandsB]) {
+      expect(commands.data.commands).not.toContainEqual(expect.objectContaining({ name: "skill:core-local" }));
+    }
     await observeProductionBundle(freshA, activeV2, model);
     await Promise.all([freshA.shutdown(), freshB.shutdown()]);
     await assertAllSqliteIntegrity(sandbox.agentDir);
