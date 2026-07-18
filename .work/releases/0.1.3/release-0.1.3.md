@@ -1,7 +1,7 @@
 ---
 id: release-0.1.3
 kind: release
-stage: review
+stage: done
 tags: [tui, compatibility]
 parent: null
 depends_on: [simplify-plugin-manager-ui-footprint]
@@ -12,7 +12,7 @@ updated: 2026-07-19
 
 # 0.1.3
 
-Patch release for the simplified, settings-style plugin manager UI.
+Released `@nklisch/pi-plugins@0.1.3` from commit `4157e65` and tag `v0.1.3` as the simplified, settings-style plugin manager patch.
 
 ## Included work
 
@@ -24,4 +24,10 @@ Patch release for the simplified, settings-style plugin manager UI.
 - Golden manager and install E2E: 3/3 passed.
 - Fresh cross-model review completed; its PageDown finding and smaller navigation findings were fixed and covered.
 - Dry-run package integrity: `sha512-lKy2JGiPAvCbwpAjItqCcg/2wxVRHJVdfjDcbc8M+tYKp9VZBh935qtds09yw69pFFamzjCiYZL+VPlZnBq50w==`.
-- Publication pending.
+- GitHub Actions publish run `29664336448`: complete `npm test` and OIDC provenance publication succeeded.
+- npm registry integrity: `sha512-lKy2JGiPAvCbwpAjItqCcg/2wxVRHJVdfjDcbc8M+tYKp9VZBh935qtds09yw69pFFamzjCiYZL+VPlZnBq50w==`.
+
+## Release links
+
+- GitHub: https://github.com/nklisch/pi-plugins/releases/tag/v0.1.3
+- npm: https://www.npmjs.com/package/@nklisch/pi-plugins/v/0.1.3
