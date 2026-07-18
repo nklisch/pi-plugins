@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-config-source-bridge-maintained-fork
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-config-source-bridge
 depends_on: [epic-mcp-runtime-integration-config-source-bridge-capability-probe, epic-mcp-runtime-integration-config-source-bridge-conformance-suite]
@@ -12,7 +12,7 @@ research_refs:
   - .agents/skills/pi-mcp-adapter-v2/SKILL.md
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-18
 ---
 
 # Establish the Maintained MCP Adapter Fork
@@ -39,12 +39,12 @@ The operator authorized the maintained-fork fallback on 2026-07-16. This superse
 
 ## Acceptance
 
-- [ ] Ordinary upstream file/CLI behavior is byte- or behavior-parity tested when the new API is unused.
-- [ ] Only the narrow generic source lifecycle and its tests differ from upstream policy.
-- [ ] The unchanged host conformance suite and real Pi ordering/isolation tests pass.
-- [ ] The published package has immutable version/integrity/repository/upstream-base/license provenance.
-- [ ] Security/rebase ownership and an upstream-return checklist are committed.
-- [ ] No Plugin Host production capability changes until the published bytes pass qualification.
+- [x] Ordinary upstream file/CLI behavior is byte- or behavior-parity tested when the new API is unused.
+- [x] Only the narrow generic source lifecycle and its tests differ from upstream policy.
+- [x] The unchanged host conformance suite and real Pi ordering/isolation tests pass.
+- [x] The published package has immutable version/integrity/repository/upstream-base/license provenance.
+- [x] Security/rebase ownership and an upstream-return checklist are committed.
+- [x] No Plugin Host production capability changes until the published bytes pass qualification.
 
 ## Simplification opportunity
 
@@ -99,6 +99,22 @@ Current immutable-publication checks still fail by design: `https://github.com/n
 4. Record immutable GitHub commit/tag objects plus npm version, publication time, tarball URL, `gitHead`, registry `sha512` integrity, upstream base, and shipped `LICENSE` digest.
 5. Install the exact registry version in a fresh consumer and rerun the upstream suite, Node 24 package/CLI/export checks, Pi construction-order/file-isolation/cancellation/redaction tests, and unchanged Plugin Host conformance. Compare the registry integrity to the recorded npm receipt.
 6. Only after step 5 is green may this story advance to `done` and `epic-mcp-runtime-integration-config-source-bridge-production-adapter` begin against published pinned bytes. The upstream-contribution child remains transitively blocked behind that real production integration.
+
+## Published-byte qualification — 2026-07-18
+
+- Repository: https://github.com/nklisch/pi-mcp-adapter
+- Release: https://github.com/nklisch/pi-mcp-adapter/releases/tag/v2.11.0-nklisch.0
+- Fork head: `1c1cd71fd069bc65cc06bf49399d83ff9e3d008b`; upstream base: `82724dccc13a49310530898f922bafff12b7f3fe`.
+- Annotated tag object: `39c0c367db35ecb125b05ad0b9b639bc6b09b97d`.
+- npm: https://www.npmjs.com/package/@nklisch/pi-mcp-adapter/v/2.11.0-nklisch.0 (`maintained` dist-tag).
+- Registry tarball: https://registry.npmjs.org/@nklisch/pi-mcp-adapter/-/pi-mcp-adapter-2.11.0-nklisch.0.tgz
+- Registry SHA-1: `4f810535dbe25bcc1e683913931ab6c625b625a2`.
+- Registry SHA-512: `924310c2b35b820021482242254c552ca2a232cc0a8d86846ce2cd499ad9958636b5ea31aed2a5776fb7310a6fb070c9605ca98b53cf1ee012d980bfd33fbbb6`.
+- npm integrity: `sha512-kkMQwrNbggAhSCJCJUxVLKKiMswKjYaEbOLNSZrZlYY2teoxrtKld2+3MQpvsHDJYFypi1PPHuAS2YC/0z+7tg==`.
+- Shipped MIT license SHA-256: `2d20dfacd9742706e564470dc77438608a1e54b0ed46959f080709389209093c`.
+- A fresh public-tag checkout repacked byte-identically to the registry tarball. An isolated exact-version registry install passed exports, CLI, license, manager-subpath rejection, unchanged Plugin Host MCP conformance, and Pi 0.80.8 construction, file-isolation, cancellation, redaction, capability, and cleanup qualification.
+- Private vulnerability reporting is enabled. The committed maintenance policy assigns security intake, upstream monitoring, rebase cadence, rollback, and upstream-return ownership.
+- Production capability remains disabled until the dependent production-adapter story composes and requalifies these exact published bytes.
 
 ### Implementation notes
 
