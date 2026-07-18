@@ -418,7 +418,7 @@ export const mcpProjectionConformanceVectors = {
   },
   streamableHttp: {
     transport: "streamable-http",
-    url: "https://example.invalid/${user_config.NAME}",
+    url: "https://example.invalid/mcp?name=${user_config.NAME}",
     headers: { "X-Trace": "${TRACE_VALUE}" },
     bearerTokenEnv: "MCP_BEARER_TOKEN",
     resources: ["docs"],

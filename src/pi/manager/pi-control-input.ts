@@ -7,7 +7,7 @@ import type {
 import type { SensitiveValue } from "../../application/sensitive-value.js";
 import { ConfirmationOverlay } from "./confirmation-overlay.js";
 import { MaskedInputOverlay, type MaskedInputResult } from "./masked-input-overlay.js";
-import { projectTerminalText } from "./pi-terminal-text.js";
+import { formatMcpEndpoint, projectTerminalText } from "./pi-terminal-text.js";
 
 export interface PiControlInputPort extends NativeControlInputPort {
   cancel(): void;
@@ -70,7 +70,7 @@ export function createPiControlInputPort(input: Readonly<{
     const disclosure = request.consent === undefined ? [] : [
       ...request.consent.components.skills.map((skill) => `skill ${safe(skill.name.text)} · ${safe(skill.root.text)}`),
       ...request.consent.components.hooks.map((hook) => `hook ${safe(hook.event.text)} · ${safe(hook.handler.command.text)}${hook.handler.kind === "exec" ? ` ${hook.handler.args.map((arg) => safe(arg.text)).join(" ")}` : ""}`),
-      ...request.consent.components.mcpServers.map((mcp) => `MCP ${safe(mcp.nativeKey.text)} · ${safe(mcp.transport ?? "unavailable")} · ${safe(mcp.command?.text ?? mcp.url?.host.text ?? "remote")} · tools ${mcp.toolPolicy.allowed.map((tool) => safe(tool.text)).join(", ") || "runtime discovery"}`),
+      ...request.consent.components.mcpServers.map((mcp) => `MCP ${safe(mcp.nativeKey.text)} · ${safe(mcp.transport ?? "unavailable")} · ${safe(mcp.command?.text ?? (mcp.url === undefined ? "remote" : formatMcpEndpoint(mcp.url)))} · tools ${mcp.toolPolicy.allowed.map((tool) => safe(tool.text)).join(", ") || "runtime discovery"}`),
       ...request.consent.components.foreign.map((component) => `foreign ${safe(component.nativeHost)} ${safe(component.nativeKind.text)} · ${safe(component.verdict)}`),
       ...request.consent.requirements.map((requirement) => `requirement ${safe(requirement.capability.text)} · ${safe(requirement.status)} · ${safe(requirement.explanation.text)}`),
       ...(request.consent.configurationEnvironmentNames.length === 0 ? [] : [`configuration environment names: ${request.consent.configurationEnvironmentNames.map((name) => safe(name.text)).join(", ")}`]),

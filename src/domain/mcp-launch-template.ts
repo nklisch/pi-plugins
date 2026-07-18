@@ -8,6 +8,7 @@ import {
   resolveMcpFieldGroup,
 } from "./mcp-compatibility-plan.js";
 import { PluginKeySchema, type PluginKey } from "./identity.js";
+import { analyzeMcpEndpoint, McpEndpointSecuritySchema } from "./mcp-endpoint-security.js";
 import {
   isPortableMcpHeaderCredential,
   isPortableMcpValueReference,
@@ -73,6 +74,7 @@ const McpLaunchTemplateShapeSchemaV1 = z.discriminatedUnion("transport", [
   z.object({
     schemaVersion: z.literal(1),
     transport: z.literal("streamable-http"),
+    endpointSecurity: McpEndpointSecuritySchema,
     url: z.string().min(1),
     headers: z.array(McpHeaderEntrySchema).readonly(),
     bearerToken: McpLateValueSchema.optional(),
@@ -104,20 +106,11 @@ export const McpLaunchTemplateSchemaV1 = McpLaunchTemplateShapeSchemaV1.superRef
       return;
     }
 
-    if (!validTemplate(template.url) || /[\u0000-\u001f\u007f]/.test(template.url)) {
+    const endpoint = validTemplate(template.url) ? analyzeMcpEndpoint(template.url) : undefined;
+    if (endpoint === undefined || endpoint.security !== template.endpointSecurity ||
+        [...endpoint?.url.searchParams ?? []].some(([name, value]) =>
+          isSensitiveQueryName(name) && !isPortableMcpValueReference(value))) {
       issueTemplate(context, ["url"]);
-    } else {
-      try {
-        const url = new URL(template.url);
-        if ((url.protocol !== "http:" && url.protocol !== "https:") ||
-            url.username.length > 0 || url.password.length > 0 ||
-            [...url.searchParams].some(([name, value]) =>
-              isSensitiveQueryName(name) && !isPortableMcpValueReference(value))) {
-          issueTemplate(context, ["url"]);
-        }
-      } catch {
-        issueTemplate(context, ["url"]);
-      }
     }
 
     let previousHeader: string | undefined;
@@ -142,6 +135,10 @@ export const McpLaunchTemplateSchemaV1 = McpLaunchTemplateShapeSchemaV1.superRef
     if (template.bearerToken !== undefined &&
         template.headers.some((header) => header.name.toLowerCase() === "authorization")) {
       issueTemplate(context, ["bearerToken"]);
+    }
+    if (template.endpointSecurity === "consent-bound-loopback-plaintext" &&
+        (template.headers.length > 0 || template.bearerToken !== undefined)) {
+      issueTemplate(context, ["endpointSecurity"]);
     }
   },
 );
@@ -243,6 +240,8 @@ function bearerEnvironment(
 function httpTemplate(declaration: JsonRecord, auth: McpCanonicalAuth): McpLaunchTemplate {
   const url = fieldValue(declaration, "url");
   if (typeof url !== "string" || url.length === 0) fail();
+  const endpoint = analyzeMcpEndpoint(url);
+  if (endpoint === undefined) fail();
   const rawHeaders = fieldValue(declaration, "headers");
   if (rawHeaders !== undefined && !isRecord(rawHeaders)) fail();
   const seen = new Set<string>();
@@ -260,6 +259,7 @@ function httpTemplate(declaration: JsonRecord, auth: McpCanonicalAuth): McpLaunc
   return McpLaunchTemplateSchemaV1.parse({
     schemaVersion: 1,
     transport: "streamable-http",
+    endpointSecurity: endpoint.security,
     url,
     headers,
     ...(bearerToken === undefined ? {} : { bearerToken }),

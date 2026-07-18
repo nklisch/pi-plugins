@@ -89,6 +89,7 @@ describe("canonical MCP launch templates", () => {
     })).toEqual({
       schemaVersion: 1,
       transport: "streamable-http",
+      endpointSecurity: "tls",
       url: "https://example.invalid/mcp?access_token=${user_config.TOKEN}",
       headers: [
         { name: "Authorization", value: { kind: "template", template: "Bearer ${HTTP_TOKEN}" } },
@@ -99,7 +100,35 @@ describe("canonical MCP launch templates", () => {
       transport: "streamable-http",
       url: "https://example.invalid/mcp",
       auth: { type: "bearer", env: "MCP_TOKEN" },
-    }, "3")).toMatchObject({ bearerToken: { kind: "environment", name: "MCP_TOKEN" } });
+    }, "3")).toMatchObject({ endpointSecurity: "tls", bearerToken: { kind: "environment", name: "MCP_TOKEN" } });
+  });
+
+  it("requires TLS except for consent-bound unauthenticated literal loopback", () => {
+    expect(template({
+      type: "http",
+      url: "http://127.0.0.1:4318/mcp",
+    }, "loopback")).toMatchObject({
+      endpointSecurity: "consent-bound-loopback-plaintext",
+      url: "http://127.0.0.1:4318/mcp",
+      headers: [],
+    });
+
+    const rejected = [
+      { type: "http", url: "http://example.invalid/mcp" },
+      { type: "http", url: "http://localhost/mcp" },
+      { type: "http", url: "http://127.0.0.1/mcp", headers: { "X-Trace": "safe" } },
+      { type: "http", url: "http://127.0.0.1/mcp", bearerTokenEnv: "MCP_TOKEN" },
+      { type: "http", url: "http://127.0.0.1/mcp?access_token=${TOKEN}" },
+      { type: "http", url: "http://[::ffff:127.0.0.1]/mcp" },
+      { type: "http", url: "https://${HOST}/mcp" },
+      { type: "http", url: "https://example.invalid/${PATH_VALUE}" },
+      { type: "http", url: "https://example.invalid/mcp#fragment" },
+    ];
+    for (const [index, declaration] of rejected.entries()) {
+      const candidate = component(declaration, `transport-${index}`);
+      expect(analyzeMcpCompatibility({ plugin: "demo@community", component: candidate }).kind).toBe("incompatible");
+      expect(() => createMcpLaunchTemplate(candidate, "demo@community")).toThrow(McpLaunchTemplateError);
+    }
   });
 
   it("collapses only exact-equivalent top-level and nested header aliases", () => {

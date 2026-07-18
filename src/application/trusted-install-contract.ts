@@ -50,6 +50,7 @@ export const PreparedLifecycleCandidateBindingSchema = z.object({
   contentDigest: ContentDigestSchema,
   compatibilityFingerprint: ContentDigestSchema,
   configurationDescriptorDigest: ContentDigestSchema,
+  consentDisclosureDigest: ContentDigestSchema,
   configurationRef: PluginConfigurationRefSchema.optional(),
   trustSubject: TrustSubjectRefSchema,
   executableSurfaceDigest: ContentDigestSchema,

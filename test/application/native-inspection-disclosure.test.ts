@@ -43,7 +43,7 @@ describe("native inspection disclosure", () => {
       nativeKey: claimFixture("native\u001b[2J\u202Ekey", provenance),
       declaration: claimFixture({
         transport: "streamable-http",
-        url: `https://example.invalid/mcp?mode=${canaries.query}#fragment`,
+        url: `https://example.invalid:8443/mcp/v1?mode=${canaries.query}`,
         headers: { "X-Inspection": canaries.header },
       }, provenance),
       metadata: [],
@@ -74,7 +74,13 @@ describe("native inspection disclosure", () => {
 
     expect(view.hooks[0]?.handler.kind).toBe("exec");
     expect(view.mcpServers[0]?.nativeKey.escaped).toBe(true);
-    expect(view.mcpServers[0]?.url?.queryPresent).toBe(true);
+    expect(view.mcpServers[0]?.url).toMatchObject({
+      scheme: "https",
+      host: { text: "example.invalid" },
+      port: { text: "8443" },
+      path: { text: "/mcp/v1" },
+      queryPresent: true,
+    });
     expect(json).not.toContain(canaries.query);
     expect(json).not.toContain(canaries.header);
     expect(json).not.toContain(canaries.environment);
@@ -100,6 +106,12 @@ describe("native inspection disclosure", () => {
     expect(projectSafeComponents({ plugin, compatibility }).mcpServers[0]).toMatchObject({
       authentication: "bearer-environment",
       environmentNames: [{ text: "MCP_BEARER_TOKEN" }],
+      url: {
+        scheme: "https",
+        host: { text: "example.invalid" },
+        port: { text: "443" },
+        path: { text: "/mcp" },
+      },
     });
   });
 

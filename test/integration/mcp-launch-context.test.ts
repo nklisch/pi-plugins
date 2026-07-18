@@ -70,7 +70,7 @@ function integratedFixture() {
   }, "1") as never;
   const remote = mcp({
     type: "http",
-    url: "https://example.invalid/${user_config.NAME}",
+    url: "https://example.invalid/mcp?name=${user_config.NAME}",
     headers: { "X-Trace": { env: "TRACE_VALUE" } },
     bearerTokenEnv: "CLAUDE_PLUGIN_OPTION_TOKEN",
   }, "2") as never;
@@ -275,7 +275,7 @@ describe("MCP launch trusted-context integration", () => {
     await runtime.launch(fixture.source.identity, httpKey, signal, (values) => {
       expect(values).toMatchObject({
         transport: "streamable-http",
-        url: "https://example.invalid/demo",
+        url: "https://example.invalid/mcp?name=demo",
         bearerToken: "CANARY_SECRET_V1",
       });
       if (values.transport === "streamable-http") expect(values.headers?.["X-Trace"]).toBe("trace-v1");

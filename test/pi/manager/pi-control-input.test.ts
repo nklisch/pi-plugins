@@ -33,6 +33,7 @@ function request(fields: readonly ReturnType<typeof field>[]): NativeControlInpu
 
 function context(mode: "tui" | "rpc" | "json" | "print") {
   const input = vi.fn(async () => "/audit");
+  const rendered: string[] = [];
   const custom = vi.fn(async (factory: any) => await new Promise((resolve) => {
     const component = factory(
       { terminal: { rows: 20 }, requestRender() {} },
@@ -47,7 +48,7 @@ function context(mode: "tui" | "rpc" | "json" | "print") {
     } else {
       component.handleInput(" ");
       for (let index = 0; index < 32; index += 1) {
-        component.render(48);
+        rendered.push(JSON.stringify(component.render(96)));
         component.handleInput("\u001b[6~");
       }
       component.handleInput("\r");
@@ -65,7 +66,34 @@ function context(mode: "tui" | "rpc" | "json" | "print") {
       pasteToEditor: vi.fn(),
     },
   } as unknown as ExtensionCommandContext;
-  return { ctx, input, custom };
+  return { ctx, input, custom, rendered };
+}
+
+function remoteConsentRequest(): NativeControlInputRequest {
+  const existing = trustedInstallFlowFixture.configureTrust.consent;
+  const stdio = existing.components.mcpServers[0]!;
+  const consent = {
+    ...existing,
+    components: {
+      ...existing.components,
+      mcpServers: [{
+        ...stdio,
+        transport: "streamable-http" as const,
+        command: undefined,
+        args: [],
+        url: {
+          scheme: "https" as const,
+          host: safe("example.invalid"),
+          port: safe("8443"),
+          path: safe("/mcp/v1"),
+          queryPresent: true,
+        },
+        environmentNames: [safe("MCP_TOKEN")],
+        authentication: "bearer-environment" as const,
+      }],
+    },
+  };
+  return { ...request([]), consent } as NativeControlInputRequest;
 }
 
 describe("Pi control input adapter", () => {
@@ -96,6 +124,20 @@ describe("Pi control input adapter", () => {
     const port = createPiControlInputPort({ context: h.ctx, mode: "rpc" });
     await expect(port.collect(request([field(false)]), new AbortController().signal)).resolves.toMatchObject({ kind: "supplied", decision: { kind: "grant", consentId } });
     expect((h.ctx.ui as any).confirm).toHaveBeenCalledWith("Plugin trust / action", expect.stringContaining("bundle-hook"), expect.any(Object));
+  });
+
+  it.each(["tui", "rpc"] as const)("presents the complete redacted MCP endpoint in %s consent", async (mode) => {
+    const h = context(mode);
+    const port = createPiControlInputPort({ context: h.ctx, mode });
+    await expect(port.collect(remoteConsentRequest(), new AbortController().signal)).resolves.toMatchObject({
+      kind: "supplied",
+      decision: { kind: "grant", consentId },
+    });
+    const presentation = mode === "rpc"
+      ? JSON.stringify((h.ctx.ui as any).confirm.mock.calls)
+      : h.rendered.join("\n");
+    expect(presentation).toContain("https://example.invalid:8443/mcp/v1");
+    expect(presentation).not.toContain("MCP_QUERY_SECRET_CANARY");
   });
 
   it("fails closed for RPC secrets before opening any dialog", async () => {

@@ -41,7 +41,10 @@ import {
   type TrustedInstallConfigurationField,
   type TrustedInstallConsentDisclosure,
 } from "./trusted-install-contract.js";
-import { deriveTrustedInstallConsentId } from "./trusted-install-identifiers.js";
+import {
+  deriveTrustedInstallConsentDisclosureDigest,
+  deriveTrustedInstallConsentId,
+} from "./trusted-install-identifiers.js";
 import type { Sha256 } from "../domain/source.js";
 
 export type TrustedInstallCandidate = Readonly<{
@@ -291,6 +294,11 @@ export function createTrustedInstallCandidateService(dependencies: TrustedInstal
       if (!compatibility.activatable) {
         return releaseForResult(lease, { kind: "rejected", diagnostics: detail.diagnostics });
       }
+      const components = projectSafeComponents({ plugin, compatibility });
+      if (!executableDisclosureComplete(plugin, components)) {
+        return releaseForResult(lease, { kind: "rejected", diagnostics: detail.diagnostics });
+      }
+      const consentDisclosureDigest = deriveTrustedInstallConsentDisclosureDigest(components, dependencies.sha256);
       const scope = toScopeReference(resolution.candidate.scope);
       const trust = createTrustCandidate({
         scope,
@@ -320,6 +328,7 @@ export function createTrustedInstallCandidateService(dependencies: TrustedInstal
         contentDigest: lease.materialized.content.rootDigest,
         compatibilityFingerprint: digestCompatibilityReport(compatibility, dependencies.sha256),
         configurationDescriptorDigest: digestConfigurationDescriptors(plugin.configuration, dependencies.sha256),
+        consentDisclosureDigest,
         ...(revision.configurationRef === undefined ? {} : { configurationRef: revision.configurationRef }),
         trustSubject: trust.subject,
         executableSurfaceDigest: trust.evidence.executableSurfaceDigest,
@@ -348,10 +357,6 @@ export function createTrustedInstallCandidateService(dependencies: TrustedInstal
         ...(revision.configurationRef === undefined ? {} : { configurationRef: revision.configurationRef }),
       }, signal);
       const configurationFields = fields(plugin, configurationReadiness);
-      const components = projectSafeComponents({ plugin, compatibility });
-      if (!executableDisclosureComplete(plugin, components)) {
-        return releaseForResult(lease, { kind: "rejected", diagnostics: detail.diagnostics });
-      }
       const consent = TrustedInstallConsentDisclosureSchema.parse({
         consentId: deriveTrustedInstallConsentId(binding, dependencies.sha256),
         source: projectSafeSource(lease.materialized.source),

@@ -1,5 +1,6 @@
 import { canonicalJson } from "../domain/canonical-json.js";
 import { ContentDigestSchema, type ContentDigest } from "../domain/content-manifest.js";
+import { NativeComponentInventoryViewSchema, type NativeComponentInventoryView } from "./native-inspection-contract.js";
 import type { Sha256 } from "../domain/source.js";
 import {
   TrustedInstallCandidateBindingSchema,
@@ -51,6 +52,14 @@ export function verifyTrustedInstallSessionToken(
   if (match === null) return undefined;
   const expected = digestHex(`trusted-install-session-v1\0${match[1]}\0${hostEpoch}`, sha256);
   return constantTimeEqual(match[2]!, expected) ? match[1] : undefined;
+}
+
+export function deriveTrustedInstallConsentDisclosureDigest(
+  componentsInput: NativeComponentInventoryView,
+  sha256: Sha256,
+): ContentDigest {
+  const components = NativeComponentInventoryViewSchema.parse(componentsInput);
+  return ContentDigestSchema.parse(`sha256:${digestHex(`trusted-install-disclosure-v1\0${canonicalJson(components)}`, sha256)}`);
 }
 
 /** Bind consent to the complete exact candidate authority tuple. */

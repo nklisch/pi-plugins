@@ -22,6 +22,7 @@ import {
   type Diagnostic,
 } from "./errors.js";
 import { PluginKeySchema, type PluginKey } from "./identity.js";
+import { analyzeMcpEndpoint, type McpEndpointAnalysis } from "./mcp-endpoint-security.js";
 import {
   isPortableMcpHeaderCredential,
   isPortableMcpValueReference,
@@ -597,6 +598,7 @@ function analyze(plugin: PluginKey, component: McpServerComponent): McpCompatibi
 
   const commandClaim = claimsFor(declaration, fieldGroup("command"))[0];
   const urlClaim = claimsFor(declaration, fieldGroup("url"))[0];
+  let endpoint: McpEndpointAnalysis | undefined;
   if (transport === "stdio") {
     if (commandClaim === undefined || parseNonEmptyString(commandClaim.value) === undefined) {
       diagnostics.push(issue(plugin, component, commandClaim?.field ?? fieldGroup("command").aliases[0]!));
@@ -607,6 +609,7 @@ function analyze(plugin: PluginKey, component: McpServerComponent): McpCompatibi
     });
   } else if (transport !== undefined) {
     let validUrl = urlClaim !== undefined && typeof urlClaim.value === "string" && urlClaim.value.length > 0;
+    let transportSecurityInvalid = false;
     if (validUrl) {
       try {
         const parsed = new URL(urlClaim!.value as string);
@@ -614,11 +617,22 @@ function analyze(plugin: PluginKey, component: McpServerComponent): McpCompatibi
         validUrl = protocols.includes(parsed.protocol) && parsed.username.length === 0 && parsed.password.length === 0 &&
           [...parsed.searchParams].every(([name, value]) =>
             !isSensitiveQueryName(name) || isPortableMcpValueReference(value));
+        if (validUrl && transport === "streamable-http") {
+          endpoint = analyzeMcpEndpoint(urlClaim!.value as string);
+          transportSecurityInvalid = endpoint === undefined;
+        }
       } catch {
         validUrl = false;
       }
     }
     if (!validUrl) diagnostics.push(issue(plugin, component, urlClaim?.field ?? fieldGroup("url").aliases[0]!));
+    else if (transportSecurityInvalid) diagnostics.push(issue(
+      plugin,
+      component,
+      urlClaim?.field ?? fieldGroup("url").aliases[0]!,
+      undefined,
+      CompatibilityPolicyRegistry.mcp.transportSecurity.id,
+    ));
     if (transport === "streamable-http") {
       ruleClaims.push({
         ruleId: CompatibilityPolicyRegistry.mcp.transportStreamableHttp.id,
@@ -810,6 +824,18 @@ function analyze(plugin: PluginKey, component: McpServerComponent): McpCompatibi
       plugin,
       component,
       externalBearerClaim?.field ?? selectedAuthClaim?.field ?? authGroup.aliases[0]!,
+    ));
+  }
+  if (transport === "streamable-http" && endpoint?.security === "consent-bound-loopback-plaintext" && (
+    !canonicalAuth.success || canonicalAuth.data.kind !== "none" ||
+    isRecord(headerResolution.value) && Object.keys(headerResolution.value).length > 0
+  )) {
+    diagnostics.push(issue(
+      plugin,
+      component,
+      urlClaim?.field ?? fieldGroup("url").aliases[0]!,
+      undefined,
+      CompatibilityPolicyRegistry.mcp.transportSecurity.id,
     ));
   }
 

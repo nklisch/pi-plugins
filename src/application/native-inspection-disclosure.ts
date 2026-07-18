@@ -4,6 +4,7 @@ import {
   CompatibilityReportSchema,
   type CompatibilityReport,
 } from "../domain/compatibility.js";
+import { analyzeMcpEndpoint } from "../domain/mcp-endpoint-security.js";
 import { createMcpLaunchTemplate } from "../domain/mcp-launch-template.js";
 import { NormalizedPluginSchema, type NormalizedPlugin } from "../domain/plugin.js";
 import { ProvenanceSchema, type Provenance } from "../domain/provenance.js";
@@ -19,6 +20,7 @@ import {
 } from "../domain/source.js";
 import {
   NativeComponentInventoryViewSchema,
+  NativeMcpEndpointSchema,
   NativeProvenanceViewSchema,
   NativeRedactedUrlSchema,
   NativeSourceViewSchema,
@@ -68,6 +70,20 @@ export function projectRedactedUrl(value: string) {
     path: safePath(decodeSafePath(parsed.pathname)),
     queryPresent: parsed.search.length > 0,
     fragmentPresent: parsed.hash.length > 0,
+  });
+}
+
+function projectMcpEndpoint(value: string) {
+  const endpoint = analyzeMcpEndpoint(value);
+  if (endpoint === undefined) throw new Error("MCP endpoint is not safe to disclose");
+  return NativeMcpEndpointSchema.parse({
+    scheme: endpoint.url.protocol === "https:" ? "https" : "http",
+    host: safeLabel(endpoint.url.hostname.replace(/^\[|\]$/gu, "")),
+    port: safeLabel(endpoint.effectivePort),
+    // URL paths are not filesystem paths; disclose the complete decoded path
+    // after the endpoint analyzer has rejected encoded control characters.
+    path: safePath(decodeSafePath(endpoint.url.pathname), true),
+    queryPresent: endpoint.url.search.length > 0,
   });
 }
 
@@ -227,7 +243,7 @@ export function projectSafeComponents(input: Readonly<{
         disclosure = {
           transport: template.transport,
           args: [],
-          url: projectRedactedUrl(template.url),
+          url: projectMcpEndpoint(template.url),
           environmentNames: template.bearerToken?.kind === "environment" ? [safeLabel(template.bearerToken.name)] : [],
           headerNames: template.headers.slice(0, NativeDisplayLimits.maxArguments).map((entry) => safeLabel(entry.name)),
         };

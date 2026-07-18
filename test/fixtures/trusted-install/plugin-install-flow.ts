@@ -33,7 +33,7 @@ const components = {
 const source = { kind: "git" as const, identity: digest("7"), endpoint: { scheme: "https" as const, host: safe("example.invalid"), path: safe("/bundle.git"), queryPresent: true, fragmentPresent: false }, revision: safe("a".repeat(40)) };
 const binding = {
   scope, registrationId, candidateId, catalogSnapshot, plugin, sourceIdentity: digest("7"), immutableRevision: revision,
-  contentDigest: digest("8"), compatibilityFingerprint: digest("9"), configurationDescriptorDigest: digest("a"),
+  contentDigest: digest("8"), compatibilityFingerprint: digest("9"), configurationDescriptorDigest: digest("a"), consentDisclosureDigest: digest("f"),
   configurationRef: `plugin-configuration-v1:sha256:${"b".repeat(64)}` as never,
   trustSubject: `trust-subject-v1:sha256:${"c".repeat(64)}` as never,
   executableSurfaceDigest: digest("d"), capabilityDigest: digest("5"),

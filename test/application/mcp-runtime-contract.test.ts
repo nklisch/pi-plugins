@@ -249,7 +249,7 @@ describe("portable MCP runtime contract", () => {
       { ...source(), identity: identity({ revision: digest("9") }) },
       { ...source(), servers: { [serverKey]: { ...server, nativeKey: "changed" } } },
       { ...source(), servers: { [serverKey]: { ...server, options: { ...server.options, toolTimeoutMs: 2000 } } } },
-      { ...source(), servers: { [serverKey]: { ...server, transport: "streamable-http", launchTemplate: { schemaVersion: 1, transport: "streamable-http", url: "https://changed.invalid", headers: [] } } } },
+      { ...source(), servers: { [serverKey]: { ...server, transport: "streamable-http", launchTemplate: { schemaVersion: 1, transport: "streamable-http", endpointSecurity: "tls", url: "https://changed.invalid", headers: [] } } } },
       { ...source(), servers: { [serverKey]: { ...server, toolAliases: [{ schemaVersion: 1, kind: "claude-plugin", pluginName: "demo", nativeServerKey: "search", collisionPolicy: "omit-all", preserveNativeDiscovery: true }] } } },
       { ...source(), servers: { [serverKey]: { ...server, provenance: [{ ...location, pointer: "/changed" }] } } },
     ];

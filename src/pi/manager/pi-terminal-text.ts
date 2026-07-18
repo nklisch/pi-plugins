@@ -11,6 +11,16 @@ function unsafeScalar(code: number): boolean {
 }
 
 /** Project untrusted display data before any Pi theme function can add ANSI. */
+export function formatMcpEndpoint(endpoint: Readonly<{
+  scheme: "http" | "https";
+  host: SafeTerminalText;
+  port: SafeTerminalText;
+  path: SafeTerminalText;
+}>): string {
+  const host = endpoint.host.text.includes(":") ? `[${endpoint.host.text}]` : endpoint.host.text;
+  return `${endpoint.scheme}://${host}:${endpoint.port.text}${endpoint.path.text}`;
+}
+
 export function projectTerminalText(input: string, limit: number): SafeTerminalText {
   if (!Number.isInteger(limit) || limit < 1) throw new TypeError("terminal text limit must be a positive integer");
   const projected: string[] = [];

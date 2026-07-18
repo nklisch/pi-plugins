@@ -70,6 +70,25 @@ describe("MCP compatibility plan", () => {
     expect(result.plan.provenance).toEqual([provenance.location]);
   });
 
+  it("accepts only consent-bound unauthenticated literal loopback over plaintext HTTP", () => {
+    const accepted = analyzeMcpCompatibility({
+      plugin: "demo@community",
+      component: component({ type: "http", url: "http://127.0.0.1:8080/mcp" }),
+    });
+    expect(accepted.kind).toBe("supported");
+
+    for (const declaration of [
+      { type: "http", url: "http://10.0.0.1/mcp" },
+      { type: "http", url: "http://127.0.0.1/mcp", headers: { Authorization: "Bearer ${TOKEN}" } },
+      { type: "http", url: "http://[::1]/mcp", auth: { type: "bearer", env: "TOKEN" } },
+      { type: "http", url: "http://127.0.0.1/mcp?token=${TOKEN}" },
+    ]) {
+      const rejected = analyzeMcpCompatibility({ plugin: "demo@community", component: component(declaration) });
+      expect(rejected.kind).toBe("incompatible");
+      expect(JSON.stringify(rejected)).not.toContain("${TOKEN}");
+    }
+  });
+
   it.each(mcpPreExtractionDifferentialVectors)(
     "matches the pre-extraction $id verdict and canonical plan",
     (vector) => {

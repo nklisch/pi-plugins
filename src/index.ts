@@ -404,6 +404,8 @@ export {
 export type { CompatibilityEvaluationInput } from "./domain/compatibility-evaluator.js";
 
 export { createCompatibilityService } from "./application/compatibility-service.js";
+export { McpEndpointSecuritySchema, analyzeMcpEndpoint } from "./domain/mcp-endpoint-security.js";
+export type { McpEndpointSecurity, McpEndpointAnalysis } from "./domain/mcp-endpoint-security.js";
 export { createMcpRuntimeCapabilityProbe } from "./application/mcp-runtime-capability-probe.js";
 export { createSubagentLifecycleCapabilityProbe } from "./application/subagent-lifecycle-capability-probe.js";
 export { registerSubagentHookRuntime } from "./application/subagent-hook-runtime.js";
@@ -793,6 +795,7 @@ export {
   SafeDisplayFieldSchema,
   NativeProvenanceViewSchema,
   NativeRedactedUrlSchema,
+  NativeMcpEndpointSchema,
   NativeSourceViewSchema,
   NativeSkillComponentViewSchema,
   NativeHookComponentViewSchema,
@@ -827,6 +830,7 @@ export type {
   InspectionCursor,
   SafeDisplayField,
   NativeProvenanceView,
+  NativeMcpEndpoint,
   NativeSourceView,
   NativeComponentInventoryView,
   NativeConfigurationOptionView,
@@ -1787,6 +1791,7 @@ export type {
 export {
   createTrustedInstallSessionToken,
   verifyTrustedInstallSessionToken,
+  deriveTrustedInstallConsentDisclosureDigest,
   deriveTrustedInstallConsentId,
 } from "./application/trusted-install-identifiers.js";
 export { createTrustedInstallationService } from "./application/trusted-install-service.js";

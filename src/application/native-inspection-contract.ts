@@ -60,6 +60,14 @@ export const NativeRedactedUrlSchema = z.object({
   fragmentPresent: z.boolean(),
 }).strict().readonly();
 
+export const NativeMcpEndpointSchema = z.object({
+  scheme: z.enum(["http", "https"]),
+  host: SafeDisplayFieldSchema,
+  port: SafeDisplayFieldSchema,
+  path: SafeDisplayFieldSchema,
+  queryPresent: z.boolean(),
+}).strict().readonly();
+
 export const NativeSourceViewSchema = z.object({
   kind: z.enum(["github", "git", "local-git", "marketplace-path", "git-subdir", "npm"]),
   identity: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional(),
@@ -98,7 +106,7 @@ export const NativeMcpComponentViewSchema = NativeComponentBaseSchema.extend({
   transport: McpBridgeTransportSchema.optional(),
   command: SafeDisplayFieldSchema.optional(),
   args: z.array(SafeDisplayFieldSchema).max(256).readonly(),
-  url: NativeRedactedUrlSchema.optional(),
+  url: NativeMcpEndpointSchema.optional(),
   environmentNames: z.array(SafeDisplayFieldSchema).max(256).readonly(),
   headerNames: z.array(SafeDisplayFieldSchema).max(256).readonly(),
   authentication: z.enum(["none", "bearer-environment", "oauth-authorization-code", "oauth-client-credentials", "unavailable"]),
@@ -314,6 +322,7 @@ export type InspectionDetailId = z.infer<typeof InspectionDetailIdSchema>;
 export type InspectionCursor = z.infer<typeof InspectionCursorSchema>;
 export type SafeDisplayField = z.infer<typeof SafeDisplayFieldSchema>;
 export type NativeProvenanceView = z.infer<typeof NativeProvenanceViewSchema>;
+export type NativeMcpEndpoint = z.infer<typeof NativeMcpEndpointSchema>;
 export type NativeSourceView = z.infer<typeof NativeSourceViewSchema>;
 export type NativeComponentInventoryView = z.infer<typeof NativeComponentInventoryViewSchema>;
 export type NativeConfigurationOptionView = z.infer<typeof NativeConfigurationOptionViewSchema>;

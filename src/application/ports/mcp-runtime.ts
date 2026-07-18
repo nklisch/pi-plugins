@@ -147,7 +147,10 @@ export const McpSourceServerSchemaV1 = z
     const templateHasBearer = server.launchTemplate.transport === "streamable-http" &&
       server.launchTemplate.bearerToken !== undefined;
     if ((server.options.auth.kind === "bearer-environment") !== templateHasBearer ||
-        server.transport === "stdio" && server.options.auth.kind !== "none") {
+        server.transport === "stdio" && server.options.auth.kind !== "none" ||
+        server.launchTemplate.transport === "streamable-http" &&
+          server.launchTemplate.endpointSecurity === "consent-bound-loopback-plaintext" &&
+          server.options.auth.kind !== "none") {
       context.addIssue({
         code: "custom",
         path: ["options", "auth"],

@@ -19,6 +19,7 @@ import {
   type McpLaunchValues,
 } from "../../application/ports/mcp-runtime.js";
 import type { ResolvedConfiguration } from "../../application/resolved-configuration.js";
+import { analyzeMcpEndpoint } from "../../domain/mcp-endpoint-security.js";
 import {
   McpEnvironmentNameSchema,
   McpLaunchTemplateSchemaV1,
@@ -302,8 +303,10 @@ function renderValues(
   } catch {
     throw new Error("resolved MCP URL is invalid");
   }
+  const endpoint = analyzeMcpEndpoint(url);
   if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
-      parsed.username.length > 0 || parsed.password.length > 0) {
+      parsed.username.length > 0 || parsed.password.length > 0 ||
+      endpoint === undefined || endpoint.security !== template.endpointSecurity) {
     throw new Error("resolved MCP URL is invalid");
   }
   const headerEntries: Array<readonly [string, string]> = [];

@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createPluginLifecycleComposition, createPluginLifecycleService, type PluginLifecycleServiceDependencies } from "../../src/application/plugin-lifecycle-service.js";
 import { deriveLifecycleTargetDigest } from "../../src/application/native-lifecycle-target.js";
+import { projectSafeComponents } from "../../src/application/native-inspection-disclosure.js";
+import { deriveTrustedInstallConsentDisclosureDigest } from "../../src/application/trusted-install-identifiers.js";
 import { createPluginConfigurationDocument, digestConfigurationDescriptors } from "../../src/domain/configured-values.js";
 import { digestCompatibilityReport } from "../../src/application/ports/runtime-projection.js";
 import { prepareEnableCandidate } from "../../src/application/plugin-candidate-preparation.js";
@@ -334,6 +336,7 @@ describe("plugin lifecycle service", () => {
       contentDigest: content.rootDigest,
       compatibilityFingerprint: digestCompatibilityReport(configuredCompatibility, sha256),
       configurationDescriptorDigest: digestConfigurationDescriptors(configuredPlugin.configuration, sha256),
+      consentDisclosureDigest: deriveTrustedInstallConsentDisclosureDigest(projectSafeComponents({ plugin: configuredPlugin, compatibility: configuredCompatibility }), sha256),
       configurationRef: configuredRevision.configurationRef,
       trustSubject: configuredTrustCandidate.subject,
       executableSurfaceDigest: configuredTrustCandidate.evidence.executableSurfaceDigest,
@@ -383,6 +386,7 @@ describe("plugin lifecycle service", () => {
       contentDigest: content.rootDigest,
       compatibilityFingerprint: digestCompatibilityReport(compatibility, sha256),
       configurationDescriptorDigest: digestConfigurationDescriptors(plugin.configuration, sha256),
+      consentDisclosureDigest: deriveTrustedInstallConsentDisclosureDigest(projectSafeComponents({ plugin, compatibility }), sha256),
       trustSubject: trustCandidate.subject,
       executableSurfaceDigest: trustCandidate.evidence.executableSurfaceDigest,
       capabilityDigest: `sha256:${"4".repeat(64)}` as never,

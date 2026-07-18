@@ -54,7 +54,8 @@ function httpTemplate(overrides: Record<string, unknown> = {}): McpLaunchTemplat
   return McpLaunchTemplateSchemaV1.parse({
     schemaVersion: 1,
     transport: "streamable-http",
-    url: "https://example.invalid/${PLUGIN_ROOT}?name=${user_config.NAME}",
+    endpointSecurity: "tls",
+    url: "https://example.invalid/mcp?name=${user_config.NAME}",
     headers: [
       { name: "X-Ambient", value: { kind: "environment", name: "HEADER_VALUE" } },
       { name: "X-Static", value: { kind: "template", template: "safe" } },
@@ -208,7 +209,7 @@ describe("trusted MCP launch value provider", () => {
     const values = await fixture.provider.resolve(fixture.request, new AbortController().signal);
     expect(values.transport).toBe("streamable-http");
     if (values.transport !== "streamable-http") throw new Error("expected HTTP values");
-    expect(values.url).toBe("https://example.invalid//plugin?name=demo");
+    expect(values.url).toBe("https://example.invalid/mcp?name=demo");
     expect(values.headers).toEqual({ "X-Ambient": "header-value", "X-Static": "safe" });
     expect(Object.getPrototypeOf(values.headers)).toBeNull();
     expect(values.bearerToken).toBe("CANARY_${NOT_REPARSED}");
@@ -309,14 +310,6 @@ describe("trusted MCP launch value provider", () => {
   });
 
   it.each([
-    {
-      template: httpTemplate({ url: "https://${HOST}/mcp", headers: [], bearerToken: undefined }),
-      ambient: { HOST: "user:password@example.invalid" },
-    },
-    {
-      template: httpTemplate({ url: "https://example.invalid/${PATH_VALUE}", headers: [], bearerToken: undefined }),
-      ambient: { PATH_VALUE: "one\ntwo" },
-    },
     {
       template: httpTemplate({
         headers: [{ name: "X-Test", value: { kind: "environment", name: "HEADER_VALUE" } }],

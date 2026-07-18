@@ -45,6 +45,8 @@ import {
   withAuthorizedPluginConfiguration,
   ConfigurationResolutionError,
 } from "./configuration-resolver.js";
+import { projectSafeComponents } from "./native-inspection-disclosure.js";
+import { deriveTrustedInstallConsentDisclosureDigest } from "./trusted-install-identifiers.js";
 import type { ConfigurationPathContext } from "./ports/configuration-path.js";
 import type { PluginConfigurationStore } from "./ports/plugin-configuration-store.js";
 import type { ProjectTrustPort } from "./ports/project-trust.js";
@@ -286,6 +288,10 @@ function verifyTrustedInstallBinding(
     expected.contentDigest !== candidate.materialized.content.rootDigest ||
     expected.compatibilityFingerprint !== digestCompatibilityReport(candidate.compatibility, sha256) ||
     expected.configurationDescriptorDigest !== digestConfigurationDescriptors(candidate.normalized.configuration, sha256) ||
+    expected.consentDisclosureDigest !== deriveTrustedInstallConsentDisclosureDigest(
+      projectSafeComponents({ plugin: candidate.normalized, compatibility: candidate.compatibility }),
+      sha256,
+    ) ||
     expected.configurationRef !== candidate.revision.configurationRef ||
     expected.trustSubject !== candidate.trust.subject ||
     expected.executableSurfaceDigest !== candidate.trust.evidence.executableSurfaceDigest;

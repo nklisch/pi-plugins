@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createTrustedInstallCandidateService } from "../../src/application/trusted-install-candidate.js";
 import { createContentManifest, createMaterializationBinding } from "../../src/domain/content-manifest.js";
 import { createResolvedMarketplaceSource } from "../../src/domain/source.js";
-import { capabilities, directPlugin, fixtureProvenance, sha256 as fixtureSha } from "../fixtures/compatibility/common.js";
+import { capabilities, claimFixture, componentId, directPlugin, fixtureProvenance, sha256 as fixtureSha } from "../fixtures/compatibility/common.js";
 
 const sha256 = (bytes: Uint8Array) => new Uint8Array(createHash("sha256").update(bytes).digest());
 const registrationId = `marketplace-registration-v1:sha256:${"11".repeat(32)}` as never;
@@ -11,8 +11,8 @@ const candidateId = `marketplace-candidate-v1:sha256:${"22".repeat(32)}` as neve
 const catalogSnapshot = `marketplace-snapshot-v1:sha256:${"33".repeat(32)}` as never;
 const subject = { version: 1 as const, subject: "marketplace-candidate" as const, scope: { kind: "user" as const }, plugin: "fixture@compatibility" as never, registrationId, candidateId, catalogSnapshot };
 
-function setup(options: { releaseFails?: boolean } = {}) {
-  const plugin = directPlugin();
+function setup(options: { releaseFails?: boolean; plugin?: ReturnType<typeof directPlugin> } = {}) {
+  const plugin = options.plugin ?? directPlugin();
   const content = createContentManifest([], fixtureSha);
   const materialized = { root: "/private/candidate/content", source: plugin.source, content, binding: createMaterializationBinding(plugin.source.hash, content.rootDigest, fixtureSha) };
   const marketplaceSource = createResolvedMarketplaceSource({ declared: { kind: "github", repository: "owner/market" }, revision: "a".repeat(40) }, fixtureSha);
@@ -65,6 +65,36 @@ describe("trusted-install candidate", () => {
     expect(publicEvidence).not.toContain("/private/candidate");
     expect(publicEvidence).not.toContain("/private/market");
     expect(release).not.toHaveBeenCalled();
+  });
+
+  it("binds complete redacted MCP endpoint disclosure into exact consent", async () => {
+    const provenance = fixtureProvenance("mcp.json", "/servers/remote", "claude", "mcp");
+    const plugin = directPlugin({ components: { mcpServers: [{
+      kind: "mcp-server",
+      id: componentId("mcp-server", "d"),
+      nativeKey: claimFixture("remote", provenance),
+      declaration: claimFixture({
+        transport: "streamable-http",
+        url: "https://mcp.example.invalid:8443/rpc/v1?access_token=${MCP_QUERY_SECRET_CANARY}",
+        bearerTokenEnv: "MCP_BEARER_SECRET_CANARY",
+      }, provenance),
+      metadata: [],
+    }] } });
+    const { service, snapshot } = setup({ plugin });
+    const result = await service.acquire({ subject, snapshot }, new AbortController().signal);
+    expect(result.kind).toBe("ready");
+    if (result.kind !== "ready") return;
+    expect(result.candidate.binding.consentDisclosureDigest).toMatch(/^sha256:/);
+    expect(result.candidate.consent.components.mcpServers[0]?.url).toMatchObject({
+      scheme: "https",
+      host: { text: "mcp.example.invalid" },
+      port: { text: "8443" },
+      path: { text: "/rpc/v1" },
+      queryPresent: true,
+    });
+    const serialized = JSON.stringify(result.candidate.consent);
+    expect(serialized).not.toContain("MCP_QUERY_SECRET_CANARY");
+    expect(serialized).not.toContain("access_token");
   });
 
   it("rejects cross-scope inspection authority before catalog resolution or acquisition", async () => {

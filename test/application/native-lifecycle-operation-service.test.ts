@@ -24,7 +24,7 @@ function cancellableUpdate(release: () => Promise<void>) {
     catalogSnapshot: `marketplace-snapshot-v1:sha256:${"3".repeat(64)}`,
     plugin: binding.plugin,
     sourceIdentity: digest("4"), immutableRevision: digest("5"), contentDigest: digest("6"),
-    compatibilityFingerprint: digest("7"), configurationDescriptorDigest: digest("8"),
+    compatibilityFingerprint: digest("7"), configurationDescriptorDigest: digest("8"), consentDisclosureDigest: digest("f"),
     trustSubject: `trust-subject-v1:sha256:${"9".repeat(64)}`,
     executableSurfaceDigest: digest("a"), capabilityDigest: digest("b"),
   };

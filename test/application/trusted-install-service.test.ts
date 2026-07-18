@@ -20,7 +20,7 @@ const binding = {
   scope: { kind: "user" as const }, registrationId, candidateId, catalogSnapshot, plugin: "demo@market" as never,
   sourceIdentity: `sha256:${"7".repeat(64)}` as never, immutableRevision: revision, contentDigest: `sha256:${"8".repeat(64)}` as never,
   compatibilityFingerprint: `sha256:${"9".repeat(64)}` as never, configurationDescriptorDigest: `sha256:${"a".repeat(64)}` as never,
-  trustSubject: `trust-subject-v1:sha256:${"b".repeat(64)}` as never, executableSurfaceDigest: `sha256:${"c".repeat(64)}` as never,
+  consentDisclosureDigest: `sha256:${"e".repeat(64)}` as never, trustSubject: `trust-subject-v1:sha256:${"b".repeat(64)}` as never, executableSurfaceDigest: `sha256:${"c".repeat(64)}` as never,
   capabilityDigest: `sha256:${"d".repeat(64)}` as never,
 };
 const snapshotBinding = {

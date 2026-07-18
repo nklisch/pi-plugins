@@ -401,6 +401,15 @@ const mcpRules = {
     message: "MCP Streamable HTTP transport is supported",
     rank: 20,
   }),
+  transportSecurity: supportedRule({
+    id: "mcp.transport.security",
+    surface: "mcp-server",
+    disposition: "incompatible",
+    requirementCapabilityIds: noRequirements,
+    diagnosticCode: ErrorCodeRegistry.unsupportedDeclaration,
+    message: "MCP credentials require HTTPS; plaintext HTTP is limited to exact unauthenticated loopback consent",
+    rank: 25,
+  }),
   transportSse: supportedRule({
     id: "mcp.transport.sse",
     surface: "mcp-server",

@@ -47,7 +47,7 @@ describe("native lifecycle update preparation", () => {
         scope: { kind: "user" }, registrationId: candidateSubject.registrationId, candidateId: candidateSubject.candidateId,
         catalogSnapshot: candidateSubject.catalogSnapshot, plugin: harness.subject.plugin, sourceIdentity: digest("4"),
         immutableRevision: digest("5"), contentDigest: digest("6"), compatibilityFingerprint: digest("7"),
-        configurationDescriptorDigest: digest("8"), trustSubject: `trust-subject-v1:sha256:${"9".repeat(64)}`,
+        configurationDescriptorDigest: digest("8"), consentDisclosureDigest: digest("f"), trustSubject: `trust-subject-v1:sha256:${"9".repeat(64)}`,
         executableSurfaceDigest: digest("a"), capabilityDigest: snapshot.binding.capability.digest,
       },
     } as any;

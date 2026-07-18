@@ -315,7 +315,12 @@ fork supplies the same contract when upstream does not.
 
 A plugin is incompatible when its MCP behavior depends on a transport,
 authentication mode, capability, or exact tool-name contract that the active
-MCP implementation cannot preserve.
+MCP implementation cannot preserve. Remote MCP credentials are delivered only
+over HTTPS. Plain HTTP is limited to an unauthenticated literal loopback
+endpoint and requires exact install consent; the consent disclosure binds and
+shows its redacted scheme, host, effective port, and path. Endpoint authority
+and path cannot depend on late-bound values, while approved secret query values
+remain late-bound and absent from durable projections and diagnostics.
 
 ## Scopes
 

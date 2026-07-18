@@ -636,7 +636,10 @@ transition, maintain a journal, or choose recovery policy. The existing
 lifecycle reconciler and startup recovery service remain authoritative.
 
 Launch values are resolved only at process or connection creation and disposed
-immediately. A separate runtime lease provider pins the existing immutable
+immediately. Remote credentials require HTTPS; plaintext HTTP is restricted to
+an unauthenticated literal loopback endpoint whose scheme, host, effective port,
+and path are bound into exact install consent. Endpoint authority and path are
+not late-bound. A separate runtime lease provider pins the existing immutable
 plugin and projection artifacts until that execution closes. Registration and
 observation are local and offline-safe; remote connection, authentication,
 tool-discovery, and launch failures remain redacted per-server health rather

@@ -1,7 +1,7 @@
 import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import type { TrustedInstallActivationResult } from "../../application/trusted-install-contract.js";
-import { projectTerminalText } from "./pi-terminal-text.js";
+import { formatMcpEndpoint, projectTerminalText } from "./pi-terminal-text.js";
 import type { PluginInstallEvent, PluginInstallFocus, PluginInstallState } from "./plugin-install-flow.js";
 
 function safe(value: unknown, limit = 2_048): string {
@@ -89,7 +89,7 @@ function executableDisclosure(state: PluginInstallState, theme: Theme): string[]
     lines.push(`hook ${safe(hook.event.text)} · ${safe(hook.handler.command.text)}${hook.handler.kind === "exec" ? ` ${hook.handler.args.map((arg) => safe(arg.text)).join(" ")}` : ""} · ${safe(hook.verdict)}`);
   }
   for (const mcp of session.consent.components.mcpServers) {
-    lines.push(`MCP ${safe(mcp.nativeKey.text)} · ${safe(mcp.transport ?? "unavailable")} · ${safe(mcp.command?.text ?? mcp.url?.host.text ?? "remote endpoint")} · ${safe(mcp.verdict)}`);
+    lines.push(`MCP ${safe(mcp.nativeKey.text)} · ${safe(mcp.transport ?? "unavailable")} · ${safe(mcp.command?.text ?? (mcp.url === undefined ? "remote endpoint" : formatMcpEndpoint(mcp.url)))} · ${safe(mcp.verdict)}`);
     lines.push(`  tools: ${mcp.toolPolicy.allowed.map((tool) => safe(tool.text)).join(", ") || "runtime discovery"}`);
   }
   for (const component of session.consent.components.foreign) lines.push(`foreign ${safe(component.nativeHost)} ${safe(component.nativeKind.text)} · ${safe(component.verdict)}`);

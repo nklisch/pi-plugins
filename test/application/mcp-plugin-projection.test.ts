@@ -371,6 +371,7 @@ describe("plugin MCP projection", () => {
             launchTemplate: {
               schemaVersion: 1,
               transport: "streamable-http",
+              endpointSecurity: "tls",
               url: "https://altered.invalid/mcp",
               headers: [],
             },
