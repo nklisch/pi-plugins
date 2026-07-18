@@ -1,10 +1,28 @@
 {
   "name": "@nklisch/pi-plugins",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "private": false,
+  "description": "Native marketplace and plugin lifecycle management for Pi, with Claude Code and Codex compatibility.",
+  "license": "MIT",
+  "author": "Nathan Klisch",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nklisch/pi-plugins.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nklisch/pi-plugins/issues"
+  },
+  "homepage": "https://github.com/nklisch/pi-plugins#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "keywords": [
-    "pi-package"
+    "pi-package",
+    "plugin-manager",
+    "claude-code",
+    "codex",
+    "mcp"
   ],
   "pi": {
     "extensions": [
