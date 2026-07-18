@@ -64,6 +64,21 @@ async function ownedFileText(sandbox: CleanE2ESandbox, suffix: string): Promise<
   return (await Promise.all(files.map((entry) => readFile(join(sandbox.agentDir, entry.path), "utf8")))).join("\n");
 }
 
+export type ProductionHookEvidence = Readonly<{
+  event: string;
+  revision: ProductionBundleRevision;
+  agentId?: string;
+  sessionId?: string;
+  runId?: string;
+  continuationRound?: number;
+}>;
+
+/** Durable plugin-owned evidence used to distinguish a fresh hook run from history. */
+export async function productionHookEvidence(sandbox: CleanE2ESandbox): Promise<readonly ProductionHookEvidence[]> {
+  const text = await ownedFileText(sandbox, "production-hooks.jsonl");
+  return Object.freeze(text.split("\n").filter(Boolean).map((line) => Object.freeze(JSON.parse(line)) as ProductionHookEvidence));
+}
+
 export async function observeProductionBundle(
   rpc: PiRpcProcess,
   expected: ProductionBundleObservation,
@@ -111,8 +126,7 @@ export async function observeProductionBundle(
     expect(observed).toContain(`PARENT_OBSERVED_${expected.revision}`);
     expect(observed).toContain(`CHILD_FINAL_${expected.revision}`);
     expect(observed).toContain("SAME_SESSION_CONTINUATION");
-    const evidence = (await ownedFileText(rpc.sandbox, "production-hooks.jsonl"))
-      .split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    const evidence = await productionHookEvidence(rpc.sandbox);
     const starts = evidence.filter((entry) => entry.event === "SubagentStart" && entry.revision === expected.revision);
     const stops = evidence.filter((entry) => entry.event === "SubagentStop" && entry.revision === expected.revision);
     expect(starts.length).toBeGreaterThan(0);

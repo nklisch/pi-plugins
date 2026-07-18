@@ -5,13 +5,16 @@ import { startProductionModelService } from "../harness/production-model-service
 import {
   installProductionBundle,
   observeProductionBundle,
+  productionHookEvidence,
   productionModelArgs,
   PRODUCTION_PLUGIN,
   publishProductionBundleRevision,
+  type ProductionBundleRevision,
+  type ProductionHookEvidence,
 } from "../harness/production-bundle.js";
 import { seedRemoteMarketplace } from "../harness/journey.js";
 import { PiRpcProcess } from "../harness/pi-rpc.js";
-import { fileInventory } from "../harness/state-inspector.js";
+import { waitForCondition } from "../harness/process.js";
 
 let sandbox: CleanE2ESandbox | undefined;
 afterEach(async (context) => {
@@ -37,6 +40,25 @@ const inactive = (revision: "v1" | "v2") => ({
   alias: "runtime-unavailable-omission" as const,
 });
 
+async function startWithExactSessionHook(
+  before: readonly ProductionHookEvidence[],
+  revision: ProductionBundleRevision | null,
+): Promise<PiRpcProcess> {
+  const rpc = await PiRpcProcess.start({ sandbox: sandbox!, extraArgs: productionModelArgs });
+  // A completed packed status command is the deterministic startup barrier for
+  // an inactive bundle; active hook execution is awaited through its durable log.
+  expect((await rpc.plugin("--non-interactive status", "status")).envelope.status).toBe("ok");
+  if (revision !== null) {
+    await waitForCondition("fresh production SessionStart hook", async () => {
+      const after = await productionHookEvidence(sandbox!);
+      return after.length > before.length ? after : undefined;
+    }, 15_000);
+  }
+  const delta = (await productionHookEvidence(sandbox!)).slice(before.length);
+  expect(delta).toEqual(revision === null ? [] : [{ event: "SessionStart", revision }]);
+  return rpc;
+}
+
 describe("golden production full-bundle lifecycle", () => {
   it("installs, observes, disables, enables, updates, and uninstalls one exact bundle", async () => {
     sandbox = await createProductionE2ESandbox("production-golden-bundle");
@@ -45,15 +67,22 @@ describe("golden production full-bundle lifecycle", () => {
     await installProductionBundle({ sandbox, rpc: journey.rpc, version: "v1" });
     await journey.rpc.shutdown();
 
-    let rpc = await PiRpcProcess.start({ sandbox, extraArgs: productionModelArgs });
+    let baseline = await productionHookEvidence(sandbox);
+    let rpc = await startWithExactSessionHook(baseline, "v1");
     await observeProductionBundle(rpc, active("v1"), model);
 
     const disabled = await rpc.plugin(`disable ${PRODUCTION_PLUGIN} --scope user --yes`, "lifecycle.disable");
     expect(disabled.envelope.data).toMatchObject({ kind: "succeeded" });
+    await rpc.shutdown();
+    baseline = await productionHookEvidence(sandbox);
+    rpc = await startWithExactSessionHook(baseline, null);
     await observeProductionBundle(rpc, inactive("v1"), model);
 
     const enabled = await rpc.plugin(`enable ${PRODUCTION_PLUGIN} --scope user --yes`, "lifecycle.enable");
     expect(enabled.envelope.data).toMatchObject({ kind: "succeeded" });
+    await rpc.shutdown();
+    baseline = await productionHookEvidence(sandbox);
+    rpc = await startWithExactSessionHook(baseline, "v1");
     await observeProductionBundle(rpc, active("v1"), model);
 
     await publishProductionBundleRevision(sandbox, journey.repository, "v2");
@@ -63,16 +92,16 @@ describe("golden production full-bundle lifecycle", () => {
     expect(updated.envelope.data).toMatchObject({ kind: "succeeded" });
     await rpc.shutdown();
 
-    rpc = await PiRpcProcess.start({ sandbox, extraArgs: productionModelArgs });
+    baseline = await productionHookEvidence(sandbox);
+    rpc = await startWithExactSessionHook(baseline, "v2");
     await observeProductionBundle(rpc, active("v2"), model);
-    const hookFiles = (await fileInventory(sandbox.agentDir)).filter((entry) => entry.path.endsWith("production-hooks.jsonl"));
-    expect(hookFiles.length).toBeGreaterThan(0);
 
     const removed = await rpc.plugin(`uninstall ${PRODUCTION_PLUGIN} --scope user --delete-data --yes`, "lifecycle.uninstall");
     expect(removed.envelope.data).toMatchObject({ kind: "succeeded" });
     await rpc.shutdown();
 
-    rpc = await PiRpcProcess.start({ sandbox, extraArgs: productionModelArgs });
+    baseline = await productionHookEvidence(sandbox);
+    rpc = await startWithExactSessionHook(baseline, null);
     await observeProductionBundle(rpc, inactive("v2"), model);
     const listed = await rpc.plugin("--non-interactive list --scope user", "inspection.list");
     expect(listed.envelope.data.items).not.toContainEqual(expect.objectContaining({ plugin: PRODUCTION_PLUGIN }));
