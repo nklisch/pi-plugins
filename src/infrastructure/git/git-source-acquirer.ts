@@ -307,6 +307,9 @@ function networkConfig(target?: ApprovedNetworkTarget): readonly string[] {
     config.push(
       "-c", `http.${originUrl}.followRedirects=false`,
       "-c", `http.${originUrl}.proxy=`,
+      // curloptResolve is list-valued; clear inherited approved-origin entries
+      // before adding the one address authorized for this acquisition.
+      "-c", "http.curloptResolve=",
       "-c", `http.curloptResolve=${target.hostname}:${target.port}:${address}`,
     );
     if (!target.credentialsApproved) config.push("-c", "credential.helper=", "-c", "http.extraHeader=");

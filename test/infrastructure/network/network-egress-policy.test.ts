@@ -33,6 +33,14 @@ describe("network egress policy", () => {
     expect(lookup).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "https://192.0.3.1/repo.git",
+    "https://198.51.101.1/repo.git",
+    "https://203.0.114.1/repo.git",
+  ])("does not over-block adjacent globally routable IPv4 space %s", async (url) => {
+    await expect(createNetworkEgressPolicy().authorize(url)).resolves.toMatchObject({ family: 4 });
+  });
+
   it("rejects mixed DNS answers and pins one stable public address", async () => {
     const lookup = vi.fn(async () => [
       { address: "93.184.216.34", family: 4 as const },

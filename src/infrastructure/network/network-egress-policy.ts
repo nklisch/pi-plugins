@@ -59,12 +59,15 @@ function ipv4Bytes(address: string): readonly [number, number, number, number] |
 function ipv4Class(address: string): AddressClass {
   const bytes = ipv4Bytes(address);
   if (bytes === undefined) return "forbidden";
-  const [a, b] = bytes;
+  const [a, b, c] = bytes;
   if (a === 10 || a === 100 && b >= 64 && b <= 127 || a === 127 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168) return "private";
   if (a === 0 || a === 169 && b === 254 ||
-      a === 192 && (b === 0 || b === 2 || b === 88) ||
-      a === 198 && (b === 18 || b === 19 || b === 51) ||
-      a === 203 && b === 0 || a >= 224) return "forbidden";
+      a === 192 && (
+        b === 0 && (c === 0 || c === 2) || b === 31 && c === 196 ||
+        b === 52 && c === 193 || b === 88 && c === 99 || b === 175 && c === 48
+      ) ||
+      a === 198 && (b === 18 || b === 19 || b === 51 && c === 100) ||
+      a === 203 && b === 0 && c === 113 || a >= 224) return "forbidden";
   return "public";
 }
 
