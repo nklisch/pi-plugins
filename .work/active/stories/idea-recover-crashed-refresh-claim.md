@@ -1,7 +1,7 @@
 ---
 id: idea-recover-crashed-refresh-claim
 kind: story
-stage: implementing
+stage: done
 tags: [bug, compatibility]
 parent: epic-native-plugin-management-clean-environment-core-e2e
 depends_on: [idea-packed-refresh-cancellation-state-stale]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Recover crashed marketplace refresh claims
@@ -27,3 +27,9 @@ Reproducer: `test/e2e/chaos/lifecycle-crash-recovery.e2e.test.ts` pauses the sep
 - Reconcile only proven-dead ownership through the existing scope-lock/process-owner authority; unknown/live owners still coalesce.
 - Preserve V1 until one explicit retry selects exactly V2 and clears the recovered claim.
 - Prove the behavior with a killed packed Pi process and real Git acquisition boundary.
+
+## Resolution
+
+Refresh claims now carry process-owner evidence (PID plus Linux process start token). Restart reclaims a claim immediately only when that exact owner is proven dead; live or unknown owners still coalesce until normal expiry. The existing scope lock and state mutation authorities remain the only commit path.
+
+Verified by focused process-owner/refresh regressions, the killed packed-Pi acquisition scenario with one exact V2 retry, the complete 43-test E2E lane, and consolidated unit/package acceptance.

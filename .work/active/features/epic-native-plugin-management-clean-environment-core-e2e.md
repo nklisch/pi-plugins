@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-clean-environment-core-e2e
 kind: feature
-stage: implementing
+stage: done
 tags: [compatibility, e2e-test]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-pi-extension-manager]
@@ -362,17 +362,16 @@ The design counters those failures with isolated npm/Pi installation, real Pi RP
 
 ## Implementation notes
 
-- Execution capability: GPT-5.6 Sol xhigh, explicitly requested by the caller. One feature owner carried the five-story DAG because package/process/Git/state fixtures share one lifecycle; no nested agent or peer mechanism ran.
-- Review weight: standard from `.work/CONVENTIONS.md`. The caller reserved the independent feature review for the orchestrator, so this owner advances only to `stage: review` after green integrated verification.
+- Execution capability: GPT-5.6 Sol xhigh, explicitly requested by the caller. One feature owner carried the five-story DAG and accepted blocker fixes because package/process/Git/state fixtures share one lifecycle; no nested agent or peer mechanism ran.
+- Review weight: standard from `.work/CONVENTIONS.md`. The single independent feature review blocked on six production defects and suite-integrity corrections; every finding was accepted, resolved, and verified without a second review.
 - Architecture: a serial Vitest lane builds and packs once, creates an offline npm-installed regular-file consumer template, reflinks it into a fresh HOME/agent/session/XDG/npm/Git/project sandbox per test, then installs only that consumer path through real Pi 0.80.8. Strict-LF RPC correlates public control entries; util-linux `script` owns PTY when diagnosed; a separate HTTPS process wraps real `git http-backend`; external Node SQLite inspection, process-group signals, pipe closure, and pinned libfaketime capability receipts own state/fault evidence.
-- Files changed: E2E/package/test config; `test/e2e/harness/**`; `test/e2e/services/git-smart-http.mjs`; committed TLS and marketplace/plugin fixtures; and 12 E2E files across infrastructure, golden, failure, fuzz, and chaos. No production source, fork, acceptance feature, or `.work/bin/work-view` file changed.
-- Tests added: 43 tests total. The green result is 22 ordinary passes plus 21 executable expected failures, each linked to a reproducible parked production bug. The bounded control campaign executes 128 fixed-seed cases up to 8 KiB and records per-case replay commands.
-- User-visible evidence: clean package discovery/status; exact Pi metadata; real smart-Git registration/browse/cache/offline restart; project-sync files; process/RPC/print manager surfaces; stale/rejected capabilities; malformed catalog fallback; foreign-byte preservation; output/process recovery; SQLite integrity; network loss; bounded grammar/project/foreign/state fuzz; and explicit PTY/libfaketime diagnosis. No test treats service calls, progress, or internal rows as success.
-- Simplification: one timeout/port/seed registry, one process owner, one clean sandbox, one remote journey helper, and one deterministic corpus replace per-file shell fixtures. Public-state digests remove only live scheduler clocks/snapshot IDs while retaining installed/registration/policy/notice authority.
-- Discrepancies from design: this host has no util-linux `script` or pinned libfaketime, so those tests emit explicit receipts and required-CI flags fail closed rather than silently skipping. Candidate detail, production projection, corruption startup, refresh cancellation, dead refresh claims, and distinct-target contention expose genuine current production failures; exact assertions remain xfailed and linked instead of being loosened. Successful production MCP/subagent paths remain unavailable by design and are never faked.
-- Adjacent issues parked: `idea-fix-packed-candidate-inspection`, `idea-production-projection-publication`, `idea-packed-corruption-startup-diagnosis`, `idea-packed-refresh-cancellation-state-stale`, `idea-recover-crashed-refresh-claim`, `idea-distinct-marketplace-add-contention`.
-- Verification: `npm run test:e2e` passed 12 files / 43 tests (22 passed, 21 expected fail) with zero E2E type errors in 259.72s. `npm test` passed production typecheck, 414-module/2,962-dependency boundaries, 325 files / 1,589 Vitest tests, build, 847 root exports, 3 Pi exports, and the isolated packed real-Pi RPC/JSON/PTY consumer.
-- Final hygiene: every test sandbox/service/process/listener/port is cleaned; `.e2e-artifacts` is ignored and absent after green runs. The temporary worktree `node_modules` tooling symlink and generated `dist` are removed after lifecycle commit.
+- Product changes: candidate authority/readiness, marker-backed runtime projection publication and exact repair, lifecycle/reload recovery, scope-specific configuration/runtime context, degraded corrupt-state composition, refresh mutation/claim ownership, registration contention, automatic updates, and complete manager handoff evidence. No fork, production-acceptance item, or `.work/bin/work-view` file changed.
+- Suite changes: all 43 tests are ordinary passes; no `fails`/xfail remains. The bounded control campaign executes 128 fixed-seed cases up to 8 KiB and records per-case replay commands. Smart HTTP requires and records protocol v2. Failure artifacts are bounded, path-redacted, canary-scanned, and retained outside disposable sandboxes only after a failed test.
+- User-visible evidence: clean package discovery/status; exact Pi metadata; real smart-Git registration/browse/cache/offline restart; project-sync files; process/RPC/print manager surfaces; exact unavailable capabilities; malformed catalog fallback; foreign-byte preservation; output/process recovery; SQLite integrity; network loss; bounded grammar/project/foreign/state fuzz; PTY behavior; and explicit libfaketime diagnosis. No test treats service calls, progress, or internal rows as success.
+- Linux CI: the pinned `node:24-bookworm` job installs util-linux and exact managed `libfaketime=0.9.10-2.1`, then requires both capabilities. Other platforms must diagnose unavailable support explicitly rather than silently satisfying the Linux lane.
+- Resolved blocker stories: `idea-fix-packed-candidate-inspection`, `idea-production-projection-publication`, `idea-packed-corruption-startup-diagnosis`, `idea-packed-refresh-cancellation-state-stale`, `idea-recover-crashed-refresh-claim`, and `idea-distinct-marketplace-add-contention`.
+- Verification: `npm run test:e2e` passed 12 files / 43 tests with zero E2E type errors. `npm test` passed production typecheck, 416-module / 2,974-dependency boundaries, 326 files / 1,596 Vitest tests, build, 847 root exports, 3 Pi exports, and the isolated packed real-Pi RPC/JSON/PTY consumer.
+- Final hygiene: every test sandbox/service/process/listener/port is cleaned; `.e2e-artifacts` is absent after green runs. The temporary worktree tooling symlink and generated test artifacts are removed before completion.
 
 ## Sole review blocker resolution
 
@@ -385,4 +384,12 @@ The standard-weight sole independent review found material production and suite 
 - `idea-recover-crashed-refresh-claim`
 - `idea-distinct-marketplace-add-contention`
 
-The same sole review requires candidate/projection separation, strict Linux PTY/libfaketime CI, protocol-v2 smart HTTP, authority-bearing fuzz and golden journeys, and failure-aware sanitized teardown. Per `review_weight: standard` and the caller's explicit boundary, accepted fixes will be adjudicated and verified once, then the feature will close without re-review.
+The same sole review requires candidate/projection separation, strict Linux PTY/libfaketime CI, protocol-v2 smart HTTP, authority-bearing fuzz and golden journeys, and failure-aware sanitized teardown. Per `review_weight: standard` and the caller's explicit boundary, accepted fixes were adjudicated and verified once; no second review was run.
+
+### Final adjudication and closure
+
+- **Review record**: one standard-weight independent feature review; initial verdict blocked. Six production findings and all suite corrections were accepted. Rejected: 0. Parked: 0. Re-review: intentionally not run.
+- **Production resolution**: packed candidate inspection, atomic projection publication/repair, degraded corruption diagnosis, refresh cancellation truth, dead-owner claim recovery, and unrelated marketplace-add contention are fixed through existing state, mutation, recovery, and projection authorities. Reload handoff and successor reconciliation now preserve exact durable candidate and complete control-report evidence.
+- **Suite resolution**: all 21 linked expected failures are ordinary passing assertions. The real packed Pi 0.80.8 suite enforces Git protocol v2, exact capability outcomes, current-authority fuzz/golden behavior, bounded path-redacted/canary-scanned failure diagnostics, deterministic process teardown, and explicit Linux PTY/libfaketime requirements in CI.
+- **Verification**: `npm run test:e2e` passed 12 files / 43 tests with zero expected failures; `npm test` passed typecheck, 416-module / 2,974-dependency boundaries, 326 files / 1,596 tests, build, 847 root exports, 3 Pi exports, and isolated packed real-Pi RPC/JSON/PTY acceptance. Focused regressions and `git diff --check` also passed.
+- **Child disposition**: all six blocking stories were verified and advanced directly from `implementing` to `done`, as required for child stories. This feature advances from `implementing` to `done` on the sole review's accepted blocker adjudication.

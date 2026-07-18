@@ -1,7 +1,7 @@
 ---
 id: idea-packed-refresh-cancellation-state-stale
 kind: story
-stage: implementing
+stage: done
 tags: [bug, compatibility]
 parent: epic-native-plugin-management-clean-environment-core-e2e
 depends_on: []
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Preserve refresh cancellation owner truth
@@ -27,3 +27,9 @@ Reproducer: `test/e2e/failure/output-cancellation-reload.e2e.test.ts` pauses the
 - Preserve the previously selected catalog and clear only the caller's exact claim.
 - Do not reinterpret post-commit cancellation as cancellation or broad-accept stale outcomes.
 - Prove packed public cancellation and restart truth under a paused real Git backend.
+
+## Resolution
+
+Refresh completion now rebases boundedly over unrelated generation changes while preserving exact claim/source ownership fences. Pre-publication owner cancellation settles with explicit aborted evidence and a fresh cleanup signal; post-commit cancellation continues to report durable truth. Scheduler writes no longer churn generations for unchanged ownership state.
+
+Verified by focused refresh/scheduler tests, the paused real-Git cancellation and restart journey, the complete 43-test E2E lane, and consolidated package acceptance.

@@ -1,7 +1,7 @@
 ---
 id: idea-distinct-marketplace-add-contention
 kind: story
-stage: implementing
+stage: done
 tags: [bug, compatibility]
 parent: epic-native-plugin-management-clean-environment-core-e2e
 depends_on: []
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Retry distinct marketplace additions after generation contention
@@ -27,3 +27,9 @@ Reproducer: `test/e2e/chaos/multiprocess-network-clock.e2e.test.ts` first proves
 - Same-source/name contention must remain idempotent or conflict exactly; retries may not broad-accept statuses.
 - Bound retries deterministically and avoid a second mutation engine or unsafe claim.
 - Prove two packed Pi processes converge distinct registrations and agree on final public state.
+
+## Resolution
+
+Marketplace add now retries bounded stale-generation outcomes against freshly read authority, fenced by exact source and marketplace-name identity. Same-source contention remains idempotent and name conflicts remain explicit. The packed multiprocess case converges all three registrations in both Pi processes; smart-HTTP request/fault evidence is serialized so concurrent fixture diagnostics cannot strand a request.
+
+Verified by the focused multiprocess E2E, the complete 43-test packed E2E lane, and the 1,596-test unit/integration suite.

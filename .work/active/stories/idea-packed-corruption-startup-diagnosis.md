@@ -1,7 +1,7 @@
 ---
 id: idea-packed-corruption-startup-diagnosis
 kind: story
-stage: implementing
+stage: done
 tags: [bug, compatibility]
 parent: epic-native-plugin-management-clean-environment-core-e2e
 depends_on: []
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Diagnose packed state corruption without blocking startup
@@ -27,3 +27,9 @@ Reproducer: the expected-failure case in `test/e2e/failure/corruption-staleness.
 - Publish bounded public `STATE_CORRUPT` diagnosis while unaffected scopes and commands remain usable.
 - Never rewrite, default, or infer the damaged authority.
 - Cover current-pointer and actively referenced state-blob mutations plus structural corruption classification in packed Pi.
+
+## Resolution
+
+Lifecycle state composition now preserves a corrupt scope as bounded read-only evidence while continuing with healthy sibling scopes. Packaged startup and diagnosis retain current blocked/corrupt installed-content evidence instead of defaulting, rewriting, or aborting command publication.
+
+Verified by focused state-store and readiness tests, packed current-pointer/state-blob corruption scenarios, SQLite integrity checks, the complete E2E lane, and consolidated unit/package acceptance.
