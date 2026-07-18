@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime
 kind: epic
-stage: review
+stage: done
 tags: [compatibility, infra]
 parent: null
 depends_on: [epic-transactional-plugin-lifecycle]
@@ -88,3 +88,17 @@ Mockups skipped: the epic has no new screen, page, flow, or component. `/plugin`
 ## Aggregate review readiness — 2026-07-18
 
 All five child features are `stage: done`, including the published production subagent lifecycle adapter and upstream PR #614. The epic advances to `review` for its independent aggregate pass.
+
+## Standard aggregate review — 2026-07-18
+
+**Verdict: APPROVE.** One independent cross-model, fresh-context aggregate pass reviewed all five features and their complete lifecycle/native/MCP coordination. No material blockers were found.
+
+Verification included **332 files / 1,613 tests**, clean typecheck, **426 modules / 3,002 dependency edges**, **847 compiled exports**, and packed real Pi 0.80.8 acceptance. The pass independently checked skill scope/order/reload, strict foreign hook adaptation, guarded process execution and continuation bounds, exact subagent interception, complete projection evidence, trust/project/session/reload races, plugin-scoped degradation, package qualification, secret non-retention, complete-bundle coordination, rollback, and documentation truth.
+
+Three lower-risk findings were parked without implementation:
+
+- `idea-reconcile-subagent-release-evidence`
+- `idea-bind-subagent-qualification-digest-to-suite`
+- `idea-stop-hook-workers-after-cancellation`
+
+The epic advances from `review` to `done` without a second review pass.
