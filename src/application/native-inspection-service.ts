@@ -404,7 +404,7 @@ export function createNativeInspectionService(dependencies: Readonly<{
           findings.push({ ...unavailable, facts: [...(unavailable.facts ?? []), ...ownerFacts(scope.scope)] });
         }
       }
-      if (snapshot.startup.status === "blocked") {
+      if (snapshot.startup.blocked.length > 0) {
         for (const blocked of snapshot.startup.blocked) {
           findings.push({ key: "startupBlocked", facts: [
             // Startup observations allow adapter-defined strings. Hashing keeps

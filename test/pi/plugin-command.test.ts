@@ -181,10 +181,18 @@ describe("Pi /plugin command adapter", () => {
     });
     const presentation = manager();
     const handoff = { open: vi.fn(() => ({ id: "ticket" })), publish: vi.fn(() => "successor"), fail: vi.fn() } as any;
-    adapter({ pi: h.pi, host: host(service), manager: presentation, handoff }).register();
+    const predecessor = new AbortController();
+    (h.context as unknown as { signal: AbortSignal }).signal = predecessor.signal;
+    const reloadHost = host(service);
+    vi.mocked(reloadHost.runWithPiOperationContext).mockImplementation(async (_context, operationSignal, use) => {
+      predecessor.abort(new Error("Pi disposed the predecessor during reload"));
+      expect(operationSignal.aborted).toBe(false);
+      return use({ control: service } as never);
+    });
+    adapter({ pi: h.pi, host: reloadHost, manager: presentation, handoff }).register();
     await h.commands[0]!.options.handler("enable demo@market --scope user --yes", h.context);
     expect(handoff.open).toHaveBeenCalledWith({ sessionId: "session-1", cwd: "/workspace", destination: "operation-result" });
-    expect(handoff.publish).toHaveBeenCalledWith({ id: "ticket" }, envelope);
+    expect(handoff.publish).toHaveBeenCalledWith({ id: "ticket" }, { envelope, delivery: "complete", deliveredThrough: -1 });
     expect(presentation.presentReport).not.toHaveBeenCalled();
     expect(h.notifications).toEqual([]);
   });

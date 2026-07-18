@@ -18,6 +18,7 @@ import type { LifecycleStateInventoryPort } from "../application/ports/lifecycle
 import type { LifecycleStateStore } from "../application/ports/lifecycle-state-store.js";
 import type { CurrentProjectRuntimeContext, ProjectTrustPort } from "../application/ports/project-trust.js";
 import type { RefreshClaimIdPort } from "../application/ports/refresh-claim-id.js";
+import type { RefreshClaimOwnerPort } from "../application/ports/refresh-claim-owner.js";
 import type { MarketplaceMaterializer, PluginMaterializer } from "../application/source-materialization.js";
 import type { ScopeContext } from "../domain/state/scope.js";
 import type { Sha256 } from "../domain/source.js";
@@ -67,6 +68,7 @@ export type NodeMarketplaceDiscoveryServicesOptions = Readonly<{
   mutations: GenerationMutationCoordinator;
   clock: LifecycleClock;
   claimIds: RefreshClaimIdPort;
+  claimOwners?: RefreshClaimOwnerPort;
   updateSchedulerLeaseIds?: UpdateSchedulerLeaseIdPort;
   materializers: Readonly<{ marketplaces: MarketplaceMaterializer; plugins?: PluginMaterializer }>;
   inspection: MarketplaceInspectionService;
@@ -121,6 +123,7 @@ export function createNodeMarketplaceDiscoveryComposition(
       mutations: options.mutations,
       clock: options.clock,
       claimIds: options.claimIds,
+      ...(options.claimOwners === undefined ? {} : { claimOwners: options.claimOwners }),
       materializers: options.materializers,
       inspection: options.inspection,
       content: options.content,

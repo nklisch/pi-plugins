@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { PluginKeySchema, type PluginKey } from "../domain/identity.js";
 import { ProjectKeySchema, type ScopeReference } from "../domain/state/scope.js";
+import { NativeInspectionError } from "./native-inspection-service.js";
 import {
   InspectionDetailIdSchema,
   InspectionSnapshotIdSchema,
@@ -73,17 +74,31 @@ async function detail(
     if (result.detail.summary.subject !== subject || result.detail.summary.plugin !== selector.plugin || !scopeMatches(result.detail.summary, selector.scope)) return { kind: "wrong-subject" };
     return { kind: "selected", detail: result.detail };
   }
-  const page = await inspection.list({ subjects: [subject], scope: selector.scope, query: selector.plugin, limit: 100 }, signal);
-  const matches = match(page.items, selector.plugin, selector.scope, subject);
-  if (matches.length === 0) return { kind: "not-found" };
-  if (matches.length > 1) return { kind: "ambiguous" };
-  const selected = await inspection.detail({ snapshotId: page.snapshotId, detailId: matches[0]!.detailId }, signal);
-  if (selected.kind === "stale") return { kind: "stale" };
-  if (selected.kind === "invalid-id") return { kind: "invalid" };
-  if (selected.kind === "missing") return { kind: "not-found" };
-  if (selected.kind === "unavailable") return { kind: "unavailable" };
-  if (selected.detail.summary.subject !== subject || selected.detail.summary.plugin !== selector.plugin || !scopeMatches(selected.detail.summary, selector.scope)) return { kind: "wrong-subject" };
-  return { kind: "selected", detail: NativeInspectionDetailSchema.parse(selected.detail) };
+  // Identity selection asks for the current authority rather than binding an
+  // already-issued token. One concurrent generation change may invalidate the
+  // list/detail pair, so recapture once; exact selectors above remain strictly
+  // stale and never retarget themselves.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let page;
+    try {
+      page = await inspection.list({ subjects: [subject], scope: selector.scope, query: selector.plugin, limit: 100 }, signal);
+    } catch (error) {
+      if (attempt === 0 && error instanceof NativeInspectionError && error.code === "SNAPSHOT_STALE") continue;
+      throw error;
+    }
+    const matches = match(page.items, selector.plugin, selector.scope, subject);
+    if (matches.length === 0) return { kind: "not-found" };
+    if (matches.length > 1) return { kind: "ambiguous" };
+    const selected = await inspection.detail({ snapshotId: page.snapshotId, detailId: matches[0]!.detailId }, signal);
+    if (selected.kind === "stale" && attempt === 0) continue;
+    if (selected.kind === "stale") return { kind: "stale" };
+    if (selected.kind === "invalid-id") return { kind: "invalid" };
+    if (selected.kind === "missing") return { kind: "not-found" };
+    if (selected.kind === "unavailable") return { kind: "unavailable" };
+    if (selected.detail.summary.subject !== subject || selected.detail.summary.plugin !== selector.plugin || !scopeMatches(selected.detail.summary, selector.scope)) return { kind: "wrong-subject" };
+    return { kind: "selected", detail: NativeInspectionDetailSchema.parse(selected.detail) };
+  }
+  return { kind: "stale" };
 }
 
 export function createNativeControlSelectionService(dependencies: Readonly<{
@@ -95,24 +110,40 @@ export function createNativeControlSelectionService(dependencies: Readonly<{
     candidate: (selector: NativeControlCandidateSelector, signal: AbortSignal) => detail(dependencies.inspection, NativeControlCandidateSelectorSchema.parse(selector), "marketplace-candidate", signal),
     async update(selectorInput: NativeControlUpdateSelector, signal: AbortSignal): Promise<NativeControlUpdateSelectionResult> {
       const selector = NativeControlUpdateSelectorSchema.parse(selectorInput);
-      const page = await dependencies.inspection.list({ subjects: ["installed", "marketplace-candidate"], scope: selector.scope, query: selector.plugin, limit: 100 }, signal);
-      const installedMatches = match(page.items, selector.plugin, selector.scope, "installed");
-      const candidateMatches = match(page.items, selector.plugin, selector.scope, "marketplace-candidate");
-      const installedSummary = selector.installed === undefined ? installedMatches.length === 1 ? installedMatches[0] : undefined : page.items.find((item) => item.detailId === selector.installed!.detailId);
-      const candidateSummary = selector.candidate === undefined ? candidateMatches.length === 1 ? candidateMatches[0] : undefined : page.items.find((item) => item.detailId === selector.candidate!.detailId);
-      if (selector.installed === undefined && installedMatches.length > 1 || selector.candidate === undefined && candidateMatches.length > 1) return { kind: "ambiguous" };
-      if (installedSummary === undefined || candidateSummary === undefined) return { kind: "not-found" };
-      if (installedSummary.subject !== "installed" || candidateSummary.subject !== "marketplace-candidate") return { kind: "wrong-subject" };
-      const snapshot = page.snapshotId;
-      if (selector.installed !== undefined && selector.installed.snapshotId !== snapshot || selector.candidate !== undefined && selector.candidate.snapshotId !== snapshot) return { kind: "stale" };
-      const [installedResult, candidateResult] = await Promise.all([
-        dependencies.inspection.detail({ snapshotId: snapshot, detailId: installedSummary.detailId }, signal),
-        dependencies.inspection.detail({ snapshotId: snapshot, detailId: candidateSummary.detailId }, signal),
-      ]);
-      if (installedResult.kind === "stale" || candidateResult.kind === "stale") return { kind: "stale" };
-      if (installedResult.kind !== "found" || candidateResult.kind !== "found") return { kind: installedResult.kind === "unavailable" || candidateResult.kind === "unavailable" ? "unavailable" : "not-found" };
-      if (installedResult.detail.summary.plugin !== selector.plugin || candidateResult.detail.summary.plugin !== selector.plugin || !scopeMatches(installedResult.detail.summary, selector.scope) || !scopeMatches(candidateResult.detail.summary, selector.scope)) return { kind: "wrong-subject" };
-      return { kind: "selected", installed: installedResult.detail, candidate: candidateResult.detail };
+      const canRecapture = selector.installed === undefined && selector.candidate === undefined;
+      for (let attempt = 0; attempt < (canRecapture ? 2 : 1); attempt += 1) {
+        let page;
+        try {
+          page = await dependencies.inspection.list({ subjects: ["installed", "marketplace-candidate"], scope: selector.scope, query: selector.plugin, limit: 100 }, signal);
+        } catch (error) {
+          if (error instanceof NativeInspectionError && error.code === "SNAPSHOT_STALE") {
+            if (canRecapture && attempt === 0) continue;
+            return { kind: "stale" };
+          }
+          throw error;
+        }
+        const installedMatches = match(page.items, selector.plugin, selector.scope, "installed");
+        const candidateMatches = match(page.items, selector.plugin, selector.scope, "marketplace-candidate");
+        const installedSummary = selector.installed === undefined ? installedMatches.length === 1 ? installedMatches[0] : undefined : page.items.find((item) => item.detailId === selector.installed!.detailId);
+        const candidateSummary = selector.candidate === undefined ? candidateMatches.length === 1 ? candidateMatches[0] : undefined : page.items.find((item) => item.detailId === selector.candidate!.detailId);
+        if (selector.installed === undefined && installedMatches.length > 1 || selector.candidate === undefined && candidateMatches.length > 1) return { kind: "ambiguous" };
+        if (installedSummary === undefined || candidateSummary === undefined) return { kind: "not-found" };
+        if (installedSummary.subject !== "installed" || candidateSummary.subject !== "marketplace-candidate") return { kind: "wrong-subject" };
+        const snapshot = page.snapshotId;
+        if (selector.installed !== undefined && selector.installed.snapshotId !== snapshot || selector.candidate !== undefined && selector.candidate.snapshotId !== snapshot) return { kind: "stale" };
+        const [installedResult, candidateResult] = await Promise.all([
+          dependencies.inspection.detail({ snapshotId: snapshot, detailId: installedSummary.detailId }, signal),
+          dependencies.inspection.detail({ snapshotId: snapshot, detailId: candidateSummary.detailId }, signal),
+        ]);
+        if (installedResult.kind === "stale" || candidateResult.kind === "stale") {
+          if (canRecapture && attempt === 0) continue;
+          return { kind: "stale" };
+        }
+        if (installedResult.kind !== "found" || candidateResult.kind !== "found") return { kind: installedResult.kind === "unavailable" || candidateResult.kind === "unavailable" ? "unavailable" : "not-found" };
+        if (installedResult.detail.summary.plugin !== selector.plugin || candidateResult.detail.summary.plugin !== selector.plugin || !scopeMatches(installedResult.detail.summary, selector.scope) || !scopeMatches(candidateResult.detail.summary, selector.scope)) return { kind: "wrong-subject" };
+        return { kind: "selected", installed: installedResult.detail, candidate: candidateResult.detail };
+      }
+      return { kind: "stale" };
     },
     currentProject: dependencies.currentProject.current.bind(dependencies.currentProject),
   };

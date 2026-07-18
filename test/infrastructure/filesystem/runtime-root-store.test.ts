@@ -2,15 +2,15 @@ import { createHash } from "node:crypto";
 import { chmod, lstat, mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createMaterializationBinding, createContentManifest, hashContent } from "../../../src/domain/content-manifest.js";
 import { createResolvedPluginSource } from "../../../src/domain/source.js";
 import { createPluginStoreIdentity } from "../../../src/domain/content-store.js";
 import { derivePluginDataRef, deriveProjectionRootRef } from "../../../src/domain/state/references.js";
 import { createContentStoreLayout } from "../../../src/infrastructure/filesystem/content-store-layout.js";
-import { createRuntimeRootStore, hashProjectionRoot, inspectProjection } from "../../../src/infrastructure/filesystem/runtime-root-store.js";
-import { createNodeContentStorePlatform, renameNoReplaceByProbe } from "../../../src/infrastructure/filesystem/content-store-durability.js";
+import { createRuntimeRootStore, hashProjectionRoot, inspectProjection, inspectPublishedProjection } from "../../../src/infrastructure/filesystem/runtime-root-store.js";
+import { createNodeContentStorePlatform } from "../../../src/infrastructure/filesystem/content-store-durability.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(bytes).digest());
 const signal = new AbortController().signal;
@@ -37,7 +37,7 @@ describe("runtime data and projection roots", () => {
       const layout = await createContentStoreLayout(join(root, "host"));
       const runtime = createRuntimeRootStore({
         layout,
-        platform: createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe }),
+        platform: createNodeContentStorePlatform(),
         sha256,
       });
       const userDataRef = derivePluginDataRef({ scope: { kind: "user" }, plugin: "demo@market", purpose: "persistent-plugin-data" }, sha256);
@@ -58,7 +58,7 @@ describe("runtime data and projection roots", () => {
     const root = await mkdtemp(join(tmpdir(), "pi-data-parent-swap-"));
     try {
       const layout = await createContentStoreLayout(join(root, "host"));
-      const runtime = createRuntimeRootStore({ layout, platform: createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe }), sha256 });
+      const runtime = createRuntimeRootStore({ layout, platform: createNodeContentStorePlatform(), sha256 });
       const foreign = await mkdtemp(join(root, "foreign-"));
       await writeFile(join(foreign, "foreign.txt"), "untouched");
       const dataParent = join(layout.dataRoot, "..");
@@ -80,7 +80,7 @@ describe("runtime data and projection roots", () => {
     let allocationRoot: string | undefined;
     try {
       const layout = await createContentStoreLayout(join(root, "host"));
-      const platform = createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe });
+      const platform = createNodeContentStorePlatform();
       const runtime = createRuntimeRootStore({ layout, platform, sha256 });
       const payload = await mkdtemp(join(root, "payload-"));
       const projectionDigest = await hashProjectionRoot(payload, sha256);
@@ -114,7 +114,7 @@ describe("runtime data and projection roots", () => {
     const root = await mkdtemp(join(tmpdir(), "pi-projection-parent-swap-"));
     try {
       const layout = await createContentStoreLayout(join(root, "host"));
-      const runtime = createRuntimeRootStore({ layout, platform: createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe }), sha256 });
+      const runtime = createRuntimeRootStore({ layout, platform: createNodeContentStorePlatform(), sha256 });
       const foreign = await mkdtemp(join(root, "foreign-"));
       await writeFile(join(foreign, "foreign.txt"), "untouched");
       const generatedParent = join(layout.generatedRoot, "..");
@@ -140,7 +140,7 @@ describe("runtime data and projection roots", () => {
     const root = await mkdtemp(join(tmpdir(), "pi-projection-controls-"));
     try {
       const layout = await createContentStoreLayout(join(root, "host"));
-      const platform = createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe });
+      const platform = createNodeContentStorePlatform();
       const runtime = createRuntimeRootStore({ layout, platform, sha256 });
       const payload = await mkdtemp(join(root, "payload-"));
       await mkdir(join(payload, "nested"));
@@ -177,14 +177,14 @@ describe("runtime data and projection roots", () => {
     const root = await mkdtemp(join(tmpdir(), "pi-projection-cancel-"));
     try {
       const layout = await createContentStoreLayout(join(root, "host"));
-      const base = createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe });
+      const base = createNodeContentStorePlatform();
       const controller = new AbortController();
       let allocationRoot: string | undefined;
       const platform = {
         ...base,
         async syncDirectory(path: string): Promise<void> {
           await base.syncDirectory(path);
-          if (allocationRoot !== undefined && path === allocationRoot) controller.abort();
+          if (dirname(path) === layout.generatedRoot && basename(path).startsWith(".payload-")) controller.abort();
         },
       };
       const runtime = createRuntimeRootStore({ layout, platform, sha256 });
@@ -211,16 +211,17 @@ describe("runtime data and projection roots", () => {
     const root = await mkdtemp(join(tmpdir(), "pi-projection-cleanup-"));
     try {
       const layout = await createContentStoreLayout(join(root, "host"));
-      const base = createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe });
+      const base = createNodeContentStorePlatform();
       const foreign = await mkdtemp(join(root, "foreign-"));
       await writeFile(join(foreign, "foreign.txt"), "untouched");
-      let allocationRoot: string | undefined;
+      let displacedPrepared: string | undefined;
       const platform = {
         ...base,
         async syncDirectory(path: string): Promise<void> {
-          if (allocationRoot !== undefined && path === allocationRoot) {
+          if (displacedPrepared === undefined && dirname(path) === layout.generatedRoot && basename(path).startsWith(".payload-")) {
             await base.syncDirectory(path);
-            await rename(path, `${path}.displaced`);
+            displacedPrepared = `${path}.displaced`;
+            await rename(path, displacedPrepared);
             await symlink(foreign, path);
             throw new Error("/native/private/path cleanup failure");
           }
@@ -235,7 +236,6 @@ describe("runtime data and projection roots", () => {
       const plugin = "demo@market" as const;
       const projectionRef = deriveProjectionRootRef({ scope, plugin, projectionDigest }, sha256);
       const allocation = await runtime.allocateProjectionRoot({ scope, plugin, projectionDigest, projectionRef }, signal);
-      allocationRoot = allocation.root;
       await writeFile(join(allocation.root, "descriptor.json"), "cleanup");
 
       const error = await runtime.sealProjectionRoot(allocation, signal).catch((cause: unknown) => cause);
@@ -243,8 +243,8 @@ describe("runtime data and projection roots", () => {
       expect((error as Error).message).not.toContain("private/path");
       expect(JSON.stringify((error as { toDiagnostic(): unknown }).toDiagnostic())).not.toContain("private/path");
       expect(await readFile(join(foreign, "foreign.txt"), "utf8")).toBe("untouched");
-      await rm(`${allocation.root}.displaced`, { recursive: true, force: true });
-      await rm(allocation.root, { force: true });
+      if (displacedPrepared !== undefined) await rm(displacedPrepared, { recursive: true, force: true });
+      await rm(allocation.root, { recursive: true, force: true });
       await rm(payload, { recursive: true, force: true });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -256,7 +256,7 @@ describe("runtime data and projection roots", () => {
     let published: string | undefined;
     try {
       const layout = await createContentStoreLayout(join(root, "host"));
-      const runtime = createRuntimeRootStore({ layout, platform: createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe }), sha256 });
+      const runtime = createRuntimeRootStore({ layout, platform: createNodeContentStorePlatform(), sha256 });
       const payload = await mkdtemp(join(root, "payload-"));
       await writeFile(join(payload, "descriptor.json"), "bound");
       const projectionDigest = await hashProjectionRoot(payload, sha256);
@@ -301,7 +301,7 @@ describe("runtime data and projection roots", () => {
     let allocationRoot: string | undefined;
     try {
       const layout = await createContentStoreLayout(join(root, "host"));
-      const platform = createNodeContentStorePlatform({ renameNoReplace: renameNoReplaceByProbe });
+      const platform = createNodeContentStorePlatform();
       const runtime = createRuntimeRootStore({ layout, platform, sha256 });
       const source = await mkdtemp(join(root, "payload-"));
       await writeFile(join(source, "descriptor.json"), "one");
@@ -315,7 +315,10 @@ describe("runtime data and projection roots", () => {
       const resolved = await runtime.sealProjectionRoot(allocation, signal);
       published = resolved.root;
       expect(await inspectProjection(resolved.root, sha256)).toMatchObject({ projectionRef, projectionDigest });
-      expect(resolved.root).toBe(layout.projectionPath(projectionRef));
+      expect(dirname(resolved.root)).toBe(layout.generatedRoot);
+      expect(basename(resolved.root)).toMatch(/^\.payload-[0-9a-f]{32}$/u);
+      expect(await inspectPublishedProjection(layout.projectionPath(projectionRef), sha256)).toMatchObject({ root: resolved.root, metadata: { projectionRef, projectionDigest } });
+      expect((await lstat(layout.projectionPath(projectionRef))).isFile()).toBe(true);
       await expect(writeFile(join(resolved.root, "new.txt"), "blocked")).rejects.toThrow();
       await chmod(join(resolved.root, "descriptor.json"), 0o644).catch(() => undefined);
       await chmod(resolved.root, 0o755).catch(() => undefined);

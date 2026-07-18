@@ -97,6 +97,7 @@ import type { Sha256 } from "../domain/source.js";
 import { deriveMarketplaceSourceIdentity, derivePluginSourceIdentity, MarketplaceUpdateRecordSchema } from "../domain/update-policy.js";
 import { createTrustCandidate } from "../domain/trust-policy.js";
 import { createLifecycleTransitionReconciler } from "./lifecycle-transition-reconciler.js";
+import { CommittedMutationCleanupError } from "./generation-mutation-coordinator.js";
 
 export type InstallPluginRequest = Readonly<{
   scope: ScopeContext;
@@ -585,10 +586,24 @@ function createPluginLifecycleImplementation(
           continue;
         }
         if (result.kind === "commit-failed") return { kind: "rejected", code: "MALFORMED" };
-            return result.actual === undefined
+        // A concurrent unrelated writer can advance the scope between the
+        // store commit and the coordinator's verification read. Resolve that
+        // ambiguous outcome from current authority only when our exact
+        // pending candidate and transition reference are durably present.
+        const fresh = await load(scope, signal);
+        const freshTarget = fresh === undefined ? undefined : targetRecord(fresh, plugin);
+        const expectedTarget = withPending(candidate, reference, dependencies.sha256);
+        if (fresh !== undefined && sameJson(freshTarget, expectedTarget)) {
+          return { kind: "committed", snapshot: fresh };
+        }
+        return result.actual === undefined
           ? { kind: "recovery" }
           : { kind: "recovery", committed: result.actual };
       } catch (error) {
+        // The coordinator preserves durable commit evidence when only scope
+        // lease cleanup fails. Replaying would be unsafe; continue the
+        // transition from the exact committed snapshot instead.
+        if (error instanceof CommittedMutationCleanupError) return { kind: "committed", snapshot: error.committed.snapshot };
         if (signal.aborted) return { kind: "rejected", code: "ABORTED" };
         if (error instanceof GuardMismatch) return { kind: "stale", expected, actual: error.generation };
         if (error instanceof ConfigurationGuardMismatch) return { kind: "rejected", code: "CONFIGURATION_STALE" };

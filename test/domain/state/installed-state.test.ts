@@ -154,6 +154,32 @@ describe("installed lifecycle state", () => {
     expect(JSON.stringify(user)).not.toContain("file:");
   });
 
+  it("canonicalizes revision-set order before lifecycle comparisons", () => {
+    const alternatePlugin = NormalizedPluginSchema.parse({
+      ...plugin,
+      version: claim("2.0.0", location),
+      source: createResolvedPluginSource({
+        kind: "git",
+        url: "https://example.com/demo.git",
+        revision: "c".repeat(40),
+      }, sha256),
+    });
+    const alternateReport = CompatibilityReportSchema.parse({ ...report, plugin: alternatePlugin.identity });
+    const first = makeRevision();
+    const second = createInstalledRevisionRecord({ plugin: alternatePlugin, compatibility: alternateReport, content }, sha256);
+    const descending = [first, second].sort((left, right) => right.revision.localeCompare(left.revision));
+    const record = createInstalledPluginRecord({
+      plugin: plugin.identity.key,
+      activation: "enabled",
+      selectedRevision: second.revision,
+      revisions: descending,
+    }, sha256);
+
+    expect(record.revisions.map((revision) => revision.revision)).toEqual(
+      [first.revision, second.revision].sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
+    );
+  });
+
   it("builds a complete user envelope and rejects dangling or duplicate selections", () => {
     const document = createInstalledUserStateDocument({
       generation: 4,

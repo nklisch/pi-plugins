@@ -62,15 +62,19 @@ export function createStateUpdateSchedulerLeasePort(dependencies: Readonly<{
   }
 
   function mutation(snapshot: GenerationSnapshot, nextLease: ReturnType<typeof lease>) {
-    if ("config" in snapshot) return parseStateMutation({
-      scope: snapshot.scope,
-      expectedGeneration: snapshot.generation,
-      replace: { config: HostConfigDocumentSchema.parse({ ...snapshot.config, scope: { ...snapshot.config.scope, schedulerLease: nextLease } }) },
-    }, dependencies.sha256);
+    if ("config" in snapshot) {
+      const { schedulerLease: _previousLease, ...scope } = snapshot.config.scope;
+      return parseStateMutation({
+        scope: snapshot.scope,
+        expectedGeneration: snapshot.generation,
+        replace: { config: HostConfigDocumentSchema.parse({ ...snapshot.config, scope: { ...scope, ...(nextLease === undefined ? {} : { schedulerLease: nextLease }) } }) },
+      }, dependencies.sha256);
+    }
+    const { schedulerLease: _previousLease, ...scope } = snapshot.project.scope;
     return parseStateMutation({
       scope: snapshot.scope,
       expectedGeneration: snapshot.generation,
-      replace: { project: ProjectLocalStateDocumentSchema.parse({ ...snapshot.project, scope: { ...snapshot.project.scope, schedulerLease: nextLease } }) },
+      replace: { project: ProjectLocalStateDocumentSchema.parse({ ...snapshot.project, scope: { ...scope, ...(nextLease === undefined ? {} : { schedulerLease: nextLease }) } }) },
     }, dependencies.sha256);
   }
 

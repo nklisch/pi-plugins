@@ -3,7 +3,7 @@ import { basename, join } from "node:path";
 import type { ContentStoreLayout, RootCapability } from "../filesystem/content-store-layout.js";
 import { assertLayoutRoot } from "../filesystem/content-store-layout.js";
 import { inspectPublishedRevision } from "../filesystem/immutable-content-store.js";
-import { inspectProjection } from "../filesystem/runtime-root-store.js";
+import { inspectPublishedProjection } from "../filesystem/runtime-root-store.js";
 import { removePreparedTree, type PreparedTreeIdentity } from "../filesystem/prepared-tree-cleanup.js";
 import { ContentStoreIdentitySchema, MarketplaceStoreKeySchema, PluginStoreKeySchema } from "../../domain/content-store.js";
 import { ProjectionRootRefSchema } from "../../domain/state/references.js";
@@ -70,27 +70,36 @@ export function createRevisionArtifactStore(layout: ContentStoreLayout, sha256: 
   async function scanProjections(): Promise<{ artifacts: RevisionArtifactCandidate[]; complete: boolean }> {
     await assertLayoutRoot(layout, "generatedRoot", "scanRevisionArtifacts");
     const artifacts: RevisionArtifactCandidate[] = [];
+    const names = (await readdir(layout.generatedRoot)).sort();
+    const referencedPayloads = new Set<string>();
     let complete = true;
-    for (const name of (await readdir(layout.generatedRoot)).sort()) {
-      if (name === ".staging") continue;
-      if (!/^[0-9a-f]{64}$/.test(name)) { complete = false; continue; }
+    for (const name of names) {
+      if (!/^[0-9a-f]{64}$/.test(name)) continue;
       const path = join(layout.generatedRoot, name);
       try {
-        const stat = await lstat(path);
-        const metadata = await inspectProjection(path, sha256);
-        const reference = { kind: "projection" as const, reference: ProjectionRootRefSchema.parse(metadata.projectionRef) };
+        const publicationStat = await lstat(path);
+        if ((!publicationStat.isDirectory() && !publicationStat.isFile()) || publicationStat.isSymbolicLink()) { complete = false; continue; }
+        const inspected = await inspectPublishedProjection(path, sha256);
+        const payloadStat = await lstat(inspected.root);
+        if (!payloadStat.isDirectory() || payloadStat.isSymbolicLink()) { complete = false; continue; }
+        const reference = { kind: "projection" as const, reference: ProjectionRootRefSchema.parse(inspected.metadata.projectionRef) };
+        if (inspected.root !== path) referencedPayloads.add(basename(inspected.root));
         const capability = Object.freeze({});
         const candidate = Object.freeze({ kind: "projection" as const, key: name, reference, capability });
         owned.set(capability, {
           candidate,
           publication: path,
-          publicationIdentity: { dev: stat.dev, ino: stat.ino },
-          payload: path,
-          payloadIdentity: { dev: stat.dev, ino: stat.ino },
+          publicationIdentity: { dev: publicationStat.dev, ino: publicationStat.ino },
+          payload: inspected.root,
+          payloadIdentity: { dev: payloadStat.dev, ino: payloadStat.ino },
           parent: layout.rootCapabilities.generatedRoot,
         });
         artifacts.push(candidate);
       } catch { complete = false; }
+    }
+    for (const name of names) {
+      if (name === ".staging" || /^[0-9a-f]{64}$/.test(name) || name.startsWith(".payload-") && referencedPayloads.has(name)) continue;
+      complete = false;
     }
     return { artifacts, complete };
   }
@@ -121,8 +130,14 @@ export function createRevisionArtifactStore(layout: ContentStoreLayout, sha256: 
     }
     await assertLayoutRoot(layout, record.candidate.kind === "plugin" ? "pluginStoreRoot" : record.candidate.kind === "marketplace" ? "marketplaceStoreRoot" : "generatedRoot", "removeRevisionArtifact");
     if (record.candidate.kind === "projection") {
-      await inspectProjection(record.publication, sha256);
-      return removePreparedTree(record.publication, record.payloadIdentity, record.parent);
+      const inspected = await inspectPublishedProjection(record.publication, sha256);
+      if (inspected.root !== record.payload) throw new Error("revision artifact identity changed");
+      const payloadStat = await lstat(record.payload);
+      if (!payloadStat.isDirectory() || payloadStat.isSymbolicLink() || payloadStat.dev !== record.payloadIdentity.dev || payloadStat.ino !== record.payloadIdentity.ino) {
+        throw new Error("revision artifact payload identity changed");
+      }
+      if (record.publication !== record.payload) await unlink(record.publication);
+      return removePreparedTree(record.payload, record.payloadIdentity, record.parent);
     }
     const inspected = await inspectPublishedRevision(record.publication, sha256);
     if (record.candidate.reference.kind === "projection" || inspected.identity.key !== record.candidate.reference.key || inspected.root !== record.payload) {

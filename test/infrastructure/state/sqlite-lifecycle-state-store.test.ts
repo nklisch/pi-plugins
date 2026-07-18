@@ -79,11 +79,20 @@ describe("SQLite lifecycle state store", () => {
     const database = new DatabaseSync(paths.stateDatabase({ kind: "user" }));
     database.prepare("UPDATE current_pointer SET pointer_json = ? WHERE singleton = 1").run('{"schemaVersion":99}');
     database.close();
-    await expect(createNodeLifecycleStateAdapters({
+    const degraded = await createNodeLifecycleStateAdapters({
       paths,
       currentProject: project,
       sha256,
       verifyLocalFilesystem: async () => {},
-    })).rejects.toMatchObject({ code: "STATE_CORRUPT" });
+    });
+    const corruptRead = await degraded.state.read({ kind: "user" }, new AbortController().signal);
+    expect(corruptRead.ok).toBe(false);
+    if (corruptRead.ok) throw new Error("corrupt pointer unexpectedly loaded");
+    expect(corruptRead.corruptions.map((corruption) => corruption.code)).toContain("VERSION_UNSUPPORTED");
+    await expect(degraded.state.read(project, new AbortController().signal)).resolves.toMatchObject({ ok: true });
+    const verify = new DatabaseSync(paths.stateDatabase({ kind: "user" }), { readOnly: true });
+    expect(verify.prepare("SELECT pointer_json FROM current_pointer WHERE singleton = 1").get()).toEqual({ pointer_json: '{"schemaVersion":99}' });
+    verify.close();
+    await degraded.close();
   });
 });

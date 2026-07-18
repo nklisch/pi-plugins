@@ -111,12 +111,17 @@ function nextSnapshot(current: Extract<GenerationSnapshot, { scope: { kind: "use
   };
 }
 
-function fakeCoordinator(state: MemoryState): GenerationMutationCoordinator {
+function fakeCoordinator(state: MemoryState, ambiguousFirstCommit = false): GenerationMutationCoordinator {
+  let commits = 0;
   return {
     async runPreparedMutation(request, callback) {
       if (request.expectedGeneration !== state.current.generation) return { kind: "stale-generation", expected: request.expectedGeneration, actual: state.current.generation };
       const prepared = await callback({ snapshot: state.current, assertOwned: async () => undefined });
       state.current = nextSnapshot(state.current, prepared.mutation as unknown as { replace: { installed?: ReturnType<typeof createInstalledUserStateDocument> } });
+      commits += 1;
+      if (ambiguousFirstCommit && commits === 1) {
+        return { kind: "commit-ambiguous", value: prepared.value, expected: request.expectedGeneration, actual: state.current.generation };
+      }
       return { kind: "committed", value: prepared.value, snapshot: state.current };
     },
   };
@@ -124,6 +129,7 @@ function fakeCoordinator(state: MemoryState): GenerationMutationCoordinator {
 
 type LifecycleTestOptions = Readonly<{
   rejectReload?: boolean;
+  ambiguousFirstCommit?: boolean;
   onReload?: (count: number, state: MemoryState) => void;
   onPromote?: () => void;
 }>;
@@ -164,7 +170,7 @@ function dependencies(state: MemoryState, options: LifecycleTestOptions = {}): P
   };
   const base = {
     state,
-    mutations: fakeCoordinator(state),
+    mutations: fakeCoordinator(state, options.ambiguousFirstCommit),
     content: contentPort,
     materializer: { async materialize() { return materialized; } },
     inspector: { async inspect() { return { ok: true as const, value: plugin, diagnostics: [] }; } },
@@ -456,6 +462,19 @@ describe("plugin lifecycle service", () => {
     const result = await service.disable({ scope: { kind: "user" }, plugin: plugin.identity.key }, signal);
     expect(result.kind).toBe("rolled-back");
     expect(state.current.installed.plugins[0]?.activation).toBe("enabled");
+  });
+
+  it("continues from exact pending authority after an ambiguous first commit", async () => {
+    const state = new MemoryState(snapshot(0, []));
+    const service = createPluginLifecycleService(dependencies(state, { ambiguousFirstCommit: true }));
+
+    const result = await service.install(installRequest, signal);
+
+    expect(result.kind).toBe("changed");
+    expect(state.current.installed.plugins).toEqual([
+      expect.objectContaining({ plugin: plugin.identity.key, activation: "enabled" }),
+    ]);
+    expect(state.current.installed.plugins[0]).not.toHaveProperty("pendingTransition");
   });
 
   it("rebases successful finalization over an unrelated plugin generation advance", async () => {

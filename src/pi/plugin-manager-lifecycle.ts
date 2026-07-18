@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import type { PluginCommandAdapter } from "./plugin-command.js";
 import type { PiManagerReloadHandoff } from "./pi-manager-reload-handoff.js";
 import type { PiUpdateNotificationPublisher } from "./pi-update-notification-publisher.js";
+import type { PiControlChannel } from "./pi-control-channel.js";
 import type { PluginManagerSession } from "./manager/plugin-manager-session.js";
 
 export type PluginManagerLifecycle = Readonly<{
@@ -15,6 +16,7 @@ export function createPluginManagerLifecycle(input: Readonly<{
   publisher: PiUpdateNotificationPublisher;
   manager: PluginManagerSession;
   command: PluginCommandAdapter;
+  channel: PiControlChannel;
   handoff: PiManagerReloadHandoff;
 }>): PluginManagerLifecycle {
   let registered = false;
@@ -33,7 +35,9 @@ export function createPluginManagerLifecycle(input: Readonly<{
         const claim = input.handoff.claimSuccessor({ sessionId: context.sessionManager.getSessionId(), cwd: context.cwd });
         if (claim === undefined) return;
         pending = claim.result
-          .then((envelope) => input.manager.presentHandoff(context, claim.destination, envelope))
+          .then((report) => context.mode === "tui"
+            ? input.manager.presentHandoff(context, claim.destination, report.envelope)
+            : input.channel.publishReport(context, report))
           .catch(() => {
             if (context.hasUI) context.ui.notify("Plugin operation handoff was not available; open /plugin to inspect authoritative status.", "warning");
           });

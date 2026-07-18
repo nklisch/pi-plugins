@@ -163,7 +163,14 @@ export function createCompletePluginReloadPort(input: Readonly<{
     const journal = input.transitions(ticket.scope);
     const entry = await journal.read?.({ scope: ticket.scope, reference: ticket.transition }, signal);
     if (entry?.kind !== "found") throw new Error("reload transition evidence is unavailable");
-    const observations = await reconcileCurrent(signal, [entry.entry.record.candidateProjection]);
+    const transition = entry.entry.record;
+    const task = queue.then(() => perform(signal, [transition.candidateProjection], [{
+      scope: transition.scope,
+      plugin: transition.plugin,
+      record: transition.candidate,
+    }]));
+    queue = task.then(() => undefined, () => undefined);
+    const observations = await task;
     successorPublication = Object.freeze({ ticket, observations });
     return observations;
   }

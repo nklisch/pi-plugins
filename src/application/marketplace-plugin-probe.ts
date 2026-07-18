@@ -7,7 +7,7 @@ import type { PluginMaterializer, SourceContext } from "./source-materialization
 import { createInstalledRevisionRecord } from "../domain/state/installed-state.js";
 import { toScopeReference } from "../domain/state/scope.js";
 import type { ResolvedPluginSource, Sha256 } from "../domain/source.js";
-import { AvailableRevisionSchema, derivePluginSourceIdentity, deriveUpdateCandidateKey } from "../domain/update-policy.js";
+import { AvailableRevisionSchema, deriveMarketplaceSourceIdentity, derivePluginSourceIdentity, deriveUpdateCandidateKey } from "../domain/update-policy.js";
 
 function sourceRevision(source: ResolvedPluginSource): string {
   switch (source.kind) {
@@ -66,20 +66,21 @@ export function createMarketplacePluginProbe(input: Readonly<{
         }, request.signal);
         if (!compatibility.activatable) continue;
         const declaredVersion = plugin.version?.value ?? entry.version?.value;
+        const marketplaceSourceIdentity = deriveMarketplaceSourceIdentity(request.record.source, input.sha256);
         const pluginSourceIdentity = derivePluginSourceIdentity(entry.source.value, input.sha256);
         const revision = createInstalledRevisionRecord({
           plugin,
           compatibility,
           content: materialized.content,
           scope: toScopeReference(request.scope),
-          marketplaceSourceIdentity: request.snapshot.source.sourceHash,
+          marketplaceSourceIdentity,
           pluginSourceIdentity,
           ...(declaredVersion === undefined ? {} : { declaredVersion }),
         }, input.sha256);
         if (revision.revision === current.revision) continue;
         const available = AvailableRevisionSchema.parse({
           immutableRevision: revision.revision,
-          marketplaceSourceIdentity: request.snapshot.source.sourceHash,
+          marketplaceSourceIdentity,
           pluginSourceIdentity,
           ...(declaredVersion === undefined ? {} : { declaredVersion }),
           sourceRevision: sourceRevision(materialized.source),

@@ -16,6 +16,15 @@ describe("Pi reload broker", () => {
     await expect(broker.wait(ticket, new AbortController().signal)).resolves.toEqual([]);
   });
 
+  it("retains successor failure that arrives before the predecessor can wait", async () => {
+    const broker = createPiReloadBroker();
+    const ticket = broker.open({ ...binding, sessionId: "s-early-failure" }, scope, transition);
+    expect(broker.claimSuccessor({ ...binding, sessionId: "s-early-failure" })).toEqual(ticket);
+    broker.fail(ticket, new Error("successor reconstruction failed"));
+    await Promise.resolve();
+    await expect(broker.wait(ticket, new AbortController().signal)).rejects.toThrow("successor reconstruction failed");
+  });
+
   it("rejects duplicate pending reloads for one session", async () => {
     const broker = createPiReloadBroker();
     const ticket = broker.open({ ...binding, sessionId: "s-2" }, scope, transition);

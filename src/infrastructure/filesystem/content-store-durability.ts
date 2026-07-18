@@ -108,9 +108,8 @@ async function probePublication(root: string): Promise<void> {
 /**
  * Node does not expose renameat2(RENAME_NOREPLACE) for direct directory moves.
  * Immutable revisions therefore use the hard-link visibility protocol above.
- * An injected direct rename remains available only for the legacy projection
- * adapter and for focused platform tests; it is never the production content
- * publication path.
+ * An injected direct rename remains available only for focused platform tests;
+ * it is never the production content or projection publication path.
  */
 export function createNodeContentStorePlatform(
   options: NodeContentStorePlatformOptions = {},
@@ -133,10 +132,6 @@ export function createNodeContentStorePlatform(
       return renameNoReplace === undefined
         ? linkPublication(source, destination)
         : renameNoReplace(source, destination);
-    },
-    async renameNoReplace(source: string, destination: string): Promise<"published" | "exists"> {
-      if (renameNoReplace === undefined) throw unavailable("renameNoReplace");
-      return renameNoReplace(source, destination);
     },
     async syncFile(path: string): Promise<void> {
       await syncHandle(path, "syncFile");

@@ -25,6 +25,12 @@ export type LifecycleRecoveryServiceDependencies = Readonly<{
 
 export type LifecycleRecoveryServiceRequest = Readonly<{
   requiredScopes: readonly ScopeContext[];
+  /**
+   * A live reload successor owns these exact transitions. Startup recovery
+   * must not race that handoff even if predecessor journal ownership has
+   * already been released during extension disposal.
+   */
+  reservedTransitions?: readonly PendingTransitionRef[];
   policy?: Partial<RecoveryPolicy>;
 }>;
 
@@ -51,6 +57,7 @@ export function createLifecycleRecoveryService(dependencies: LifecycleRecoverySe
     let processed = 0;
     let deferred = false;
     const results: TransitionRecoveryResult[] = [];
+    const reservedTransitions = new Set((request.reservedTransitions ?? []).map((reference) => PendingTransitionRefSchema.parse(reference)));
     let scopes = sortScopes(request.requiredScopes.map((scope) => ScopeContextSchema.parse(scope)));
     if (scopes.length === 0 && dependencies.inventory !== undefined) {
       const inventory = await dependencies.inventory.discover(signal);
@@ -85,6 +92,7 @@ export function createLifecycleRecoveryService(dependencies: LifecycleRecoverySe
         .sort((left, right) => left.plugin.localeCompare(right.plugin));
       for (const pluginRecord of pending) {
         const reference = PendingTransitionRefSchema.parse(pluginRecord.pendingTransition);
+        if (reservedTransitions.has(reference)) continue;
         if (processed >= policy.maxTransitions || clock.monotonicMilliseconds() >= deadline) {
           deferred = true;
           results.push({ kind: "deferred", scope: scopeReference, plugin: pluginRecord.plugin, reference, code: "BUDGET_EXHAUSTED" });

@@ -214,7 +214,7 @@ export function createPluginManagerActionRunner(input: Readonly<{
         if (report.envelope.status === "stale" || report.envelope.status === "conflict") input.onStale?.(report.envelope);
         const presentation = ticket === undefined || input.handoff === undefined
           ? "local" as const
-          : input.handoff.publish(ticket, report.envelope);
+          : input.handoff.publish(ticket, report);
         return Object.freeze({ kind: "completed", envelope: report.envelope, presentation });
       } catch (error) {
         if (ticket !== undefined && input.handoff !== undefined) {

@@ -29,15 +29,24 @@ describe("automatic update lifecycle adapter", () => {
       available: { immutableRevision: candidateRevision, marketplaceSourceIdentity: marketplaceIdentity, pluginSourceIdentity: pluginIdentity, sourceRevision: "b".repeat(40) },
       display: { installed: "1.0.0", available: "1.1.0" }, disposition: "automatic-pending", publication: "pending", unread: true, discoveredAt: 1,
     });
+    const capture = vi.fn(async () => ({ binding: { currentProject: { projectKey: `project-v1:sha256:${"8".repeat(64)}`, trust: { kind: "trusted" }, epoch: `sha256:${"7".repeat(64)}` } } } as never));
+    let detailCalls = 0;
+    const detail = vi.fn(async () => {
+      detailCalls += 1;
+      if (detailCalls === 1) return { kind: "stale" as const };
+      return { kind: "found" as const, detail: { summary: { revision: { immutable: candidateRevision } }, configuration: [{ required: true, sensitive: true, state: fieldState }], compatibility: { status: "activatable", requirements: [] } } } as never;
+    });
     const adapter = createAutomaticUpdateLifecycleAdapter({
       state: { async read() { return { ok: true as const, snapshot: { scope: { kind: "user" }, generation: 0, installed: { plugins: [{ plugin: notice.plugin, selectedRevision: installedRevision, activation: "enabled", revisions: [{ revision: installedRevision, configurationRef: `plugin-configuration-v1:sha256:${"9".repeat(64)}`, evidence: { source: { marketplaceSourceIdentity: marketplaceIdentity, pluginSourceIdentity: pluginIdentity } } }] }] } } as never }; } },
       catalog: { async resolve() { return { kind: "resolved" as const, candidate: { marketplace: { source: { declared: marketplaceSource } }, entry: { source: { value: pluginSource } } } as never }; } },
-      evidence: { async capture() { return { binding: { currentProject: { projectKey: `project-v1:sha256:${"8".repeat(64)}`, trust: { kind: "trusted" }, epoch: `sha256:${"7".repeat(64)}` } } } as never; } } as never,
-      inspection: { async detail() { return { kind: "found" as const, detail: { summary: { revision: { immutable: candidateRevision } }, configuration: [{ required: true, sensitive: true, state: fieldState }], compatibility: { status: "activatable", requirements: [] } } } as never; } },
+      evidence: { capture } as never,
+      inspection: { detail } as never,
       lifecycle: { update: vi.fn() } as never, projectTrust: {} as never, projectRoots: {} as never,
       userBaseDirectory: "/virtual", sha256,
     });
     await expect(adapter.inspect(notice, signal)).resolves.toMatchObject(expected);
+    expect(capture).toHaveBeenCalledTimes(2);
+    expect(detail).toHaveBeenCalledTimes(2);
   });
 
   it("rejects installed source drift before entering lifecycle", async () => {

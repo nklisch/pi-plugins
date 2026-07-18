@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { compareUtf8 } from "../canonical-json.js";
 import {
   ContentDigestSchema,
   ContentManifestSchema,
@@ -617,9 +618,12 @@ const InstalledPluginInputSchema = z.object({
 export function createInstalledPluginRecord(input: unknown, sha256: Sha256): InstalledPluginRecord {
   const value = InstalledPluginInputSchema.parse(input);
   const scope = parseScope(value.scope);
+  // Match the state codec's canonical set ordering before a record enters a
+  // transition. Otherwise a successful commit can appear ambiguous solely
+  // because the durable decoder sorts the same revisions by digest.
   const revisions = value.revisions.map((revision) =>
     createInstalledRevisionRecord({ ...(revision as Record<string, unknown>), scope }, sha256),
-  );
+  ).sort((left, right) => compareUtf8(left.revision, right.revision));
   const selectedRevision = value.selectedRevision ?? revisions[0]!.revision;
   return InstalledPluginRecordSchema.parse({
     plugin: value.plugin,

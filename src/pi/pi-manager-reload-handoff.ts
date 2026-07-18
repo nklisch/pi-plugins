@@ -1,18 +1,19 @@
 import type { SessionShutdownEvent } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
-import { NativeControlEnvelopeSchema, type NativeControlEnvelope } from "../application/native-control-contract.js";
+import { NativeControlEnvelopeSchema } from "../application/native-control-contract.js";
+import type { NativeControlExecutionReport } from "../application/ports/native-control-execution.js";
 
 export type PluginManagerDestination = "installed" | "install-result" | "operation-result";
 export type PiManagerHandoffTicket = Readonly<{ id: string }>;
 export type PiManagerHandoffClaim = Readonly<{
   destination: PluginManagerDestination;
-  result: Promise<NativeControlEnvelope>;
+  result: Promise<NativeControlExecutionReport>;
 }>;
 
 export interface PiManagerReloadHandoff {
   open(input: Readonly<{ sessionId: string; cwd: string; destination: PluginManagerDestination }>): PiManagerHandoffTicket;
   claimSuccessor(input: Readonly<{ sessionId: string; cwd: string }>): PiManagerHandoffClaim | undefined;
-  publish(ticket: PiManagerHandoffTicket, envelope: NativeControlEnvelope): "local" | "successor";
+  publish(ticket: PiManagerHandoffTicket, report: NativeControlExecutionReport): "local" | "successor";
   fail(ticket: PiManagerHandoffTicket, error?: unknown): void;
   closeSession(sessionId: string, reason: SessionShutdownEvent["reason"]): void;
 }
@@ -24,7 +25,7 @@ type Slot = {
   destination: PluginManagerDestination;
   claimed: boolean;
   settled: boolean;
-  resolve: ((value: NativeControlEnvelope) => void) | undefined;
+  resolve: ((value: NativeControlExecutionReport) => void) | undefined;
   reject: ((error: Error) => void) | undefined;
 };
 type Registry = { byId: Map<string, Slot>; bySession: Map<string, Slot> };
@@ -87,7 +88,7 @@ export function createPiManagerReloadHandoff(options: Readonly<{ namespace?: str
       const slot = state.bySession.get(key(input.sessionId, input.cwd));
       if (slot === undefined || slot.claimed || slot.settled) return undefined;
       slot.claimed = true;
-      const result = new Promise<NativeControlEnvelope>((resolve, rejectPromise) => {
+      const result = new Promise<NativeControlExecutionReport>((resolve, rejectPromise) => {
         slot.resolve = resolve;
         slot.reject = rejectPromise;
       });
@@ -96,10 +97,22 @@ export function createPiManagerReloadHandoff(options: Readonly<{ namespace?: str
       void result.catch(() => undefined);
       return Object.freeze({ destination: slot.destination, result });
     },
-    publish(ticket: PiManagerHandoffTicket, envelope: NativeControlEnvelope): "local" | "successor" {
+    publish(ticket: PiManagerHandoffTicket, report: NativeControlExecutionReport): "local" | "successor" {
       const slot = owned(ticket);
-      const plain = JSON.parse(JSON.stringify(envelope)) as unknown;
-      const validated = NativeControlEnvelopeSchema.parse(structuredClone(plain));
+      const plain = JSON.parse(JSON.stringify(report)) as unknown;
+      if (plain === null || typeof plain !== "object" || Array.isArray(plain)) throw new TypeError("Pi manager reload report is invalid");
+      const value = plain as Record<string, unknown>;
+      const delivery = value.delivery;
+      const deliveredThrough = value.deliveredThrough;
+      if ((delivery !== "complete" && delivery !== "closed" && delivery !== "failed") ||
+          !Number.isSafeInteger(deliveredThrough) || (deliveredThrough as number) < -1) {
+        throw new TypeError("Pi manager reload report is invalid");
+      }
+      const validated: NativeControlExecutionReport = Object.freeze({
+        envelope: NativeControlEnvelopeSchema.parse(structuredClone(value.envelope)),
+        delivery,
+        deliveredThrough: deliveredThrough as number,
+      });
       slot.settled = true;
       if (!slot.claimed) {
         remove(slot);

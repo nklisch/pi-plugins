@@ -134,7 +134,9 @@ export function createHookExecutionContextPort(
         throw new HookExecutionContextError("CURRENT_PROJECT_MISMATCH");
       }
       projectRoot = capability.canonicalRoot;
-      const pathContext = { ...selected.pathContext, trustedProjectRoot: capability };
+      const pathContext = selected.pathContext.scope.kind === "project"
+        ? { ...selected.pathContext, trustedProjectRoot: capability }
+        : selected.pathContext;
 
       await dependencies.configuration.withResolvedPluginConfiguration(
         {

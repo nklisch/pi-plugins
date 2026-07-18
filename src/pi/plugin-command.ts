@@ -98,8 +98,12 @@ export function createPluginCommandAdapter(input: Readonly<{
       return;
     }
 
-    const abort = linkedAbort(context.signal);
     const destination = parsed.kind === "parsed" ? reloadDestination(parsed.command.command) : undefined;
+    // Pi aborts the predecessor command context as part of a successful
+    // extension reload. Activation commands must survive that boundary long
+    // enough to consume successor observation and settle the durable
+    // transition; their operation registry still owns explicit cancellation.
+    const abort = linkedAbort(destination === undefined ? context.signal : undefined);
     let handoffTicket: PiManagerHandoffTicket | undefined;
     if (destination !== undefined && input.handoff !== undefined) {
       handoffTicket = input.handoff.open({ sessionId: context.sessionManager.getSessionId(), cwd: context.cwd, destination });
@@ -128,7 +132,7 @@ export function createPluginCommandAdapter(input: Readonly<{
           settle(report) {
             return handoffTicket === undefined || input.handoff === undefined
               ? "local"
-              : input.handoff.publish(handoffTicket, report.envelope);
+              : input.handoff.publish(handoffTicket, report);
           },
         });
       } else {
@@ -141,7 +145,7 @@ export function createPluginCommandAdapter(input: Readonly<{
           }, abort.controller.signal));
         const presentation = handoffTicket === undefined || input.handoff === undefined
           ? "local" as const
-          : input.handoff.publish(handoffTicket, report.envelope);
+          : input.handoff.publish(handoffTicket, report);
         if (presentation === "successor") return;
         await input.channel.publishReport(context, report);
       }

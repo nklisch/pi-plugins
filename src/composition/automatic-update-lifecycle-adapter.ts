@@ -79,8 +79,6 @@ export function createAutomaticUpdateLifecycleAdapter(dependencies: Readonly<{
       if (current === undefined || selected === undefined) return { candidate: "current", source, target: "stale", project: "trusted", recovery: "clear", configuration: "valid", secrets: "available", capability: "available" };
       const project = await projectAuthorized(current.scope, signal) ? "trusted" as const : "untrusted" as const;
       const recovery = current.record.pendingTransition === undefined ? "clear" as const : "required" as const;
-      const evidence = await dependencies.evidence.capture(signal);
-      const snapshotId = deriveInspectionEvidenceSnapshotId(evidence.binding, dependencies.sha256);
       const detailId = deriveInspectionDetailId({
         version: 1,
         subject: "marketplace-candidate",
@@ -90,8 +88,14 @@ export function createAutomaticUpdateLifecycleAdapter(dependencies: Readonly<{
         candidateId: MarketplaceCandidateIdSchema.parse(notice.candidateId),
         catalogSnapshot: MarketplaceSnapshotTokenSchema.parse(notice.snapshot),
       }, dependencies.sha256);
-      const detail = await dependencies.inspection.detail({ snapshotId, detailId }, signal);
-      if (detail.kind !== "found" || detail.detail.summary.revision.immutable !== notice.available.immutableRevision) {
+      let detail: Awaited<ReturnType<NativeInspectionService["detail"]>> | undefined;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const evidence = await dependencies.evidence.capture(signal);
+        const snapshotId = deriveInspectionEvidenceSnapshotId(evidence.binding, dependencies.sha256);
+        detail = await dependencies.inspection.detail({ snapshotId, detailId }, signal);
+        if (detail.kind !== "stale") break;
+      }
+      if (detail?.kind !== "found" || detail.detail.summary.revision.immutable !== notice.available.immutableRevision) {
         return { candidate: "stale", source, target: "current", project, recovery, configuration: "valid", secrets: "available", capability: "available" };
       }
       const configuration = detail.detail.configuration.some((field) => field.required && ["missing", "invalid"].includes(field.state)) ? "required" as const : "valid" as const;

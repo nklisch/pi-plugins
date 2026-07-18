@@ -130,7 +130,11 @@ describe("plugin manager action runner", () => {
     resolve();
     await expect(pending).resolves.toMatchObject({ kind: "completed", presentation: "successor" });
     expect(handoff.open).toHaveBeenCalledWith({ sessionId: "s1", cwd: "/workspace", destination: "operation-result" });
-    expect(handoff.publish).toHaveBeenCalledWith({ id: "ticket" }, expect.objectContaining({ status: "ok" }));
+    expect(handoff.publish).toHaveBeenCalledWith({ id: "ticket" }, expect.objectContaining({
+      envelope: expect.objectContaining({ status: "ok" }),
+      delivery: "complete",
+      deliveredThrough: -1,
+    }));
   });
 
   it("serializes foreground mutations", async () => {

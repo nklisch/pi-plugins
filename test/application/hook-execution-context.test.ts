@@ -31,7 +31,7 @@ function dependencies(overrides: Partial<HookExecutionContextPortDependencies> =
   const withResolvedPluginConfiguration = vi.fn(async (_request, _dependencies, _signal, use) => use(facade));
   const active = {
     currentProject: () => project,
-    get: () => ({ binding, pluginRoot: "/plugin", pluginDataRoot: "/data", currentProject: project, candidate: {} as never, trustRecords: [], configurationRef: undefined, descriptors: { options: [] } as never, pathContext: { scope: { kind: "user" } } }),
+    get: () => ({ binding, pluginRoot: "/plugin", pluginDataRoot: "/data", currentProject: project, candidate: {} as never, trustRecords: [], configurationRef: undefined, descriptors: { options: [] } as never, pathContext: { scope: { kind: "user" }, trustedBaseDirectory: "/workspace/project" } }),
   };
   const result: HookExecutionContextPortDependencies = {
     active,
@@ -78,6 +78,11 @@ describe("hook execution context authority", () => {
     let observed: unknown;
     await port.withContext(request(), new AbortController().signal, async (value) => { observed = value; });
     expect(observed).toMatchObject({ cwd: "/workspace/project", pluginRoot: "/plugin", pluginDataRoot: "/data", projectRoot: "file:///workspace/project/" });
-    expect(withResolvedPluginConfiguration).toHaveBeenCalledOnce();
+    expect(withResolvedPluginConfiguration).toHaveBeenCalledWith(
+      expect.objectContaining({ pathContext: { scope: { kind: "user" }, trustedBaseDirectory: "/workspace/project" } }),
+      expect.anything(),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    );
   });
 });

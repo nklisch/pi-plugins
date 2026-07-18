@@ -67,7 +67,10 @@ export type RecoverInterruptedTransitionRequest = Readonly<{
   observation?: ActivationObservation;
 }>;
 
-const MAX_REBASE_ATTEMPTS = 2;
+// A lifecycle handoff spans foreground reload plus detached scheduler/notice
+// maintenance. Those unrelated writers may advance the shared scope several
+// times; each retry is still fenced by the exact pending target and reference.
+const MAX_REBASE_ATTEMPTS = 8;
 
 function sameJson(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
@@ -214,7 +217,8 @@ export function createLifecycleTransitionReconciler(dependencies: LifecycleTrans
     const previousProjection = ProjectionExpectationSchema.parse(request.previousProjection);
     if (!request.activation.ok) return restoreAndVerify({ ...request, scope, plugin, candidate, previousProjection, failure: request.activation.failure }, signal);
     const settled = await mutatePending(scope, plugin, candidate, final, request.reference, request.committed, (snapshot) => replaceTarget(snapshot, plugin, final, dependencies.sha256), signal);
-    if (settled === undefined || !(await settle(scope, request.reference, "completed", settled.generation, signal))) {
+    const journalSettled = settled === undefined ? false : await settle(scope, request.reference, "completed", settled.generation, signal);
+    if (settled === undefined || !journalSettled) {
       await markRecovery(scope, request.reference, settled?.generation ?? request.committed.generation, signal);
       return { kind: "recovery-required", committed: settled?.generation ?? request.committed.generation };
     }

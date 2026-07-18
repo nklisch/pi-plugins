@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createLifecycleRecoveryService } from "../../src/application/recovery-service.js";
 import { StateCorruptionSchema } from "../../src/domain/state/codec.js";
 
@@ -19,6 +19,38 @@ describe("bounded lifecycle recovery", () => {
     const result = await service.recover({ requiredScopes: [{ kind: "user" }] }, new AbortController().signal);
     expect(result).toMatchObject({ deferred: true, results: [{ kind: "blocked", code: "STATE_CORRUPT" }] });
     expect(forbidden).toBe(false);
+  });
+
+  it("reserves a live reload successor transition from generic startup recovery", async () => {
+    const reference = `pending-transition-v1:sha256:${"a".repeat(64)}` as never;
+    const recoverInterruptedTransition = vi.fn();
+    const service = createLifecycleRecoveryService({
+      state: {
+        async read() {
+          return {
+            ok: true as const,
+            snapshot: {
+              scope: { kind: "user" as const },
+              generation: 4,
+              installed: { plugins: [{ plugin: "demo@community", pendingTransition: reference }] },
+            } as never,
+          };
+        },
+        async commit() { throw new Error("must not commit"); },
+      },
+      transitions: () => ({
+        async list() { return { complete: true as const, entries: [], diagnostics: [] }; },
+        async prepare() { throw new Error("must not prepare"); },
+        async settle() { throw new Error("must not settle"); },
+      }),
+      reconciler: { recoverInterruptedTransition, completeCommittedTransition: vi.fn() } as never,
+      reload: {} as never,
+      clock: { nowEpochMilliseconds: () => 100, monotonicMilliseconds: () => 1 },
+    });
+
+    await expect(service.recover({ requiredScopes: [{ kind: "user" }], reservedTransitions: [reference] }, new AbortController().signal))
+      .resolves.toMatchObject({ processed: 0, deferred: false, results: [] });
+    expect(recoverInterruptedTransition).not.toHaveBeenCalled();
   });
 
   it("honors the required transition budget before cleanup", async () => {

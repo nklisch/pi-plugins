@@ -44,6 +44,7 @@ describe("runtime desired state", () => {
       projections: { prepare: vi.fn(), read: vi.fn() },
       project,
       state: { read, commit: vi.fn() },
+      userBaseDirectory: "/workspace",
       sha256,
     }, new AbortController().signal);
     expect(read).toHaveBeenCalledTimes(1);
@@ -81,6 +82,7 @@ describe("runtime desired state", () => {
       projections: { prepare: vi.fn(), read: vi.fn() } as never,
       project: { scope: projectScope, current: () => currentProject, revalidate: async () => currentProject } as never,
       state: state as never,
+      userBaseDirectory: "/workspace",
       sha256,
     }, new AbortController().signal);
     expect(installed.load).not.toHaveBeenCalled();

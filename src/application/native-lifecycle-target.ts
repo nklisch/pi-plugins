@@ -57,9 +57,11 @@ function findRecord(snapshot: InspectionEvidenceSnapshot, scope: ScopeReference,
   return record === undefined ? undefined : { scope: state.snapshot.scope, record };
 }
 
-function recoveryBlocked(snapshot: InspectionEvidenceSnapshot, scope: ScopeReference, plugin: string): boolean {
-  return snapshot.recovery.results.some((result) => sameScope(result.scope, scope) && result.plugin === plugin && (result.kind === "blocked" || result.kind === "deferred")) ||
-    snapshot.startup.blocked.some((entry) => entry.plugin === plugin);
+function recoveryBlocked(snapshot: InspectionEvidenceSnapshot, _scope: ScopeReference, plugin: string): boolean {
+  // Raw startup-recovery results describe the instant a successor began. An
+  // exact reload handoff can settle that transition immediately afterward, so
+  // only the host's published unresolved block set remains current authority.
+  return snapshot.startup.blocked.some((entry) => entry.plugin === plugin);
 }
 
 function buildTarget(

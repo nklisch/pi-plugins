@@ -16,15 +16,16 @@ export default function packagedPluginHostExtension(pi: ExtensionAPI): void {
   const host = createPackagedPluginHost({ pi, update: { publisher } });
   const handoff = createPiManagerReloadHandoff();
   const manager = createPluginManagerSession({ host, handoff });
+  const channel = createPiControlChannel({ pi });
   const command = createPluginCommandAdapter({
     pi,
     sourceUrl: import.meta.url,
     host,
     manager,
-    channel: createPiControlChannel({ pi }),
+    channel,
     handoff,
     createInput: (context, mode) => createPiControlInputPort({ context, mode }),
   });
   command.register();
-  createPluginManagerLifecycle({ pi, publisher, manager, command, handoff }).register();
+  createPluginManagerLifecycle({ pi, publisher, manager, command, channel, handoff }).register();
 }

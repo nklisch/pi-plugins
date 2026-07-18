@@ -18,7 +18,7 @@ const MAX_PRINT_SCALARS = 65_536;
 
 export interface PiControlChannel {
   createSink(context: ExtensionCommandContext, mode: ExtensionContext["mode"]): NativeControlFrameSink;
-  publishReport(context: ExtensionCommandContext, report: NativeControlExecutionReport): Promise<void>;
+  publishReport(context: ExtensionContext, report: NativeControlExecutionReport): Promise<void>;
   publishCollision(context: ExtensionContext, invocationName: string): void;
   takeFrames(context: ExtensionCommandContext): readonly NativeControlFrame[];
 }
@@ -101,7 +101,7 @@ export function createPiControlChannel(options: Readonly<{
         async close(): Promise<void> { closed = true; },
       });
     },
-    async publishReport(context: ExtensionCommandContext, report: NativeControlExecutionReport): Promise<void> {
+    async publishReport(context: ExtensionContext, report: NativeControlExecutionReport): Promise<void> {
       if (context.mode === "print") return;
       if (context.mode === "rpc" || context.mode === "json") {
         // appendEntry is Pi's structured protocol/session channel. The envelope

@@ -407,7 +407,7 @@ export function createPluginManagerSession(input: Readonly<{
     async presentHandoff(context, destination, envelope): Promise<void> {
       const current = bound;
       if (current === undefined || current.sessionId !== context.sessionManager.getSessionId() || current.cwd !== context.cwd) return;
-      await presentStaticOperation(context, envelope, Object.freeze([]), destination === "install-result" ? "Plugin install · activation result" : "Plugin operation · successor result");
+      await presentStaticOperation(context, envelope, Object.freeze([]), destination === "install-result" ? "Step 3/3 · Activation result" : "Plugin operation · successor result");
     },
     dynamicCompletions(): readonly NativeControlDynamicCandidate[] {
       return activeController?.dynamicCompletions() ?? completions;

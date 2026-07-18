@@ -104,7 +104,7 @@ function setup(options: {
       prepared: { installPrepared } as never,
       publicLifecycle: { enable: vi.fn() } as never,
     },
-    evidence: { capture: vi.fn(async () => ({ binding: snapshotBinding })), validate: evidenceValidate } as never,
+    evidence: { capture: vi.fn(async () => ({ binding: snapshotBinding })), validate: evidenceValidate, validateForInstall: evidenceValidate } as never,
     projectRoots: { acquire: vi.fn(), verify: vi.fn() } as never,
     clock: { nowEpochMilliseconds: () => 1000 as never, monotonicMilliseconds: () => 0 },
     sessionIds: { create: async () => {

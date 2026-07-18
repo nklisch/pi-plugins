@@ -102,6 +102,7 @@ export function createNativeInspectionReadiness(input: Readonly<{
         else if (documentState === "unavailable") state = "unavailable";
         else if (configured.has(option.key)) state = option.sensitive && custody.status === "unavailable" ? "unavailable" : "configured";
         else if (hasDefault(option)) state = "defaulted";
+        else if (option.sensitive && custody.status === "unavailable") state = "unavailable";
         else state = "missing";
         return NativeConfigurationOptionViewSchema.parse({
           key: option.key,

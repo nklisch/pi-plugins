@@ -253,8 +253,10 @@ async function executeUpdate(
   }
   if (revalidated.kind !== "ready") return terminal({ kind: revalidated.kind === "blocked" ? "conflict" : "stale", ...(revalidated.kind === "blocked" ? { reason: "pending-transition" } : { reason: "candidate" }) } as never, context, progress, retainedPreflight(retained));
   let evidenceCurrent: "current" | "stale";
-  try { evidenceCurrent = await dependencies.evidence.validate(update.candidate.snapshotBinding, signal); }
-  catch { return terminal({ kind: "failed", code: "ADAPTER_FAILED" }, context, progress, retainedPreflight(retained)); }
+  try {
+    const validateEvidence = dependencies.evidence.validateForInstall?.bind(dependencies.evidence) ?? dependencies.evidence.validate.bind(dependencies.evidence);
+    evidenceCurrent = await validateEvidence(update.candidate.snapshotBinding, signal);
+  } catch { return terminal({ kind: "failed", code: "ADAPTER_FAILED" }, context, progress, retainedPreflight(retained)); }
   if (evidenceCurrent !== "current") return terminal({ kind: "stale", reason: update.target.binding.scope.kind === "project" ? "project" : "capability" }, context, progress, retainedPreflight(retained));
   if (root !== undefined && dependencies.projectRoots.revalidate !== undefined) {
     try { await dependencies.projectRoots.revalidate(root, revalidated.update.target.scope, signal); }

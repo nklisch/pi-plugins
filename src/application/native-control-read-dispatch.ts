@@ -2,6 +2,7 @@ import type { AdoptionService } from "./adoption-service.js";
 import type { MarketplaceCatalogService } from "./marketplace-catalog-service.js";
 import type { MarketplaceRegistrationService } from "./marketplace-registration-service.js";
 import type { NativeInspectionService } from "./native-inspection-contract.js";
+import { NativeInspectionError } from "./native-inspection-service.js";
 import type { NativeLifecycleOperationService } from "./native-lifecycle-operation-contract.js";
 import type { NativeUpdateManagementService } from "./native-update-management-service.js";
 import type { TrustedInstallationService } from "./trusted-install-contract.js";
@@ -88,8 +89,21 @@ export function createNativeControlReadDispatcher(dependencies: NativeControlRea
           return projectNativeControlResponse(command.command, result, { ...(result.nextCursor === undefined ? {} : { next: result.nextCursor }) });
         }
         case "inspection.list": {
-          const result = await dependencies.inspection.list({ subjects: ["installed"], ...request }, signal);
-          return projectNativeControlResponse(command.command, result, { ...(result.nextCursor === undefined ? {} : { next: result.nextCursor }) });
+          for (let attempt = 0; attempt < (request.cursor === undefined ? 2 : 1); attempt += 1) {
+            try {
+              const result = await dependencies.inspection.list({ subjects: ["installed"], ...request }, signal);
+              return projectNativeControlResponse(command.command, result, { ...(result.nextCursor === undefined ? {} : { next: result.nextCursor }) });
+            } catch (error) {
+              if (!(error instanceof NativeInspectionError) || error.code !== "SNAPSHOT_STALE") throw error;
+              // An unbound list means "current authority" and may recapture
+              // once. Cursor-bound pagination remains exact and reports stale
+              // rather than silently switching snapshots.
+              if (request.cursor !== undefined || attempt === 1) {
+                return projectNativeControlFailure("stale", "CONTROL_SELECTION_STALE", "reinspect");
+              }
+            }
+          }
+          return projectNativeControlFailure("stale", "CONTROL_SELECTION_STALE", "reinspect");
         }
         case "inspection.show": {
           const installed = await dependencies.selection.installed(pluginSelector(request), signal);
@@ -108,6 +122,14 @@ export function createNativeControlReadDispatcher(dependencies: NativeControlRea
           const selected = installed.kind === "selected" ? installed : installed.kind === "not-found" || installed.kind === "wrong-subject"
             ? await dependencies.selection.candidate(pluginSelector(request), signal)
             : installed;
+          if (selected.kind === "unavailable") {
+            // The exact detail cannot be reconstructed, but host diagnosis is
+            // still authoritative and includes startup/recovery blocks for the
+            // requested owner. Do not replace useful corruption evidence with
+            // a generic selection failure.
+            const result = await dependencies.inspection.diagnose({ target: { kind: "host" }, includeAdoption: request.includeAdoption }, signal);
+            return projectNativeControlResponse(command.command, result);
+          }
           if (selected.kind !== "selected") return selectionFailure(selected);
           const result = await dependencies.inspection.diagnose({ target: { kind: "detail", snapshotId: selected.detail.snapshotId, detailId: selected.detail.summary.detailId }, includeAdoption: request.includeAdoption }, signal);
           return projectNativeControlResponse(command.command, result);

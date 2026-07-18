@@ -26,6 +26,7 @@ import { createPlatformSecretStore } from "../infrastructure/secrets/create-plat
 import { createNodeMcpLaunchEnvironment } from "../infrastructure/environment/node-mcp-launch-environment.js";
 import { createNodeHookExecutableResolver } from "../infrastructure/process/hook-executable-resolver.js";
 import { createNodeCommandRunner } from "../infrastructure/process/command-runner.js";
+import { createProcessRefreshClaimOwner } from "../infrastructure/process/refresh-claim-owner.js";
 import { createNodeSourceMaterializers } from "../infrastructure/source/create-source-materializers.js";
 import { createManifestContentReader } from "../infrastructure/filesystem/manifest-content-reader.js";
 import { readClaudeMarketplace } from "../formats/claude/marketplace-reader.js";
@@ -188,6 +189,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         const secrets = await createPlatformSecretStore();
         own(() => secrets.close());
         const identifiers = createNodeHostIdentifiers();
+        const refreshClaimOwners = createProcessRefreshClaimOwner();
         const clock = createNodeLifecycleClock();
         const configurationPaths = createNodeConfigurationPathPort({ binding, projectRoots: project.authority });
         const projectFiles = createNodeProjectIntentFilePort({ projectRoots: project.authority, sha256 });
@@ -266,6 +268,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
               ...(qualification.mcp.runtime === undefined ? {} : { mcp: qualification.mcp.runtime }),
               state: state.state,
               content: content.content,
+              userBaseDirectory: binding.current().cwd,
               sha256,
             }, signal, overrides);
             return latestDesired;
@@ -346,6 +349,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           mutations,
           clock,
           claimIds: identifiers.refreshClaimIds,
+          claimOwners: refreshClaimOwners,
           updateSchedulerLeaseIds: identifiers.updateSchedulerLeaseIds,
           materializers,
           inspection: marketplaceInspection,
@@ -359,7 +363,10 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         });
         const marketplace = marketplaceComposition.application;
 
-        const recoveryResult = await recovery.recover({ requiredScopes: [{ kind: "user" }, project.scope] }, startupSignal);
+        const recoveryResult = await recovery.recover({
+          requiredScopes: [{ kind: "user" }, project.scope],
+          ...(successor === undefined ? {} : { reservedTransitions: [successor.transition] }),
+        }, startupSignal);
         const runtimeStartupBlocked: HostBlockedPlugin[] = [];
         if (successor === undefined) {
           try {
@@ -373,9 +380,18 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
             });
           }
         } else {
-          await reload.acceptSuccessor(successor, startupSignal);
+          try {
+            await reload.acceptSuccessor(successor, startupSignal);
+            reloadSuccessor = Object.freeze({ ticket: successor, reload });
+          } catch (error) {
+            reload.failSuccessor(successor, error);
+            runtimeStartupBlocked.push({
+              plugin: "host-runtime",
+              code: "RUNTIME_RECONSTRUCTION_FAILED",
+              explanation: "reload successor reconstruction failed; recovery remains authoritative",
+            });
+          }
         }
-        if (successor !== undefined) reloadSuccessor = Object.freeze({ ticket: successor, reload });
         const unresolvedRecovery: HostBlockedPlugin[] = successor === undefined
           ? recoveryResult.results
               .filter((result) => result.kind === "blocked" || result.kind === "deferred")

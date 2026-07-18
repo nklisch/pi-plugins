@@ -500,9 +500,13 @@ export async function createNodeLifecycleStateAdapters(input: Readonly<{
   const adapter = new SqliteLifecycleStateAdapter(input.paths, input.sha256);
   try {
     const signal = new AbortController().signal;
-    const user = await adapter.read({ kind: "user" }, signal);
-    const current = await adapter.read(project, signal);
-    if (!user.ok || !current.ok) throw new LifecycleStateAdapterError("STATE_CORRUPT", "initial lifecycle state is corrupt");
+    // Opening/creating both current scope databases is an adapter check, not a
+    // requirement that every persisted scope be healthy. A decoded corruption
+    // is authoritative read evidence: keep the adapter available so startup can
+    // degrade that scope, expose diagnosis, and preserve healthy siblings
+    // without rewriting quarantined bytes.
+    await adapter.read({ kind: "user" }, signal);
+    await adapter.read(project, signal);
   } catch (error) {
     await adapter.close();
     throw error;

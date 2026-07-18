@@ -64,6 +64,11 @@ export function createPiReloadBroker(): PiReloadBroker {
     let resolve!: TicketState["resolve"];
     let reject!: TicketState["reject"];
     const promise = new Promise<readonly ActivationObservation[]>((accept, decline) => { resolve = accept; reject = decline; });
+    // A successor can fail while the predecessor is still inside
+    // `await context.reload()`, before it can call wait(). Attach a handler
+    // immediately so that exact failure remains broker evidence rather than an
+    // unhandled process-level rejection.
+    void promise.catch(() => undefined);
     const state: TicketState = { id: randomUUID(), sessionId: binding.sessionId, cwd: binding.cwd, scope, transition, claimed: false, settled: false, resolve, reject, promise };
     states.tickets.set(state.id, state);
     return publicTicket(state);

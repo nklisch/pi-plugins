@@ -126,7 +126,8 @@ export function createMarketplaceUpdateScheduler(dependencies: MarketplaceUpdate
         return;
       }
       const owner = await dependencies.leaseIds.create(signal);
-      const owned = new Map<string, { context: import("../domain/state/scope.js").ScopeContext; scope: ScopeReference }>();
+      const renewalLeadMs = Math.min(inventoryPollMs, Math.floor(leaseMs / 2));
+      const owned = new Map<string, { context: import("../domain/state/scope.js").ScopeContext; scope: ScopeReference; renewAt: number }>();
       try {
         for (;;) {
           signal.throwIfAborted();
@@ -159,11 +160,24 @@ export function createMarketplaceUpdateScheduler(dependencies: MarketplaceUpdate
               continue;
             }
             anyEnabled = true;
-            const ownership = owned.has(key)
-              ? await dependencies.leases.renew(plan.context, owner, now, leaseMs, signal).then((value) => value ? "self" as const : "other" as const)
-              : await dependencies.leases.acquire(plan.context, owner, now, leaseMs, signal);
+            const previous = owned.get(key);
+            // A wake is a prompt to re-evaluate work, not a reason to rewrite
+            // an otherwise healthy lease. Avoiding eager renewal prevents
+            // foreground identity reads from being invalidated by operational
+            // scheduler churn while still renewing with a bounded safety lead.
+            const ownership = previous !== undefined && now < previous.renewAt
+              ? "self" as const
+              : previous !== undefined
+                ? await dependencies.leases.renew(plan.context, owner, now, leaseMs, signal).then((value) => value ? "self" as const : "other" as const)
+                : await dependencies.leases.acquire(plan.context, owner, now, leaseMs, signal);
             if (ownership === "self") {
-              owned.set(key, { context: plan.context, scope: plan.scope });
+              owned.set(key, {
+                context: plan.context,
+                scope: plan.scope,
+                renewAt: previous !== undefined && now < previous.renewAt
+                  ? previous.renewAt
+                  : now + leaseMs - renewalLeadMs,
+              });
               anyOwned = true;
               if (plan.clock === "regressed") clockRegressed = true;
               else if ((plan.dueAt ?? 0) <= now && plan.registrationIds.length > 0) {

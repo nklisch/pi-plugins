@@ -129,8 +129,10 @@ async function runFirstUseContention(): Promise<readonly ChildEvent[]> {
 }
 
 describe("generation-locking integration", () => {
-  // Eight fresh process pairs retain repeated first-use coverage without
-  // making confidence depend on host-wide process startup throughput.
+  // Eight fresh process pairs retain repeated first-use coverage. Each child
+  // loads the real TypeScript graph in a fresh Node process; under the fully
+  // parallel unit suite that startup is substantially slower than in focused
+  // runs, so the budget must cover saturated CI rather than only lock work.
   it("repeatedly contends on two real first-use coordinators with one commit and one stale result", async () => {
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const terminals = await runFirstUseContention();
@@ -142,7 +144,7 @@ describe("generation-locking integration", () => {
       expect(results.map((result) => result.kind).sort()).toEqual(["committed", "stale-generation"]);
       expect(results).toHaveLength(2);
     }
-  }, 60_000);
+  }, 240_000);
 
   it("keeps a paused live owner, then cancels a waiting process without a lost update", async () => {
     const { lockRoot, statePath } = await prepareState();

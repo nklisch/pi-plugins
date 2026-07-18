@@ -271,8 +271,16 @@ export function createTrustedInstallCandidateService(dependencies: TrustedInstal
     }
     try {
       const inspected = await dependencies.inspector.inspect({ entry: resolution.candidate.entry, materialized: lease.materialized }, signal);
+      const detailResult = await nativeDetail(request.subject, request.snapshot, resolution.candidate, lease, dependencies, signal);
+      if (detailResult.kind !== "found") {
+        if (detailResult.kind === "stale" || detailResult.kind === "missing" || detailResult.kind === "invalid-id") {
+          return releaseForResult(lease, { kind: "stale", diagnostics: [] });
+        }
+        return releaseForResult(lease, { kind: "unavailable", diagnostics: detailResult.diagnostics });
+      }
+      const detail = detailResult.detail;
       if (!inspected.ok || inspected.value.identity.key !== request.subject.plugin || request.snapshot.capabilities === undefined || request.snapshot.binding.capability.digest === undefined) {
-        return releaseForResult(lease, { kind: "rejected", diagnostics: [] });
+        return releaseForResult(lease, { kind: "rejected", diagnostics: detail.diagnostics });
       }
       const plugin = inspected.value;
       const compatibility = CompatibilityReportSchema.parse(evaluateCompatibility({
@@ -281,7 +289,7 @@ export function createTrustedInstallCandidateService(dependencies: TrustedInstal
         ...(resolution.candidate.entry.policy === undefined ? {} : { marketplacePolicy: resolution.candidate.entry.policy }),
       }));
       if (!compatibility.activatable) {
-        return releaseForResult(lease, { kind: "rejected", diagnostics: [] });
+        return releaseForResult(lease, { kind: "rejected", diagnostics: detail.diagnostics });
       }
       const scope = toScopeReference(resolution.candidate.scope);
       const trust = createTrustCandidate({
@@ -318,14 +326,6 @@ export function createTrustedInstallCandidateService(dependencies: TrustedInstal
         capabilityDigest: request.snapshot.binding.capability.digest,
         ...(scope.kind === "project" ? { projectEpoch: request.snapshot.binding.currentProject.epoch } : {}),
       });
-      const detailResult = await nativeDetail(request.subject, request.snapshot, resolution.candidate, lease, dependencies, signal);
-      if (detailResult.kind !== "found") {
-        if (detailResult.kind === "stale" || detailResult.kind === "missing" || detailResult.kind === "invalid-id") {
-          return releaseForResult(lease, { kind: "stale", diagnostics: [] });
-        }
-        return releaseForResult(lease, { kind: "unavailable", diagnostics: detailResult.diagnostics });
-      }
-      const detail = detailResult.detail;
       const exactDetail = detail.snapshotId === deriveInspectionEvidenceSnapshotId(request.snapshot.binding, dependencies.sha256) &&
         detail.summary.detailId === deriveInspectionDetailId(request.subject, dependencies.sha256) &&
         detail.summary.subject === "marketplace-candidate" && detail.summary.plugin === binding.plugin &&

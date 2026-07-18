@@ -221,9 +221,12 @@ export function createMarketplaceRegistrationService(
         },
       });
 
-      const result = await dependencies.mutations.runPreparedMutation(
-        { scope, plugins: [], expectedGeneration: loaded.snapshot.generation },
-        async (context) => {
+      let authority = loaded.snapshot;
+      let result: Awaited<ReturnType<GenerationMutationCoordinator["runPreparedMutation"]>> | undefined;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        result = await dependencies.mutations.runPreparedMutation(
+          { scope, plugins: [], expectedGeneration: authority.generation },
+          async (context) => {
           const records = [...marketplaceUpdateRecords(context.snapshot)];
           const snapshots = [...marketplaceSnapshots(context.snapshot)];
           const sameSourceIndex = records.findIndex((record) =>
@@ -253,16 +256,30 @@ export function createMarketplaceRegistrationService(
           const snapshotIndex = snapshots.findIndex((snapshot) => snapshot.marketplace === marketplace);
           if (snapshotIndex >= 0) snapshots[snapshotIndex] = selected;
           else snapshots.push(selected);
-          return {
-            mutation: createMarketplaceRegistrationSnapshotMutation(context.snapshot, records, snapshots, dependencies.sha256),
-            value: marketplace,
-            beforeCommit: () => assertScopeAuthority(scope, signal),
-          };
-        },
-        signal,
-      );
-      if (result.kind === "commit-ambiguous") return MarketplaceAddResultSchema.parse({ kind: "indeterminate", code: "COMMIT_AMBIGUOUS", registrationId });
-      if (result.kind !== "committed") {
+            return {
+              mutation: createMarketplaceRegistrationSnapshotMutation(context.snapshot, records, snapshots, dependencies.sha256),
+              value: marketplace,
+              beforeCommit: () => assertScopeAuthority(scope, signal),
+            };
+          },
+          signal,
+        );
+        if (result.kind === "committed") break;
+        if (result.kind === "commit-ambiguous") return MarketplaceAddResultSchema.parse({ kind: "indeterminate", code: "COMMIT_AMBIGUOUS", registrationId });
+        if (result.kind !== "stale-generation") break;
+
+        const latest = await dependencies.state.read(scope, signal);
+        if (!latest.ok) break;
+        const winner = recordBySource(latest.snapshot, source, dependencies.sha256);
+        if (winner !== undefined && snapshotFor(latest.snapshot, winner.marketplace) !== undefined) {
+          return MarketplaceAddResultSchema.parse({ kind: "unchanged", registration: await view(latest.snapshot, winner, signal) });
+        }
+        if (marketplaceUpdateRecords(latest.snapshot).some((record) => record.marketplace === marketplace)) {
+          return MarketplaceAddResultSchema.parse({ kind: "rejected", code: "NAME_CONFLICT" });
+        }
+        authority = latest.snapshot;
+      }
+      if (result?.kind !== "committed") {
         const after = await dependencies.state.read(scope, new AbortController().signal).catch(() => undefined);
         if (after?.ok) {
           const winner = recordBySource(after.snapshot, source, dependencies.sha256);

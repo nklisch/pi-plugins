@@ -62,5 +62,9 @@ describe("native inspection readiness", () => {
     const result = await readiness.configuration({ plugin: "fixture@compatibility" as never, scope: { kind: "user" }, descriptors, configurationRef }, new AbortController().signal);
     expect(result.find((item) => item.key === "PLAIN")?.state).toBe("configured");
     expect(result.find((item) => item.key === "TOKEN")?.state).toBe("unavailable");
+
+    const missing = await readiness.configuration({ plugin: "fixture@compatibility" as never, scope: { kind: "user" }, descriptors }, new AbortController().signal);
+    expect(missing.find((item) => item.key === "PLAIN")?.state).toBe("missing");
+    expect(missing.find((item) => item.key === "TOKEN")?.state).toBe("unavailable");
   });
 });

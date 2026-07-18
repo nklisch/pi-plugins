@@ -16,7 +16,7 @@ import {
 import type { RuntimeProjectionCachePort } from "../application/runtime-projection-cache.js";
 import { createTrustCandidate } from "../domain/trust-policy.js";
 import type { InstalledPluginRecord } from "../domain/state/installed-state.js";
-import { toScopeReference, type ScopeContext } from "../domain/state/scope.js";
+import { toScopeReference, type ScopeContext, type ScopeReference } from "../domain/state/scope.js";
 import type { Sha256 } from "../domain/source.js";
 import type { PiProjectContextAdapters } from "../pi/pi-project-context.js";
 import { digestSkillHookContribution, type RuntimeProjectionSelection } from "../runtime/skill-hook/runtime-snapshot.js";
@@ -31,7 +31,7 @@ export type HostBlockedPlugin = Readonly<{
 }>;
 
 export type RuntimeDesiredStateOverride = Readonly<{
-  scope: ScopeContext;
+  scope: ScopeReference;
   plugin: string;
   record: InstalledPluginRecord | null;
 }>;
@@ -82,6 +82,7 @@ export async function buildRuntimeDesiredState(input: Readonly<{
   mcp?: McpRuntimePort;
   state: LifecycleStateStore;
   content?: Pick<ContentStorePort, "resolvePlugin" | "ensureDataRoot">;
+  userBaseDirectory: string;
   sha256: Sha256;
 }>, signal: AbortSignal, overrides: readonly RuntimeDesiredStateOverride[] = []): Promise<RuntimeDesiredState> {
   signal.throwIfAborted();
@@ -104,17 +105,25 @@ export async function buildRuntimeDesiredState(input: Readonly<{
       records.push(...snapshot.project.plugins.map((record) => ({ scope: snapshot.scope, record })));
     }
   }
-  const overrideByTarget = new Map(overrides.map((override) => [JSON.stringify([toScopeReference(override.scope), override.plugin]), override]));
+  const authorityByScope = new Map(authoritative.map((snapshot) => [JSON.stringify(toScopeReference(snapshot.scope)), snapshot.scope]));
+  const overrideByTarget = new Map(overrides.map((override) => [JSON.stringify([override.scope, override.plugin]), override]));
   const effectiveRecords = records.filter((entry) => {
     const key = JSON.stringify([toScopeReference(entry.scope), entry.record.plugin]);
     return !overrideByTarget.has(key);
   });
   for (const override of overrides) {
-    if (override.record !== null) effectiveRecords.push({ scope: override.scope, record: override.record });
+    if (override.record === null) continue;
+    const scope = authorityByScope.get(JSON.stringify(override.scope));
+    if (scope === undefined) throw new Error("runtime desired-state override is outside current authority");
+    effectiveRecords.push({ scope, record: override.record });
   }
 
+  if (typeof input.userBaseDirectory !== "string" || input.userBaseDirectory.length === 0) {
+    throw new TypeError("runtime desired state requires a user configuration base directory");
+  }
   const blocked: HostBlockedPlugin[] = [];
   const selections: RuntimeSelection[] = [];
+  let trustedProjectRoot: Awaited<ReturnType<PiProjectContextAdapters["authority"]["acquire"]>> | undefined;
   const skillHookActive: RuntimeProjectionSelection[] = [];
   const mcpTransitions: Array<{ from: McpLifecycleState; to: McpLifecycleState }> = [];
   const runtimeCapabilities = input.mcp === undefined
@@ -160,7 +169,12 @@ export async function buildRuntimeDesiredState(input: Readonly<{
         content: loaded.content,
         materializationBinding: loaded.binding,
       }, input.sha256);
-      const pathContext = Object.freeze({ scope: entry.scope });
+      const pathContext = entry.scope.kind === "project"
+        ? Object.freeze({
+            scope: entry.scope,
+            trustedProjectRoot: trustedProjectRoot ??= await input.project.authority.acquire(signal),
+          })
+        : Object.freeze({ scope: entry.scope, trustedBaseDirectory: input.userBaseDirectory });
       const records = trustRecords !== undefined && "trust" in trustRecords ? trustRecords.trust.records : [];
       const roots = input.content === undefined ? undefined : await Promise.all([
         input.content.resolvePlugin(revision, signal, scopeReference),

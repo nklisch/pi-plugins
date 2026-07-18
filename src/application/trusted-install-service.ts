@@ -363,8 +363,9 @@ export function createTrustedInstallationService(dependencies: TrustedInstallati
     let phase: TrustedInstallProgressEvent["phase"] = "input-validation";
     try {
       progress(entry, phase, "started", options);
+      const validateInstallAuthority = dependencies.evidence.validateForInstall?.bind(dependencies.evidence) ?? dependencies.evidence.validate.bind(dependencies.evidence);
       const candidateCurrent = await dependencies.candidate.validate(entry.candidate, signal);
-      const evidenceCurrent = await dependencies.evidence.validate(entry.candidate.snapshotBinding, signal);
+      const evidenceCurrent = await validateInstallAuthority(entry.candidate.snapshotBinding, signal);
       if (candidateCurrent !== "current") return finish(entry, stale(entry, "candidate"));
       if (evidenceCurrent !== "current") return finish(entry, stale(entry, entry.candidate.binding.scope.kind === "project" ? "project" : "capability"));
 
@@ -483,7 +484,6 @@ export function createTrustedInstallationService(dependencies: TrustedInstallati
       signal.throwIfAborted();
 
       if (await dependencies.candidate.validate(entry.candidate, signal) !== "current") return finish(entry, stale(entry, "candidate"));
-      const validateInstallAuthority = dependencies.evidence.validateForInstall?.bind(dependencies.evidence) ?? dependencies.evidence.validate.bind(dependencies.evidence);
       if (await validateInstallAuthority(entry.candidate.snapshotBinding, signal) !== "current") {
         return finish(entry, stale(entry, entry.candidate.binding.scope.kind === "project" ? "project" : "capability"));
       }
