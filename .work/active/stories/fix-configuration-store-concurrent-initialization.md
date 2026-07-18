@@ -18,4 +18,6 @@ Reproduce under GitHub Actions timing, make initialization tolerate the bounded 
 
 ## Resolution
 
-SQLite's `busy_timeout` was configured after `journal_mode`, even though the journal pragma itself may need to wait on another initializing process. Configure a bounded 30-second busy policy before every potentially locking initialization pragma. The longer window covers heavily loaded CI runners while remaining below the existing startup operation timeout.
+SQLite's `busy_timeout` was configured after `journal_mode`, even though the journal pragma itself may need to wait on another initializing process. Configure a bounded 30-second busy policy before every potentially locking configuration-store pragma. The longer window covers heavily loaded CI runners while remaining below the existing startup operation timeout.
+
+The same CI run exposed ordinary concurrent release operations in the shared revision-lease database. `openIdentityBoundSqliteDatabase` now accepts an explicit bounded timeout while retaining fail-fast zero as the default; only the multiprocess revision-lease owner opts into the 30-second wait.

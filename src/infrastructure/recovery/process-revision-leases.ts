@@ -16,6 +16,9 @@ export async function createProcessRevisionLeaseStore(options: Readonly<{ hostRo
     root,
     path: join(root, "leases.sqlite"),
     signal: new AbortController().signal,
+    // Multiple Pi sessions legitimately acquire/release leases in this shared
+    // database; bounded waiting is required for those ordinary write windows.
+    busyTimeoutMs: 30_000,
     initialize(database) {
       database.exec("PRAGMA journal_mode = DELETE; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON; PRAGMA trusted_schema = OFF; CREATE TABLE revision_leases (lease_id TEXT PRIMARY KEY NOT NULL, session_id TEXT NOT NULL, artifacts_json TEXT NOT NULL, acquired_at INTEGER NOT NULL, owner_pid INTEGER NOT NULL, owner_start_token TEXT NOT NULL, owner_nonce TEXT NOT NULL) STRICT;");
     },

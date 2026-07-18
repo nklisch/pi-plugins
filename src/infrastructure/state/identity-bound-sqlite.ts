@@ -144,18 +144,21 @@ export async function openIdentityBoundSqliteDatabase(input: Readonly<{
   root: string;
   path: string;
   signal: AbortSignal;
+  busyTimeoutMs?: number;
   initialize(database: DatabaseSync): void;
   validate(database: DatabaseSync): void;
 }>): Promise<IdentityBoundSqliteDatabase> {
   const rootId = rootIdentity(input.root);
   const databaseName = basename(input.path);
+  const busyTimeoutMs = input.busyTimeoutMs ?? 0;
+  if (!Number.isInteger(busyTimeoutMs) || busyTimeoutMs < 0 || busyTimeoutMs > 60_000) throw new TypeError("SQLite busy timeout is invalid");
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
     input.signal.throwIfAborted();
     let currentMarker = marker(input.path);
     if (currentMarker !== undefined) {
       if (currentMarker.rootIdentity !== rootId || currentMarker.database !== databaseName ||
           !sameIdentity(identity(input.path), currentMarker.identity)) throw new Error("SQLite database identity marker does not match its path");
-      const database = new DatabaseSync(input.path, { allowExtension: false, defensive: true, enableForeignKeyConstraints: true, timeout: 0 });
+      const database = new DatabaseSync(input.path, { allowExtension: false, defensive: true, enableForeignKeyConstraints: true, timeout: busyTimeoutMs });
       try {
         input.validate(database);
         validateMarker(input.path, rootId, databaseName, currentMarker);
@@ -220,7 +223,7 @@ export async function openIdentityBoundSqliteDatabase(input: Readonly<{
     try {
       const descriptor = openSync(input.path, "wx", LOCAL_LOCK_DATABASE_MODE);
       closeSync(descriptor);
-      database = new DatabaseSync(input.path, { allowExtension: false, defensive: true, enableForeignKeyConstraints: true, timeout: 0 });
+      database = new DatabaseSync(input.path, { allowExtension: false, defensive: true, enableForeignKeyConstraints: true, timeout: busyTimeoutMs });
       // The exclusive identity-bound claim is the initialization lock. No
       // contender opens the path until the ready marker is published, so
       // journal-mode setup can happen outside a SQLite transaction.
