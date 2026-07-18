@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-production-runtime-acceptance
 kind: feature
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-clean-environment-core-e2e, epic-mcp-runtime-integration-config-source-bridge-production-adapter, epic-mcp-runtime-integration-lifecycle-reconciliation, epic-skills-hook-runtime-subagent-interception-production-adapter]
@@ -552,3 +552,14 @@ One owner normally implements this as one feature bundle. Golden and failure sto
 This feature fails if the candidate still uses the internal name, requires a second package install, imports checkout code, executes a drifted adapter before probing, reports hard-coded integrity without installed-byte evidence, starts with global/Claude/Codex state, uses a fake runtime, proves subagent hooks from events, treats MCP health as registration, fabricates aliases, observes mixed revisions, infers success from progress/journal rows, loses secret or process cleanup ownership, or passes only because the public registry/network/global cache was available.
 
 The design counters those failures with a release-critical rename checkpoint, one bundled package resource graph, receipt-gated dynamic loaders, public-lock/tree evidence, a complete plugin fixture, real Pi/published runtimes/processes, exact start/Stop behavior, source-versus-health separation, truthful alias omission, complete-bundle observations after restart, existing recovery authority, canary/process/SQLite teardown, and one final from-empty offline registry replay.
+
+## Implementation result
+
+All six child stories are implemented and `stage: done` in dependency order.
+
+- The private candidate is `@nklisch/pi-plugins@0.0.0`. One Pi package contains the compiled host and a receipt-gated bundled subagent resource; MCP uses only its exact receipt-gated programmatic export.
+- The shared verifier rejects package identity, manifest, export/resource, engine/peer, license, registry SRI, installed-tree, API, and conformance drift before adapter execution. Qualification isolates failure to the dependent capability.
+- The production harness uses exact packed/public bytes, isolated state, real Pi/Git/SQLite/hooks/subagents/MCP/RPC/PTY, one protocol-only model service, deterministic cleanup, and a complete revision-bound bundle fixture.
+- Golden lifecycle, failure/recovery/drift, contention/offline/presentation/security, and from-empty offline registry journeys are green. Canonical MCP access works while the honest alias limitation remains `RUNTIME_ALIAS_UNAVAILABLE`; sensitive custody remains unavailable and plaintext-free.
+- Verification at handoff: 16 focused receipt/adapter tests; 332 unit files / 1,613 tests; 17 infrastructure E2E files / 54 tests; 5 production E2E files / 10 tests; typecheck; 426-module dependency boundary scan; 847 compiled exports; 3 Pi exports; and isolated packed Pi 0.80.8 RPC/JSON/PTY acceptance. All passed.
+- No package was published, no tag/release/PR was created, and every item remains unbound. The independent standard feature review is intentionally left to the orchestrator.
