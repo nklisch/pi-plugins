@@ -857,14 +857,19 @@ reload behavior, project trust, and non-interactive degradation.
 
 ### End-to-end tests
 
-A packaged extension runs against a clean Pi environment with:
-
-- neither Claude Code nor Codex installed;
-- representative `nklisch/skills` plugins;
-- independent third-party fixtures;
-- multiple concurrent Pi processes;
-- interrupted installs and updates;
-- offline startup.
+Final acceptance starts with an empty consumer `node_modules` tree, installs the
+packed `@nklisch/pi-plugins` candidate from the replayed lock/SRI registry
+snapshot, and verifies exact receipts for
+`@nklisch/pi-mcp-adapter@2.11.0-nklisch.0` and
+`@nklisch/pi-subagents@18.0.4-nklisch.0`. In a clean Pi environment with no
+Claude or Codex state, one revision-bound production fixture carries a skill,
+ordinary hooks, subagent interception, and canonical MCP through install,
+disable, enable, V1-to-V2 update, restart, and uninstall. Real Pi processes
+observe every runtime surface, the honest `RUNTIME_ALIAS_UNAVAILABLE` omission,
+package-drift rejection before execution, interrupted-transition recovery,
+multiprocess contention, presentation and secret non-retention, offline restart
+without eager MCP launch, explicit post-restart MCP use, SQLite integrity, and
+complete post-uninstall runtime and inventory absence.
 
 ## Alternatives rejected
 

@@ -591,7 +591,20 @@ The system is accepted when automated tests demonstrate:
 10. MCP server identity and lifecycle remain isolated between plugins.
 11. Update checks do not make startup network-dependent.
 12. Claude and Codex marketplace declarations can be adopted read-only.
-13. Representative plugins from `nklisch/skills` install unchanged.
-14. Independent third-party fixtures verify both successful compatibility and
-    rejection of unsupported behavior.
-15. Removal leaves no active skill, hook, or MCP configuration behind.
+13. From an empty consumer dependency tree, the packed product installs from a
+    replayed lock/SRI registry snapshot with exact receipts for
+    `@nklisch/pi-mcp-adapter@2.11.0-nklisch.0` and
+    `@nklisch/pi-subagents@18.0.4-nklisch.0`.
+14. One complete revision-bound production bundle proves skill discovery,
+    ordinary hooks, subagent prompt injection and same-session continuation,
+    canonical MCP list/call, and honest `RUNTIME_ALIAS_UNAVAILABLE` reporting
+    through install, disable, enable, and V1-to-V2 update.
+15. Incompatible candidates, package drift, interrupted acquisition and commit,
+    multiprocess contention, cancellation, secret non-retention, and recovery
+    preserve one whole working revision and keep drifted package code from
+    executing.
+16. V2 restarts offline without Git, a model service, network access, or eager
+    MCP launch; an explicit later call remains usable.
+17. Uninstall followed by restart leaves the production skill, ordinary hooks,
+    subagent interception, MCP source, installed inventory, and persistent data
+    absent, with no Claude or Codex installation or state.
