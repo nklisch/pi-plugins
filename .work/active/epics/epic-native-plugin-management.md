@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management
 kind: epic
-stage: implementing
+stage: review
 tags: [compatibility]
 parent: null
 depends_on: [epic-skills-hook-runtime, epic-mcp-runtime-integration]
@@ -127,3 +127,7 @@ This shape keeps locally implementable composition and acceptance moving while p
 - **Local E2E can overclaim production readiness**: conforming doubles prove composition and UI behavior, not the maintained forks. Evidence and feature closure must label production MCP/subagent paths unavailable until the final feature uses pinned packages.
 - **Pi reload/session lifetime can leak resources**: duplicate command instances, schedulers, database handles, overlays, watchers, or child processes can survive reload. One extension-owned lifecycle and idempotent close/cancel behavior must be verified.
 - **Cross-feature result vocabularies can fragment**: install, lifecycle, refresh, and policy capabilities may invent incompatible progress/error shapes. Facade design must consolidate stable shared categories without erasing operation-specific recovery evidence.
+
+## Aggregate review readiness — 2026-07-18
+
+All ten child features are `stage: done`, including clean-environment core E2E, the Pi-native manager, and exact published-runtime production acceptance. Both prerequisite runtime epics have completed their feature-level implementations. Native Plugin Management advances to `review` for its independent aggregate pass.
