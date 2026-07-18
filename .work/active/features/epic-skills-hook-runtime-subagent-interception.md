@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime-subagent-interception
 kind: feature
-stage: review
+stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime
 depends_on: [epic-skills-hook-runtime-guarded-command-hooks]
@@ -576,3 +576,23 @@ All seven direct child stories are `stage: done`, including the upstream contrib
 The feature is therefore moved to `review`.
 The configured standard review requires an independent fresh-context pass, but this task explicitly prohibits nested agents and no different-model reviewer is available in this execution.
 The feature remains review-ready rather than falsely advancing to `done`; a subsequent permitted review pass must assess the complete portable contract, published-fork composition, upstream PR scope, and upstream-release return plan.
+
+## Standard feature review — 2026-07-18
+
+**Verdict: APPROVE.** One independent cross-model, fresh-context pass reviewed the complete portable contract, fake, coordinator, composition, published-package adapter and receipt, packed Pi 0.80.8 evidence, and upstream PR #614. No material blockers were found.
+
+Verification during review:
+
+- Full suite: **330 files / 1,608 tests**, zero type errors.
+- Dependency boundaries: **422 modules / 2,986 edges**, zero violations.
+- Targeted lifecycle and hook coverage: 10 lifecycle files / 49 tests plus 9 planner, parser, aggregator, compatibility, and public-API files / 69 tests.
+- Registry receipt, packed clean-environment Pi capability, exact ordering across all 32 execution-path combinations, continuation/cancellation/unregister/disposal, secret non-retention, package drift failure, and generic upstream PR scope were independently checked.
+- Upstream PR: https://github.com/gotgenes/pi-packages/pull/614, base `0456e17098de1c9f9da8d3ddb90545140b021881`, head `e74f70ae095b6f6f4d17b458015ed4a716ddf505`.
+
+Three lower-risk findings were parked without implementation, per standard-review policy and the instruction to defer refactors until the end:
+
+- `idea-centralize-subagent-continuation-budget`
+- `idea-avoid-extra-session-resolution-on-hook-catalog-errors`
+- `idea-clarify-fake-subagent-disposal-accounting`
+
+The feature advances from `review` to `done` without a second review pass.
