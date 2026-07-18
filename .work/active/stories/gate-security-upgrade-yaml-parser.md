@@ -1,7 +1,7 @@
 ---
 id: gate-security-upgrade-yaml-parser
 kind: story
-stage: implementing
+stage: done
 tags: [security]
 parent: null
 depends_on: []
@@ -40,3 +40,27 @@ Authoritative version evidence checked at implementation start: npm registry rep
 - `package.json` and `package-lock.json` resolve exactly `yaml@2.9.0` with the registry integrity.
 - Deeply nested untrusted frontmatter fails through the public reader contract in a child process and does not terminate from stack exhaustion.
 - Existing valid frontmatter behavior, package receipts, Node 24 build, audit, and packed-package checks remain green.
+
+## Implementation notes
+Execution capability: direct host implementation. This was a narrow dependency and parser-boundary repair with one regression surface.
+
+Pinned `yaml@2.9.0` exactly in `package.json` and `package-lock.json` with registry integrity `sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==`. npm and GHSA evidence confirm Node `>=14.6` compatibility and that 2.9.0 is above GHSA-48c2-rrv3-qjmp's fixed 2.8.3 floor.
+
+The real Agent Skills reader now performs a quote/comment/block-scalar-aware lexical flow-depth check before `YAML.parseDocument`, so deeply nested flow collections never reach the parser's compose recursion. A child-process regression feeds 6,000 nested collections and requires a stable `SCHEMA_INVALID` result with no `RangeError`, call-stack text, or process termination. Negative controls preserve brackets inside quoted and block-scalar content.
+
+Files changed:
+- `package.json`, `package-lock.json`
+- `src/formats/agent-skills/frontmatter-reader.ts`
+- `test/formats/agent-skills/frontmatter-reader.test.ts`
+- `test/fixtures/agent-skills/deep-frontmatter-child.mjs`
+
+## Verification evidence
+- Focused frontmatter suite: 8 tests green, including the child-process adversarial case.
+- `npm audit`: 0 vulnerabilities.
+- `npm test`: 333 files / 1,648 tests; Node 24 typecheck, boundaries, build, compiled package imports, and packed consumer green.
+- `npm run test:e2e`: 17 files / 54 tests green; production subset 5 files / 10 tests green.
+
+## Bounded inline review
+Verdict: approve. No independent, fresh-context, or cross-model reviewer ran, per standalone-story policy. Core review checked advisory/version/integrity evidence, pre-parser ordering, byte/line/depth interactions, deterministic diagnostics, child-process safety, valid scalar compatibility, build output, and package receipts. Review found and fixed a false-positive risk for bracket-heavy YAML block scalars before final verification.
+
+Residual limit: the lexical guard targets YAML flow-collection recursion; the fixed parser and existing byte, line, AST depth, node, scalar, alias, tag, and key limits remain the defense for other YAML shapes.
