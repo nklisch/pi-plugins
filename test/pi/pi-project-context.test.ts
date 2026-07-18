@@ -53,7 +53,9 @@ describe("Pi project context adapters", () => {
     const project = await createPiProjectContextAdapters({ binding, sha256, git: createNodeCommandRunner() });
     const capability = await project.authority.acquire(new AbortController().signal);
     await rm(join(root, ".git"), { recursive: true, force: true });
-    await run("git", ["init", "-q", root]);
+    // A distinct common-directory path makes identity replacement deterministic;
+    // deleting and recreating `.git` can reuse the same inode on CI filesystems.
+    await run("git", ["init", "-q", `--separate-git-dir=${join(root, "replacement.git")}`, root]);
 
     await expect(project.trust.assess(project.scope.projectKey, new AbortController().signal)).resolves.toEqual({ kind: "untrusted" });
     expect(() => project.authority.verify(capability, project.scope)).toThrow(/capability/);

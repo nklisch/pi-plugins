@@ -36,7 +36,7 @@ function initialize(database: DatabaseSync): void {
   // The journal pragma itself can contend with another process performing the
   // same first-open initialization, so install the wait policy before it.
   database.exec(`
-    PRAGMA busy_timeout = 5000;
+    PRAGMA busy_timeout = 30000;
     PRAGMA journal_mode = DELETE;
     PRAGMA synchronous = FULL;
     CREATE TABLE IF NOT EXISTS protocol (
