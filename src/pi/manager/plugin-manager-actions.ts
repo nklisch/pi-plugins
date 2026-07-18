@@ -28,13 +28,12 @@ export type PluginManagerActionIntent =
   | Readonly<{ action: "operation-status" | "operation-cancel"; token: string }>;
 
 type ConfirmedPluginManagerActionIntent =
-  | Readonly<{ action: "enable" | "disable" | "update"; row: PluginManagerRow }>
-  | Readonly<{ action: "uninstall-keep" | "uninstall-delete"; row: PluginManagerRow }>
+  | Readonly<{ action: "uninstall-delete"; row: PluginManagerRow }>
   | Readonly<{ action: "marketplace-remove"; row: PluginManagerRow }>
   | Readonly<{ action: "project-sync"; mode: "apply-intent" | "publish-intent" | "merge" }>;
 
 export type PluginManagerActionConfirmation = Readonly<{
-  action: "enable" | "disable" | "update" | "uninstall-keep" | "uninstall-delete" | "marketplace-remove" | "project-sync";
+  action: "uninstall-delete" | "marketplace-remove" | "project-sync";
   title: string;
   lines: readonly string[];
   destructive: boolean;
@@ -68,18 +67,17 @@ function exactRow(row: PluginManagerRow): Readonly<{ plugin: string; scope: "use
 }
 
 function needsConfirmation(intent: PluginManagerActionIntent): intent is ConfirmedPluginManagerActionIntent {
-  return ["enable", "disable", "update", "uninstall-keep", "uninstall-delete", "marketplace-remove", "project-sync"].includes(intent.action);
+  return intent.action === "uninstall-delete" || intent.action === "marketplace-remove" || intent.action === "project-sync";
 }
 
 export function pluginManagerActionConfirmation(intent: ConfirmedPluginManagerActionIntent): PluginManagerActionConfirmation {
   if (intent.action === "project-sync") {
     return Object.freeze({
       action: intent.action,
-      title: "Confirm project synchronization",
+      title: "Synchronize project plugin intent?",
       lines: Object.freeze([
-        `action: project sync (${intent.mode})`,
-        "scope: current trusted project",
-        "The exact current project intent and conflict decisions will be applied once.",
+        `mode: ${intent.mode}`,
+        "This changes the current project's declared plugin intent.",
       ]),
       destructive: true,
     });
@@ -96,22 +94,18 @@ export function pluginManagerActionConfirmation(intent: ConfirmedPluginManagerAc
     });
   }
   const row = exactRow(intent.row);
-  const persistentData = intent.action === "uninstall-delete"
-    ? "delete persistent plugin data"
-    : intent.action === "uninstall-keep"
-      ? "keep persistent plugin data"
-      : undefined;
+  const persistentData = "delete persistent plugin data";
   return Object.freeze({
     action: intent.action,
-    title: intent.action.startsWith("uninstall-") ? "Remove plugin?" : `Confirm plugin ${intent.action}`,
+    title: "Remove plugin and its data?",
     lines: Object.freeze([
       `plugin: ${row.plugin}`,
       `scope: ${row.scope}`,
       `snapshot: ${row.snapshotId}`,
       `detail: ${row.detailId}`,
-      ...(persistentData === undefined ? [] : [`data: ${persistentData}`]),
+      `data: ${persistentData}`,
     ]),
-    destructive: intent.action.startsWith("uninstall-"),
+    destructive: true,
   });
 }
 
@@ -199,7 +193,9 @@ export function createPluginManagerActionRunner(input: Readonly<{
       admitted = false;
       let ticket: PiManagerHandoffTicket | undefined;
       try {
-        let confirmed = false;
+        // Routine reversible actions are authorized directly by the explicit
+        // action keypress. Reserve a second prompt for destructive deletion.
+        let confirmed = !needsConfirmation(intent);
         if (needsConfirmation(intent)) {
           if (input.confirm === undefined) throw new Error("plugin manager action requires a fresh presentation confirmation");
           confirmed = await input.confirm(pluginManagerActionConfirmation(intent), controller.signal);

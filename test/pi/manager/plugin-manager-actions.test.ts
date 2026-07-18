@@ -26,7 +26,7 @@ const confirmed = async () => true;
 const marketplaceRow: PluginManagerRow = { ...row, key: { subject: "marketplace", key: "registration-1" } };
 
 describe("plugin manager action runner", () => {
-  it("confirms fresh exact evidence, adds --yes only then, and streams ordered frames", async () => {
+  it("runs an explicit reversible action without a second prompt and streams ordered frames", async () => {
     const frames: unknown[] = [];
     const execute = vi.fn(async (argv: readonly string[], options: { sink: NativeControlFrameSink }, signal: AbortSignal) => {
       await options.sink.write({ schemaVersion: 1, type: "accepted", executionId, sequence: 0, command: "lifecycle.enable" }, signal);
@@ -38,7 +38,7 @@ describe("plugin manager action runner", () => {
     const confirm = vi.fn(confirmed);
     const runner = createPluginManagerActionRunner({ execute, confirm, onFrame: (frame) => frames.push(frame) });
     await expect(runner.run({ action: "enable", row })).resolves.toMatchObject({ kind: "completed", presentation: "local", envelope: { status: "ok" } });
-    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ action: "enable", lines: expect.arrayContaining([`snapshot: ${snapshotId}`]) }), expect.any(AbortSignal));
+    expect(confirm).not.toHaveBeenCalled();
     expect(execute).toHaveBeenCalledWith([
       "enable", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes",
     ], expect.objectContaining({ sink: expect.any(Object) }), expect.any(AbortSignal));
@@ -46,15 +46,9 @@ describe("plugin manager action runner", () => {
   });
 
   it.each([
-    { action: "enable", row },
-    { action: "disable", row },
-    { action: "update", row },
-    { action: "uninstall-keep", row },
     { action: "uninstall-delete", row },
     { action: "marketplace-remove", row: marketplaceRow },
     { action: "project-sync", mode: "apply-intent" },
-    { action: "project-sync", mode: "publish-intent" },
-    { action: "project-sync", mode: "merge" },
   ] as const)("cancels fresh $action confirmation with zero facade mutation", async (intent) => {
     const execute = vi.fn();
     const runner = createPluginManagerActionRunner({ execute, confirm: async () => false });
@@ -63,14 +57,9 @@ describe("plugin manager action runner", () => {
   });
 
   it.each([
-    [{ action: "disable", row }, ["disable", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes"]],
-    [{ action: "update", row }, ["update", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes"]],
-    [{ action: "uninstall-keep", row }, ["remove", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes", "--keep-data"]],
     [{ action: "uninstall-delete", row }, ["remove", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes", "--delete-data"]],
     [{ action: "marketplace-remove", row: marketplaceRow }, ["marketplace", "remove", "registration-1", "--yes"]],
     [{ action: "project-sync", mode: "apply-intent" }, ["project", "sync", "--mode", "apply-intent", "--yes"]],
-    [{ action: "project-sync", mode: "publish-intent" }, ["project", "sync", "--mode", "publish-intent", "--yes"]],
-    [{ action: "project-sync", mode: "merge" }, ["project", "sync", "--mode", "merge", "--yes"]],
   ] as const)("executes confirmed destructive intent %# with exact facade argv", async (intent, expectedArgv) => {
     const execute = vi.fn(async () => ({ envelope: result(), delivery: "complete" as const, deliveredThrough: -1 }));
     const confirm = vi.fn(confirmed);

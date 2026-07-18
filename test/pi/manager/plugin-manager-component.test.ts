@@ -36,7 +36,7 @@ function harness() {
 }
 
 describe("plugin manager component", () => {
-  it("supports progressive navigation, configured keys, refresh, and layered escape", () => {
+  it("supports direct catalog navigation, configured keys, refresh, and close", () => {
     const h = harness();
     h.component.handleInput("\r");
     h.component.handleInput("/");
@@ -46,68 +46,67 @@ describe("plugin manager component", () => {
     h.component.handleInput("?");
     h.component.handleInput("\u001b");
     expect(h.intents).toEqual(expect.arrayContaining([
-      { type: "open-section" },
+      { type: "open-detail" },
       { type: "focus-query" },
       { type: "set-query", query: "abc" },
       { type: "submit-search" },
       { type: "refresh", scope: "all" },
       { type: "toggle-help" },
-      { type: "return-sections" },
+      { type: "close" },
     ]));
     expect(h.tui.requestRender).toHaveBeenCalled();
   });
 
-  it("moves list/action selection by a page instead of updating dead scroll offsets", () => {
+  it("moves catalog selection by a page and scrolls detail without another layer", () => {
     const h = harness();
     h.setState({ ...createPluginManagerState(), focus: { pane: "list" } });
     h.component.handleInput("\u001b[6~");
-    h.setState({ ...createPluginManagerState(), focus: { pane: "actions", action: "inspect" } });
+    h.setState({ ...createPluginManagerState(), focus: { pane: "detail" } });
     h.component.handleInput("\u001b[6~");
     expect(h.intents).toContainEqual({ type: "move-selection", delta: 18 });
-    expect(h.intents).toContainEqual({ type: "move-action", delta: 18 });
+    expect(h.intents).toContainEqual({ type: "scroll", region: "detail", delta: 18 });
   });
 
-  it("returns one level per Escape before closing", () => {
+  it("returns from detail and then closes", () => {
     const h = harness();
-    h.setState({ ...createPluginManagerState(), focus: { pane: "actions", action: "inspect" } });
+    h.setState({ ...createPluginManagerState(), focus: { pane: "detail", action: "inspect" } });
     h.component.handleInput("\u001b");
     h.component.handleInput("\u001b");
-    h.component.handleInput("\u001b");
-    h.component.handleInput("\u001b");
-    expect(h.intents).toEqual(expect.arrayContaining([
-      { type: "return-detail" },
-      { type: "detail-back" },
-      { type: "return-sections" },
-      { type: "close" },
-    ]));
+    expect(h.intents).toEqual(expect.arrayContaining([{ type: "detail-back" }, { type: "close" }]));
     expect(h.done).toHaveBeenCalledWith({ kind: "closed" });
   });
 
   it("emits the IME cursor marker only while the query owns focus", () => {
     const h = harness();
-    h.component.handleInput("\r");
     h.component.handleInput("/");
     expect(h.component.render(70).join("\n")).toContain(CURSOR_MARKER);
     h.component.handleInput("\u001b");
     expect(h.component.render(70).join("\n")).not.toContain(CURSOR_MARKER);
   });
 
-  it("offers direct Add onboarding from an empty plugin list", () => {
+  it("offers direct Add onboarding without closing the catalog", () => {
     const h = harness();
-    h.component.handleInput("\r");
     h.component.handleInput("A");
-    expect(h.done).toHaveBeenCalledWith({ kind: "action", action: "browse-plugins" });
+    expect(h.intents).toContainEqual({ type: "action", action: "browse-plugins" });
+    expect(h.done).not.toHaveBeenCalled();
   });
 
-  it("closes the manager surface before presenting a mutating action", () => {
+  it("runs a mutating action without closing the manager surface", () => {
     const h = harness();
-    h.setState({
-      ...createPluginManagerState(),
-      focus: { pane: "actions", action: "install" },
-    });
+    h.setState({ ...createPluginManagerState(), focus: { pane: "detail", action: "install" } });
     h.component.handleInput("\r");
-    expect(h.done).toHaveBeenCalledWith({ kind: "action", action: "install" });
-    expect(h.intents).not.toContainEqual({ type: "action", action: "install" });
+    expect(h.intents).toContainEqual({ type: "action", action: "install" });
+    expect(h.done).not.toHaveBeenCalled();
+  });
+
+  it("returns from a finished inline operation to the catalog", () => {
+    const h = harness();
+    let finished = pluginManagerReducer(createPluginManagerState(), { type: "operation-started", action: "marketplace-add" });
+    finished = pluginManagerReducer(finished, { type: "operation-finished", envelope: {} as never });
+    h.setState(finished);
+    h.component.handleInput("\u001b");
+    expect(h.intents).toContainEqual({ type: "return-manager" });
+    expect(h.done).not.toHaveBeenCalled();
   });
 
   it("makes repeated Escape a no-op while cancellation waits for owner truth", () => {

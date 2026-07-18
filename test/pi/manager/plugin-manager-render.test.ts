@@ -38,15 +38,15 @@ describe("plugin manager renderer", () => {
     const lines = renderPluginManager({ state: state(), width, height: 24, theme, keybindings, focused: true });
     expect(lines.length).toBeLessThanOrEqual(24);
     expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
-    expect(lines.join("\n")).toContain("Plugin Manager");
-    expect(lines.join("\n")).toContain("My Plugins");
-    expect(lines.join("\n")).toContain("Updates");
+    expect(lines.join("\n")).toContain("Plugins");
+    expect(lines.join("\n")).toContain("installed");
+    expect(lines.join("\n")).toContain("updates");
     expect(lines.join("\n")).not.toContain("bad\u0007");
   });
 
-  it("keeps the selected section and item visible in very short terminals", () => {
+  it("keeps the selected catalog item visible in very short terminals", () => {
     const home = renderPluginManager({ state: state(), width: 42, height: 5, theme, keybindings, focused: true }).join("\n");
-    expect(home).toContain("My Plugins");
+    expect(home).toContain("Plugins");
     let list = state();
     list = pluginManagerReducer(list, { type: "intent", intent: { type: "open-section" } });
     expect(renderPluginManager({ state: list, width: 42, height: 5, theme, keybindings, focused: true }).join("\n")).toContain("demo");
@@ -75,7 +75,7 @@ describe("plugin manager renderer", () => {
       row: selected.key,
       envelope: createNativeControlEnvelope({ executionId, command: "inspection.show", status: "ok", data: { kind: "found", detail: trustedInstallFlowFixture.chooseInspect } as never }),
     });
-    value = pluginManagerReducer(value, { type: "focus", pane: "actions", action: "uninstall-delete" });
+    value = pluginManagerReducer(value, { type: "focus", pane: "detail", action: "uninstall-delete" });
     const actionView = renderPluginManager({ state: value, width: 70, height: 8, theme, keybindings, focused: true }).join("\n");
     expect(actionView).toContain("Remove and delete data");
   });

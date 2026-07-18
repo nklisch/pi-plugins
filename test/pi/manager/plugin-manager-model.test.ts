@@ -57,7 +57,7 @@ describe("plugin manager reducer", () => {
     state = pluginManagerReducer(state, { type: "intent", intent: { type: "set-view", view: "browse" } });
     expect(state.view).toBe("browse");
     expect(state.page.rows).toEqual([]);
-    expect(state.focus).toMatchObject({ pane: "sections" });
+    expect(state.focus).toMatchObject({ pane: "list" });
     expect(state.installedCount).toBe(5);
   });
 

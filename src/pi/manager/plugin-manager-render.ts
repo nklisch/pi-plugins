@@ -6,6 +6,7 @@ import { projectTerminalText } from "./pi-terminal-text.js";
 import {
   PluginManagerActionRegistry,
   pluginManagerMenuActions,
+  pluginManagerVisibleRows,
   rowKeyIdentity,
   type PluginManagerRow,
   type PluginManagerState,
@@ -14,7 +15,7 @@ import {
 import { NativeControlStatusTone, pluginManagerStatusTone, type PluginManagerStatusTone } from "./plugin-manager-status.js";
 
 const VIEW_LABELS: Readonly<Record<PluginManagerView, string>> = Object.freeze({
-  installed: "My Plugins",
+  installed: "Plugins",
   browse: "Discover",
   marketplaces: "Sources",
   updates: "Updates",
@@ -60,13 +61,14 @@ function styledStatus(theme: Theme, status: string, tone = pluginManagerStatusTo
 }
 
 function selectedRow(state: PluginManagerState): PluginManagerRow | undefined {
-  if (state.focus.row === undefined) return state.page.rows[0];
-  return state.page.rows.find((row) => rowKeyIdentity(row.key) === rowKeyIdentity(state.focus.row!)) ?? state.page.rows[0];
+  const rows = pluginManagerVisibleRows(state);
+  if (state.focus.row === undefined) return rows[0];
+  return rows.find((row) => rowKeyIdentity(row.key) === rowKeyIdentity(state.focus.row!)) ?? rows[0];
 }
 
 function selectedIndex(state: PluginManagerState): number {
   const row = selectedRow(state);
-  return row === undefined ? -1 : state.page.rows.findIndex((candidate) => rowKeyIdentity(candidate.key) === rowKeyIdentity(row.key));
+  return row === undefined ? -1 : pluginManagerVisibleRows(state).findIndex((candidate) => rowKeyIdentity(candidate.key) === rowKeyIdentity(row.key));
 }
 
 function boundedWindow(lines: readonly string[], selected: number, height: number): readonly string[] {
@@ -109,13 +111,14 @@ function queryLine(state: PluginManagerState, theme: Theme, focused: boolean): s
 }
 
 function listLines(state: PluginManagerState, theme: Theme, focused: boolean, bodyHeight: number): readonly string[] {
-  const heading = `${theme.fg("accent", theme.bold("Plugin Manager"))} ${theme.fg("muted", `/ ${VIEW_LABELS[state.view]}`)}`;
-  const rows = state.page.rows.map((row) => {
+  const health = state.health.status === "loading" ? "checking host…" : `host ${state.health.status}`;
+  const heading = `${theme.fg("accent", theme.bold(VIEW_LABELS[state.view]))} ${theme.fg("muted", `· ${health} · ${state.updateCounts.unresolved} updates`)}`;
+  const rows = pluginManagerVisibleRows(state).map((row) => {
     const selected = selectedRow(state) !== undefined && rowKeyIdentity(selectedRow(state)!.key) === rowKeyIdentity(row.key);
     const line = `${selected ? "→" : " "} ${plain(row.title, 256)}  ${styledStatus(theme, row.status, row.statusTone)}`;
     return selected ? theme.bg("selectedBg", line) : line;
   });
-  const available = Math.max(1, bodyHeight - 8);
+  const available = Math.max(1, bodyHeight - (state.view === "installed" ? 10 : 8));
   const visible = boundedWindow(rows, Math.max(0, selectedIndex(state)), available);
   if (bodyHeight <= 5) return [
     heading,
@@ -125,10 +128,14 @@ function listLines(state: PluginManagerState, theme: Theme, focused: boolean, bo
   const row = selectedRow(state);
   const description = row === undefined
     ? emptyMessage(state.view)
-    : `${plain(row.subtitle, 512)}${row.scope === undefined ? "" : ` · ${row.scope}`}`;
+    : `${plain(row.subtitle, 512)}${row.availableScopes === undefined || row.availableScopes.length < 2 ? "" : ` · ${row.availableScopes.join(" + ")}`}`;
   return [
     heading,
     "",
+    ...(state.view === "installed" ? [
+      (["all", "installed", "updates"] as const).map((filter) => filter === state.filter ? theme.fg("accent", `[${filter}]`) : theme.fg("muted", filter)).join("  "),
+      "",
+    ] : []),
     queryLine(state, theme, focused),
     "",
     ...(state.page.errorCode === undefined ? [] : [theme.fg("error", `! ${plain(state.page.errorCode, 64)}`)]),
@@ -151,7 +158,7 @@ function sourceSummary(value: unknown): string {
   return kind || "unavailable";
 }
 
-function detailLines(state: PluginManagerState, theme: Theme): readonly string[] {
+function detailLines(state: PluginManagerState, theme: Theme, bodyHeight: number): readonly string[] {
   const row = selectedRow(state);
   const heading = `${theme.fg("accent", theme.bold("Plugin Manager"))} ${theme.fg("muted", `/ ${VIEW_LABELS[state.view]} / ${plain(row?.title ?? "Detail", 128)}`)}`;
   if (row === undefined) return [heading, "", theme.fg("muted", "No item selected")];
@@ -183,8 +190,32 @@ function detailLines(state: PluginManagerState, theme: Theme): readonly string[]
       lines.push(`Scope         ${row.scope ?? "unknown"}`, `Source        ${plain(row.subtitle)}`, "", theme.fg("warning", "Exact detail is unavailable. Press R to retry."));
     }
   }
+  if (state.operation.state !== "idle") {
+    lines.push("", styledStatus(theme, state.operation.state), ...(state.operation.state === "running" ? [theme.fg("accent", `… ${plain(state.operation.action ?? "working")}`)] : []));
+    for (const item of state.operation.frames.slice(-3)) {
+      if (item.type === "progress") lines.push(theme.fg("muted", `${plain(item.phase)} · ${plain(item.state)}`));
+    }
+    if (state.operation.envelope !== undefined) lines.push(...envelopeLines(state.operation.envelope, theme));
+  }
   const actions = pluginManagerMenuActions(state);
-  if (actions.length > 0) lines.push("", theme.bg("selectedBg", theme.fg("accent", `→ Actions…     ${actions.length} available`)));
+  if (actions.length > 0 && state.operation.state !== "running" && state.operation.state !== "cancelling") {
+    const selectedIndex = Math.max(0, actions.findIndex((action) => action === state.focus.action));
+    const actionRows = actions.map((action, index) => {
+      const selected = index === selectedIndex;
+      const line = `${selected ? "→" : " "} ${PluginManagerActionRegistry[action].label}`;
+      return selected ? theme.bg("selectedBg", theme.fg("accent", line)) : line;
+    });
+    const selected = actions[selectedIndex];
+    if (bodyHeight <= 10) return [
+      heading,
+      styledStatus(theme, row.status, row.statusTone),
+      "",
+      ...boundedWindow(actionRows, selectedIndex, Math.max(1, bodyHeight - 5)),
+      ...(selected === undefined ? [] : [theme.fg("muted", PluginManagerActionRegistry[selected].description)]),
+    ];
+    lines.push("", theme.fg("accent", "Actions"), ...actionRows);
+    if (selected !== undefined) lines.push(theme.fg("muted", PluginManagerActionRegistry[selected].description));
+  }
   return lines;
 }
 
@@ -229,13 +260,11 @@ function footer(state: PluginManagerState, theme: Theme, keybindings: Keybinding
   const key = (id: Parameters<KeybindingsManager["getKeys"]>[0], fallback: string) => plain(keybindings.getKeys(id)[0] ?? fallback, 32);
   const move = `${key("tui.select.up", "up")}/${key("tui.select.down", "down")} navigate`;
   if (state.operation.state !== "idle" || state.screen === "operation-result") return theme.fg("dim", `${move} · ${key("app.interrupt", "escape")} cancel/back`);
-  if (state.focus.pane === "sections") return theme.fg("dim", `${move} · ${key("tui.select.confirm", "enter")} open · R refresh · ${key("app.interrupt", "escape")} close`);
-  if (state.focus.pane === "actions") return theme.fg("dim", `${move} · ${key("tui.select.confirm", "enter")} run · ${key("app.interrupt", "escape")} back`);
   if (state.focus.pane === "detail") {
-    const actionHint = pluginManagerMenuActions(state).length === 0 ? "" : `${key("tui.select.confirm", "enter")} actions · `;
-    return theme.fg("dim", `${actionHint}R refresh · ${key("app.interrupt", "escape")} back`);
+    const actionHint = pluginManagerMenuActions(state).length === 0 ? "" : `${key("tui.select.confirm", "enter")} run · `;
+    return theme.fg("dim", `${move} · ${actionHint}R refresh · ${key("app.interrupt", "escape")} back`);
   }
-  return theme.fg("dim", `${move} · ${key("tui.select.confirm", "enter")} inspect · / search · A add · R refresh · ${key("app.interrupt", "escape")} back`);
+  return theme.fg("dim", `${move} · ${key("tui.select.confirm", "enter")} details · F filter · S sources · / search · R refresh · ${key("app.interrupt", "escape")} close`);
 }
 
 export function renderPluginManager(input: Readonly<{
@@ -250,10 +279,8 @@ export function renderPluginManager(input: Readonly<{
   const height = Math.max(4, Math.floor(input.height));
   const bodyHeight = Math.max(1, height - 3);
   let content: readonly string[];
-  if (input.state.screen === "operation-result" || input.state.operation.state !== "idle") content = operationLines(input.state, input.theme);
-  else if (input.state.focus.pane === "sections") content = homeLines(input.state, input.theme, bodyHeight);
-  else if (input.state.focus.pane === "detail") content = detailLines(input.state, input.theme);
-  else if (input.state.focus.pane === "actions") content = actionLines(input.state, input.theme, bodyHeight);
+  if (input.state.focus.pane === "detail") content = detailLines(input.state, input.theme, bodyHeight);
+  else if (input.state.screen === "operation-result" || input.state.operation.state !== "idle") content = operationLines(input.state, input.theme);
   else content = listLines(input.state, input.theme, input.focused === true, bodyHeight);
   const wrapped = content.flatMap((line) => wrap(line, width));
   const offset = input.state.operation.state !== "idle" || input.state.screen === "operation-result" ? input.state.scroll.operation : input.state.focus.pane === "detail" ? input.state.scroll.detail : 0;

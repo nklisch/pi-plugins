@@ -18,6 +18,7 @@ import { detailCommand, pageCommand, updateStatusCommand } from "./plugin-manage
 import {
   createPluginManagerState,
   pluginManagerReducer,
+  pluginManagerVisibleRows,
   rowKeyIdentity,
   type PluginManagerEvent,
   type PluginManagerIntent,
@@ -89,6 +90,7 @@ function browseRows(envelope: NativeControlEnvelope): readonly PluginManagerRow[
       statusTone: item.availability === "available" || item.availability === "installed-by-default" ? "success" : "error",
       ...(scope === undefined ? {} : { scope }),
       plugin: item.plugin,
+      sourceIdentity: item.sourceIdentity,
       completion: Object.freeze({ category: "candidate" as const, value: item.id, safe: safe(item.name) }),
       data: item as unknown as JsonValue,
     });
@@ -154,10 +156,42 @@ function rowsFor(view: PluginManagerState["view"], envelope: NativeControlEnvelo
   return noticeRows(envelope);
 }
 
+export function mergePluginCatalogRows(installed: readonly PluginManagerRow[], available: readonly PluginManagerRow[], notices: readonly PluginManagerRow[]): readonly PluginManagerRow[] {
+  const updates = new Set(notices.flatMap((row) => row.plugin === undefined || row.scope === undefined ? [] : [`${row.scope}\0${row.plugin}`]));
+  const installedKeys = new Set(installed.flatMap((row) => row.plugin === undefined || row.scope === undefined ? [] : [`${row.scope}\0${row.plugin}`]));
+  const rows = installed.map((row) => {
+    const hasUpdate = row.plugin !== undefined && row.scope !== undefined && updates.has(`${row.scope}\0${row.plugin}`);
+    return hasUpdate ? Object.freeze({ ...row, status: "update available", statusTone: "warning" as const, hasUpdate: true }) : row;
+  });
+  const availableSources = new Map<string, number>();
+  for (const row of available) {
+    const key = row.plugin === undefined || row.scope === undefined ? undefined : `${row.scope}\0${row.plugin}`;
+    const sourceIdentity = row.sourceIdentity;
+    // The catalog projects one candidate per install scope and can observe the
+    // same immutable plugin through both native-host declarations. Collapse
+    // those rows by source identity while retaining every admissible scope.
+    const sourceKey = sourceIdentity;
+    const existingIndex = sourceKey === undefined ? undefined : availableSources.get(sourceKey);
+    if (existingIndex !== undefined) {
+      const existing = rows[existingIndex]!;
+      const scopes = new Set([...(existing.availableScopes ?? (existing.scope === undefined ? [] : [existing.scope])), ...(row.scope === undefined ? [] : [row.scope])]);
+      rows[existingIndex] = Object.freeze({ ...existing, availableScopes: Object.freeze([...scopes]) });
+      continue;
+    }
+    if (key === undefined || !installedKeys.has(key)) {
+      const index = rows.length;
+      rows.push(Object.freeze({ ...row, ...(row.scope === undefined ? {} : { availableScopes: Object.freeze([row.scope]) }) }));
+      if (sourceKey !== undefined) availableSources.set(sourceKey, index);
+    }
+  }
+  return Object.freeze(rows);
+}
+
 function selectedRow(state: PluginManagerState): PluginManagerRow | undefined {
+  const rows = pluginManagerVisibleRows(state);
   const selected = state.focus.row;
-  if (selected === undefined) return state.page.rows[0];
-  return state.page.rows.find((row) => rowKeyIdentity(row.key) === rowKeyIdentity(selected));
+  if (selected === undefined) return rows[0];
+  return rows.find((row) => rowKeyIdentity(row.key) === rowKeyIdentity(selected));
 }
 
 function isAbort(error: unknown, signal: AbortSignal): boolean {
@@ -182,6 +216,7 @@ export function createPluginManagerController(input: Readonly<{
   const listeners = new Set<(state: PluginManagerState) => void>();
 
   function apply(event: PluginManagerEvent): void {
+    if (closed) return;
     const next = pluginManagerReducer(model, event);
     if (next === model) return;
     model = next;
@@ -190,15 +225,22 @@ export function createPluginManagerController(input: Readonly<{
 
   async function loadStatus(): Promise<void> {
     const controller = new AbortController();
-    try {
-      const result = await input.execute(updateStatusCommand(), controller.signal);
+    const updates = input.execute(updateStatusCommand(), controller.signal).then((result) => {
       const status = NativeUpdateStatusSchema.safeParse(result.envelope.data);
       if (status.success) apply({ type: "update-counts", unread: status.data.unreadCount, unresolved: status.data.unresolvedCount });
-    } catch (error) {
-      if (!isAbort(error, controller.signal)) {
-        // Counts remain at the last authoritative snapshot; no inferred fallback.
-      }
-    }
+    }).catch(() => undefined);
+    const health = input.execute(pageCommand({ view: "health", query: "" }), controller.signal).then((result) => {
+      const parsed = HostStatusSnapshotSchema.safeParse(result.envelope.data);
+      if (parsed.success) apply({
+        type: "health-loaded",
+        status: parsed.data.status === "ready" ? "ready" : parsed.data.status === "degraded" ? "degraded" : "blocked",
+        explanation: `${parsed.data.local.runtime} runtime`,
+      });
+      else apply({ type: "health-loaded", status: "unavailable" });
+    }).catch((error) => {
+      if (!isAbort(error, controller.signal)) apply({ type: "health-loaded", status: "unavailable" });
+    });
+    await Promise.all([updates, health]);
   }
 
   async function loadPage(append: boolean): Promise<void> {
@@ -211,6 +253,33 @@ export function createPluginManagerController(input: Readonly<{
     const captured = model;
     apply({ type: "page-loading", request: owned, append });
     try {
+      if (captured.view === "installed" && !append) {
+        const collect = async (view: "installed" | "browse" | "updates"): Promise<readonly PluginManagerRow[]> => {
+          const rows: PluginManagerRow[] = [];
+          let next: string | undefined;
+          // Bound memory and facade work while exhausting each independent
+          // cursor. A unified catalog must not pretend one source's cursor also
+          // represents discovery and update-notice pagination.
+          for (let page = 0; page < 5; page += 1) {
+            const result = await input.execute(pageCommand({ view, query: captured.query, ...(next === undefined ? {} : { next }) }), controller.signal);
+            if (controller.signal.aborted || owned !== request || closed) return Object.freeze([]);
+            const parsed = rowsFor(view, result.envelope);
+            if (parsed === undefined) throw new Error("catalog page did not match its facade contract");
+            rows.push(...parsed);
+            next = result.envelope.page?.next;
+            if (next === undefined) break;
+          }
+          return Object.freeze(rows);
+        };
+        const [installed, available, notices] = await Promise.all([
+          collect("installed"),
+          collect("browse"),
+          collect("updates"),
+        ]);
+        if (controller.signal.aborted || owned !== request || closed) return;
+        apply({ type: "page-loaded", request: owned, rows: mergePluginCatalogRows(installed, available, notices), append: false });
+        return;
+      }
       const result = await input.execute(pageCommand({
         view: captured.view,
         query: captured.query,
@@ -222,13 +291,7 @@ export function createPluginManagerController(input: Readonly<{
         apply({ type: "page-failed", request: owned, code: result.envelope.diagnostics[0]?.code ?? `CONTROL_${result.envelope.status.toUpperCase().replaceAll("-", "_")}` });
         return;
       }
-      apply({
-        type: "page-loaded",
-        request: owned,
-        rows,
-        append,
-        ...(result.envelope.page?.next === undefined ? {} : { next: result.envelope.page.next }),
-      });
+      apply({ type: "page-loaded", request: owned, rows, append, ...(result.envelope.page?.next === undefined ? {} : { next: result.envelope.page.next }) });
     } catch (error) {
       if (!isAbort(error, controller.signal) && owned === request && !closed) {
         apply({ type: "page-failed", request: owned, code: "CONTROL_READ_FAILED" });

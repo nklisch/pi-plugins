@@ -15,13 +15,14 @@ function report(status: "ok" | "cancelled" = "ok"): NativeControlExecutionReport
   };
 }
 
-function harness() {
+function harness(host: any = {}) {
   let component: any;
   let finish: ((value?: unknown) => void) | undefined;
   const done = vi.fn((value?: unknown) => finish?.(value));
   const tui = { terminal: { rows: 12 }, requestRender: vi.fn() } as any;
   const theme = { fg: (_token: string, text: string) => text, bold: (text: string) => text } as any;
   const keybindings = {
+    getKeys: () => ["enter"],
     matches: (data: string, id: string) =>
       id === "tui.select.cancel" || id === "app.interrupt" ? matchesKey(data, Key.escape) :
         id === "tui.select.up" ? matchesKey(data, Key.up) :
@@ -41,11 +42,28 @@ function harness() {
       notify: vi.fn(),
     },
   } as unknown as ExtensionCommandContext;
-  const session = createPluginManagerSession({ host: {} as any, handoff: {} as any });
+  const session = createPluginManagerSession({ host, handoff: {} as any });
   return { context, session, done, tui, get component() { return component; } };
 }
 
 describe("plugin manager live command presentation", () => {
+  it("mounts the catalog before background reads settle", async () => {
+    const reads: Array<{ reject(error: unknown): void }> = [];
+    const host = {
+      runWithPiOperationContext(_context: unknown, _signal: AbortSignal, run: (application: unknown) => Promise<unknown>) {
+        return run({ control: { runArgv: () => new Promise((_resolve, reject) => reads.push({ reject })) } });
+      },
+    };
+    const h = harness(host);
+    const pending = h.session.open(h.context);
+    await vi.waitFor(() => expect(h.component).toBeDefined());
+    expect(reads).toHaveLength(5);
+    expect(h.component.render(60).join("\n")).toContain("loading current state");
+    for (const read of reads) read.reject(new Error("offline"));
+    h.component.requestClose();
+    await pending;
+  });
+
   it("renders a progress frame before completion and aborts exactly once on repeated Escape", async () => {
     const h = harness();
     let aborts = 0;

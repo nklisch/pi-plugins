@@ -27,8 +27,9 @@ import {
   type PluginManagerActionRunner,
 } from "./plugin-manager-actions.js";
 import { PluginManagerComponent, type PluginManagerCloseResult } from "./plugin-manager-component.js";
+import { detailCommand } from "./plugin-manager-commands.js";
 import { createPluginManagerController, type PluginManagerController } from "./plugin-manager-controller.js";
-import { rowKeyIdentity, type PluginManagerRow, type PluginManagerState } from "./plugin-manager-model.js";
+import { pluginManagerVisibleRows, rowKeyIdentity, type PluginManagerRow, type PluginManagerState } from "./plugin-manager-model.js";
 import { PluginOperationView } from "./plugin-operation-view.js";
 
 export interface PluginManagerSession extends PluginManagerPresentation {
@@ -37,8 +38,9 @@ export interface PluginManagerSession extends PluginManagerPresentation {
 }
 
 function selectedRow(state: PluginManagerState): PluginManagerRow | undefined {
-  if (state.focus.row === undefined) return state.page.rows[0];
-  return state.page.rows.find((row) => rowKeyIdentity(row.key) === rowKeyIdentity(state.focus.row!)) ?? state.page.rows[0];
+  const rows = pluginManagerVisibleRows(state);
+  if (state.focus.row === undefined) return rows[0];
+  return rows.find((row) => rowKeyIdentity(row.key) === rowKeyIdentity(state.focus.row!)) ?? rows[0];
 }
 
 function actionIntent(action: string, state: PluginManagerState): PluginManagerActionIntent {
@@ -121,9 +123,25 @@ export function createPluginManagerSession(input: Readonly<{
   }
 
   async function runInstallFlow(context: ExtensionCommandContext, managerState: PluginManagerState): Promise<Readonly<{ kind: "cancelled" | "handled"; presentation?: "local" | "successor" }>> {
-    const row = selectedRow(managerState);
-    const detail = NativeInspectionDetailResultSchema.safeParse(managerState.detail.envelope?.data);
+    let row = selectedRow(managerState);
+    let detail = NativeInspectionDetailResultSchema.safeParse(managerState.detail.envelope?.data);
     if (row === undefined || !detail.success || detail.data.kind !== "found") return Object.freeze({ kind: "cancelled" });
+    if (row.availableScopes !== undefined && row.availableScopes.length > 1) {
+      const selected = await context.ui.select("Add plugin to", row.availableScopes.map((scope) => scope === "project" ? "Current project" : "User account"));
+      if (selected === undefined) return Object.freeze({ kind: "cancelled" });
+      const scope = selected === "Current project" ? "project" as const : "user" as const;
+      if (scope !== row.scope) {
+        const scopedRow = Object.freeze({ ...row, scope });
+        const argv = detailCommand(scopedRow);
+        if (argv === undefined) return Object.freeze({ kind: "cancelled" });
+        const signal = new AbortController().signal;
+        const report = await input.host.runWithPiOperationContext(context, signal, (application) =>
+          application.control.runArgv(argv, { mode: "tui", output: "json" }, signal));
+        detail = NativeInspectionDetailResultSchema.safeParse(report.envelope.data);
+        if (!detail.success || detail.data.kind !== "found") return Object.freeze({ kind: "cancelled" });
+        row = scopedRow;
+      }
+    }
     const candidateDetail = detail.data.detail;
     let state = createPluginInstallState(candidateDetail);
     let component: PluginInstallComponent | undefined;
@@ -301,26 +319,17 @@ export function createPluginManagerSession(input: Readonly<{
     };
     controller = createPluginManagerController({ execute: read, actions });
     activeController = controller;
-    await controller.refresh("all");
-    if (closed || activeController !== controller) return;
+    // Mount first: facade reads may touch several local stores and should never
+    // leave a command invocation looking frozen. The reducer publishes loading
+    // state synchronously and authoritative results replace it in place.
+    void controller.refresh("all");
     try {
-      while (!closed && activeController === controller) {
-        const closeResult = await context.ui.custom<PluginManagerCloseResult>((tui, theme, keybindings, done) => {
-          const component = new PluginManagerComponent({ tui, theme, keybindings, controller, done });
-          activeClose = () => component.requestClose();
-          return component;
-        });
-        activeClose = undefined;
-        if (closeResult.kind !== "action" || closeResult.action === undefined) break;
-
-        // Pi custom components are single-owner surfaces. Close the manager
-        // before presenting confirmation/install overlays, then reopen it from
-        // the controller's authoritative result. Nesting custom() calls lets
-        // Pi dispose the predecessor manager and races its cleanup against the
-        // foreground mutation's AbortSignal.
-        controller.dispatch({ type: "action", action: closeResult.action });
-        await controller.idle();
-      }
+      await context.ui.custom<PluginManagerCloseResult>((tui, theme, keybindings, done) => {
+        const component = new PluginManagerComponent({ tui, theme, keybindings, controller, done });
+        activeClose = () => component.requestClose();
+        return component;
+      });
+      activeClose = undefined;
     } catch {
       if (!presentationDetached) context.ui.notify("Plugin manager terminal rendering failed; facade state is unchanged.", "error");
     } finally {

@@ -9,11 +9,9 @@ import {
 import type { PluginManagerController } from "./plugin-manager-controller.js";
 import { projectTerminalText } from "./pi-terminal-text.js";
 import { renderPluginManager } from "./plugin-manager-render.js";
-import { pluginManagerAvailableActions, rowKeyIdentity, type PluginManagerScrollRegion, type PluginManagerView } from "./plugin-manager-model.js";
+import { pluginManagerAvailableActions, pluginManagerMenuActions, pluginManagerVisibleRows, rowKeyIdentity, type PluginManagerScrollRegion } from "./plugin-manager-model.js";
 
 export type PluginManagerCloseResult = Readonly<{ kind: "closed" | "action"; action?: string }>;
-
-const VIEWS: readonly PluginManagerView[] = ["installed", "browse", "marketplaces", "updates", "health"];
 
 function safePrintable(data: string): string | undefined {
   if (data.length === 0 || data.includes("\n") || data.includes("\r")) return undefined;
@@ -80,12 +78,6 @@ export class PluginManagerComponent implements Component, Focusable {
     return this.cachedLines;
   }
 
-  private switchView(delta: number): void {
-    const current = VIEWS.indexOf(this.controller.state().view);
-    const view = VIEWS[(current + delta + VIEWS.length) % VIEWS.length]!;
-    this.controller.dispatch({ type: "set-view", view });
-  }
-
   private escape(): void {
     const state = this.controller.state();
     if (state.operation.state === "running") {
@@ -93,20 +85,16 @@ export class PluginManagerComponent implements Component, Focusable {
       return;
     }
     if (state.operation.state === "cancelling") return;
+    if (state.operation.state === "finished") {
+      this.controller.dispatch({ type: "return-manager" });
+      return;
+    }
     if (state.screen !== "manager") {
       this.controller.dispatch({ type: "return-manager" });
       return;
     }
-    if (state.focus.pane === "actions") {
-      this.controller.dispatch({ type: "return-detail" });
-      return;
-    }
     if (state.focus.pane === "detail" || state.focus.pane === "query") {
       this.controller.dispatch({ type: "detail-back" });
-      return;
-    }
-    if (state.focus.pane === "list") {
-      this.controller.dispatch({ type: "return-sections" });
       return;
     }
     this.requestClose();
@@ -138,22 +126,18 @@ export class PluginManagerComponent implements Component, Focusable {
   }
 
   private activateAction(action: string): void {
-    if (action === "inspect") this.controller.dispatch({ type: "action", action });
-    else this.finish({ kind: "action", action });
+    this.controller.dispatch({ type: "action", action });
   }
 
   private page(delta: number): void {
     const state = this.controller.state();
     const amount = Math.max(1, state.viewport.rows - 6) * delta;
     if (state.focus.pane === "list" || state.focus.pane === "query") {
-      const selected = state.focus.row === undefined ? 0 : state.page.rows.findIndex((row) => rowKeyIdentity(row.key) === rowKeyIdentity(state.focus.row!));
-      if (delta > 0 && state.page.next !== undefined && selected >= state.page.rows.length - 1) {
+      const rows = pluginManagerVisibleRows(state);
+      const selected = state.focus.row === undefined ? 0 : rows.findIndex((row) => rowKeyIdentity(row.key) === rowKeyIdentity(state.focus.row!));
+      if (delta > 0 && state.page.next !== undefined && selected >= rows.length - 1) {
         this.controller.dispatch({ type: "next-page" });
       } else this.controller.dispatch({ type: "move-selection", delta: amount });
-      return;
-    }
-    if (state.focus.pane === "actions") {
-      this.controller.dispatch({ type: "move-action", delta: amount });
       return;
     }
     this.controller.dispatch({ type: "scroll", region: this.scrollRegion(), delta: amount });
@@ -171,20 +155,20 @@ export class PluginManagerComponent implements Component, Focusable {
     const state = this.controller.state();
     const pane = state.focus.pane;
     if (this.keybindings.matches(data, "tui.select.up")) {
-      if (pane === "sections") this.switchView(-1);
-      else this.controller.dispatch(pane === "actions" ? { type: "move-action", delta: -1 } : pane === "detail" || state.operation.state !== "idle" ? { type: "scroll", region: this.scrollRegion(), delta: -1 } : { type: "move-selection", delta: -1 });
+      this.controller.dispatch(pane === "detail" && pluginManagerMenuActions(state).length > 0 ? { type: "move-action", delta: -1 } : pane === "detail" || state.operation.state !== "idle" ? { type: "scroll", region: this.scrollRegion(), delta: -1 } : { type: "move-selection", delta: -1 });
     } else if (this.keybindings.matches(data, "tui.select.down")) {
-      if (pane === "sections") this.switchView(1);
-      else this.controller.dispatch(pane === "actions" ? { type: "move-action", delta: 1 } : pane === "detail" || state.operation.state !== "idle" ? { type: "scroll", region: this.scrollRegion(), delta: 1 } : { type: "move-selection", delta: 1 });
+      this.controller.dispatch(pane === "detail" && pluginManagerMenuActions(state).length > 0 ? { type: "move-action", delta: 1 } : pane === "detail" || state.operation.state !== "idle" ? { type: "scroll", region: this.scrollRegion(), delta: 1 } : { type: "move-selection", delta: 1 });
     } else if (this.keybindings.matches(data, "tui.select.pageUp")) this.page(-1);
     else if (this.keybindings.matches(data, "tui.select.pageDown")) this.page(1);
     else if (this.keybindings.matches(data, "tui.select.confirm")) {
-      if (pane === "sections") this.controller.dispatch({ type: "open-section" });
-      else if (pane === "actions") this.activateAction(state.focus.action ?? "inspect");
-      else if (pane === "detail") this.controller.dispatch({ type: "open-actions" });
-      else this.controller.dispatch({ type: "open-detail" });
+      if (pane === "detail") {
+        const action = state.focus.action ?? pluginManagerMenuActions(state)[0];
+        if (action !== undefined) this.activateAction(action);
+      } else this.controller.dispatch({ type: "open-detail" });
     } else if (data === "/" && pane === "list") this.controller.dispatch({ type: "focus-query" });
-    else if (data.toLowerCase() === "a" && pane !== "sections") {
+    else if (data.toLowerCase() === "f" && state.view === "installed" && pane === "list") this.controller.dispatch({ type: "cycle-filter" });
+    else if (data.toLowerCase() === "s" && pane === "list") this.controller.dispatch({ type: "set-view", view: state.view === "marketplaces" ? "installed" : "marketplaces" });
+    else if (data.toLowerCase() === "a") {
       const actions = pluginManagerAvailableActions(state);
       if (actions.includes("install")) this.activateAction("install");
       else if (actions.includes("browse-plugins")) this.activateAction("browse-plugins");

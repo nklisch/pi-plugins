@@ -6,7 +6,8 @@ import type { JsonValue } from "../../domain/schema.js";
 import type { PluginManagerStatusTone } from "./plugin-manager-status.js";
 
 export type PluginManagerView = "installed" | "browse" | "marketplaces" | "updates" | "health";
-export type PluginManagerPane = "sections" | "query" | "list" | "detail" | "actions";
+export type PluginManagerPane = "query" | "list" | "detail";
+export type PluginManagerFilter = "all" | "installed" | "updates";
 export type PluginManagerScrollRegion = "detail" | "operation";
 export type PluginManagerScreen = "manager" | "install-inspect" | "install-configure" | "install-result" | "operation-result";
 
@@ -44,9 +45,12 @@ export type PluginManagerRow = Readonly<{
   status: string;
   statusTone?: PluginManagerStatusTone;
   scope?: "user" | "project";
+  availableScopes?: readonly ("user" | "project")[];
+  sourceIdentity?: string;
   plugin?: string;
   completion: NativeControlDynamicCandidate;
   data: JsonValue;
+  hasUpdate?: boolean;
 }>;
 
 export type PluginManagerDetailState = Readonly<{
@@ -68,6 +72,8 @@ export type PluginManagerState = Readonly<{
   view: PluginManagerView;
   focus: Readonly<{ pane: PluginManagerPane; row?: PluginManagerRowKey; action?: string }>;
   query: string;
+  filter: PluginManagerFilter;
+  health: Readonly<{ status: "loading" | "ready" | "degraded" | "blocked" | "unavailable"; explanation?: string }>;
   page: Readonly<{
     rows: readonly PluginManagerRow[];
     next?: string;
@@ -90,6 +96,7 @@ export type PluginManagerState = Readonly<{
 export type PluginManagerIntent =
   | Readonly<{ type: "set-view"; view: PluginManagerView }>
   | Readonly<{ type: "set-query"; query: string }>
+  | Readonly<{ type: "cycle-filter" }>
   | Readonly<{ type: "submit-search" }>
   | Readonly<{ type: "move-selection"; delta: number }>
   | Readonly<{ type: "move-action"; delta: number }>
@@ -121,6 +128,7 @@ export type PluginManagerEvent =
   | Readonly<{ type: "select-row"; row: PluginManagerRowKey }>
   | Readonly<{ type: "focus"; pane: PluginManagerPane; action?: string }>
   | Readonly<{ type: "update-counts"; unread: number; unresolved: number }>
+  | Readonly<{ type: "health-loaded"; status: PluginManagerState["health"]["status"]; explanation?: string }>
   | Readonly<{ type: "frame"; frame: NativeControlFrame }>
   | Readonly<{ type: "operation-started"; action: string }>
   | Readonly<{ type: "operation-cancelling" }>
@@ -137,8 +145,10 @@ export function createPluginManagerState(): PluginManagerState {
   return Object.freeze({
     screen: "manager",
     view: "installed",
-    focus: Object.freeze({ pane: "sections" }),
+    focus: Object.freeze({ pane: "list" }),
     query: "",
+    filter: "all",
+    health: Object.freeze({ status: "loading" }),
     page: Object.freeze({ rows: Object.freeze([]), loading: false, request: 0, pages: 0, append: false }),
     detail: Object.freeze({ loading: false, request: 0 }),
     installedCount: 0,
@@ -153,6 +163,12 @@ export function createPluginManagerState(): PluginManagerState {
 
 export function rowKeyIdentity(key: PluginManagerRowKey): string {
   return `${key.subject}\0${key.key}\0${key.snapshotId ?? ""}\0${key.detailId ?? ""}`;
+}
+
+export function pluginManagerVisibleRows(state: PluginManagerState): readonly PluginManagerRow[] {
+  if (state.view !== "installed" || state.filter === "all") return state.page.rows;
+  if (state.filter === "installed") return state.page.rows.filter((row) => row.key.subject === "installed");
+  return state.page.rows.filter((row) => row.hasUpdate === true);
 }
 
 function sameRow(left: PluginManagerRowKey | undefined, right: PluginManagerRowKey | undefined): boolean {
@@ -202,9 +218,10 @@ export function pluginManagerMenuActions(state: PluginManagerState): readonly Pl
 }
 
 function selectedIndex(state: PluginManagerState): number {
+  const rows = pluginManagerVisibleRows(state);
   const selected = state.focus.row;
-  if (selected === undefined) return state.page.rows.length === 0 ? -1 : 0;
-  return state.page.rows.findIndex((row) => sameRow(row.key, selected));
+  if (selected === undefined) return rows.length === 0 ? -1 : 0;
+  return rows.findIndex((row) => sameRow(row.key, selected));
 }
 
 function resetPage(state: PluginManagerState, view: PluginManagerView, query = state.query): PluginManagerState {
@@ -212,7 +229,7 @@ function resetPage(state: PluginManagerState, view: PluginManagerView, query = s
     ...state,
     view,
     query,
-    focus: Object.freeze({ pane: "sections" }),
+    focus: Object.freeze({ pane: "list" }),
     page: Object.freeze({ rows: Object.freeze([]), loading: false, request: state.page.request, pages: 0, append: false }),
     detail: Object.freeze({ loading: false, request: state.detail.request }),
     scroll: Object.freeze({ ...state.scroll, detail: 0 }),
@@ -222,41 +239,46 @@ function resetPage(state: PluginManagerState, view: PluginManagerView, query = s
 function reduceIntent(state: PluginManagerState, intent: PluginManagerIntent): PluginManagerState {
   if (intent.type === "set-view") return intent.view === state.view ? state : resetPage(state, intent.view);
   if (intent.type === "set-query") return Object.freeze({ ...state, query: intent.query });
+  if (intent.type === "cycle-filter") {
+    const filters: readonly PluginManagerFilter[] = ["all", "installed", "updates"];
+    const next = Object.freeze({
+      ...state,
+      filter: filters[(filters.indexOf(state.filter) + 1) % filters.length]!,
+      detail: Object.freeze({ loading: false, request: state.detail.request }),
+      scroll: Object.freeze({ ...state.scroll, detail: 0 }),
+    });
+    const row = pluginManagerVisibleRows(next)[0];
+    return Object.freeze({ ...next, focus: Object.freeze({ pane: state.focus.pane, ...(row === undefined ? {} : { row: row.key }) }) });
+  }
   if (intent.type === "submit-search") return Object.freeze({ ...state, focus: Object.freeze({ pane: "list", ...(state.focus.row === undefined ? {} : { row: state.focus.row }) }) });
   if (intent.type === "select-row") return Object.freeze({ ...state, focus: Object.freeze({ pane: "list", row: intent.row }) });
   if (intent.type === "move-selection") {
-    if (state.page.rows.length === 0) return state;
+    const rows = pluginManagerVisibleRows(state);
+    if (rows.length === 0) return state;
     const current = Math.max(0, selectedIndex(state));
-    const index = Math.max(0, Math.min(state.page.rows.length - 1, current + intent.delta));
-    return Object.freeze({ ...state, focus: Object.freeze({ pane: "list", row: state.page.rows[index]!.key }) });
+    const index = Math.max(0, Math.min(rows.length - 1, current + intent.delta));
+    return Object.freeze({ ...state, focus: Object.freeze({ pane: "list", row: rows[index]!.key }) });
   }
   if (intent.type === "move-action") {
-    const row = state.page.rows[Math.max(0, selectedIndex(state))];
+    const row = pluginManagerVisibleRows(state)[Math.max(0, selectedIndex(state))];
     const actions = pluginManagerMenuActions(state);
     if (actions.length === 0) return state;
     const current = Math.max(0, actions.indexOf(state.focus.action as PluginManagerActionId));
     const action = actions[(current + intent.delta + actions.length) % actions.length]!;
-    return Object.freeze({ ...state, focus: Object.freeze({ pane: "actions", ...(row === undefined ? {} : { row: row.key }), action }) });
+    return Object.freeze({ ...state, focus: Object.freeze({ pane: "detail", ...(row === undefined ? {} : { row: row.key }), action }) });
   }
   if (intent.type === "scroll") {
     return Object.freeze({ ...state, scroll: Object.freeze({ ...state.scroll, [intent.region]: Math.max(0, state.scroll[intent.region] + intent.delta) }) });
   }
-  if (intent.type === "open-section") {
-    const row = state.page.rows[Math.max(0, selectedIndex(state))];
-    return Object.freeze({ ...state, focus: Object.freeze({ pane: "list", ...(row === undefined ? {} : { row: row.key }) }) });
-  }
-  if (intent.type === "return-sections") return Object.freeze({ ...state, focus: Object.freeze({ pane: "sections" }) });
+  if (intent.type === "open-section" || intent.type === "return-sections") return state;
   if (intent.type === "open-detail") {
     const index = Math.max(0, selectedIndex(state));
-    const row = state.page.rows[index];
-    return row === undefined ? state : Object.freeze({ ...state, focus: Object.freeze({ pane: "detail", row: row.key }) });
-  }
-  if (intent.type === "open-actions") {
-    const row = state.page.rows[Math.max(0, selectedIndex(state))];
+    const row = pluginManagerVisibleRows(state)[index];
+    if (row === undefined) return state;
     const action = pluginManagerMenuActions(state)[0];
-    return action === undefined ? state : Object.freeze({ ...state, focus: Object.freeze({ pane: "actions", ...(row === undefined ? {} : { row: row.key }), action }) });
+    return Object.freeze({ ...state, focus: Object.freeze({ pane: "detail", row: row.key, ...(action === undefined ? {} : { action }) }) });
   }
-  if (intent.type === "return-detail") return Object.freeze({ ...state, focus: Object.freeze({ pane: "detail", ...(state.focus.row === undefined ? {} : { row: state.focus.row }) }) });
+  if (intent.type === "open-actions" || intent.type === "return-detail") return state;
   if (intent.type === "detail-back") return Object.freeze({ ...state, focus: Object.freeze({ pane: "list", ...(state.focus.row === undefined ? {} : { row: state.focus.row }) }) });
   if (intent.type === "focus-query") return Object.freeze({ ...state, focus: Object.freeze({ pane: "query" }) });
   if (intent.type === "toggle-help") return Object.freeze({ ...state, help: !state.help });
@@ -300,7 +322,7 @@ export function pluginManagerReducer(state: PluginManagerState, event: PluginMan
     return Object.freeze({
       ...state,
       focus: Object.freeze({ pane: state.focus.pane, ...(row === undefined ? {} : { row }), ...(state.focus.action === undefined ? {} : { action: state.focus.action }) }),
-      installedCount: state.view === "installed" ? rows.length : state.installedCount,
+      installedCount: state.view === "installed" ? rows.filter((entry) => entry.key.subject === "installed").length : state.installedCount,
       page: Object.freeze({ rows, loading: false, request: event.request, pages: Math.min(5, pages), append: event.append, ...(event.next === undefined ? {} : { next: event.next }) }),
     });
   }
@@ -311,9 +333,12 @@ export function pluginManagerReducer(state: PluginManagerState, event: PluginMan
   if (event.type === "detail-loading") return Object.freeze({ ...state, detail: Object.freeze({ loading: true, request: event.request, row: event.row }) });
   if (event.type === "detail-loaded") {
     if (event.request !== state.detail.request || !sameRow(event.row, state.detail.row)) return state;
-    return Object.freeze({ ...state, detail: Object.freeze({ loading: false, request: event.request, row: event.row, envelope: event.envelope }) });
+    const detailed = Object.freeze({ ...state, detail: Object.freeze({ loading: false, request: event.request, row: event.row, envelope: event.envelope }) });
+    const action = pluginManagerMenuActions(detailed)[0];
+    return Object.freeze({ ...detailed, focus: Object.freeze({ pane: "detail", row: event.row, ...(action === undefined ? {} : { action }) }) });
   }
   if (event.type === "update-counts") return Object.freeze({ ...state, updateCounts: Object.freeze({ unread: event.unread, unresolved: event.unresolved }) });
+  if (event.type === "health-loaded") return Object.freeze({ ...state, health: Object.freeze({ status: event.status, ...(event.explanation === undefined ? {} : { explanation: event.explanation }) }) });
   if (event.type === "operation-started") return Object.freeze({ ...state, operation: Object.freeze({ state: "running", action: event.action, frames: Object.freeze([]) }) });
   if (event.type === "operation-cancelling") {
     if (state.operation.state !== "running") return state;
@@ -321,7 +346,7 @@ export function pluginManagerReducer(state: PluginManagerState, event: PluginMan
   }
   if (event.type === "operation-abandoned") return Object.freeze({ ...state, screen: "manager", operation: EMPTY_OPERATION });
   if (event.type === "frame") return Object.freeze({ ...state, operation: Object.freeze({ ...state.operation, frames: Object.freeze([...state.operation.frames.slice(-199), event.frame]) }), scroll: Object.freeze({ ...state.scroll, operation: 0 }) });
-  if (event.type === "operation-finished") return Object.freeze({ ...state, screen: "operation-result", operation: Object.freeze({ ...state.operation, state: "finished", envelope: event.envelope }) });
+  if (event.type === "operation-finished") return Object.freeze({ ...state, screen: "manager", operation: Object.freeze({ ...state.operation, state: "finished", envelope: event.envelope }) });
   if (event.type === "screen") return Object.freeze({ ...state, screen: event.screen });
   if (event.type === "resized") return Object.freeze({ ...state, viewport: Object.freeze({ columns: Math.max(1, event.columns), rows: Math.max(1, event.rows) }) });
   if (event.type === "reset-from-authority") return resetPage(state, state.view);

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createNativeControlEnvelope } from "../../../src/application/native-control-contract.js";
 import type { NativeControlExecutionReport } from "../../../src/application/ports/native-control-execution.js";
-import { createPluginManagerController } from "../../../src/pi/manager/plugin-manager-controller.js";
+import { createPluginManagerController, mergePluginCatalogRows } from "../../../src/pi/manager/plugin-manager-controller.js";
+import type { PluginManagerRow } from "../../../src/pi/manager/plugin-manager-model.js";
 
 const executionId = "native-control-execution-v1:123e4567-e89b-42d3-a456-426614174000" as never;
 const snapshotId = `inspection-snapshot-v1:sha256:${"a".repeat(64)}`;
@@ -38,7 +39,7 @@ function updateStatus(unread = 0, unresolved = 0) {
   };
 }
 
-function report(command: "inspection.list" | "updates.status", data: unknown, page?: { next?: string }): NativeControlExecutionReport {
+function report(command: "inspection.list" | "updates.status" | "browse" | "updates.notices.list" | "status", data: unknown, page?: { next?: string }): NativeControlExecutionReport {
   return {
     envelope: createNativeControlEnvelope({ executionId, command, status: "ok", data: data as never, ...(page === undefined ? {} : { page }) }),
     delivery: "complete",
@@ -46,12 +47,52 @@ function report(command: "inspection.list" | "updates.status", data: unknown, pa
   };
 }
 
+const emptyBrowse = () => report("browse", { candidates: [], observations: [] });
+const emptyNotices = () => report("updates.notices.list", { notices: [], unreadCount: 0, unresolvedCount: 0 });
+const healthStatus = () => report("status", {
+  status: "ready",
+  local: { recovery: "settled", runtime: "ready" },
+  update: { state: "standby", unresolvedCount: 0, unreadCount: 0, scopes: [] },
+  blocked: [],
+  capabilities: {
+    mcp: { status: "available", explanation: "ready" },
+    subagents: { status: "available", explanation: "ready" },
+    piReload: { status: "available", explanation: "ready" },
+    secrets: { status: "available", explanation: "ready" },
+  },
+});
+
+function catalogResult(argv: readonly string[], plugin = "demo@market", next?: string): NativeControlExecutionReport {
+  if (argv[0] === "browse") return emptyBrowse();
+  if (argv[0] === "status") return healthStatus();
+  if (argv[0] === "updates" && argv[1] === "status") return report("updates.status", updateStatus(2, 3));
+  if (argv[0] === "updates") return emptyNotices();
+  return report("inspection.list", installedPage(plugin, next), next === undefined ? undefined : { next });
+}
+
 describe("plugin manager controller", () => {
+  it("deduplicates equivalent Claude/Codex candidates by immutable source identity", () => {
+    const candidate = (key: string, sourceIdentity: string, scope: "user" | "project" = "user"): PluginManagerRow => ({
+      key: { subject: "candidate", key }, title: "agent-coordination", subtitle: "skills", status: "available", scope,
+      plugin: `agent-coordination@${key}`,
+      sourceIdentity,
+      completion: { category: "candidate", value: key, safe: safe("agent-coordination") },
+      data: { sourceIdentity },
+    });
+    const rows = mergePluginCatalogRows([], [
+      candidate("claude", `sha256:${"a".repeat(64)}`),
+      candidate("codex", `sha256:${"a".repeat(64)}`, "project"),
+      candidate("other", `sha256:${"b".repeat(64)}`),
+    ], []);
+    expect(rows.map((row) => row.key.key)).toEqual(["claude", "other"]);
+    expect(rows[0]?.availableScopes).toEqual(["user", "project"]);
+  });
+
   it("loads installed authority and update counts only through canonical facade argv", async () => {
     const calls: readonly string[][] = [];
     const execute = vi.fn(async (argv: readonly string[]) => {
       (calls as string[][]).push([...argv]);
-      return argv[0] === "updates" ? report("updates.status", updateStatus(2, 3)) : report("inspection.list", installedPage());
+      return catalogResult(argv);
     });
     const controller = createPluginManagerController({ execute });
     await controller.refresh("all");
@@ -89,7 +130,11 @@ describe("plugin manager controller", () => {
 
   it("uses latest-intent-wins for search and ignores a late aborted response", async () => {
     const pending: Array<{ argv: readonly string[]; resolve: (value: NativeControlExecutionReport) => void; signal: AbortSignal }> = [];
-    const execute = vi.fn((argv: readonly string[], signal: AbortSignal) => new Promise<NativeControlExecutionReport>((resolve) => pending.push({ argv, resolve, signal })));
+    const execute = vi.fn((argv: readonly string[], signal: AbortSignal) => {
+      if (argv[0] === "browse") return Promise.resolve(emptyBrowse());
+      if (argv[0] === "updates") return Promise.resolve(emptyNotices());
+      return new Promise<NativeControlExecutionReport>((resolve) => pending.push({ argv, resolve, signal }));
+    });
     const controller = createPluginManagerController({ execute });
     controller.dispatch({ type: "set-query", query: "old" });
     const old = controller.refresh("view");
@@ -103,7 +148,7 @@ describe("plugin manager controller", () => {
     expect(controller.state().page.rows.map((row) => row.plugin)).toEqual(["new@market"]);
   });
 
-  it("follows only facade cursors, appends pages, and loads exact detail IDs", async () => {
+  it("exhausts independent catalog cursors and loads exact detail IDs", async () => {
     const cursor = `inspection-cursor-v1:YWJj.${"c".repeat(64)}`;
     const execute = vi.fn(async (argv: readonly string[]) => {
       if (argv[0] === "show") {
@@ -113,12 +158,10 @@ describe("plugin manager controller", () => {
           deliveredThrough: -1,
         };
       }
-      return report("inspection.list", installedPage("demo@market", cursor), { next: cursor });
+      return catalogResult(argv, "demo@market", cursor);
     });
     const controller = createPluginManagerController({ execute });
     await controller.refresh("view");
-    controller.dispatch({ type: "next-page" });
-    await controller.idle();
     expect(execute).toHaveBeenCalledWith(expect.arrayContaining(["--cursor", cursor]), expect.any(AbortSignal));
     controller.dispatch({ type: "open-detail" });
     await controller.idle();
@@ -129,7 +172,7 @@ describe("plugin manager controller", () => {
   });
 
   it("detaches an admitted action on reload while closing reads and repeated cancellation remains owner-bound", async () => {
-    const execute = vi.fn(async () => report("inspection.list", installedPage()));
+    const execute = vi.fn(async (argv: readonly string[]) => catalogResult(argv));
     let resolveAction!: (value: any) => void;
     const actions = {
       run: vi.fn(() => new Promise((resolve) => { resolveAction = resolve; })),
@@ -148,9 +191,7 @@ describe("plugin manager controller", () => {
   });
 
   it("keeps safe dynamic completion only and clears all ephemeral state on close", async () => {
-    const execute = vi.fn(async (argv: readonly string[]) => argv[0] === "updates"
-      ? report("updates.status", updateStatus())
-      : report("inspection.list", installedPage()));
+    const execute = vi.fn(async (argv: readonly string[]) => catalogResult(argv));
     const controller = createPluginManagerController({ execute });
     await controller.refresh("all");
     expect(controller.dynamicCompletions()).toEqual([{ category: "plugin", value: "demo@market", safe: safe("demo") }]);
