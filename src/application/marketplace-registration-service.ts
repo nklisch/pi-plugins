@@ -265,7 +265,21 @@ export function createMarketplaceRegistrationService(
           signal,
         );
         if (result.kind === "committed") break;
-        if (result.kind === "commit-ambiguous") return MarketplaceAddResultSchema.parse({ kind: "indeterminate", code: "COMMIT_AMBIGUOUS", registrationId });
+        if (result.kind === "commit-ambiguous") {
+          // Ambiguous commit evidence may be followed immediately by another
+          // scope generation. The exact source registration plus selected
+          // snapshot is sufficient idempotent authority even when this caller
+          // can no longer prove which concurrent writer published it.
+          const recoverySignal = new AbortController().signal;
+          const reconciled = await dependencies.state.read(scope, recoverySignal).catch(() => undefined);
+          if (reconciled?.ok) {
+            const winner = recordBySource(reconciled.snapshot, source, dependencies.sha256);
+            if (winner !== undefined && snapshotFor(reconciled.snapshot, winner.marketplace) !== undefined) {
+              return MarketplaceAddResultSchema.parse({ kind: "unchanged", registration: await view(reconciled.snapshot, winner, recoverySignal) });
+            }
+          }
+          return MarketplaceAddResultSchema.parse({ kind: "indeterminate", code: "COMMIT_AMBIGUOUS", registrationId });
+        }
         if (result.kind !== "stale-generation") break;
 
         const latest = await dependencies.state.read(scope, signal);

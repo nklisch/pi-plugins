@@ -16,7 +16,7 @@ import { deriveProjectKey } from "../../src/domain/state/scope.js";
 const sha256: Sha256 = (bytes) => new Uint8Array(createHash("sha256").update(bytes).digest());
 const digest = (value: string) => `sha256:${value.repeat(64)}` as `sha256:${string}`;
 
-function environment(options: Readonly<{ abortAfterCommit?: AbortController }> = {}) {
+function environment(options: Readonly<{ abortAfterCommit?: AbortController; ambiguousAfterCommit?: boolean }> = {}) {
   const generation = GenerationSchema.parse(0);
   let current: Extract<GenerationSnapshot, { scope: { kind: "user" } }> = {
     scope: { kind: "user" },
@@ -71,7 +71,9 @@ function environment(options: Readonly<{ abortAfterCommit?: AbortController }> =
           pointers: { ...current.pointers, generation: next, previousGeneration: current.generation, documents: current.pointers.documents.map((pointer) => ({ ...pointer, generation: next })) },
         };
         options.abortAfterCommit?.abort(new Error("cancelled after durable commit"));
-        return { kind: "committed" as const, value: prepared.value, snapshot: current };
+        return options.ambiguousAfterCommit
+          ? { kind: "commit-ambiguous" as const, value: prepared.value, expected: request.expectedGeneration, actual: current.generation }
+          : { kind: "committed" as const, value: prepared.value, snapshot: current };
       } finally {
         release();
       }
@@ -121,6 +123,18 @@ describe("marketplace registration service", () => {
     }, controller.signal);
     expect(result).toMatchObject({ kind: "added", registration: { marketplace: "community" } });
     expect(fixture.state().config.records).toHaveLength(1);
+  });
+
+  it("reconciles ambiguous commit evidence from exact durable source authority", async () => {
+    const fixture = environment({ ambiguousAfterCommit: true });
+    const result = await fixture.service.add({
+      source: { kind: "github", repository: "example/community" },
+      scope: "user",
+      origin: { kind: "native" },
+    }, new AbortController().signal);
+    expect(result).toMatchObject({ kind: "unchanged", registration: { marketplace: "community" } });
+    expect(fixture.state().config.records).toHaveLength(1);
+    expect(fixture.state().installed.marketplaces).toHaveLength(1);
   });
 
   it("reports an authoritative root-name conflict without replacing the selected cache", async () => {
