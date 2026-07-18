@@ -22,11 +22,9 @@ import {
   composeSkillHookContributionObservation,
   digestSkillResourceContribution,
   SkillResourceContributionObservationSchema,
-  type SkillHookSnapshotObservation,
   type SkillResourceContributionObservation,
 } from "./contribution-observation.js";
 import {
-  type SkillHookLifecycleParticipant,
   type SkillHookSnapshotObservationResult,
   type SkillHookSnapshotParticipant,
 } from "../skill-hook/lifecycle-participant.js";

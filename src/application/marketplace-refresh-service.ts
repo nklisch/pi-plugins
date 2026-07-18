@@ -1,7 +1,6 @@
 import {
   MarketplaceRegistrationRecordSchema,
   UpdateNoticeSchema,
-  backoffDelayMs,
   deriveMarketplaceSourceIdentity,
   type MarketplaceRegistrationRecord,
 } from "../domain/update-policy.js";
@@ -17,7 +16,7 @@ import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
 import type { CurrentProjectRuntimeContext, ProjectTrustPort } from "./ports/project-trust.js";
 import type { UpdateSchedulerLeasePort } from "./ports/update-scheduler-lease.js";
 import type { UpdateSchedulerLeaseId } from "../domain/update-policy.js";
-import type { MarketplaceMaterializer, MaterializedMarketplace, PluginMaterializer, SourceContext } from "./source-materialization.js";
+import type { MarketplaceMaterializer, MaterializedMarketplace, PluginMaterializer } from "./source-materialization.js";
 import type { PluginLifecycleService } from "./plugin-lifecycle-service.js";
 import type { LifecycleRejectionCode } from "./plugin-lifecycle-contract.js";
 import type { GenerationSnapshot } from "./state-contract.js";

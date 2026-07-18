@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { PluginCommandAdapter } from "./plugin-command.js";
 import type { PiManagerReloadHandoff } from "./pi-manager-reload-handoff.js";
 import type { PiUpdateNotificationPublisher } from "./pi-update-notification-publisher.js";

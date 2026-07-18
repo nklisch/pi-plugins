@@ -7,8 +7,6 @@ import {
   type ContentManifest,
 } from "./content-manifest.js";
 import {
-  ResolvedMarketplaceSourceSchema,
-  ResolvedPluginSourceSchema,
   verifyResolvedMarketplaceSource,
   verifyResolvedPluginSource,
   type ResolvedMarketplaceSource,

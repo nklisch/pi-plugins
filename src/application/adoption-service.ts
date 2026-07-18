@@ -2,12 +2,11 @@ import {
   AdoptionDocumentKindRegistry,
   adoptionDocumentHosts,
   type AdoptionCandidate,
-  type AdoptionCandidateId,
   type AdoptionDocumentKind,
   reconcileAdoptionDeclarations,
 } from "../domain/adoption.js";
 import { DiagnosticSchema, ErrorCodeRegistry, type Diagnostic } from "../domain/error-contract.js";
-import { createScopeContext, ScopeContextSchema, type ScopeContext } from "../domain/state/scope.js";
+import { createScopeContext, ScopeContextSchema } from "../domain/state/scope.js";
 import {
   ForeignStateFileObservationSchema,
   AdoptionDiscoveryResultSchema,

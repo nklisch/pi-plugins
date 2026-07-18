@@ -1,4 +1,4 @@
-import { HookSpecificOutputSchema, CommandHookJsonOutputSchema, HookOutputEventPolicyRegistry, HookOutputFieldRegistry, type CommandHookJsonOutput, type ParsedHookDecision } from "../../domain/hook-output-contract.js";
+import { CommandHookJsonOutputSchema, HookOutputEventPolicyRegistry, HookOutputFieldRegistry, type CommandHookJsonOutput, type ParsedHookDecision } from "../../domain/hook-output-contract.js";
 import type { JsonValue } from "../../domain/schema.js";
 import { HOOK_MAX_AGGREGATED_TEXT_BYTES, HOOK_STDERR_MAX_BYTES, HOOK_STDOUT_MAX_BYTES } from "../../domain/hook-runtime-limits.js";
 import type { HookExecutionBinding } from "../../domain/hook-execution-binding.js";

@@ -3,11 +3,7 @@ import { DomainContractError } from "./domain-error.js";
 import { ErrorCodeRegistry } from "./error-contract.js";
 import { JsonValueSchema, type JsonValue, nonEmptyReadonly } from "./schema.js";
 import {
-  NativeHostSchema,
-  SourceDocumentKindSchema,
   SourceLocationSchema,
-  type NativeHost,
-  type SourceDocumentKind,
   type SourceLocation,
 } from "./provenance-location.js";
 

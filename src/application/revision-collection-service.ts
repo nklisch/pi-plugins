@@ -9,10 +9,10 @@ import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
 import type { LifecycleStateInventoryPort } from "./ports/lifecycle-state-inventory.js";
 import type { LifecycleTransitionStore } from "./ports/lifecycle-transition-store.js";
 import type { LifecycleClock } from "./ports/lifecycle-clock.js";
-import type { RevisionArtifactStore, RetainedArtifactRef, RevisionArtifactCandidate } from "./ports/revision-artifact-store.js";
+import type { RevisionArtifactStore, RetainedArtifactRef } from "./ports/revision-artifact-store.js";
 import type { RevisionLeaseStore } from "./ports/revision-lease-store.js";
 import type { RevisionRetentionStore } from "./ports/revision-retention-store.js";
-import { DefaultLifecycleRecoveryPolicy } from "./recovery-contract.js";
+import "./recovery-contract.js";
 import type { Sha256 } from "../domain/source.js";
 
 export const DefaultRevisionCollectionPolicy = Object.freeze({

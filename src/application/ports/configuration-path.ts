@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CanonicalConfigurationPathSchema, type CanonicalConfigurationPath } from "../../domain/configured-values.js";
+import { CanonicalConfigurationPathSchema } from "../../domain/configured-values.js";
 import type { ScopeContext } from "../../domain/state/scope.js";
 import type { TrustedProjectRoot } from "./project-root-authority.js";
 

@@ -1,6 +1,5 @@
 import { compareUtf8 } from "../domain/canonical-json.js";
 import type { ContentDigest } from "../domain/content-manifest.js";
-import type { ScopeContext } from "../domain/state/scope.js";
 import type { Sha256 } from "../domain/source.js";
 import {
   ConfigurationCleanupError,

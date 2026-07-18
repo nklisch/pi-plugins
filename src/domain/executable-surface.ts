@@ -6,8 +6,6 @@ import {
   type PluginComponents,
 } from "./components.js";
 import {
-  ConfigurationOptionSchema,
-  PluginConfigurationSchema,
   type ConfigurationOption,
 } from "./configuration.js";
 import { CompatibilityReportSchema, type CompatibilityReport } from "./compatibility.js";

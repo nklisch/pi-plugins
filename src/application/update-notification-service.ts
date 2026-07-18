@@ -2,12 +2,11 @@ import { canonicalJson, compareUtf8 } from "../domain/canonical-json.js";
 import type { MarketplaceCandidateId, MarketplaceRegistrationId, MarketplaceSnapshotToken } from "../domain/marketplace-registration.js";
 import { deriveMarketplaceRegistrationId } from "../domain/marketplace-registration.js";
 import { PluginKeySchema, type PluginKey } from "../domain/identity.js";
-import { ScopeContextSchema, ScopeReferenceSchema, toScopeReference, type ScopeContext, type ScopeReference } from "../domain/state/scope.js";
+import { ScopeContextSchema, toScopeReference, type ScopeContext, type ScopeReference } from "../domain/state/scope.js";
 import {
   AvailableRevisionSchema,
   MarketplaceRegistrationRecordSchema,
   UpdateCandidateKeySchema,
-  UpdateNoticeIdSchema,
   UpdateNoticeSchema,
   type AvailableRevision,
   type UpdateCandidateKey,

@@ -19,7 +19,7 @@ import { presentConfirmationOverlay } from "./confirmation-overlay.js";
 import { createPiControlInputPort } from "./pi-control-input.js";
 import { createPiManagerFrameSink } from "./pi-manager-frame-sink.js";
 import { PluginInstallComponent, type PluginInstallComponentAction } from "./plugin-install-component.js";
-import { createPluginInstallState, pluginInstallReducer, type PluginInstallEvent, type PluginInstallState } from "./plugin-install-flow.js";
+import { createPluginInstallState, pluginInstallReducer, type PluginInstallEvent } from "./plugin-install-flow.js";
 import {
   createPluginManagerActionRunner,
   type PluginManagerActionConfirmation,

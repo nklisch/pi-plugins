@@ -23,7 +23,6 @@ import {
 import {
   NativeHostSchema,
   ProvenanceSchema,
-  type Claimed,
   type NativeHost,
   type Provenance,
 } from "../domain/provenance.js";

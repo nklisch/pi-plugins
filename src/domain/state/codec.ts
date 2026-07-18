@@ -1,18 +1,13 @@
 import { z } from "zod";
 import {
   MarketplaceConfigurationRecordSchema,
-  HostConfigDocumentSchemaV1,
   HostConfigDocumentSchema,
   HostConfigSchemaFamily,
   projectHostConfigV1ToV2,
   type HostConfigDocumentV1,
-  type HostConfigDocument,
 } from "./config-state.js";
 import {
-  InstalledUserStateDocumentSchemaV1,
   InstalledUserStateDocumentSchema,
-  InstalledUserStateSchemaFamily,
-  MarketplaceSnapshotRecordSchema,
   createInstalledPluginRecord,
   createMarketplaceSnapshotRecord,
   createInstalledUserStateDocumentV2,
@@ -21,13 +16,9 @@ import {
   type InstalledUserStateDocument,
 } from "./installed-state.js";
 import {
-  ProjectLocalStateDocumentSchemaV1,
   ProjectLocalStateDocumentSchema,
-  ProjectLocalStateSchemaFamily,
-  createProjectLocalStateDocument,
   createProjectLocalStateDocumentV4,
   type ProjectLocalStateDocumentV1,
-  type ProjectLocalStateDocument,
 } from "./project-state.js";
 import {
   PortableProjectDeclarationSchemaV1,

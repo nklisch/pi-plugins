@@ -1,9 +1,9 @@
 import { canonicalJson, compareUtf8 } from "../domain/canonical-json.js";
 import { PluginKeySchema, type PluginKey } from "../domain/identity.js";
 import { deriveMarketplaceRegistrationId, MarketplaceRegistrationIdSchema } from "../domain/marketplace-registration.js";
-import { GenerationSchema, HostConfigDocumentSchema } from "../domain/state/config-state.js";
+import { HostConfigDocumentSchema } from "../domain/state/config-state.js";
 import { ProjectLocalStateDocumentSchema } from "../domain/state/project-state.js";
-import { ScopeContextSchema, ScopeReferenceSchema, toScopeReference, type ScopeContext, type ScopeReference } from "../domain/state/scope.js";
+import { ScopeContextSchema, toScopeReference, type ScopeContext, type ScopeReference } from "../domain/state/scope.js";
 import {
   MarketplaceRegistrationRecordSchema,
   StableSourceIdentitySchema,

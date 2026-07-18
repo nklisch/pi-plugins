@@ -2,17 +2,15 @@ import { z } from "zod";
 import {
   DiagnosticSchema,
   ErrorCodeRegistry,
-  ErrorCodeSchema,
   FatalBoundaryCodeSchema,
   type Diagnostic,
-  type ErrorCode,
   type FatalBoundaryCode,
 } from "./error-contract.js";
 import { DomainContractError } from "./domain-error.js";
 import { PluginKeySchema, type PluginKey } from "./identity.js";
 import { SourceLocationSchema, type SourceLocation } from "./provenance-location.js";
 import { JsonValueSchema } from "./schema.js";
-import { ClaimConflictError } from "./provenance.js";
+import "./provenance.js";
 
 export {
   ErrorCodeRegistry,

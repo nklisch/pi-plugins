@@ -21,7 +21,6 @@ import {
   type PluginManagerEvent,
   type PluginManagerIntent,
   type PluginManagerRow,
-  type PluginManagerRowKey,
   type PluginManagerState,
 } from "./plugin-manager-model.js";
 

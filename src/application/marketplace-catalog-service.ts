@@ -8,7 +8,6 @@ import {
   type MarketplaceCatalogPage,
   type MarketplaceCatalogSearchRequest,
   type MarketplaceCandidateDetailResult,
-  type MarketplaceCandidateSummary,
 } from "./marketplace-catalog-contract.js";
 import {
   deriveMarketplaceCandidateId,
@@ -21,7 +20,6 @@ import {
 } from "../domain/marketplace-registration.js";
 import {
   derivePluginSourceIdentity,
-  type MarketplaceRegistrationRecord,
 } from "../domain/update-policy.js";
 import {
   createResolvedMarketplaceSource,
@@ -52,7 +50,6 @@ import {
   queryFingerprint,
   type SearchableMarketplaceCandidate,
 } from "./marketplace-search.js";
-import type { GenerationSnapshot } from "./state-contract.js";
 
 const resolvedCandidateBrand: unique symbol = Symbol("ResolvedMarketplaceCandidate");
 

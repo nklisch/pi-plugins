@@ -1,8 +1,8 @@
-import { z } from "zod";
+import "zod";
 import { ScopeContextSchema, toScopeReference, type ScopeContext, type ScopeReference } from "../domain/state/scope.js";
-import { PluginKeySchema, type PluginKey } from "../domain/identity.js";
+import { PluginKeySchema } from "../domain/identity.js";
 import { PendingTransitionRefSchema, type PendingTransitionRef } from "../domain/state/references.js";
-import { LifecycleTransitionJournalEntrySchemaV1, type LifecycleTransitionStore } from "./ports/lifecycle-transition-store.js";
+import { type LifecycleTransitionStore } from "./ports/lifecycle-transition-store.js";
 import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
 import type { LifecycleClock } from "./ports/lifecycle-clock.js";
 import type { LifecycleStateInventoryPort } from "./ports/lifecycle-state-inventory.js";

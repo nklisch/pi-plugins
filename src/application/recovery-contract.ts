@@ -7,7 +7,6 @@ import { InstalledPluginRecordSchema, type InstalledPluginRecord } from "../doma
 import { ActivationObservationSchema, type ActivationObservation } from "./ports/lifecycle-reload.js";
 import {
   LifecycleTransitionRecordSchemaV1,
-  LifecycleTransitionStatusSchema,
   type LifecycleTransitionRecord,
   type LifecycleTransitionStatus,
 } from "./ports/lifecycle-transition-store.js";

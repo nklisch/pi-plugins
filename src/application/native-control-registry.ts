@@ -1,9 +1,8 @@
 import { z } from "zod";
 import { AdoptionCandidateIdSchema } from "../domain/adoption.js";
-import { ContentDigestSchema } from "../domain/content-manifest.js";
+import "../domain/content-manifest.js";
 import { PluginKeySchema } from "../domain/identity.js";
 import {
-  MarketplaceCandidateIdSchema,
   MarketplaceCursorSchema,
   MarketplaceRegistrationIdSchema,
 } from "../domain/marketplace-registration.js";

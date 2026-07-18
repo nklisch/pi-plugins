@@ -4,7 +4,6 @@ import {
   HOOK_MAX_TIMEOUT_MS,
 } from "../../domain/hook-runtime-limits.js";
 import type { ResolvedConfiguration } from "../../application/resolved-configuration.js";
-import type { HookExecutableIdentity } from "../../application/ports/hook-executable-resolver.js";
 import {
   isPluginLaunchRootName,
   type PluginLaunchRootValues,

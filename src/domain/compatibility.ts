@@ -2,7 +2,6 @@ import { z } from "zod";
 import { ComponentIdSchema } from "./components.js";
 import {
   DiagnosticSchema,
-  type Diagnostic,
 } from "./errors.js";
 import { PluginIdentitySchema } from "./identity.js";
 import { ProvenanceSchema } from "./provenance.js";

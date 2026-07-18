@@ -1,9 +1,9 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { ensurePrivateLockRoot, verifyLocalFilesystemCapability } from "../state/local-lock-filesystem.js";
 import { openIdentityBoundSqliteDatabase } from "../state/identity-bound-sqlite.js";
 import { RevisionLeaseCollectionSchema, RevisionLeaseSchema, type RevisionLease, type RevisionLeaseCollection, type RevisionLeaseStore } from "../../application/ports/revision-lease-store.js";
-import { RetainedArtifactRefSchema, type RetainedArtifactRef } from "../../application/ports/revision-artifact-store.js";
+import { RetainedArtifactRefSchema } from "../../application/ports/revision-artifact-store.js";
 import { classifyProcessIdentity, readLinuxProcessStartToken } from "../process/process-identity.js";
 
 function json(value: unknown): string { return JSON.stringify(value); }

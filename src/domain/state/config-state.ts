@@ -17,7 +17,6 @@ import {
   type MarketplaceRegistrationRecord,
   type MarketplaceRegistrationRecordV3,
   type MarketplaceUpdateRecord,
-  type UpdateApplicationPreference,
 } from "../update-policy.js";
 import { defineVersionedSchemaFamily } from "./versioning.js";
 

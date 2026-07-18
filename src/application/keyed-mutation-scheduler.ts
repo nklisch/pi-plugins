@@ -3,7 +3,7 @@ import {
   type KeyedMutationScheduler,
   type MutationSubject,
 } from "./mutation-coordination.js";
-import { ScopeReferenceSchema } from "../domain/state/scope.js";
+import "../domain/state/scope.js";
 import type { MutationExecutionContext } from "./ports/mutation-execution-context.js";
 
 const encoder = new TextEncoder();

@@ -10,7 +10,6 @@ import {
   verifyMarketplaceContentRef,
   verifyPluginContentRef,
   verifyPluginDataRef,
-  type MarketplaceContentRef,
   type PluginContentRef,
 } from "../../domain/state/references.js";
 import type {

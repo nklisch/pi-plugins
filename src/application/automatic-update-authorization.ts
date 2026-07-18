@@ -1,4 +1,4 @@
-import { z } from "zod";
+import "zod";
 import { ContentDigestSchema, type ContentDigest } from "../domain/content-manifest.js";
 import { PluginKeySchema, type PluginKey } from "../domain/identity.js";
 import { ScopeReferenceSchema, type ScopeReference, type ScopeContext } from "../domain/state/scope.js";

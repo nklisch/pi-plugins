@@ -1,5 +1,5 @@
-import { chmod, lstat, mkdir, realpath, statfs } from "node:fs/promises";
-import { isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { chmod, lstat, realpath } from "node:fs/promises";
+import { isAbsolute, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { ScopeReferenceSchema, type ScopeReference } from "../../domain/state/scope.js";
 import { ensurePrivateLockRoot, verifyLocalFilesystemCapability, LOCAL_LOCK_DATABASE_MODE, LOCAL_LOCK_DIRECTORY_MODE } from "../state/local-lock-filesystem.js";

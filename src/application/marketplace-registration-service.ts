@@ -14,13 +14,11 @@ import {
 } from "./marketplace-management-contract.js";
 import {
   deriveMarketplaceRegistrationId,
-  type MarketplaceScopeSelection,
 } from "../domain/marketplace-registration.js";
 import {
   MarketplaceRegistrationRecordSchema,
   createMarketplaceConfigurationRecord,
   deriveMarketplaceSourceIdentity,
-  type MarketplaceRegistrationOrigin,
   type MarketplaceRegistrationRecord,
 } from "../domain/update-policy.js";
 import {

@@ -4,11 +4,9 @@ import {
   NativeControlCommandRegistry,
   NativeControlCommandSchema,
   NativeControlInvocationSchema,
-  type NativeControlCommand,
   type NativeControlCommandId,
   type NativeControlInputChannel,
   type NativeControlInvocation,
-  type NativeControlOptionDefinition,
 } from "./native-control-registry.js";
 import { NativeControlDiagnosticSchema, type NativeControlDiagnostic } from "./native-control-contract.js";
 import {

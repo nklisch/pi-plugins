@@ -13,7 +13,6 @@ import {
   lifecycleCleanupStatus,
   type LifecycleTransitionPrepareRequest,
   LifecycleTransitionRecordSchemaV1,
-  LifecycleTransitionStatusSchema,
   TransitionJournalReadResultSchema,
   type LifecycleTransitionCollection,
   type LifecycleTransitionJournalEntry,

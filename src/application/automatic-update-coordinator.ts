@@ -1,6 +1,6 @@
 import { compareUtf8 } from "../domain/canonical-json.js";
 import { MarketplaceRegistrationIdSchema } from "../domain/marketplace-registration.js";
-import { ScopeContextSchema, toScopeReference, type ScopeContext } from "../domain/state/scope.js";
+import { ScopeContextSchema, type ScopeContext } from "../domain/state/scope.js";
 import { MarketplaceRegistrationRecordSchema, UpdateNoticeIdSchema, UpdateNoticeSchema, type UpdateNotice, type UpdateNoticeId } from "../domain/update-policy.js";
 import type { Sha256 } from "../domain/source.js";
 import { AutomaticUpdateEligibilitySchema, type AutomaticUpdateEligibility, type AutomaticUpdateEligibilityReason } from "./automatic-update-eligibility.js";

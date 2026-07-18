@@ -51,7 +51,6 @@ import { ScopeReferenceSchema, type ScopeReference } from "./scope.js";
 import {
   GitRevisionSchema,
   ResolvedMarketplaceSourceSchema,
-  ResolvedPluginSourceSchema,
   SourceHashSchema,
   verifyResolvedMarketplaceSource,
   verifyResolvedPluginSource,

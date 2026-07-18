@@ -34,8 +34,6 @@ import {
   UpdateApplicationModeSchema,
   UpdateSchedulerLeaseSchema,
   migrateMarketplaceRegistrationRecordV3,
-  type MarketplaceRegistrationRecord,
-  type MarketplaceUpdateRecord,
 } from "../update-policy.js";
 import { serializeMarketplaceSource } from "../source.js";
 

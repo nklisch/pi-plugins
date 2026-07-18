@@ -1,8 +1,8 @@
-import { z } from "zod";
+import "zod";
 import type { Sha256 } from "../domain/source.js";
 import { PluginKeySchema, type PluginKey } from "../domain/identity.js";
 import { ScopeContextSchema, toScopeReference, type ScopeContext } from "../domain/state/scope.js";
-import { GenerationSchema, type Generation } from "../domain/state/config-state.js";
+import { type Generation } from "../domain/state/config-state.js";
 import { InstalledPluginRecordSchema, type InstalledPluginRecord } from "../domain/state/installed-state.js";
 import { createInstalledUserStateDocument } from "../domain/state/installed-state.js";
 import { createProjectLocalStateDocumentV4 } from "../domain/state/project-state.js";
@@ -21,7 +21,6 @@ import {
 } from "./ports/lifecycle-transition-store.js";
 import {
   ProjectionExpectationSchema,
-  verifyProjectionExpectation,
   type ProjectionExpectation,
 } from "./ports/runtime-projection.js";
 import { classifyInterruptedTransition, projectionMatchesObservation, stateWithoutPending, type RecoveryClassification } from "./recovery-contract.js";

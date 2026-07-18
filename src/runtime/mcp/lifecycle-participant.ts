@@ -19,7 +19,6 @@ import {
   type CurrentProjectRuntimeContext,
 } from "../../application/ports/project-trust.js";
 import {
-  ProjectionExpectationSchema,
   verifyProjectionExpectation,
   type ProjectionExpectation,
 } from "../../application/ports/runtime-projection.js";

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import "zod";
 import {
   ContentDigestSchema,
   hashContent,

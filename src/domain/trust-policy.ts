@@ -11,7 +11,6 @@ import {
   type CompatibilityReport,
 } from "./compatibility.js";
 import {
-  ContentDigestSchema,
   createMaterializationBinding,
   verifyContentManifest,
   type ContentDigest,
@@ -22,8 +21,6 @@ import {
   type NormalizedPlugin,
 } from "./plugin.js";
 import {
-  ResolvedMarketplaceSourceSchema,
-  ResolvedPluginSourceSchema,
   verifyResolvedMarketplaceSource,
   verifyResolvedPluginSource,
   type ResolvedMarketplaceSource,
@@ -32,7 +29,6 @@ import {
 } from "./source.js";
 import {
   TrustSubjectEvidenceSchema,
-  TrustStateRecordSchema,
   TrustDecisionStatusSchema,
   createTrustStateRecord,
   deriveTrustSubject,
@@ -45,7 +41,7 @@ import {
   type TrustSubjectRef,
 } from "./state/references.js";
 import { ScopeReferenceSchema, type ScopeReference } from "./state/scope.js";
-import { PluginKeySchema, type PluginKey } from "./identity.js";
+import { type PluginKey } from "./identity.js";
 
 export const TrustCandidateSchema = z.object({
   subject: TrustSubjectRefSchema,

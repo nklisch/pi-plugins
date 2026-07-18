@@ -19,11 +19,9 @@ import {
   type ConfigurationOption,
 } from "../domain/configuration.js";
 import {
-  RetainedMetadataSchema,
   type RetainedMetadata,
 } from "../domain/components.js";
 import {
-  NativeHostSchema,
   type Claimed,
   type NativeHost,
   type Provenance,

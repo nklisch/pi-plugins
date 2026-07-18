@@ -1,6 +1,5 @@
 import { SensitiveValue } from "./sensitive-value.js";
 import type {
-  NativeControlExactDecision,
   NativeControlInputIssue,
   NativeControlInputPort,
   NativeControlInputRequest,

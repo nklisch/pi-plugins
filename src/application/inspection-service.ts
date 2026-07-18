@@ -31,7 +31,6 @@ import {
   DiagnosticSchema,
   ErrorCodeRegistry,
   BoundaryError,
-  type Diagnostic,
   type ReadResult,
 } from "../domain/errors.js";
 import {
@@ -40,7 +39,6 @@ import {
 } from "../domain/marketplace.js";
 import {
   PluginKeySchema,
-  type PluginKey,
 } from "../domain/identity.js";
 import {
   NativeHostSchema,
@@ -50,7 +48,6 @@ import {
 } from "../domain/provenance.js";
 import type { JsonValue } from "../domain/schema.js";
 import {
-  ResolvedPluginSourceSchema,
   serializePluginSource,
   verifyResolvedPluginSource,
   matchesGitRevisionSelector,
@@ -58,7 +55,6 @@ import {
   type Sha256,
 } from "../domain/source.js";
 import {
-  ComponentSchema,
   type Component,
   type SkillComponent,
 } from "../domain/components.js";

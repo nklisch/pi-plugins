@@ -8,14 +8,12 @@ import {
   type PluginKey,
 } from "../domain/identity.js";
 import {
-  ScopeContextSchema,
   createScopeContext,
   toScopeReference,
   type ScopeContext,
 } from "../domain/state/scope.js";
 import {
   InstalledPluginRecordSchema,
-  InstalledRevisionRecordSchema,
   createInstalledPluginRecord,
   createInstalledRevisionRecord,
   type InstalledPluginRecord,

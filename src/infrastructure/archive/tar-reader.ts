@@ -1,12 +1,10 @@
 import { createGunzip } from "node:zlib";
 import { Readable } from "node:stream";
 import {
-  ContentDigestSchema,
   normalizeContentLinkTarget,
   normalizeContentPath,
 } from "../../domain/content-manifest.js";
 import type {
-  ContentEntry,
   MaterializationLimits,
   SecureContentSession,
 } from "../../application/ports/source-acquisition.js";

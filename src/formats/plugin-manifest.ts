@@ -8,7 +8,6 @@ import {
 } from "../domain/bundle-ingestion.js";
 import {
   DiagnosticSchema,
-  ErrorCodeRegistry,
   type Diagnostic,
   type ReadResult,
 } from "../domain/errors.js";

@@ -4,7 +4,6 @@ import { HookComponentSchema, type ComponentId } from "../../domain/components.j
 import { PluginKeySchema } from "../../domain/identity.js";
 import {
   OrdinaryHookEventSchema,
-  SubagentHookEventSchema,
   ordinaryHookEvents,
   subagentHookEvents,
   type OrdinaryHookEvent,

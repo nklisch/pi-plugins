@@ -17,7 +17,6 @@ import {
 } from "./ports/lifecycle-reload.js";
 import {
   createActiveProjectionExpectation,
-  createInactiveProjectionExpectation,
   createPluginRuntimeProjection,
   verifyProjectionExpectation,
   type ProjectionExpectation,
@@ -29,7 +28,7 @@ import {
   type LifecycleTransitionStore,
 } from "./ports/lifecycle-transition-store.js";
 import type { LifecycleOperationIdPort } from "./ports/lifecycle-operation-id.js";
-import type { InstalledPluginLoader, LoadedInstalledPlugin } from "./ports/installed-plugin-loader.js";
+import type { InstalledPluginLoader } from "./ports/installed-plugin-loader.js";
 import { authorizeAutomaticUpdateCandidate, createAutomaticUpdateAuthorizationEvidence, type AutomaticUpdateAuthorizationEvidence } from "./automatic-update-authorization.js";
 import { resolveEffectiveUpdatePolicy } from "./update-policy-resolution.js";
 import type {
@@ -70,7 +69,6 @@ import {
   type StateMutation,
 } from "./state-contract.js";
 import {
-  createInstalledPluginRecord,
   createInstalledRevisionRecord,
   InstalledPluginRecordSchema,
   type InstalledPluginRecord,

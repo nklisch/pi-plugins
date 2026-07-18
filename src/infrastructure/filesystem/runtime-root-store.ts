@@ -23,7 +23,6 @@ import {
   deriveProjectionRootRef,
   PluginDataRefSchema,
   ProjectionRootRefSchema,
-  type PluginDataRef,
   type ProjectionRootRef,
 } from "../../domain/state/references.js";
 import { ScopeReferenceSchema, type ScopeReference } from "../../domain/state/scope.js";

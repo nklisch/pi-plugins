@@ -44,7 +44,7 @@ import {
   type MarketplaceInstallationPolicy,
 } from "./marketplace.js";
 import { NormalizedPluginSchema, type NormalizedPlugin } from "./plugin.js";
-import { ProvenanceSchema, type Claimed, type Provenance } from "./provenance.js";
+import { ProvenanceSchema, type Provenance } from "./provenance.js";
 import { type JsonValue } from "./schema.js";
 import { compileHookSelector } from "./hook-runtime-contract.js";
 import { PluginKeySchema } from "./identity.js";

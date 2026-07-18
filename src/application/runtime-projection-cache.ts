@@ -1,6 +1,5 @@
 import { z } from "zod";
 import {
-  ContentDigestSchema,
   hashContent,
   type ContentDigest,
 } from "../domain/content-manifest.js";

@@ -8,7 +8,7 @@ import type {
 import type { NativePluginControlService } from "../application/native-control-service.js";
 import type { McpRuntimePort } from "../application/ports/mcp-runtime.js";
 import type { UpdateNotificationPublisherPort } from "../application/ports/update-notification-publisher.js";
-import type { HostCapabilityStatus, HostStartupResult } from "../application/host-observation-contract.js";
+import type { HostStartupResult } from "../application/host-observation-contract.js";
 import type { NetworkEgressPolicyOptions } from "../infrastructure/network/network-egress-policy.js";
 export type { HostCapabilityStatus, HostStartupResult } from "../application/host-observation-contract.js";
 

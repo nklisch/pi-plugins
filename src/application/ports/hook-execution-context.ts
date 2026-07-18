@@ -1,7 +1,4 @@
 import type { PluginConfiguration, ConfigurationOption } from "../../domain/configuration.js";
-import type { ContentDigest } from "../../domain/content-manifest.js";
-import type { PluginKey } from "../../domain/identity.js";
-import type { ScopeReference } from "../../domain/state/scope.js";
 import type { HookExecutionBinding } from "../../domain/hook-execution-binding.js";
 export type { HookExecutionBinding } from "../../domain/hook-execution-binding.js";
 import type { TrustCandidate } from "../../domain/trust-policy.js";

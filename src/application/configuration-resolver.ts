@@ -31,7 +31,7 @@ import {
 } from "./ports/plugin-configuration-store.js";
 import { SecretStoreGetResultSchema, type SecretStore } from "./ports/secret-store.js";
 import { ConfigurationPathResultSchema, type ConfigurationPathContext, type ConfigurationPathPort } from "./ports/configuration-path.js";
-import { SensitiveValue, withSensitiveValue } from "./sensitive-value.js";
+import { withSensitiveValue } from "./sensitive-value.js";
 import { createResolvedConfiguration, type ResolvedConfiguration } from "./resolved-configuration.js";
 import { validateConfigurationSubmission, type ValidatedConfigurationSubmission } from "./configuration-validation.js";
 import { BoundaryError, ErrorCodeRegistry } from "../domain/errors.js";

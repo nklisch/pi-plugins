@@ -1,4 +1,3 @@
-import type { NativeControlExecutionId } from "./native-control-contract.js";
 import { NativeControlCommandSchema, type NativeControlCommand } from "./native-control-registry.js";
 import { createNativeControlProgressController } from "./native-control-progress.js";
 import type {

@@ -24,7 +24,6 @@ import {
   type ProjectLocalStateDocument,
 } from "../domain/state/project-state.js";
 import {
-  StatePointersDocumentSchemaV1,
   type StatePointersDocumentV1,
 } from "../domain/state/pointers.js";
 import {

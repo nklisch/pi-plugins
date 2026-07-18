@@ -3,7 +3,6 @@ import { deriveMarketplaceSourceIdentity, MarketplaceUpdateRecordSchema, UpdateA
 import { MarketplaceNameSchema, type MarketplaceName } from "../domain/identity.js";
 import { ScopeContextSchema, type ScopeContext } from "../domain/state/scope.js";
 import { marketplaceUpdateRecords, createMarketplaceUpdateRecordsMutation } from "./marketplace-update-state.js";
-import type { GenerationSnapshot } from "./state-contract.js";
 import type { GenerationMutationCoordinator } from "./generation-mutation-coordinator.js";
 import type { LifecycleStateStore } from "./ports/lifecycle-state-store.js";
 import { SourceHashSchema, type Sha256, type SourceHash } from "../domain/source.js";
