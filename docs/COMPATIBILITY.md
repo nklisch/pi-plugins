@@ -293,7 +293,7 @@ raw Pi names.
 | `Grep` | `grep` |
 | `apply_patch` | Pi file-mutation aliases where present |
 | `Agent` | configured Pi subagent tool |
-| MCP scoped name | plugin-scoped MCP compatibility alias |
+| MCP scoped name | plugin-scoped compatibility alias only when the active MCP runtime reports alias support; otherwise unavailable |
 
 Exact-set and regular-expression matcher behavior follows the foreign hook
 contract. `Write|Edit`, comma-separated sets, anchored expressions, empty
@@ -447,16 +447,20 @@ A bundled server has a scoped identity derived from:
 <plugin-name>@<marketplace-name> + <native-server-key>
 ```
 
-The MCP integration prevents collisions and exposes compatibility aliases for
-foreign plugin tool references. Claude-style names follow:
+Canonical source-qualified MCP discovery and calls are available through the
+maintained runtime and remain collision-safe across plugins. That runtime
+reports foreign tool aliases unavailable, so Plugin Host omits alias mappings
+and reports `RUNTIME_ALIAS_UNAVAILABLE`; it does not fabricate Claude-style
+names such as:
 
 ```text
 mcp__plugin_<plugin-name>_<server-name>__<tool-name>
 ```
 
-Codex and Pi-native discovery remain available through the MCP runtime. A skill
-or hook that names a foreign MCP tool receives the corresponding alias rather
-than requiring manual edits.
+Codex and Pi-native discovery remain available through the runtime's canonical
+MCP surface. A plugin whose skill or hook requires an exact foreign MCP alias is
+incompatible unless a future qualified runtime reports alias support and can
+expose the mapping without collision.
 
 ## Whole-plugin behavior
 
