@@ -314,7 +314,8 @@ Initial public release of `@nklisch/pi-plugins`.
 - **gate-security** (2026-07-18) — 4 findings: Critical 0, High 0, Medium 3, Low 1. Three release-bound active stories created; one lower-risk CI hardening item parked unbound.
 - **gate-tests** (2026-07-18) — 5 release-relevant gaps: Critical 0, High 2, Medium 3, Low 0. Five release-bound active stories created; no tautologies, skips, or low-value deletions found.
 - **gate-cruft** (2026-07-18) — 10 High-confidence findings. Five surgical release-bound cleanup stories created; five guarantee-affecting system decisions parked unbound for operator consideration.
-- Pending: docs, patterns.
+- **gate-docs** (2026-07-18) — 8 High-confidence release-relevant findings: 5 foundation assertion drifts, 2 repo-skill staleness findings, and 1 changelog gap. Eight release-bound stories created.
+- Pending: patterns.
 
 ## Shipping
 
