@@ -37,10 +37,10 @@ describe("packed multiprocess contention, network loss, and clock regression", (
     await renameMarketplace(sandbox, third.working, third.bare, "native-e2e-market-three");
     const git = await startGitService(sandbox, first);
     sandbox.env.PI_OFFLINE = "0";
-    const [left, right] = await Promise.all([PiRpcProcess.start({ sandbox }), PiRpcProcess.start({ sandbox })]);
+    let left = await PiRpcProcess.start({ sandbox });
+    await left.plugin("updates policy set --kind cadence --target global --cadence paused", "updates.policy.set");
+    let right = await PiRpcProcess.start({ sandbox });
     try {
-      await left.plugin("updates policy set --kind cadence --target global --cadence paused", "updates.policy.set");
-
       const same = await Promise.all([
         left.plugin(`--non-interactive marketplace add ${git.url} --source-kind git --scope user`, "marketplace.add", 60_000),
         right.plugin(`--non-interactive marketplace add ${git.url} --source-kind git --scope user`, "marketplace.add", 60_000),
@@ -48,6 +48,11 @@ describe("packed multiprocess contention, network loss, and clock regression", (
       expect(same.filter((result) => result.envelope.status === "ok")).toHaveLength(1);
       expect(same.every((result) => /ok|no-change|stale/u.test(result.envelope.status))).toBe(true);
 
+      // A no-change loser has observed the winner's authority but intentionally
+      // keeps its immutable process snapshot. Restart both participants so the
+      // distinct-target check begins from the same committed generation.
+      await Promise.all([left.shutdown(), right.shutdown()]);
+      [left, right] = await Promise.all([PiRpcProcess.start({ sandbox }), PiRpcProcess.start({ sandbox })]);
       const base = `https://127.0.0.1:${new URL(git.url).port}`;
       const distinct = await Promise.all([
         left.plugin(`--non-interactive marketplace add ${base}/marketplace-two.git --source-kind git --scope user`, "marketplace.add", 60_000),

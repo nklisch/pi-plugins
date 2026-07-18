@@ -15,6 +15,7 @@ const plugins = [
   "secret-required@native-e2e-market",
   "mcp-required@native-e2e-market",
   "subagent-required@native-e2e-market",
+  "production-bundle@native-e2e-market",
   "incompatible@native-e2e-market",
 ];
 
@@ -31,8 +32,8 @@ describe("packed golden startup, marketplace, browse, and inspection", () => {
       status: "ready",
       capabilities: {
         secrets: { status: "unavailable" },
-        mcp: { status: "unavailable" },
-        subagents: { status: "unavailable" },
+        mcp: { status: "available", explanation: expect.stringContaining("RUNTIME_ALIAS_UNAVAILABLE") },
+        subagents: { status: "available" },
         piReload: { status: "available" },
       },
     });
@@ -79,8 +80,8 @@ describe("packed golden startup, marketplace, browse, and inspection", () => {
     });
     const unavailable = new Map([
       ["secret-required@native-e2e-market", { compatibility: "activatable", diagnostic: "SECRET_CUSTODY_UNAVAILABLE" }],
-      ["mcp-required@native-e2e-market", { compatibility: "incompatible", capability: "pi.mcp.runtime" }],
-      ["subagent-required@native-e2e-market", { compatibility: "incompatible", capability: "pi.subagents.lifecycle-interception" }],
+      ["mcp-required@native-e2e-market", { compatibility: "activatable", capability: "pi.mcp.runtime" }],
+      ["subagent-required@native-e2e-market", { compatibility: "activatable", capability: "pi.subagents.lifecycle-interception" }],
       ["incompatible@native-e2e-market", { compatibility: "incompatible", diagnostic: "COMPATIBILITY_INCOMPATIBLE" }],
     ]);
     for (const [plugin, expected] of unavailable) {
@@ -89,7 +90,7 @@ describe("packed golden startup, marketplace, browse, and inspection", () => {
       if ("diagnostic" in expected) {
         expect(report.envelope.data.detail.diagnostics.map((item: any) => item.code), plugin).toContain(expected.diagnostic);
       } else {
-        expect(report.envelope.data.detail.compatibility.requirements, plugin).toContainEqual(expect.objectContaining({ capability: expect.objectContaining({ text: expected.capability }), status: "unavailable" }));
+        expect(report.envelope.data.detail.compatibility.requirements, plugin).toContainEqual(expect.objectContaining({ capability: expect.objectContaining({ text: expected.capability }), status: "available" }));
       }
     }
     await journey.rpc.shutdown();

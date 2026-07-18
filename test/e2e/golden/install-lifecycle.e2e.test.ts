@@ -72,13 +72,19 @@ describe("packed golden install and lifecycle journeys", () => {
     await journey.rpc.shutdown();
   });
 
-  it("blocks secret/MCP/subagent candidates without plaintext or partial installs", async () => {
-    sandbox = await createCleanE2ESandbox("golden-unavailable-capabilities-xfail");
+  it("blocks secret/incompatible candidates and activates newly qualified MCP/subagent candidates", async () => {
+    sandbox = await createCleanE2ESandbox("golden-runtime-capabilities");
     const journey = await seedRemoteMarketplace(sandbox);
-    for (const plugin of ["secret-required", "mcp-required", "subagent-required", "incompatible"]) {
+    for (const plugin of ["secret-required", "incompatible"]) {
       const report = await journey.rpc.plugin(`install ${plugin}@native-e2e-market --scope user`, "install.run");
       expect(report.envelope.status).not.toBe("ok");
       expect(JSON.stringify(report.envelope)).toMatch(/UNAVAILABLE|INCOMPATIBLE|INPUT_REQUIRED/u);
+    }
+    for (const plugin of ["mcp-required", "subagent-required"]) {
+      const report = await journey.rpc.plugin(`install ${plugin}@native-e2e-market --scope user`, "install.run");
+      expect(report.envelope).toMatchObject({ status: "ok", data: { kind: "succeeded" } });
+      const removed = await journey.rpc.plugin(`uninstall ${plugin}@native-e2e-market --scope user --delete-data --yes`, "lifecycle.uninstall");
+      expect(removed.envelope.data).toMatchObject({ kind: "succeeded" });
     }
     const installed = await journey.rpc.plugin("--non-interactive list --scope user", "inspection.list");
     expect(installed.envelope.data.items).toEqual([]);

@@ -72,8 +72,6 @@ describe("packed project trust, foreign state, and unavailable capabilities", ()
     const journey = await seedRemoteMarketplace(sandbox);
     const expected = [
       { name: "secret-required", diagnostic: "SECRET_CUSTODY_UNAVAILABLE" },
-      { name: "mcp-required", diagnostic: "RUNTIME_REQUIREMENT_UNAVAILABLE", capability: "pi.mcp.runtime" },
-      { name: "subagent-required", diagnostic: "RUNTIME_REQUIREMENT_UNAVAILABLE", capability: "pi.subagents.lifecycle-interception" },
       { name: "incompatible", diagnostic: "COMPATIBILITY_INCOMPATIBLE" },
     ] as const;
     for (const expectation of expected) {
@@ -81,12 +79,19 @@ describe("packed project trust, foreign state, and unavailable capabilities", ()
       expect(report.envelope.status).toBe("ok");
       const detail = report.envelope.data.detail;
       expect(detail.diagnostics.map((diagnostic: any) => diagnostic.code)).toContain(expectation.diagnostic);
-      if ("capability" in expectation) {
-        expect(detail.compatibility.requirements).toContainEqual(expect.objectContaining({
-          capability: expect.objectContaining({ text: expectation.capability }),
-          status: "unavailable",
-        }));
-      }
+    }
+    for (const [name, capability] of [
+      ["mcp-required", "pi.mcp.runtime"],
+      ["subagent-required", "pi.subagents.lifecycle-interception"],
+    ] as const) {
+      const report = await journey.rpc.plugin(`--non-interactive show ${name}@native-e2e-market --scope user`, "inspection.show");
+      expect(report.envelope.data.detail.compatibility).toMatchObject({
+        status: "activatable",
+        requirements: expect.arrayContaining([expect.objectContaining({
+          capability: expect.objectContaining({ text: capability }),
+          status: "available",
+        })]),
+      });
     }
     const installed = await journey.rpc.plugin("--non-interactive list --scope user", "inspection.list");
     expect(installed.envelope.data.items).toEqual([]);
