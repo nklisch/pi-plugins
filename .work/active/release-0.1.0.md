@@ -311,7 +311,8 @@ Initial public release of `@nklisch/pi-plugins`.
 
 ## Gate runs
 
-Pending: security, tests, cruft, docs, patterns.
+- **gate-security** (2026-07-18) — 4 findings: Critical 0, High 0, Medium 3, Low 1. Three release-bound active stories created; one lower-risk CI hardening item parked unbound.
+- Pending: tests, cruft, docs, patterns.
 
 ## Shipping
 
