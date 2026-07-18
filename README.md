@@ -19,7 +19,7 @@ Native plugin management for [Pi](https://github.com/badlogic/pi-mono), with com
 ## Install
 
 ```bash
-pi install npm:@nklisch/pi-plugins@0.1.0
+pi install npm:@nklisch/pi-plugins@0.1.1
 ```
 
 Then start Pi and run:
@@ -28,7 +28,14 @@ Then start Pi and run:
 /plugin
 ```
 
-Use `/plugin help` for deterministic command-mode usage. The interactive manager opens only in a TUI session.
+Use `/plugin help` for deterministic command-mode usage. Marketplace registration is global, while plugin installation remains user- or project-scoped:
+
+```text
+/plugin marketplace add nklisch/skills
+/plugin install <plugin@marketplace> --scope user
+```
+
+GitHub shorthand is the default marketplace source; use `--source-kind git` or `--source-kind local-git` only for those source forms. The interactive manager opens only in a TUI session.
 
 ## Security
 

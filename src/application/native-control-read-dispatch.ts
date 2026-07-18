@@ -77,11 +77,11 @@ export function createNativeControlReadDispatcher(dependencies: NativeControlRea
         case "grammar":
           return projectNativeControlResponse("grammar", nativeControlGrammarMetadata());
         case "marketplace.list": {
-          const result = await dependencies.marketplace.registration.list(request, signal);
+          const result = await dependencies.marketplace.registration.list({ scope: "user", limit: request.limit }, signal);
           return projectNativeControlResponse(command.command, result);
         }
         case "marketplace.adopt.preview": {
-          const result = await dependencies.marketplace.adoption.preview({ compareScope: request.scope }, signal);
+          const result = await dependencies.marketplace.adoption.preview({ compareScope: "user" }, signal);
           return projectNativeControlResponse(command.command, result);
         }
         case "browse": {

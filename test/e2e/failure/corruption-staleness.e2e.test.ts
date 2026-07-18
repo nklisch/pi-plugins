@@ -66,7 +66,7 @@ describe("packed corruption and stale authority failures", () => {
     const cursor = first.envelope.data.nextCursor as string;
     expect(cursor).toBeTruthy();
     await publishFixtureRevision(sandbox, journey.repository, "2.0.0", "v2");
-    await journey.rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh");
+    await journey.rpc.plugin("--non-interactive marketplace refresh", "marketplace.refresh");
     const stale = await journey.rpc.plugin(`--non-interactive browse --scope user --limit 1 --cursor ${cursor}`, "browse");
     expect(stale.envelope.status).toBe("stale");
     expect(stale.envelope.exit.code).not.toBe(0);

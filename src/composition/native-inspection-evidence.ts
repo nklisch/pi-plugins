@@ -170,27 +170,29 @@ export function createNativeInspectionEvidence(input: Readonly<{
     }
 
     let catalogs: InspectionSnapshotBinding["catalogs"][number][] = [];
-    for (const result of states) {
-      if (!result.ok) continue;
-      const scope = result.snapshot.scope;
-      const scopeReference = toScopeReference(scope);
-      const snapshots = marketplaceSnapshots(result.snapshot);
-      for (const record of marketplaceUpdateRecords(result.snapshot)) {
-        const registrationId = deriveMarketplaceRegistrationId({ scope: scopeReference, source: record.source }, input.sha256);
-        const selected = snapshots.find((snapshot) => snapshot.marketplace === record.marketplace);
-        catalogs.push({
-          scope: scopeReference,
-          registrationId,
-          ...(selected === undefined ? {} : { snapshot: deriveMarketplaceSnapshotToken({ scope: scopeReference, registrationId, snapshot: selected }, input.sha256) }),
-          // Replaced below by the catalog service's publication-verified
-          // observation. A missing observation is unavailable, never guessed.
-          cache: { kind: "unavailable" },
-        });
+    const globalRegistry = states.find((result) => result.ok && result.snapshot.scope.kind === "user");
+    if (globalRegistry?.ok) {
+      const registryReference = toScopeReference(globalRegistry.snapshot.scope);
+      const snapshots = marketplaceSnapshots(globalRegistry.snapshot);
+      for (const target of states) {
+        if (!target.ok) continue;
+        const targetReference = toScopeReference(target.snapshot.scope);
+        for (const record of marketplaceUpdateRecords(globalRegistry.snapshot)) {
+          const registrationId = deriveMarketplaceRegistrationId({ scope: registryReference, source: record.source }, input.sha256);
+          const selected = snapshots.find((snapshot) => snapshot.marketplace === record.marketplace);
+          catalogs.push({
+            scope: targetReference,
+            registrationId,
+            ...(selected === undefined ? {} : { snapshot: deriveMarketplaceSnapshotToken({ scope: targetReference, registrationId, snapshot: selected }, input.sha256) }),
+            // Replaced below by the catalog service's publication-verified
+            // observation. A missing observation is unavailable, never guessed.
+            cache: { kind: "unavailable" },
+          });
+        }
       }
     }
-    // Search each readable scope independently. A failed user adapter must not
-    // hide a valid project catalog (or vice versa), and native errors never
-    // enter the binding or public observations.
+    // Validate the one global catalog projection for every readable plugin
+    // target. Native adapter errors never enter bindings or public observations.
     for (const result of states) {
       if (!result.ok) continue;
       const scope = toScopeReference(result.snapshot.scope);

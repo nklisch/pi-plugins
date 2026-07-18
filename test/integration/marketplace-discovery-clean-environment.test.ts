@@ -27,7 +27,11 @@ describe("packaged marketplace discovery in a clean environment", () => {
       expect(listed.registrations).toHaveLength(1);
       const page = await runMarketplaceOperation(host, context, (marketplace, signal) =>
         marketplace.catalog.search({ scope: "all-current", query: "offline demo", limit: 50 }, signal));
-      expect(page.candidates).toMatchObject([{ name: "demo", marketplace: "community", trust: "untrusted-not-inspected" }]);
+      expect(page.candidates).toHaveLength(2);
+      expect(page.candidates).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "demo", marketplace: "community", scope: expect.objectContaining({ kind: "user" }), trust: "untrusted-not-inspected" }),
+        expect.objectContaining({ name: "demo", marketplace: "community", scope: expect.objectContaining({ kind: "project" }), trust: "untrusted-not-inspected" }),
+      ]));
       const candidate = page.candidates[0]!;
       await expect(runMarketplaceOperation(host, context, (marketplace, signal) =>
         marketplace.catalog.detail({ candidateId: candidate.id, snapshot: candidate.snapshot }, signal)))

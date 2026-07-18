@@ -47,12 +47,12 @@ describe("native control registry", () => {
   it("derives direct command validation from request schemas", () => {
     expect(NativeControlCommandSchema.parse({
       command: "marketplace.list",
-      request: { scope: "user", limit: 50 },
+      request: { limit: 50 },
       invocation: { grammarVersion: "plugin-control/v1", output: "json", nonInteractive: true, input: { kind: "none" } },
-    })).toMatchObject({ command: "marketplace.list", request: { scope: "user" } });
+    })).toMatchObject({ command: "marketplace.list", request: { limit: 50 } });
     expect(() => NativeControlCommandSchema.parse({
       command: "marketplace.list",
-      request: { scope: "user", limit: 50, secret: "canary" },
+      request: { limit: 50, secret: "canary" },
       invocation: { grammarVersion: "plugin-control/v1", output: "json", nonInteractive: true, input: { kind: "none" } },
     })).toThrow();
   });

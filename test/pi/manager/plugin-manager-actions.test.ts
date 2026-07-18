@@ -67,7 +67,7 @@ describe("plugin manager action runner", () => {
     [{ action: "update", row }, ["update", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes"]],
     [{ action: "uninstall-keep", row }, ["uninstall", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes", "--keep-data"]],
     [{ action: "uninstall-delete", row }, ["uninstall", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId, "--yes", "--delete-data"]],
-    [{ action: "marketplace-remove", row: marketplaceRow }, ["marketplace", "remove", "registration-1", "--scope", "user", "--yes"]],
+    [{ action: "marketplace-remove", row: marketplaceRow }, ["marketplace", "remove", "registration-1", "--yes"]],
     [{ action: "project-sync", mode: "apply-intent" }, ["project", "sync", "--mode", "apply-intent", "--yes"]],
     [{ action: "project-sync", mode: "publish-intent" }, ["project", "sync", "--mode", "publish-intent", "--yes"]],
     [{ action: "project-sync", mode: "merge" }, ["project", "sync", "--mode", "merge", "--yes"]],

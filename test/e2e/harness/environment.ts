@@ -330,7 +330,7 @@ async function prepare(): Promise<E2ESuiteArtifact> {
   const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as {
     name?: string; private?: boolean; version?: string; pi?: { extensions?: string[] };
   };
-  if (manifest.name !== "@nklisch/pi-plugins" || manifest.private !== false || manifest.version !== "0.1.0" ||
+  if (manifest.name !== "@nklisch/pi-plugins" || manifest.private !== false || manifest.version !== "0.1.1" ||
       JSON.stringify(manifest.pi?.extensions) !== JSON.stringify(["./dist/pi/production-subagents-extension.js", "./dist/pi/extension.js"])) {
     throw new Error("packed product identity or Pi extension graph is invalid");
   }

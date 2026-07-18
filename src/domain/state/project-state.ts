@@ -187,8 +187,9 @@ export const ProjectLocalStateDocumentSchemaV4 = z.object({
   for (const [index, plugin] of document.plugins.entries()) {
     if (pluginKeys.has(plugin.plugin)) context.addIssue({ code: "custom", path: ["plugins", index, "plugin"], message: "duplicate installed plugin" });
     pluginKeys.add(plugin.plugin);
-    const marketplace = plugin.plugin.slice(plugin.plugin.lastIndexOf("@") + 1);
-    if (!snapshots.has(MarketplaceNameSchema.parse(marketplace))) context.addIssue({ code: "custom", path: ["plugins", index, "plugin"], message: "installed plugin must have a corresponding marketplace snapshot" });
+    // Plugin scope is independent from the host-global marketplace registry.
+    // Legacy project marketplace snapshots remain readable for V1-V3 migration,
+    // but a V4 project plugin no longer requires a duplicated local snapshot.
   }
 });
 export type ProjectLocalStateDocumentV4 = z.infer<typeof ProjectLocalStateDocumentSchemaV4>;
@@ -277,40 +278,38 @@ function projectScopeReference(context: Extract<ScopeContext, { kind: "project" 
  * identity evidence in this machine-local document; nested plugin references
  * receive only the path-free project key.
  */
+function normalizeProjectLocalCore(
+  input: unknown,
+  context: Extract<ScopeContext, { kind: "project" }>,
+  sha256: Sha256,
+) {
+  const value = ProjectLocalStateInputSchema.parse(input);
+  const verifiedContext = createScopeContext(ScopeContextSchema.parse(context), sha256);
+  if (verifiedContext.kind !== "project") throw new Error("project-local state requires project scope context");
+  if (value.projectKey !== verifiedContext.projectKey) throw new Error("project-local state project key does not match scope context");
+  if (!sameJsonIdentity(value.identity, verifiedContext.identity)) throw new Error("project-local state identity does not match scope context");
+
+  const scope = projectScopeReference(verifiedContext);
+  return {
+    value,
+    core: {
+      generation: value.generation,
+      projectKey: verifiedContext.projectKey,
+      identity: verifiedContext.identity,
+      declarationDigest: value.declarationDigest,
+      marketplaces: value.marketplaces.map((marketplace) => createMarketplaceSnapshotRecord(marketplace, sha256)),
+      plugins: value.plugins.map((plugin) => createInstalledPluginRecord({ ...plugin as Record<string, unknown>, scope }, sha256)),
+    },
+  };
+}
+
 export function createProjectLocalStateDocument(
   input: unknown,
   context: Extract<ScopeContext, { kind: "project" }>,
   sha256: Sha256,
 ): ProjectLocalStateDocumentV1 {
-  const value = ProjectLocalStateInputSchema.parse(input);
-  const verifiedContext = createScopeContext(ScopeContextSchema.parse(context), sha256);
-  if (verifiedContext.kind !== "project") {
-    throw new Error("project-local state requires project scope context");
-  }
-  if (value.projectKey !== verifiedContext.projectKey) {
-    throw new Error("project-local state project key does not match scope context");
-  }
-  if (!sameJsonIdentity(value.identity, verifiedContext.identity)) {
-    throw new Error("project-local state identity does not match scope context");
-  }
-
-  const scope = projectScopeReference(verifiedContext);
-  const marketplaces = value.marketplaces.map((marketplace) =>
-    createMarketplaceSnapshotRecord(marketplace, sha256),
-  );
-  const plugins = value.plugins.map((plugin) =>
-    createInstalledPluginRecord({ ...plugin as Record<string, unknown>, scope }, sha256),
-  );
-
-  return ProjectLocalStateDocumentSchemaV1.parse({
-    schemaVersion: 1,
-    generation: value.generation,
-    projectKey: verifiedContext.projectKey,
-    identity: verifiedContext.identity,
-    declarationDigest: value.declarationDigest,
-    marketplaces,
-    plugins,
-  });
+  const { core } = normalizeProjectLocalCore(input, context, sha256);
+  return ProjectLocalStateDocumentSchemaV1.parse({ schemaVersion: 1, ...core });
 }
 
 /** Build the retained v2 envelope for migration fixtures. */
@@ -358,10 +357,11 @@ export function createProjectLocalStateDocumentV4(
 ): ProjectLocalStateDocumentV4 {
   const value = ProjectLocalStateInputSchema.parse(input);
   if (value.schemaVersion !== 4) return projectProjectLocalV3ToV4(createProjectLocalStateDocumentV3(value, context, sha256));
-  const legacyInput = Object.fromEntries(Object.entries(value).filter(([key]) => !["schemaVersion", "marketplaceUpdates", "scope"].includes(key)));
-  const legacy = createProjectLocalStateDocument({ ...legacyInput, schemaVersion: 1 }, context, sha256);
+  // V4 deliberately bypasses the legacy V1 cross-reference requiring every
+  // project plugin to duplicate its host-global marketplace snapshot.
+  const { core } = normalizeProjectLocalCore(value, context, sha256);
   return ProjectLocalStateDocumentSchemaV4.parse({
-    ...legacy,
+    ...core,
     schemaVersion: 4,
     scope: value.scope ?? {},
     marketplaceUpdates: (value.marketplaceUpdates ?? []).map((record) => MarketplaceUpdateRecordSchema.parse(record)),

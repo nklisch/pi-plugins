@@ -204,17 +204,19 @@ function normalizeRequest(id: NativeControlCommandId, options: ParsedOptionValue
     case "help": return { path: positionals };
     case "grammar": return { ...(stringValue(options, "version") === undefined ? {} : { version: stringValue(options, "version") }) };
     case "marketplace.add": {
-      const sourceKind = stringValue(options, "sourceKind");
+      // GitHub shorthand is the common marketplace source. Explicit kinds stay
+      // available for URLs and local checkouts without burdening the default.
+      const sourceKind = stringValue(options, "sourceKind") ?? "github";
       const source = sourceKind === "github" ? { kind: "github", repository: positionals[0], ...(stringValue(options, "ref") === undefined ? {} : { ref: stringValue(options, "ref") }) }
         : sourceKind === "git" ? { kind: "git", url: positionals[0], ...(stringValue(options, "ref") === undefined ? {} : { ref: stringValue(options, "ref") }) }
         : { kind: "local-git", path: positionals[0], ...(stringValue(options, "ref") === undefined ? {} : { ref: stringValue(options, "ref") }) };
-      return { source, scope: stringValue(options, "scope") };
+      return { source };
     }
-    case "marketplace.remove": return { registrationId: positionals[0], scope: stringValue(options, "scope"), confirmed: boolValue(options, "confirmed") };
-    case "marketplace.list": return { scope: stringValue(options, "scope") ?? "all-current", limit: numberValue(options, "limit") ?? 50 };
-    case "marketplace.refresh": return { scope: stringValue(options, "scope") ?? "all-current", ...(positionals.length === 0 ? {} : { registrationIds: positionals }) };
-    case "marketplace.adopt.preview": return { scope: stringValue(options, "scope") ?? "all-current" };
-    case "marketplace.adopt.import": return { candidateIds: positionals, scope: stringValue(options, "scope"), confirmed: boolValue(options, "confirmed") };
+    case "marketplace.remove": return { registrationId: positionals[0], confirmed: boolValue(options, "confirmed") };
+    case "marketplace.list": return { limit: numberValue(options, "limit") ?? 50 };
+    case "marketplace.refresh": return { ...(positionals.length === 0 ? {} : { registrationIds: positionals }) };
+    case "marketplace.adopt.preview": return {};
+    case "marketplace.adopt.import": return { candidateIds: positionals, confirmed: boolValue(options, "confirmed") };
     case "browse": return { query: positionals[0] ?? "", scope: stringValue(options, "scope") ?? "all-current", ...(stringsValue(options, "marketplaceIds") === undefined ? {} : { marketplaceIds: stringsValue(options, "marketplaceIds") }), ...(stringsValue(options, "availability") === undefined ? {} : { availability: stringsValue(options, "availability") }), ...(stringValue(options, "cursor") === undefined ? {} : { cursor: stringValue(options, "cursor") }), limit: numberValue(options, "limit") ?? 50 };
     case "inspection.list": return { scope: stringValue(options, "scope") ?? "all-current", query: stringValue(options, "query") ?? "", ...(stringsValue(options, "conditions") === undefined ? {} : { conditions: stringsValue(options, "conditions") }), ...(stringValue(options, "cursor") === undefined ? {} : { cursor: stringValue(options, "cursor") }), limit: numberValue(options, "limit") ?? 50 };
     case "inspection.show":

@@ -85,7 +85,7 @@ export async function scanForbiddenValues(root: string, additional: readonly str
 export async function publicStateDigest(rpc: PiRpcProcess): Promise<string> {
   const [plugins, marketplaces, updates] = await Promise.all([
     rpc.plugin("--non-interactive list --scope all-current --limit 100", "inspection.list"),
-    rpc.plugin("--non-interactive marketplace list --scope all-current --limit 100", "marketplace.list"),
+    rpc.plugin("--non-interactive marketplace list --limit 100", "marketplace.list"),
     rpc.plugin("--non-interactive updates status --scope all-current", "updates.status"),
   ]);
   const volatile = new Set(["snapshotId", "detailId", "capturedAt", "checkedAt", "nextAt", "dueAt", "anchorAt", "updateDigest", "claim", "executionId"]);

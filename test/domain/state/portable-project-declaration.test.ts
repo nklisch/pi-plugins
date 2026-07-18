@@ -102,7 +102,7 @@ describe("portable project plugin intent", () => {
     }).success).toBe(false);
   });
 
-  it("enforces unique identities and marketplace references", () => {
+  it("enforces unique declaration identities", () => {
     expect(PortableProjectDeclarationSchemaV1.safeParse({
       ...validDeclaration,
       marketplaces: [
@@ -117,10 +117,14 @@ describe("portable project plugin intent", () => {
         validDeclaration.plugins[0],
       ],
     }).success).toBe(false);
+  });
+
+  it("allows plugin intent to use the host-global marketplace registry", () => {
     expect(PortableProjectDeclarationSchemaV1.safeParse({
       ...validDeclaration,
+      marketplaces: [],
       plugins: [{ plugin: "missing@other", enabled: true }],
-    }).success).toBe(false);
+    }).success).toBe(true);
   });
 
   it("rejects local/file/path credentials and machine-state fields at every depth", () => {

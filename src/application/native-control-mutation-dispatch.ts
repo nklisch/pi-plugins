@@ -144,23 +144,23 @@ export function createNativeControlMutationDispatcher(dependencies: NativeContro
       if (context.readiness.status === "blocked") return projectNativeControlFailure("rejected", "CONTROL_READINESS_BLOCKED", "retry");
       switch (command.command) {
         case "marketplace.add": {
-          const result = await dependencies.marketplace.registration.add({ source: request.source, scope: request.scope, origin: { kind: "native" } }, signal);
+          const result = await dependencies.marketplace.registration.add({ source: request.source, scope: "user", origin: { kind: "native" } }, signal);
           const status = result.kind === "added" ? "ok" : result.kind === "unchanged" ? "no-change" : result.kind === "indeterminate" ? "partial" : "rejected";
           return projectNativeControlResponse(command.command, result, { status });
         }
         case "marketplace.remove": {
           if (!request.confirmed) return inputFailure({ code: "CONFIRMATION_REQUIRED" });
-          const result = await dependencies.marketplace.registration.remove({ registrationId: request.registrationId, scope: request.scope }, signal);
+          const result = await dependencies.marketplace.registration.remove({ registrationId: request.registrationId, scope: "user" }, signal);
           const status = result.kind === "removed" ? "ok" : result.kind === "unchanged" ? "no-change" : result.kind === "indeterminate" ? "partial" : "rejected";
           return projectNativeControlResponse(command.command, result, { status });
         }
         case "marketplace.refresh": {
-          const result = await dependencies.marketplace.refresh.refresh({ trigger: "explicit", scope: request.scope, ...(request.registrationIds === undefined ? {} : { registrationIds: request.registrationIds }) }, signal);
+          const result = await dependencies.marketplace.refresh.refresh({ trigger: "explicit", scope: "user", ...(request.registrationIds === undefined ? {} : { registrationIds: request.registrationIds }) }, signal);
           return projectNativeControlResponse(command.command, result, { status: foldMarketplaceRefreshStatus(result) });
         }
         case "marketplace.adopt.import": {
           if (!request.confirmed) return inputFailure({ code: "CONFIRMATION_REQUIRED" });
-          const result = await dependencies.marketplace.adoption.import({ candidateIds: request.candidateIds, scope: request.scope }, signal);
+          const result = await dependencies.marketplace.adoption.import({ candidateIds: request.candidateIds, scope: "user" }, signal);
           const status = result.outcomes.some((entry) => !["added", "unchanged", "registered"].includes(entry.outcome.kind)) ? "partial" : "ok";
           return projectNativeControlResponse(command.command, result, { status });
         }

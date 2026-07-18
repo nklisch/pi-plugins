@@ -4,9 +4,9 @@ import { createControlFixture } from "../fixtures/native-control/control-fixture
 describe("native control workflow acceptance", () => {
   it("runs read and mutation owners through the same envelope path", async () => {
     const { service, applications } = createControlFixture();
-    const list = await service.runArgv(["marketplace", "list", "--scope", "user"], { mode: "direct", output: "json" }, new AbortController().signal);
+    const list = await service.runArgv(["marketplace", "list"], { mode: "direct", output: "json" }, new AbortController().signal);
     expect(list.envelope).toMatchObject({ status: "ok", data: { registrations: [] } });
-    const add = await service.runArgv(["marketplace", "add", "owner/repo", "--source-kind", "github", "--scope", "user"], { mode: "direct", output: "json" }, new AbortController().signal);
+    const add = await service.runArgv(["marketplace", "add", "owner/repo"], { mode: "direct", output: "json" }, new AbortController().signal);
     expect(add.envelope).toMatchObject({ status: "rejected", data: { kind: "rejected", code: "SOURCE_UNAVAILABLE" } });
     expect(applications.marketplace.registration.add).toHaveBeenCalledOnce();
   });

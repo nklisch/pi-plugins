@@ -55,7 +55,7 @@ export function pageCommand(input: Readonly<{
     });
   }
   if (input.view === "marketplaces") {
-    return nativeControlArgv("marketplace.list", [], { scope: "all-current", limit: 50 });
+    return nativeControlArgv("marketplace.list", [], { limit: 50 });
   }
   return nativeControlArgv("updates.notices.list", [], {
     scope: "all-current",

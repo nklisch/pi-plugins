@@ -40,7 +40,7 @@ describe("production concurrency, presentation, and secret non-retention", () =>
     expect((await journey.rpc.plugin("install core-local@native-e2e-market --scope user", "install.run")).envelope.data.kind).toBe("succeeded");
     await installProductionBundle({ sandbox, rpc: journey.rpc, version: "v1" });
     await publishProductionBundleRevision(sandbox, journey.repository, "v2");
-    await journey.rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh");
+    await journey.rpc.plugin("--non-interactive marketplace refresh", "marketplace.refresh");
     const peer = await PiRpcProcess.start({ sandbox, extraArgs: productionModelArgs });
     const siblingOwner = await PiRpcProcess.start({ sandbox, extraArgs: productionModelArgs });
 
@@ -105,7 +105,7 @@ describe("production concurrency, presentation, and secret non-retention", () =>
     const journey = await seedRemoteMarketplace(sandbox, { extraArgs: productionModelArgs });
     await installProductionBundle({ sandbox, rpc: journey.rpc, version: "v1" });
     await publishProductionBundleRevision(sandbox, journey.repository, "v2");
-    await journey.rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh");
+    await journey.rpc.plugin("--non-interactive marketplace refresh", "marketplace.refresh");
     expect((await journey.rpc.plugin(`update ${PRODUCTION_PLUGIN} --scope user --yes`, "lifecycle.update")).envelope.data.kind).toBe("succeeded");
     await journey.rpc.shutdown();
     await journey.git.stop();

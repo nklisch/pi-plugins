@@ -42,8 +42,8 @@ describe("packed multiprocess contention, network loss, and clock regression", (
     let right = await PiRpcProcess.start({ sandbox });
     try {
       const same = await Promise.all([
-        left.plugin(`--non-interactive marketplace add ${git.url} --source-kind git --scope user`, "marketplace.add", 60_000),
-        right.plugin(`--non-interactive marketplace add ${git.url} --source-kind git --scope user`, "marketplace.add", 60_000),
+        left.plugin(`--non-interactive marketplace add ${git.url} --source-kind git`, "marketplace.add", 60_000),
+        right.plugin(`--non-interactive marketplace add ${git.url} --source-kind git`, "marketplace.add", 60_000),
       ]);
       expect(same.filter((result) => result.envelope.status === "ok")).toHaveLength(1);
       expect(same.every((result) => /ok|no-change|stale/u.test(result.envelope.status))).toBe(true);
@@ -55,13 +55,13 @@ describe("packed multiprocess contention, network loss, and clock regression", (
       [left, right] = await Promise.all([PiRpcProcess.start({ sandbox }), PiRpcProcess.start({ sandbox })]);
       const base = `https://127.0.0.1:${new URL(git.url).port}`;
       const distinct = await Promise.all([
-        left.plugin(`--non-interactive marketplace add ${base}/marketplace-two.git --source-kind git --scope user`, "marketplace.add", 60_000),
-        right.plugin(`--non-interactive marketplace add ${base}/marketplace-three.git --source-kind git --scope user`, "marketplace.add", 60_000),
+        left.plugin(`--non-interactive marketplace add ${base}/marketplace-two.git --source-kind git`, "marketplace.add", 60_000),
+        right.plugin(`--non-interactive marketplace add ${base}/marketplace-three.git --source-kind git`, "marketplace.add", 60_000),
       ]);
       expect(distinct.every((result) => /ok|no-change/u.test(result.envelope.status))).toBe(true);
       const [leftList, rightList] = await Promise.all([
-        left.plugin("--non-interactive marketplace list --scope user --limit 50", "marketplace.list"),
-        right.plugin("--non-interactive marketplace list --scope user --limit 50", "marketplace.list"),
+        left.plugin("--non-interactive marketplace list --limit 50", "marketplace.list"),
+        right.plugin("--non-interactive marketplace list --limit 50", "marketplace.list"),
       ]);
       expect(leftList.envelope.data.registrations).toHaveLength(3);
       expect(rightList.envelope.data.registrations.map((entry: any) => entry.id).sort())
@@ -78,7 +78,7 @@ describe("packed multiprocess contention, network loss, and clock regression", (
     const baseline = journey.browse.envelope.data.candidates.map((entry: any) => entry.snapshot);
     await journey.rpc.plugin("updates policy set --kind cadence --target global --cadence paused", "updates.policy.set");
     await pauseNextGitBackend(journey.git.controlFile);
-    const refresh = journey.rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh", 30_000);
+    const refresh = journey.rpc.plugin("--non-interactive marketplace refresh", "marketplace.refresh", 30_000);
     await waitForFile(journey.git.phaseFile, "backend-paused", 15_000);
     await journey.git.kill();
     const failed = await refresh;

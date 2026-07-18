@@ -82,7 +82,7 @@ describe("packaged host disposal matrix", () => {
     let continueOperation!: () => void;
     const operationGate = new Promise<void>((resolve) => { continueOperation = resolve; });
     const operation = host.runWithPiOperationContext(bound as never, new AbortController().signal, async (application) => {
-      const report = await application.control.runArgv(["marketplace", "list", "--scope", "user"], { mode: "direct", output: "json" }, new AbortController().signal);
+      const report = await application.control.runArgv(["marketplace", "list"], { mode: "direct", output: "json" }, new AbortController().signal);
       await operationGate;
       return report.envelope.data;
     });
@@ -108,7 +108,7 @@ describe("packaged host disposal matrix", () => {
     let continueOperation!: () => void;
     const operationGate = new Promise<void>((resolve) => { continueOperation = resolve; });
     const operation = host.runWithPiOperationContext(bound as never, new AbortController().signal, async (application) => {
-      const report = await application.control.runArgv(["marketplace", "list", "--scope", "user"], { mode: "direct", output: "json" }, new AbortController().signal);
+      const report = await application.control.runArgv(["marketplace", "list"], { mode: "direct", output: "json" }, new AbortController().signal);
       await operationGate;
       return report.envelope.data;
     });

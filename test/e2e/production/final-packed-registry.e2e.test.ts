@@ -91,7 +91,7 @@ describe("final from-empty packed registry acceptance", () => {
     expect((await rpc.plugin(`enable ${PRODUCTION_PLUGIN} --scope user --yes`, "lifecycle.enable")).envelope.data.kind).toBe("succeeded");
 
     await publishProductionBundleRevision(finalSandbox, journey.repository, "v2");
-    await rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh");
+    await rpc.plugin("--non-interactive marketplace refresh", "marketplace.refresh");
     expect((await rpc.plugin(`update ${PRODUCTION_PLUGIN} --scope user --yes`, "lifecycle.update")).envelope.data.kind).toBe("succeeded");
     await rpc.shutdown();
     await journey.git.stop();

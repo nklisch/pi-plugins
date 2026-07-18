@@ -26,7 +26,7 @@ describe("packed golden startup, marketplace, browse, and inspection", () => {
     const [status, installed, marketplaces] = await Promise.all([
       rpc.plugin("--non-interactive status", "status"),
       rpc.plugin("--non-interactive list --scope all-current --limit 50", "inspection.list"),
-      rpc.plugin("--non-interactive marketplace list --scope all-current --limit 50", "marketplace.list"),
+      rpc.plugin("--non-interactive marketplace list --limit 50", "marketplace.list"),
     ]);
     expect(status.envelope.data).toMatchObject({
       status: "ready",

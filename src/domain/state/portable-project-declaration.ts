@@ -2,7 +2,6 @@ import { z } from "zod";
 import {
   MarketplaceNameSchema,
   PluginKeySchema,
-  parsePluginKey,
 } from "../identity.js";
 import { schemaValues } from "../schema.js";
 import {
@@ -430,8 +429,8 @@ function addDuplicateIssues<T extends { readonly [key: string]: unknown }>(
 export const PortableProjectDeclarationSchemaV1 = z
   .object({
     schemaVersion: z.literal(1),
-    marketplaces: z.array(PortableMarketplaceDeclarationSchema).readonly(),
-    plugins: z.array(PortablePluginDeclarationSchema).readonly(),
+    marketplaces: z.array(PortableMarketplaceDeclarationSchema).max(256).readonly(),
+    plugins: z.array(PortablePluginDeclarationSchema).max(256).readonly(),
   })
   .strict()
   .readonly()
@@ -439,17 +438,9 @@ export const PortableProjectDeclarationSchemaV1 = z
     addDuplicateIssues(document.marketplaces, "marketplace", ["marketplaces"], context, "marketplace declaration");
     addDuplicateIssues(document.plugins, "plugin", ["plugins"], context, "plugin declaration");
 
-    const declaredMarketplaces = new Set(document.marketplaces.map((entry) => entry.marketplace));
-    for (const [index, entry] of document.plugins.entries()) {
-      const { marketplace } = parsePluginKey(entry.plugin);
-      if (!declaredMarketplaces.has(marketplace)) {
-        addIssue(
-          context,
-          ["plugins", index, "plugin"],
-          `plugin references undeclared marketplace ${marketplace}`,
-        );
-      }
-    }
+    // Marketplace registrations are host-global. A project may declare a
+    // marketplace source as a portable prerequisite, but installed plugin
+    // intent does not duplicate or own that registration.
 
     try {
       assertPortableProjectDeclarationSafe(document);

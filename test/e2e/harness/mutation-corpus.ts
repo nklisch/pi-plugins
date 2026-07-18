@@ -77,7 +77,7 @@ export function mutationCorpus(input: Readonly<{
       case "conflicting-flags": text = "uninstall ghost@missing --scope user --keep-data --delete-data --yes"; break;
       case "option-reordering": text = "browse --limit 0 query --scope nowhere"; break;
       case "token-checksum": text = `operation status ${token}`; break;
-      case "traversal-spelling": text = `marketplace add https://example.invalid/%2e%2e/repo-${index} --source-kind git --scope user`; break;
+      case "traversal-spelling": text = `marketplace add https://example.invalid/%2e%2e/repo-${index} --source-kind git`; break;
       case "unknown-alias": text = `marketplaces magically-refresh-${index}`; break;
       case "random-bounded": {
         const random = boundedRandom(state, 32 + state % 224);

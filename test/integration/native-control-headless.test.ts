@@ -29,7 +29,7 @@ describe("native control headless acceptance", () => {
     let writes = 0;
     const sink = { async write() { writes += 1; if (writes === 2) throw new NativeControlDeliveryClosedError(); }, async close() {} };
     const registration = `marketplace-registration-v1:sha256:${"a".repeat(64)}`;
-    const report = await service.runArgv(["marketplace", "remove", registration, "--scope", "user", "--yes"], { mode: "headless", output: "json", sink }, new AbortController().signal);
+    const report = await service.runArgv(["marketplace", "remove", registration, "--yes"], { mode: "headless", output: "json", sink }, new AbortController().signal);
     expect(report.envelope).toMatchObject({ status: "no-change", data: { kind: "unchanged" } });
     expect(report.delivery).toBe("closed");
     expect(report.deliveredThrough).toBe(0);

@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.1.1
+
+### Fixes
+
+- Make marketplace registration host-global while preserving independent user/project plugin installation targets.
+- Default `/plugin marketplace add owner/repository` to GitHub shorthand and remove marketplace scope flags from add, remove, list, refresh, and adoption commands.
+- Project global marketplace catalogs into scope-specific candidate identities so project installs no longer require duplicated project marketplace registration.
+- Keep project intent and V4 state valid when scoped plugins depend on the host-global marketplace registry.
+
+### Documentation
+
+- Clarify global marketplace ownership, plugin scope semantics, and the simplified marketplace command forms.
+
 ## v0.1.0
 
 ### Features

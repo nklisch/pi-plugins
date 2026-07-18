@@ -369,6 +369,12 @@ The source tree and archive are treated as malicious. The security boundary assu
 
 ### Marketplace store
 
+Marketplace registration and cached catalog content are host-global. The user
+state document owns that registry as a durable host storage boundary; projects
+do not own separate marketplace registrations. Catalog projection combines one
+global marketplace snapshot with the requested user or project plugin target,
+so plugin installation and lifecycle remain independently scoped.
+
 A marketplace is materialized by a content-addressed identity derived from its
 verified canonical source hash, immutable Git revision, and source/content
 binding. Its physical key is a validated `marketplace-store-v1` digest under

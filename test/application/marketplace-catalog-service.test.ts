@@ -9,6 +9,7 @@ import { HostConfigDocumentSchemaV4, GenerationSchema } from "../../src/domain/s
 import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
 import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
 import { deriveStateBlobRef } from "../../src/domain/state/references.js";
+import { deriveProjectKey } from "../../src/domain/state/scope.js";
 import { readClaudeMarketplace } from "../../src/formats/claude/marketplace-reader.js";
 import { MarketplaceCatalogError } from "../../src/application/marketplace-catalog-contract.js";
 import type { GenerationSnapshot } from "../../src/application/state-contract.js";
@@ -16,7 +17,7 @@ import type { GenerationSnapshot } from "../../src/application/state-contract.js
 const sha256: Sha256 = (bytes) => new Uint8Array(createHash("sha256").update(bytes).digest());
 const digest = (value: string) => `sha256:${value.repeat(64)}` as `sha256:${string}`;
 
-function fixture() {
+function fixture(options: Readonly<{ currentProject?: boolean }> = {}) {
   let generation = GenerationSchema.parse(0);
   const source = { kind: "github" as const, repository: "example/community" };
   const resolved = createResolvedMarketplaceSource({ declared: source, revision: "a".repeat(40) }, sha256);
@@ -53,12 +54,15 @@ function fixture() {
       corruptions: [],
     };
   }
+  const identity = { kind: "path-only" as const, canonicalRoot: "file:///project/", limitation: "identity-changes-with-canonical-root" as const };
+  const currentProject = { kind: "project" as const, identity, projectKey: deriveProjectKey(identity, sha256) };
   const service = createMarketplaceCatalogService({
     state: { read: async () => ({ ok: true, snapshot: snapshotState() }), commit: async () => { throw new Error("read only"); } },
     content: { resolveMarketplace } as never,
     inspection: { inspect: async () => catalog },
     clock: { nowEpochMilliseconds: () => 1_000, monotonicMilliseconds: () => 1_000 },
     sha256,
+    ...(options.currentProject === true ? { currentProject } : {}),
   });
   return { service, resolveMarketplace, advance: () => { generation = GenerationSchema.parse(generation + 1); } };
 }
@@ -78,6 +82,16 @@ describe("marketplace catalog service", () => {
     const resolved = await current.service.resolve({ candidateId: alpha.id, snapshot: alpha.snapshot }, new AbortController().signal);
     expect(resolved).toMatchObject({ kind: "resolved", candidate: { id: alpha.id, entry: { identity: { value: { key: "alpha@community" } } } } });
     if (resolved.kind === "resolved") expect(Object.isFrozen(resolved.candidate.entry)).toBe(true);
+  });
+
+  it("projects one global marketplace into independently scoped plugin candidates", async () => {
+    const current = fixture({ currentProject: true });
+    const page = await current.service.search({ scope: "all-current", query: "alpha", limit: 10 }, new AbortController().signal);
+    expect(page.candidates).toHaveLength(2);
+    expect(page.candidates.map((candidate) => candidate.scope.kind)).toEqual(["user", "project"]);
+    expect(new Set(page.candidates.map((candidate) => candidate.id)).size).toBe(2);
+    expect(page.candidates.every((candidate) => candidate.registrationId === page.candidates[0]!.registrationId)).toBe(true);
+    expect(current.resolveMarketplace).toHaveBeenCalledTimes(2);
   });
 
   it("binds cursors to the exact generation and reports stale state", async () => {

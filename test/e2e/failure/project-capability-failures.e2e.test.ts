@@ -51,12 +51,12 @@ describe("packed project trust, foreign state, and unavailable capabilities", ()
     const codexBytes = Buffer.from(`[plugins.fixture]\nsource = "https://example.invalid/repo.git"\ncredential = "${E2E_SECRET_CANARY}"\n`);
     await Promise.all([writeFile(claude, claudeBytes), writeFile(codex, codexBytes)]);
     const rpc = await PiRpcProcess.start({ sandbox });
-    const preview = await rpc.plugin("--non-interactive marketplace adopt preview --scope all-current", "marketplace.adopt.preview");
+    const preview = await rpc.plugin("--non-interactive marketplace adopt preview", "marketplace.adopt.preview");
     expect(preview.envelope.status).toMatch(/ok|no-change/u);
     expect(await readFile(claude)).toEqual(claudeBytes);
     expect(await readFile(codex)).toEqual(codexBytes);
     expect(JSON.stringify(preview)).not.toContain(E2E_SECRET_CANARY);
-    const marketplaces = await rpc.plugin("--non-interactive marketplace list --scope user", "marketplace.list");
+    const marketplaces = await rpc.plugin("--non-interactive marketplace list", "marketplace.list");
     expect(marketplaces.envelope.data.registrations).toEqual([]);
     await rpc.shutdown();
     // Remove deliberate hostile source fixtures after proving byte preservation;

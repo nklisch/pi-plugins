@@ -11,6 +11,20 @@ describe("native control parser", () => {
     expect(argv).toMatchObject({ kind: "parsed", command: { command: "browse", request: { query: "alpha beta", limit: 20 }, invocation: { output: "json" } } });
   });
 
+  it("defaults marketplace shorthand to the global GitHub registry", () => {
+    expect(parser.parseArgv(["marketplace", "add", "nklisch/skills"])).toMatchObject({
+      kind: "parsed",
+      command: { command: "marketplace.add", request: { source: { kind: "github", repository: "nklisch/skills" } } },
+    });
+    expect(parser.parseArgv(["marketplace", "add", "https://example.com/catalog.git", "--source-kind", "git"])).toMatchObject({
+      kind: "parsed",
+      command: { command: "marketplace.add", request: { source: { kind: "git", url: "https://example.com/catalog.git" } } },
+    });
+    expect(parser.parseArgv(["marketplace", "add", "nklisch/skills", "--scope", "user"])).toMatchObject({
+      kind: "invalid", diagnostics: [{ code: "CONTROL_OPTION_UNKNOWN" }],
+    });
+  });
+
   it("canonicalizes stable aliases and never fuzzy executes", () => {
     expect(parser.parseArgv(["inspect", "demo@market", "--scope", "user"])).toMatchObject({ kind: "parsed", command: { command: "inspection.show" }, warnings: [] });
     expect(parser.parseArgv(["inspec", "demo@market", "--scope", "user"])).toMatchObject({ kind: "invalid", diagnostics: [{ code: "CONTROL_COMMAND_UNKNOWN" }] });

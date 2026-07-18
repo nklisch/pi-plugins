@@ -29,7 +29,7 @@ export async function seedRemoteMarketplace(
   sandbox.env.PI_OFFLINE = "0";
   const rpc = await PiRpcProcess.start({ sandbox, ...options });
   const registration = await rpc.plugin(
-    `--non-interactive marketplace add ${git.url} --source-kind git --scope user`,
+    `--non-interactive marketplace add ${git.url} --source-kind git`,
     "marketplace.add",
     E2E_TIMEOUTS.network,
   );
@@ -48,7 +48,7 @@ export async function seedRemoteMarketplace(
   await waitForCondition(
     "remote marketplace refresh ownership release",
     async () => {
-      const report = await rpc.plugin("--non-interactive marketplace list --scope user --limit 50", "marketplace.list");
+      const report = await rpc.plugin("--non-interactive marketplace list --limit 50", "marketplace.list");
       const idle = (report.envelope.data?.registrations ?? []).every((entry: any) => entry.refresh?.claim === undefined);
       consecutiveIdle = idle ? consecutiveIdle + 1 : 0;
       return consecutiveIdle >= 2 ? true : undefined;

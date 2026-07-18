@@ -203,20 +203,27 @@ export function createMarketplaceCatalogService(dependencies: MarketplaceCatalog
     const unavailableSnapshots = new Set<MarketplaceSnapshotToken>();
     const filter = marketplaceIds === undefined ? undefined : new Set(marketplaceIds);
 
-    for (const scope of requestedScopes(scopeSelection, dependencies.currentProject)) {
+    const targets = requestedScopes(scopeSelection, dependencies.currentProject);
+    if (targets.length > 0) {
+      // Marketplace configuration is host-global and lives in the user state
+      // document. Candidate scope is the requested plugin installation target,
+      // not the marketplace registration's storage location.
+      const registryScope = ScopeContextSchema.parse({ kind: "user" });
+      const registryReference = toScopeReference(registryScope);
       abortIfRequested(signal);
-      const loaded = await dependencies.state.read(scope, signal);
-      if (!loaded.ok) continue;
-      const scopeReference = toScopeReference(scope);
-      for (const record of [...marketplaceUpdateRecords(loaded.snapshot)].sort((left, right) => codePointCompare(left.marketplace, right.marketplace))) {
-        const registrationId = deriveMarketplaceRegistrationId({ scope: scopeReference, source: record.source }, dependencies.sha256);
+      const loaded = await dependencies.state.read(registryScope, signal);
+      if (loaded.ok) for (const record of [...marketplaceUpdateRecords(loaded.snapshot)].sort((left, right) => codePointCompare(left.marketplace, right.marketplace))) {
+        const registrationId = deriveMarketplaceRegistrationId({ scope: registryReference, source: record.source }, dependencies.sha256);
         if (filter !== undefined && !filter.has(registrationId)) continue;
         const snapshot = marketplaceSnapshots(loaded.snapshot).find((candidate) => candidate.marketplace === record.marketplace);
-        const token = snapshot === undefined ? undefined : deriveMarketplaceSnapshotToken({ scope: scopeReference, registrationId, snapshot }, dependencies.sha256);
-        fingerprint.push({ scope: scopeReference, generation: loaded.snapshot.generation, registrationId, snapshot: token ?? null });
-        if (token !== undefined) currentSnapshots.add(token);
+        const tokens = snapshot === undefined ? [] : targets.map((target) => ({
+          target,
+          token: deriveMarketplaceSnapshotToken({ scope: toScopeReference(target), registrationId, snapshot }, dependencies.sha256),
+        }));
+        fingerprint.push({ generation: loaded.snapshot.generation, registrationId, snapshots: tokens.map(({ target, token }) => ({ scope: toScopeReference(target), token })) });
+        for (const { token } of tokens) currentSnapshots.add(token);
         const view = await createMarketplaceRegistrationView({
-          scope,
+          scope: registryScope,
           record,
           ...(snapshot === undefined ? {} : { snapshot }),
           now: dependencies.clock.nowEpochMilliseconds(),
@@ -226,7 +233,7 @@ export function createMarketplaceCatalogService(dependencies: MarketplaceCatalog
         });
         if (snapshot === undefined || view.cache.kind === "unavailable" || view.cache.kind === "corrupt" || view.cache.kind === "not-materialized") {
           observations.push(MarketplaceCatalogObservationSchema.parse({ registrationId, marketplace: record.marketplace, status: observationStatus(view.cache), cache: view.cache }));
-          if (token !== undefined) unavailableSnapshots.add(token);
+          for (const { token } of tokens) unavailableSnapshots.add(token);
           continue;
         }
 
@@ -238,21 +245,22 @@ export function createMarketplaceCatalogService(dependencies: MarketplaceCatalog
           if (catalog.marketplace.name.value !== record.marketplace) throw Object.assign(new Error("selected catalog root changed"), { code: "CONTENT_INVALID" });
           observations.push(MarketplaceCatalogObservationSchema.parse({ registrationId, marketplace: record.marketplace, status: observationStatus(view.cache), cache: view.cache }));
           const marketplaceProvenance = provenance(catalog.marketplace.sourceDocuments);
-          for (const entry of catalog.marketplace.entries) {
+          for (const entry of catalog.marketplace.entries) for (const { target, token } of tokens) {
+            const targetReference = toScopeReference(target);
             const sourceIdentity = derivePluginSourceIdentity(entry.source.value, dependencies.sha256);
-            const id = deriveMarketplaceCandidateId({ snapshot: token!, plugin: entry.identity.value.key, source: entry.source.value }, dependencies.sha256);
+            const id = deriveMarketplaceCandidateId({ snapshot: token, plugin: entry.identity.value.key, source: entry.source.value }, dependencies.sha256);
             const entryProvenance = provenance(entry.source.provenance);
             const metadata = safeMetadata(entry);
             const summary = MarketplaceCandidateSummarySchema.parse({
               id,
               snapshot: token,
-              scope: scopeReference,
+              scope: targetReference,
               registrationId,
               plugin: entry.identity.value.key,
               marketplace: record.marketplace,
               name: entry.identity.value.marketplaceEntryName,
               ...(entry.description === undefined ? {} : { description: entry.description.value }),
-              available: availableRevision(entry, token!, snapshot.source.revision, sourceIdentity),
+              available: availableRevision(entry, token, snapshot.source.revision, sourceIdentity),
               availability: availability(entry),
               source: entry.source.value,
               sourceIdentity,
@@ -270,9 +278,9 @@ export function createMarketplaceCatalogService(dependencies: MarketplaceCatalog
             const resolved = deepFreeze({
               [resolvedCandidateBrand]: true as const,
               id,
-              scope,
+              scope: target,
               registrationId,
-              snapshot: token!,
+              snapshot: token,
               snapshotRecord: snapshot,
               marketplace: { root: root.root, source, content: root.manifest, binding: snapshot.binding },
               entry,
@@ -289,7 +297,7 @@ export function createMarketplaceCatalogService(dependencies: MarketplaceCatalog
                 entry.description?.value ?? "",
                 ...metadata.flatMap((item) => [item.key, ...item.values]),
               ],
-              sort: [scope.kind, record.marketplace, summary.name, entry.version?.value ?? "", id],
+              sort: [target.kind, record.marketplace, summary.name, entry.version?.value ?? "", id],
             });
           }
         } catch (error) {
@@ -300,7 +308,7 @@ export function createMarketplaceCatalogService(dependencies: MarketplaceCatalog
           const replacement = MarketplaceCatalogObservationSchema.parse({ registrationId, marketplace: record.marketplace, status: kind, cache });
           if (index >= 0) observations[index] = replacement;
           else observations.push(replacement);
-          if (token !== undefined) unavailableSnapshots.add(token);
+          for (const { token } of tokens) unavailableSnapshots.add(token);
         }
       }
     }

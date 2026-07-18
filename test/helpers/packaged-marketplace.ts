@@ -40,12 +40,12 @@ function marketplaceAdapter(control: import("../../src/application/native-contro
   }
   return {
     registration: {
-      add: (request: any) => execute("marketplace.add", { source: request.source, scope: request.scope }),
-      remove: (request: any) => execute("marketplace.remove", { registrationId: request.registrationId, scope: request.scope, confirmed: true }),
-      list: (request: any) => execute("marketplace.list", request),
+      add: (request: any) => execute("marketplace.add", { source: request.source }),
+      remove: (request: any) => execute("marketplace.remove", { registrationId: request.registrationId, confirmed: true }),
+      list: (request: any) => execute("marketplace.list", { limit: request.limit ?? 50 }),
     },
     refresh: {
-      refresh: (request: any) => execute("marketplace.refresh", { scope: request.scope, ...(request.registrationIds === undefined ? {} : { registrationIds: request.registrationIds }) }),
+      refresh: (request: any) => execute("marketplace.refresh", { ...(request.registrationIds === undefined ? {} : { registrationIds: request.registrationIds }) }),
     },
     catalog: {
       search: (request: any) => execute("browse", { query: request.query ?? "", scope: request.scope ?? "all-current", ...(request.marketplaceIds === undefined ? {} : { marketplaceIds: request.marketplaceIds }), ...(request.availability === undefined ? {} : { availability: request.availability }), ...(request.cursor === undefined ? {} : { cursor: request.cursor }), limit: request.limit ?? 50 }),
@@ -56,8 +56,8 @@ function marketplaceAdapter(control: import("../../src/application/native-contro
       },
     },
     adoption: {
-      preview: (request: any) => execute("marketplace.adopt.preview", { scope: request.compareScope ?? "all-current" }),
-      import: (request: any) => execute("marketplace.adopt.import", { candidateIds: request.candidateIds, scope: request.scope, confirmed: true }),
+      preview: (_request: any) => execute("marketplace.adopt.preview", {}),
+      import: (request: any) => execute("marketplace.adopt.import", { candidateIds: request.candidateIds, confirmed: true }),
     },
   };
 }

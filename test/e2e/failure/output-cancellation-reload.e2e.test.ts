@@ -25,7 +25,7 @@ describe("packed output, cancellation, and reload failure boundaries", () => {
     expect(policy.envelope.status).toMatch(/ok|no-change/u);
     const baseline = journey.browse.envelope.data.candidates.map((entry: any) => [entry.plugin, entry.snapshot]);
     await pauseNextGitBackend(journey.git.controlFile);
-    const pending = journey.rpc.plugin("--timeout-ms 500 marketplace refresh --scope user", "marketplace.refresh", 30_000);
+    const pending = journey.rpc.plugin("--timeout-ms 500 marketplace refresh", "marketplace.refresh", 30_000);
     await waitForFile(journey.git.phaseFile, "backend-paused", 15_000);
     let cancelled;
     try {
@@ -113,7 +113,7 @@ describe("packed output, cancellation, and reload failure boundaries", () => {
     await runChecked(sandbox.capabilities.git, ["add", "."], { cwd: journey.repository.working, env: sandbox.env });
     await runChecked(sandbox.capabilities.git, ["commit", "--quiet", "-m", "malformed catalog"], { cwd: journey.repository.working, env: sandbox.env });
     await runChecked(sandbox.capabilities.git, ["push", "--quiet", "origin", "main"], { cwd: journey.repository.working, env: sandbox.env });
-    const refresh = await journey.rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh", 30_000);
+    const refresh = await journey.rpc.plugin("--non-interactive marketplace refresh", "marketplace.refresh", 30_000);
     expect(refresh.envelope.status).not.toBe("ok");
     const after = await journey.rpc.plugin("--non-interactive browse --scope user --limit 50", "browse");
     expect(after.envelope.data.candidates.map((entry: any) => entry.id)).toEqual(baseline);

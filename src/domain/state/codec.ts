@@ -517,14 +517,17 @@ function decodeDocument<K extends StateDocumentKind>(
 
   const marketplaces = decodeRecords(kind, root.marketplaces, scope, (candidate) => createMarketplaceSnapshotRecord(candidate, sha256), marketplaceCandidateKey, "marketplaces");
   const installed = decodeInstalledCollection(kind, root.plugins, scope, sha256);
-  const filtered = filterDependentInstalledRecords(kind, installed.records, marketplaces.records, scope, [...marketplaces.corruptions, ...installed.corruptions]);
+  const collectionCorruptions = [...marketplaces.corruptions, ...installed.corruptions];
   if (kind === "installedUser") {
+    const filtered = filterDependentInstalledRecords(kind, installed.records, marketplaces.records, scope, collectionCorruptions);
     const value = InstalledUserStateDocumentSchema.parse({ ...root, marketplaces: marketplaces.records, plugins: filtered.records });
     return { value: value as StateDocumentFor<K>, corruptions: filtered.corruptions };
   }
+  // Project plugins resolve through the host-global marketplace registry; only
+  // retained legacy project registrations require local snapshot coverage.
   const registrations = decodeProjectMarketplaceRegistrations(root.marketplaceUpdates ?? [], marketplaces.records, scope);
-  const value = ProjectLocalStateDocumentSchema.parse({ ...root, marketplaces: marketplaces.records, plugins: filtered.records, marketplaceUpdates: registrations.records });
-  return { value: value as StateDocumentFor<K>, corruptions: [...filtered.corruptions, ...registrations.corruptions] };
+  const value = ProjectLocalStateDocumentSchema.parse({ ...root, marketplaces: marketplaces.records, plugins: installed.records, marketplaceUpdates: registrations.records });
+  return { value: value as StateDocumentFor<K>, corruptions: [...collectionCorruptions, ...registrations.corruptions] };
 }
 
 function canonicalStringCompare(left: string, right: string): number {

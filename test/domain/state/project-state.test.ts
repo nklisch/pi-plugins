@@ -30,9 +30,9 @@ const location: Provenance = {
   location: { host: "claude", documentKind: "manifest", path: ".claude-plugin/plugin.json", pointer: "" },
 };
 const source = createResolvedPluginSource({
-  kind: "git",
-  url: "https://example.com/project-plugin.git",
-  revision: "c".repeat(40),
+  kind: "marketplace-path",
+  marketplaceRevision: "d".repeat(40),
+  path: "./plugin",
 }, sha256);
 const plugin = NormalizedPluginSchema.parse({
   identity: { key: "demo@community", marketplaceName: "community", marketplaceEntryName: "demo" },
@@ -157,6 +157,23 @@ describe("project-local lifecycle state", () => {
     expect(result.records).toHaveLength(0);
     expect(result.quarantined.filter((entry) => entry.code === "RECORD_DUPLICATE")).toHaveLength(2);
     expect(result.quarantined.some((entry) => entry.code === "RECORD_INVALID")).toBe(true);
+  });
+
+  it("allows project-scoped plugins to reference the host-global marketplace registry", () => {
+    const document = createProjectLocalStateDocumentV4({
+      schemaVersion: 4,
+      generation: 3,
+      projectKey,
+      identity,
+      declarationDigest: content.rootDigest,
+      scope: {},
+      marketplaces: [],
+      plugins: [{ ...pluginInput, pendingTransition: `pending-transition-v1:sha256:${"a".repeat(64)}` }],
+      marketplaceUpdates: [],
+    }, context as Extract<ScopeContext, { kind: "project" }>, sha256);
+
+    expect(document.plugins).toHaveLength(1);
+    expect(document.marketplaces).toEqual([]);
   });
 
   it("preserves validated v4 marketplace registration memory through the constructor", () => {

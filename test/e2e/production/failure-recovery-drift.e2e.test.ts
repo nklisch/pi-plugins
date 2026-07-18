@@ -93,7 +93,7 @@ describe("production failure, recovery, and package drift", () => {
     hooks.hooks.PermissionRequest = [{ hooks: [{ type: "command", command: "node never.mjs" }] }];
     await writeFile(hooksPath, `${JSON.stringify(hooks, null, 2)}\n`);
     await commitFixture(journey.repository, "incompatible production update");
-    await journey.rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh");
+    await journey.rpc.plugin("--non-interactive marketplace refresh", "marketplace.refresh");
     const rejected = await journey.rpc.plugin(`update ${PRODUCTION_PLUGIN} --scope user --yes`, "lifecycle.update");
     expect(rejected.envelope.status).not.toBe("ok");
     await observeProductionBundle(journey.rpc, activeV1, model);
@@ -101,7 +101,7 @@ describe("production failure, recovery, and package drift", () => {
     await writeFile(join(journey.repository.working, "interrupted-refresh.txt"), "candidate acquisition boundary\n");
     await commitFixture(journey.repository, "interrupted acquisition candidate");
     await pauseNextGitBackend(journey.git.controlFile);
-    const pending = journey.rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh", 60_000);
+    const pending = journey.rpc.plugin("--non-interactive marketplace refresh", "marketplace.refresh", 60_000);
     await waitForFile(journey.git.phaseFile, "backend-paused", 15_000);
     journey.rpc.process.signal("SIGKILL");
     await journey.rpc.process.waitForExit(10_000);
@@ -120,7 +120,7 @@ describe("production failure, recovery, and package drift", () => {
     const journey = await seedRemoteMarketplace(sandbox, { extraArgs: productionModelArgs });
     await installProductionBundle({ sandbox, rpc: journey.rpc, version: "v1" });
     await publishProductionBundleRevision(sandbox, journey.repository, "v2");
-    expect((await journey.rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh")).envelope.status).toBe("ok");
+    expect((await journey.rpc.plugin("--non-interactive marketplace refresh", "marketplace.refresh")).envelope.status).toBe("ok");
 
     const update = journey.rpc.plugin(`update ${PRODUCTION_PLUGIN} --scope user --yes`, "lifecycle.update", 60_000);
     await waitForCondition("durable pending production transition", pendingProductionTransition, 15_000);
@@ -141,7 +141,7 @@ describe("production failure, recovery, and package drift", () => {
     const journey = await seedRemoteMarketplace(sandbox, { extraArgs: productionModelArgs });
     await installProductionBundle({ sandbox, rpc: journey.rpc, version: "v1" });
     await publishProductionBundleRevision(sandbox, journey.repository, "v2");
-    expect((await journey.rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh")).envelope.status).toBe("ok");
+    expect((await journey.rpc.plugin("--non-interactive marketplace refresh", "marketplace.refresh")).envelope.status).toBe("ok");
 
     const update = journey.rpc.plugin(`update ${PRODUCTION_PLUGIN} --scope user --yes`, "lifecycle.update", 60_000);
     const transition = await waitForCondition("candidate projection committed for transition", pendingProductionTransition, 15_000);

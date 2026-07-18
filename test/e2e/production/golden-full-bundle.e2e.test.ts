@@ -86,7 +86,7 @@ describe("golden production full-bundle lifecycle", () => {
     await observeProductionBundle(rpc, active("v1"), model);
 
     await publishProductionBundleRevision(sandbox, journey.repository, "v2");
-    const refreshed = await rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh");
+    const refreshed = await rpc.plugin("--non-interactive marketplace refresh", "marketplace.refresh");
     expect(refreshed.envelope.status).toBe("ok");
     const updated = await rpc.plugin(`update ${PRODUCTION_PLUGIN} --scope user --yes`, "lifecycle.update");
     expect(updated.envelope.data).toMatchObject({ kind: "succeeded" });
@@ -105,7 +105,7 @@ describe("golden production full-bundle lifecycle", () => {
     await observeProductionBundle(rpc, inactive("v2"), model);
     const listed = await rpc.plugin("--non-interactive list --scope user", "inspection.list");
     expect(listed.envelope.data.items).not.toContainEqual(expect.objectContaining({ plugin: PRODUCTION_PLUGIN }));
-    const marketplaces = await rpc.plugin("--non-interactive marketplace list --scope user", "marketplace.list");
+    const marketplaces = await rpc.plugin("--non-interactive marketplace list", "marketplace.list");
     expect(marketplaces.envelope.data.registrations).toContainEqual(expect.objectContaining({ marketplace: "native-e2e-market" }));
     await rpc.shutdown();
   });

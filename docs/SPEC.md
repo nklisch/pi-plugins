@@ -37,9 +37,14 @@ unavailable before dependent plugin activation.
 
 ## Marketplace sources
 
+Marketplace registration is host-global. It is shared by user- and
+project-scoped plugin installations; only plugins carry an installation scope.
+The host-global registry is persisted in the user state document, but that is a
+storage boundary rather than marketplace scope.
+
 A marketplace can be registered from:
 
-- GitHub shorthand such as `owner/repository`
+- GitHub shorthand such as `owner/repository` (the default source kind)
 - HTTPS Git URLs
 - SSH Git URLs
 - a local Git checkout
@@ -66,7 +71,9 @@ resolve consistently. Entry disagreement drops that overlapping entry with a
 compatibility diagnostic while valid siblings remain available; neither host
 receives implicit precedence.
 
-Raw remote `marketplace.json` URLs are not marketplace sources.
+Raw remote `marketplace.json` URLs are not marketplace sources. The common
+registration form is therefore simply `/plugin marketplace add owner/repository`;
+`--source-kind` is needed only for Git URLs and local Git checkouts.
 
 ## Marketplace entries
 
@@ -422,12 +429,12 @@ trailing `...` is repeatable.
 | `presentation` | `/plugin` | `pure` | `decision` | Open plugin management |
 | `help` | `/plugin help [<path>...]` | `pure` | `none` | Show exact command help |
 | `grammar` | `/plugin grammar [--version <value>]` | `pure` | `none` | Show grammar metadata |
-| `marketplace.add` | `/plugin marketplace add <source> --source-kind github\|git\|local-git --scope user\|project [--ref <value>]` | `mutation` | `none` | Register a marketplace |
-| `marketplace.remove` | `/plugin marketplace remove <registration-id> --scope user\|project --yes` | `mutation` | `confirmation` | Remove a marketplace registration |
-| `marketplace.list` | `/plugin marketplace list [--scope user\|project\|all-current] [--limit <integer>]` | `local-read` | `none` | List marketplace registrations |
-| `marketplace.refresh` | `/plugin marketplace refresh [<registration-id>...] [--scope user\|project\|all-current]` | `mutation` | `none` | Refresh marketplace registrations |
-| `marketplace.adopt.preview` | `/plugin marketplace adopt preview [--scope user\|project\|all-current]` | `local-read` | `none` | Preview foreign marketplace adoption |
-| `marketplace.adopt.import` | `/plugin marketplace adopt import <candidate-id>... --scope user\|project --yes` | `mutation` | `confirmation` | Import selected foreign marketplaces |
+| `marketplace.add` | `/plugin marketplace add <source> [--source-kind github\|git\|local-git] [--ref <value>]` | `mutation` | `none` | Register a global marketplace |
+| `marketplace.remove` | `/plugin marketplace remove <registration-id> --yes` | `mutation` | `confirmation` | Remove a global marketplace registration |
+| `marketplace.list` | `/plugin marketplace list [--limit <integer>]` | `local-read` | `none` | List global marketplace registrations |
+| `marketplace.refresh` | `/plugin marketplace refresh [<registration-id>...]` | `mutation` | `none` | Refresh global marketplace registrations |
+| `marketplace.adopt.preview` | `/plugin marketplace adopt preview` | `local-read` | `none` | Preview foreign marketplace adoption |
+| `marketplace.adopt.import` | `/plugin marketplace adopt import <candidate-id>... --yes` | `mutation` | `confirmation` | Import selected foreign marketplaces globally |
 | `browse` | `/plugin browse [<query>] [--scope user\|project\|all-current] [--marketplace-id <value>]... [--availability available\|installed-by-default\|not-available]... [--cursor <value>] [--limit <integer>]` | `local-read` | `none` | Browse marketplace candidates |
 | `inspection.list` | `/plugin list [--scope user\|project\|all-current] [--query <value>] [--condition ready\|attention\|blocked\|unavailable]... [--cursor <value>] [--limit <integer>]` | `local-read` | `none` | List installed plugins |
 | `inspection.show` | `/plugin show <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>]` | `local-read` | `none` | Show exact plugin detail |
@@ -467,9 +474,9 @@ The registry aliases are exact alternate paths, never fuzzy matches:
 | `/plugin updates notices ack` | `/plugin updates notices acknowledge` |
 <!-- native-control-aliases:end -->
 
-Aliases use the same request schema, scope and confirmation policy, dispatcher,
-and response schema as their canonical command. No alias performs
-name-to-identifier lookup or supplies a mutation scope.
+Aliases use the same request schema, confirmation policy, dispatcher, and
+response schema as their canonical command. No alias performs
+name-to-identifier lookup or supplies plugin mutation scope.
 
 Cross-field grammar is strict:
 
@@ -504,10 +511,10 @@ lines must parse; `invalid:<code>` lines must fail with that exact diagnostic.
 
 <!-- native-control-examples:start -->
 ```text
-valid | /plugin --grammar-version plugin-control/v1 --output json --timeout-ms 30000 --non-interactive --input-file ./request.json marketplace list --scope all-current --limit 50
+valid | /plugin --grammar-version plugin-control/v1 --output json --timeout-ms 30000 --non-interactive --input-file ./request.json marketplace list --limit 50
 valid | /plugin --input-stdin status
 valid | /plugin --input-env-prefix PI_PLUGIN_INPUT grammar --version plugin-control/v1
-valid | /plugin marketplace add owner/repository --source-kind github --scope user --ref main
+valid | /plugin marketplace add owner/repository --ref main
 valid | /plugin browse adapter --scope all-current --marketplace-id marketplace-registration-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000 --marketplace-id marketplace-registration-v1:sha256:1111111111111111111111111111111111111111111111111111111111111111 --availability available --availability not-available --cursor marketplace-cursor-v1:next --limit 25
 valid | /plugin show demo@market --scope user --snapshot-id inspection-snapshot-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000 --detail-id inspection-detail-v1:item.0000000000000000000000000000000000000000000000000000000000000000
 valid | /plugin updates policy preview --kind application --target marketplace --scope user --marketplace-id marketplace-registration-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000 --mode automatic

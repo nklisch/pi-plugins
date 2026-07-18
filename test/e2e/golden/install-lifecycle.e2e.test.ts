@@ -59,7 +59,7 @@ describe("packed golden install and lifecycle journeys", () => {
     const enabled = await journey.rpc.plugin("enable core-local@native-e2e-market --scope user --yes", "lifecycle.enable");
     expect(enabled.envelope.data.kind).toBe("succeeded");
     await publishFixtureRevision(sandbox, journey.repository, "2.0.0", "v2");
-    const refresh = await journey.rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh");
+    const refresh = await journey.rpc.plugin("--non-interactive marketplace refresh", "marketplace.refresh");
     expect(refresh.envelope.status).toBe("ok");
     const updated = await journey.rpc.plugin("update core-local@native-e2e-market --scope user --yes", "lifecycle.update");
     expect(updated.envelope.data).toMatchObject({ kind: "succeeded" });

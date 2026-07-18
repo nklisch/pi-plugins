@@ -83,14 +83,12 @@ export function pluginManagerActionConfirmation(intent: ConfirmedPluginManagerAc
     });
   }
   if (intent.action === "marketplace-remove") {
-    if (intent.row.scope === undefined) throw new TypeError("marketplace removal requires exact scope");
     return Object.freeze({
       action: intent.action,
       title: "Confirm marketplace removal",
       lines: Object.freeze([
         `registration: ${intent.row.key.key}`,
-        `scope: ${intent.row.scope}`,
-        "The marketplace registration will be removed; installed plugin state is not inferred here.",
+        "The global marketplace registration will be removed; installed plugin state is not inferred here.",
       ]),
       destructive: true,
     });
@@ -147,11 +145,10 @@ function actionArgv(intent: PluginManagerActionIntent, confirmed: boolean): read
     return nativeControlArgv(intent.action === "install-apply" ? "install.apply" : "install.recover", [intent.token]);
   }
   if (intent.action === "marketplace-refresh") {
-    return nativeControlArgv("marketplace.refresh", [intent.row.key.key], { scope: intent.row.scope ?? "all-current" });
+    return nativeControlArgv("marketplace.refresh", [intent.row.key.key]);
   }
   if (intent.action === "marketplace-remove") {
-    if (intent.row.scope === undefined) throw new TypeError("marketplace removal requires exact scope");
-    return nativeControlArgv("marketplace.remove", [intent.row.key.key], { scope: intent.row.scope, confirmed });
+    return nativeControlArgv("marketplace.remove", [intent.row.key.key], { confirmed });
   }
   if (intent.action === "notice-acknowledge") return nativeControlArgv("updates.notices.acknowledge", [intent.row.key.key]);
   if (intent.action === "project-sync") return nativeControlArgv("project.sync", [], { mode: intent.mode, confirmed });

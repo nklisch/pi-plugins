@@ -144,7 +144,7 @@ async function waitForMarketplaceIdle(rpc, commandName, timeoutMs = 60_000) {
   do {
     const report = await runControlCommand(
       rpc,
-      `/${commandName} marketplace list --scope user`,
+      `/${commandName} marketplace list`,
       (envelope) => envelope.command?.id === "marketplace.list",
       "marketplace idle observation",
     );
@@ -231,7 +231,7 @@ try {
   if (productionStatus.data?.capabilities?.mcp?.status !== "available") {
     throw new Error(`published MCP runtime did not pass concrete production qualification: ${JSON.stringify(productionStatus)}`);
   }
-  await runControlCommand(rpc, `/${owned.name} marketplace add ${marketplace} --source-kind local-git --scope user`, (envelope) => envelope.command?.id === "marketplace.add", "marketplace registration completion");
+  await runControlCommand(rpc, `/${owned.name} marketplace add ${marketplace} --source-kind local-git`, (envelope) => envelope.command?.id === "marketplace.add", "marketplace registration completion");
   await runControlCommand(rpc, `/${owned.name} browse demo --scope user --limit 50`, (envelope) => envelope.command?.id === "browse", "catalog browse completion");
   const entries = await rpc.request({ type: "get_entries" });
   const reports = controlReports(entries);

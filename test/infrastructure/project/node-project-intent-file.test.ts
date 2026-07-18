@@ -68,7 +68,7 @@ describe("node project intent file", () => {
     if (missing.kind !== "missing") throw new Error("missing file fixture failed");
     const largeDeclaration = {
       ...declaration,
-      plugins: Array.from({ length: 400 }, (_, index) => ({
+      plugins: Array.from({ length: 200 }, (_, index) => ({
         plugin: `plugin-${index.toString().padStart(3, "0")}@market`,
         enabled: true,
         constraint: { kind: "declared-version" as const, value: `1.0.${index}-${"x".repeat(1_000)}` },

@@ -50,7 +50,7 @@ describe("native control mutation dispatch", () => {
 
   it("assembles marketplace mutation requests and calls only the owner once", async () => {
     const { dispatcher, dependencies } = fixture();
-    const result = await dispatcher.dispatch(parsed(["marketplace", "add", "owner/repo", "--source-kind", "github", "--scope", "user"]), context, signal);
+    const result = await dispatcher.dispatch(parsed(["marketplace", "add", "owner/repo"]), context, signal);
     expect(result).toMatchObject({ status: "rejected", data: { kind: "rejected", code: "SOURCE_UNAVAILABLE" } });
     expect(dependencies.marketplace.registration.add).toHaveBeenCalledOnce();
     expect(dependencies.marketplace.registration.add).toHaveBeenCalledWith({ source: { kind: "github", repository: "owner/repo" }, scope: "user", origin: { kind: "native" } }, signal);
@@ -58,7 +58,7 @@ describe("native control mutation dispatch", () => {
 
   it("rejects blocked readiness before selection/input/mutation", async () => {
     const { dispatcher, dependencies } = fixture();
-    const result = await dispatcher.dispatch(parsed(["marketplace", "add", "owner/repo", "--source-kind", "github", "--scope", "user"]), { ...context, readiness: { ...ready, status: "blocked" } } as never, signal);
+    const result = await dispatcher.dispatch(parsed(["marketplace", "add", "owner/repo"]), { ...context, readiness: { ...ready, status: "blocked" } } as never, signal);
     expect(result).toMatchObject({ status: "rejected", diagnostics: [{ code: "CONTROL_READINESS_BLOCKED" }] });
     expect(dependencies.marketplace.registration.add).not.toHaveBeenCalled();
     expect(dependencies.inspection.list).not.toHaveBeenCalled();

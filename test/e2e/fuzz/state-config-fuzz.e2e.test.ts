@@ -64,11 +64,11 @@ describe("bounded packed state, project intent, and foreign config fuzz", () => 
       const toml = Buffer.from(`[plugins.valid]\nsource = "https://example.invalid/repo.git"\nunknown_${index} = "${E2E_SECRET_CANARY}"\n`);
       await Promise.all([writeFile(claude, bytes), writeFile(codex, toml)]);
       const rpc = await PiRpcProcess.start({ sandbox });
-      const preview = await rpc.plugin("--non-interactive marketplace adopt preview --scope all-current", "marketplace.adopt.preview");
+      const preview = await rpc.plugin("--non-interactive marketplace adopt preview", "marketplace.adopt.preview");
       expect(JSON.stringify(preview.envelope)).not.toContain(E2E_SECRET_CANARY);
       expect(await readFile(claude)).toEqual(bytes);
       expect(await readFile(codex)).toEqual(toml);
-      const registrations = await rpc.plugin("--non-interactive marketplace list --scope user", "marketplace.list");
+      const registrations = await rpc.plugin("--non-interactive marketplace list", "marketplace.list");
       expect(registrations.envelope.data.registrations).toEqual([]);
       await rpc.shutdown();
     }

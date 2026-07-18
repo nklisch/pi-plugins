@@ -6,7 +6,7 @@ describe("native control adversarial contract", () => {
     ["unknown option", ["status", "--unknown"]],
     ["duplicate option", ["list", "--limit", "1", "--limit", "2"]],
     ["Unicode option lookalike", ["list", "—limit", "2"]],
-    ["credential source", ["marketplace", "add", "https://bearer:secret@example.test/repo.git", "--source-kind", "git", "--scope", "user"]],
+    ["credential source", ["marketplace", "add", "https://bearer:secret@example.test/repo.git", "--source-kind", "git"]],
     ["giant value", ["browse", "x".repeat(8193)]],
     ["NUL", ["browse", "a\0b"]],
     ["ANSI", ["browse", "a\u001b[31m"]],

@@ -134,7 +134,7 @@ export async function installFromEmptyRegistrySnapshot(input: Readonly<{
     realpath: await realpath(bundledSubagents),
   });
   const candidate = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as { name?: string; private?: boolean; version?: string };
-  if (candidate.name !== "@nklisch/pi-plugins" || candidate.private !== false || candidate.version !== "0.1.0") {
+  if (candidate.name !== "@nklisch/pi-plugins" || candidate.private !== false || candidate.version !== "0.1.1") {
     throw new Error("from-empty candidate identity drifted");
   }
   const piRoot = join(tree, "@earendil-works", "pi-coding-agent");

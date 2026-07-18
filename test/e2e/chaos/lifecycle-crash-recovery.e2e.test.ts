@@ -22,7 +22,7 @@ describe("deterministic packed publication and lifecycle crash recovery", () => 
     const before = journey.browse.envelope.data.candidates.find((entry: any) => entry.plugin === "core-local@native-e2e-market");
     await publishFixtureRevision(sandbox, journey.repository, "2.0.0", "v2");
     await pauseNextGitBackend(journey.git.controlFile);
-    const refresh = journey.rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh", 30_000);
+    const refresh = journey.rpc.plugin("--non-interactive marketplace refresh", "marketplace.refresh", 30_000);
     await waitForFile(journey.git.phaseFile, "backend-paused", 15_000);
     journey.rpc.process.signal("SIGKILL");
     await journey.rpc.process.waitForExit(10_000);
@@ -33,7 +33,7 @@ describe("deterministic packed publication and lifecycle crash recovery", () => 
     const retained = await restarted.plugin("--non-interactive browse --scope user --limit 50", "browse");
     const retainedCore = retained.envelope.data.candidates.find((entry: any) => entry.plugin === "core-local@native-e2e-market");
     expect(retainedCore.snapshot).toBe(before.snapshot);
-    const retried = await restarted.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh", 30_000);
+    const retried = await restarted.plugin("--non-interactive marketplace refresh", "marketplace.refresh", 30_000);
     expect(retried.envelope.status).toBe("ok");
     const after = await restarted.plugin("--non-interactive browse --scope user --limit 50", "browse");
     const v2 = after.envelope.data.candidates.filter((entry: any) => entry.plugin === "core-local@native-e2e-market");
@@ -48,7 +48,7 @@ describe("deterministic packed publication and lifecycle crash recovery", () => 
     const installed = await journey.rpc.plugin("install core-local@native-e2e-market --scope user", "install.run");
     expect(installed.envelope.data.kind).toBe("succeeded");
     await publishFixtureRevision(sandbox, journey.repository, "2.0.0", "v2");
-    await journey.rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh");
+    await journey.rpc.plugin("--non-interactive marketplace refresh", "marketplace.refresh");
     const update = journey.rpc.plugin("update core-local@native-e2e-market --scope user --yes", "lifecycle.update", 60_000);
     const journal = join(sandbox.agentDir, "plugin-host", "recovery", "journal", "v1", "user.sqlite");
     await waitForCondition("prepared lifecycle transition", () => {

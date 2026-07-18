@@ -10,7 +10,7 @@ import { createLocalMarketplace, extensionContext, fakePi, runMarketplaceOperati
 const execFile = promisify(execFileCallback);
 
 describe("packaged marketplace discovery security", () => {
-  it("rejects untrusted project mutation, credential URLs, and symlink local roots without leaking paths", async () => {
+  it("rejects credential URLs and symlink local roots without leaking paths", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-marketplace-security-"));
     const agentDir = join(root, "agent");
     const project = join(root, "project");
@@ -24,15 +24,8 @@ describe("packaged marketplace discovery security", () => {
       const started = await host.start({ type: "session_start", reason: "startup" } as never, context as never);
       expect(started.startup.capabilities.secrets).toMatchObject({ status: "unavailable" });
       expect(JSON.stringify(started.startup)).not.toContain(root);
-      const untrusted = await runMarketplaceOperation(host, context, (marketplace, signal) => marketplace.registration.add({
-        source: { kind: "github", repository: "example/community" },
-        scope: "project",
-        origin: { kind: "native" },
-      }, signal));
-      expect(untrusted).toEqual({ kind: "rejected", code: "PROJECT_UNTRUSTED" });
-
       const credential = await host.runWithPiOperationContext(context as never, new AbortController().signal, (application) =>
-        application.control.runArgv(["marketplace", "add", "https://secret:marker@example.test/catalog.git", "--source-kind", "git", "--scope", "user"], { mode: "headless", output: "json" }, new AbortController().signal));
+        application.control.runArgv(["marketplace", "add", "https://secret:marker@example.test/catalog.git", "--source-kind", "git"], { mode: "headless", output: "json" }, new AbortController().signal));
       expect(credential.envelope).toMatchObject({ status: "failed", exit: { code: 2 }, diagnostics: [{ code: "CONTROL_REQUEST_INVALID" }] });
       expect(JSON.stringify(credential)).not.toContain("secret");
 
@@ -61,7 +54,7 @@ describe("packaged marketplace discovery security", () => {
       await execFile("git", ["init", "--quiet", "-b", "main"], { cwd: project });
 
       const failure = await host.runWithPiOperationContext(context as never, new AbortController().signal, (application) =>
-        application.control.runArgv(["marketplace", "add", "example/community", "--source-kind", "github", "--scope", "project"], { mode: "headless", output: "json" }, new AbortController().signal));
+        application.control.runArgv(["browse", "--scope", "project"], { mode: "headless", output: "json" }, new AbortController().signal));
 
       expect(failure.envelope).toMatchObject({ status: "unavailable", diagnostics: [{ code: "ADAPTER_FAILED" }] });
       expect(JSON.stringify(failure)).not.toContain(root);

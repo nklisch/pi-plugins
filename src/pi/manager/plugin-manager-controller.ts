@@ -102,7 +102,7 @@ function marketplaceRows(envelope: NativeControlEnvelope): readonly PluginManage
     return Object.freeze({
       key: Object.freeze({ subject: "marketplace" as const, key: item.id }),
       title: item.marketplace,
-      subtitle: `${scope ?? "unknown scope"} · ${item.source.kind}`,
+      subtitle: item.source.kind,
       status: item.cache.kind,
       statusTone: item.cache.kind === "ready" ? "success" : item.cache.kind === "stale" ? "warning" : "error",
       ...(scope === undefined ? {} : { scope }),

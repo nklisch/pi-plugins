@@ -26,7 +26,7 @@ describe("bounded packed /plugin grammar and token fuzz", () => {
     expect(first).toHaveLength(128);
     expect(Math.max(...first.map((entry) => entry.bytes))).toBeLessThanOrEqual(8_192);
     expect(first.every((entry) => entry.replay.includes(entry.caseId))).toBe(true);
-    expect(createHash("sha256").update(JSON.stringify(first)).digest("hex")).toBe("83b2620d33a0b71c5abcca8d6000b73801d0e1a216fc7138b1bad7c136536133");
+    expect(createHash("sha256").update(JSON.stringify(first)).digest("hex")).toBe("b8741b0a2afa0c77bfe39fa466c50e4674756810a0c9f82603e111e146e51edf");
   });
 
   it("rejects 128 hostile command vectors with bounded safe output and no authority change", async () => {

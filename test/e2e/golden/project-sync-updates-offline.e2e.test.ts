@@ -17,7 +17,7 @@ describe("packed project sync, update policy, and offline restart", () => {
     sandbox = await createCleanE2ESandbox("golden-project-sync");
     const journey = await seedRemoteMarketplace(sandbox);
     const projectMarketplace = await journey.rpc.plugin(
-      `--non-interactive marketplace add ${journey.git.url} --source-kind git --scope project`,
+      `--non-interactive marketplace add ${journey.git.url} --source-kind git`,
       "marketplace.add",
     );
     expect(projectMarketplace.envelope.status).toMatch(/ok|no-change/u);
@@ -35,10 +35,7 @@ describe("packed project sync, update policy, and offline restart", () => {
     const intent = JSON.parse(text);
     expect(intent).toEqual({
       schemaVersion: 1,
-      marketplaces: [{
-        marketplace: "native-e2e-market",
-        source: { kind: "git", url: journey.git.url },
-      }],
+      marketplaces: [],
       plugins: [{ plugin: "project-local@native-e2e-market", enabled: true }],
     });
     expect(text).not.toMatch(/\/tmp\/|revision|configuration|trust|cache|timestamp|secret/iu);
@@ -79,7 +76,7 @@ describe("packed project sync, update policy, and offline restart", () => {
     const installed = await journey.rpc.plugin("install core-local@native-e2e-market --scope user", "install.run");
     expect(installed.envelope.data.kind).toBe("succeeded");
     await publishFixtureRevision(sandbox, journey.repository, "2.0.0", "v2");
-    await journey.rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh");
+    await journey.rpc.plugin("--non-interactive marketplace refresh", "marketplace.refresh");
     const notices = await journey.rpc.plugin("--non-interactive updates notices list --scope user", "updates.notices.list");
     expect(notices.envelope.data.notices).toHaveLength(1);
     const noticeId = notices.envelope.data.notices[0].id as string;
@@ -98,7 +95,7 @@ describe("packed project sync, update policy, and offline restart", () => {
     // descriptor makes this candidate independently ready while still changing
     // the executable surface covered by the explicit automatic policy.
     await publishFixtureConfigurationFreeRevision(sandbox, journey.repository, "3.0.0");
-    await journey.rpc.plugin("--non-interactive marketplace refresh --scope user", "marketplace.refresh");
+    await journey.rpc.plugin("--non-interactive marketplace refresh", "marketplace.refresh");
     const v3Notices = await journey.rpc.plugin("--non-interactive updates notices list --scope user", "updates.notices.list");
     expect(v3Notices.envelope.data.notices.filter((notice: any) => notice.unresolved)).toEqual([
       expect.objectContaining({ installed: "2.0.0", available: "3.0.0" }),
