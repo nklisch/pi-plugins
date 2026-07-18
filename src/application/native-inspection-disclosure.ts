@@ -80,9 +80,9 @@ function projectMcpEndpoint(value: string) {
     scheme: endpoint.url.protocol === "https:" ? "https" : "http",
     host: safeLabel(endpoint.url.hostname.replace(/^\[|\]$/gu, "")),
     port: safeLabel(endpoint.effectivePort),
-    // URL paths are not filesystem paths; disclose the complete decoded path
-    // after the endpoint analyzer has rejected encoded control characters.
-    path: safePath(decodeSafePath(endpoint.url.pathname), true),
+    // URL paths are not filesystem paths. Preserve their exact encoded form so
+    // consent cannot visually alias `%2F` with a literal path separator.
+    path: safePath(endpoint.url.pathname, true),
     queryPresent: endpoint.url.search.length > 0,
   });
 }
