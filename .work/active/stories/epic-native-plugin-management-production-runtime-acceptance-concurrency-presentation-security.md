@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-production-runtime-acceptance-concurrency-presentation-security
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management-production-runtime-acceptance
 depends_on: [epic-native-plugin-management-production-runtime-acceptance-golden-lifecycle, epic-native-plugin-management-production-runtime-acceptance-failure-recovery-drift]
@@ -40,3 +40,11 @@ Implement Unit 5 from the parent feature in `test/e2e/production/concurrency-pre
 ## Ordering and risk
 
 Depends on both golden and failure/recovery checkpoints so it reuses established observation and fault helpers. Live cross-process automatic reload is not a claimed guarantee; final convergence is asserted after fresh process restart.
+
+## Implementation notes
+
+- Ran same-target V1→V2 updates from two real Pi processes plus a concurrent different-plugin inspection. One mutation owns success, the peer reports truthful stale/current evidence, and two fresh processes agree on exact V2 with valid SQLite.
+- Proved V2 startup within 15 seconds after stopping Git and the model service. Skill and local MCP registration remain observable without eager process launch; a later explicit model/tool turn starts the server and returns late values.
+- Checked RPC authority, human print projection, strict JSONL, and real 120×30 and 58-column PTY manager topology. Whole-bundle counts are 1 skill, 3 hooks, and 2 MCP servers; alias limitation remains visible in structured status.
+- Submitted the secret canary through Pi's real masked TUI input and exact consent disclosure. Unavailable production custody rejects installation; terminal, RPC, state, files, logs, artifacts, and retained diagnostics contain no plaintext.
+- Verified all four concurrency/presentation/security tests green, including process/port/source/lease and SQLite cleanup.
