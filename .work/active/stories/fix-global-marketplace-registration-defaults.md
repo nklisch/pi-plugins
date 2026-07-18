@@ -1,7 +1,7 @@
 ---
 id: fix-global-marketplace-registration-defaults
 kind: story
-stage: verifying
+stage: done
 tags: [compatibility]
 parent: null
 depends_on: []

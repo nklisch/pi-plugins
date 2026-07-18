@@ -1,7 +1,7 @@
 ---
 id: fix-configuration-store-concurrent-initialization
 kind: story
-stage: implementing
+stage: done
 tags: [infra]
 parent: null
 depends_on: []
