@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.1.4
+
+### Features
+
+- Open `/plugin` immediately and refresh installed, discoverable, update, and health state in the background with visible loading feedback.
+- Replace the section/action ladder with a two-layer catalog and inline plugin details, actions, progress, and results.
+- Combine installed and discoverable plugins with All, Installed, and Updates filters while keeping sources one shortcut away.
+
+### Fixes
+
+- Deduplicate equivalent Claude/Codex and user/project candidates by immutable source identity while preserving the available installation scopes.
+- Keep the manager mounted during actions, return cleanly from finished operations, and start every invocation at the catalog root.
+- Remove redundant confirmations for routine reversible actions while retaining trust and destructive-change approval.
+
 ## v0.1.3
 
 ### Fixes
