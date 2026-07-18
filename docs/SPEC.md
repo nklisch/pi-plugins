@@ -393,52 +393,131 @@ intent. Unknown fields and machine-local or operational values fail closed.
 
 ## Lifecycle operations
 
-The public command surface is `plugin-control/v1`. Scope-changing mutations
-require `--scope user|project`; destructive mutations also require the command's
-exact confirmation or retention options. The canonical forms are:
+The public command surface is `plugin-control/v1`. Global controls must precede
+the command path:
 
 ```text
-/plugin
-/plugin help [path...]
-/plugin grammar [--version plugin-control/v1]
-/plugin marketplace add <source> --source-kind github|git|local-git --scope user|project [--ref <ref>]
-/plugin marketplace remove <registration-id> --scope user|project --yes
-/plugin marketplace list [--scope user|project|all-current] [--limit <count>]
-/plugin marketplace refresh [registration-id...] [--scope user|project|all-current]
-/plugin marketplace adopt preview [--scope user|project|all-current]
-/plugin marketplace adopt import <candidate-id...> --scope user|project --yes
-/plugin browse [query]
-/plugin list
-/plugin show <plugin-key> --scope user|project
-/plugin diagnose [<plugin-key> --scope user|project]
-/plugin install open <plugin-key> --scope user|project
-/plugin install apply <install-token>
-/plugin install recover <install-token>
-/plugin install <plugin-key> --scope user|project
-/plugin enable <plugin-key> --scope user|project [--preview-only | --yes]
-/plugin disable <plugin-key> --scope user|project [--preview-only | --yes]
-/plugin update <plugin-key> --scope user|project [--preview-only]
-/plugin uninstall <plugin-key> --scope user|project --keep-data|--delete-data [--preview-only | --yes]
-/plugin project sync --mode apply-intent|publish-intent|merge [--preview-only]
-/plugin updates status
-/plugin updates policy preview <exact change options>
-/plugin updates policy apply <exact change options> --preview-id <preview-id>
-/plugin updates policy set <exact change options>
-/plugin updates notices list
-/plugin updates notices acknowledge <notice-id...>
-/plugin updates automatic run
-/plugin status
-/plugin operation status <token>
-/plugin operation cancel <token>
+/plugin [--grammar-version plugin-control/v1] [--output human|json]
+        [--timeout-ms <1..86400000>] [--non-interactive]
+        [--input-stdin | --input-file <path> | --input-env-prefix <PREFIX>]
+        <command>
 ```
 
-Stable registry aliases are `marketplace update` for `marketplace refresh`,
-`adopt preview|import` for `marketplace adopt preview|import`, `inspect` for
-`show`, `install run` for `install`, `project-sync` for `project sync`, and
-`updates notices ack` for `updates notices acknowledge`. Aliases use the same
-request schema, scope and confirmation policy, dispatcher, and response schema
-as their canonical command. No alias performs name-to-identifier lookup or
-supplies a mutation scope.
+Value-taking controls accept `--name value` or `--name=value`; flags do not
+accept values. A global control or non-repeatable command option may appear only
+once. The three JSON input channels are mutually exclusive. `--output human` is
+the default concise presentation; `--output json` emits the versioned result
+envelope and, when a sink is active, JSON-lines progress frames. Timeout
+cancellation still emits a terminal cancelled envelope. `--non-interactive`
+never opens a TUI or prompt: a command whose declared input class cannot be
+satisfied by the selected channel returns explicit input-required evidence.
+
+The table below is checked mechanically against `NativeControlCommandRegistry`.
+Angle brackets are positionals or option values; brackets are optional; a
+trailing `...` is repeatable.
+
+<!-- native-control-registry:start -->
+| ID | Canonical form | Safety | Input | Summary |
+|---|---|---|---|---|
+| `presentation` | `/plugin` | `pure` | `decision` | Open plugin management |
+| `help` | `/plugin help [<path>...]` | `pure` | `none` | Show exact command help |
+| `grammar` | `/plugin grammar [--version <value>]` | `pure` | `none` | Show grammar metadata |
+| `marketplace.add` | `/plugin marketplace add <source> --source-kind github\|git\|local-git --scope user\|project [--ref <value>]` | `mutation` | `none` | Register a marketplace |
+| `marketplace.remove` | `/plugin marketplace remove <registration-id> --scope user\|project --yes` | `mutation` | `confirmation` | Remove a marketplace registration |
+| `marketplace.list` | `/plugin marketplace list [--scope user\|project\|all-current] [--limit <integer>]` | `local-read` | `none` | List marketplace registrations |
+| `marketplace.refresh` | `/plugin marketplace refresh [<registration-id>...] [--scope user\|project\|all-current]` | `mutation` | `none` | Refresh marketplace registrations |
+| `marketplace.adopt.preview` | `/plugin marketplace adopt preview [--scope user\|project\|all-current]` | `local-read` | `none` | Preview foreign marketplace adoption |
+| `marketplace.adopt.import` | `/plugin marketplace adopt import <candidate-id>... --scope user\|project --yes` | `mutation` | `confirmation` | Import selected foreign marketplaces |
+| `browse` | `/plugin browse [<query>] [--scope user\|project\|all-current] [--marketplace-id <value>]... [--availability available\|installed-by-default\|not-available]... [--cursor <value>] [--limit <integer>]` | `local-read` | `none` | Browse marketplace candidates |
+| `inspection.list` | `/plugin list [--scope user\|project\|all-current] [--query <value>] [--condition ready\|attention\|blocked\|unavailable]... [--cursor <value>] [--limit <integer>]` | `local-read` | `none` | List installed plugins |
+| `inspection.show` | `/plugin show <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>]` | `local-read` | `none` | Show exact plugin detail |
+| `inspection.diagnose` | `/plugin diagnose [<plugin-key>] [--scope user\|project] [--snapshot-id <value>] [--detail-id <value>] [--include-adoption]` | `local-read` | `none` | Diagnose host or plugin state |
+| `install.open` | `/plugin install open <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>]` | `mutation` | `none` | Open a trusted installation |
+| `install.apply` | `/plugin install apply <install-token>` | `mutation` | `configuration` | Apply a trusted installation |
+| `install.recover` | `/plugin install recover <install-token>` | `mutation` | `configuration` | Recover a trusted installation |
+| `install.run` | `/plugin install <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>]` | `mutation` | `configuration` | Install through the trusted workflow |
+| `lifecycle.enable` | `/plugin enable <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>] [--preview-only] [--yes]` | `mutation` | `confirmation` | Enable an installed plugin |
+| `lifecycle.disable` | `/plugin disable <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>] [--preview-only] [--yes]` | `mutation` | `confirmation` | Disable an installed plugin |
+| `lifecycle.update` | `/plugin update <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>] [--preview-only] [--yes] [--candidate-snapshot-id <value>] [--candidate-detail-id <value>]` | `mutation` | `configuration` | Update an installed plugin |
+| `lifecycle.uninstall` | `/plugin uninstall <plugin-key> --scope user\|project [--snapshot-id <value>] [--detail-id <value>] [--preview-only] [--yes] [--keep-data] [--delete-data]` | `mutation` | `confirmation` | Uninstall a plugin |
+| `project.sync` | `/plugin project sync --mode apply-intent\|publish-intent\|merge [--preview-only] [--yes]` | `mutation` | `decision` | Synchronize current project intent |
+| `updates.status` | `/plugin updates status [--scope user\|project\|all-current] [--plugin <value>]` | `local-read` | `none` | Show update status |
+| `updates.policy.preview` | `/plugin updates policy preview --kind application\|cadence --target global\|scope\|marketplace\|plugin [--scope user\|project\|all-current] [--marketplace-id <value>] [--plugin <value>] [--mode inherit\|manual\|automatic] [--cadence paused\|conservative\|balanced\|frequent]` | `local-read` | `none` | Preview an update policy change |
+| `updates.policy.apply` | `/plugin updates policy apply --kind application\|cadence --target global\|scope\|marketplace\|plugin [--scope user\|project\|all-current] [--marketplace-id <value>] [--plugin <value>] [--mode inherit\|manual\|automatic] [--cadence paused\|conservative\|balanced\|frequent] --preview-id <value> [--consent-id <value>]` | `mutation` | `decision` | Apply an exact update policy preview |
+| `updates.policy.set` | `/plugin updates policy set --kind application\|cadence --target global\|scope\|marketplace\|plugin [--scope user\|project\|all-current] [--marketplace-id <value>] [--plugin <value>] [--mode inherit\|manual\|automatic] [--cadence paused\|conservative\|balanced\|frequent] [--preview-id <value>] [--consent-id <value>]` | `mutation` | `decision` | Set update policy through preview |
+| `updates.notices.list` | `/plugin updates notices list [--scope user\|project\|all-current] [--plugin <value>] [--after <value>] [--limit <integer>]` | `local-read` | `none` | List update notices |
+| `updates.notices.acknowledge` | `/plugin updates notices acknowledge <notice-id>...` | `mutation` | `none` | Acknowledge update notices |
+| `updates.automatic.run` | `/plugin updates automatic run [--notice-id <value>]... [--limit <integer>]` | `mutation` | `none` | Run admitted automatic updates |
+| `status` | `/plugin status` | `local-read` | `none` | Show local host status |
+| `operation.status` | `/plugin operation status <token>` | `operation-control` | `none` | Poll an existing operation |
+| `operation.cancel` | `/plugin operation cancel <token>` | `operation-control` | `none` | Cancel an existing operation |
+<!-- native-control-registry:end -->
+
+The registry aliases are exact alternate paths, never fuzzy matches:
+
+<!-- native-control-aliases:start -->
+| Alias | Canonical path |
+|---|---|
+| `/plugin marketplace update` | `/plugin marketplace refresh` |
+| `/plugin adopt preview` | `/plugin marketplace adopt preview` |
+| `/plugin adopt import` | `/plugin marketplace adopt import` |
+| `/plugin inspect` | `/plugin show` |
+| `/plugin install run` | `/plugin install` |
+| `/plugin project-sync` | `/plugin project sync` |
+| `/plugin updates notices ack` | `/plugin updates notices acknowledge` |
+<!-- native-control-aliases:end -->
+
+Aliases use the same request schema, scope and confirmation policy, dispatcher,
+and response schema as their canonical command. No alias performs
+name-to-identifier lookup or supplies a mutation scope.
+
+Cross-field grammar is strict:
+
+- `--snapshot-id` and `--detail-id` are supplied together or omitted together;
+  update candidate targeting applies the same rule to `--candidate-snapshot-id`
+  and `--candidate-detail-id`. Diagnose accepts `plugin-key` only with an exact
+  `--scope`, and accepts neither for host-wide diagnosis.
+- Uninstall requires exactly one of `--keep-data` and `--delete-data`; the two
+  options conflict. Marketplace removal and adoption import require `--yes`.
+  Enable, disable, uninstall, and project sync can collect their declared
+  confirmation/decision interactively when `--yes` is absent; non-interactive
+  execution instead returns input-required evidence.
+- Update-policy `application` changes require `--mode`; scope, marketplace, and
+  plugin targets require `--scope user|project`, with `--marketplace-id` or
+  `--plugin` for those exact target kinds. A `cadence` change targets `global`
+  and requires `--cadence`. Policy apply requires `--preview-id`; consent is
+  supplied with `--consent-id` when the preview requires it.
+- Marketplace registration lists use `--limit` 1..200 (default 50). Browse and
+  installed lists use opaque `--cursor` values and `--limit` 1..100 (default
+  50). Notice lists page after an opaque notice ID with `--after` and use
+  `--limit` 1..200 (default 50). Automatic runs accept repeatable `--notice-id`
+  filters and `--limit` 1..100 (default 20).
+- Repeatable inputs are help paths, marketplace-refresh registration IDs,
+  adoption candidate IDs, browse marketplace/availability filters, installed
+  conditions, notice acknowledgment IDs, and automatic-run notice IDs.
+- `/plugin grammar --version plugin-control/v1` returns grammar version
+  `plugin-control/v1`, envelope version `1`, and the registry-derived command
+  metadata above. Other grammar versions fail validation.
+
+The examples below are executed by the documentation contract test. `valid`
+lines must parse; `invalid:<code>` lines must fail with that exact diagnostic.
+
+<!-- native-control-examples:start -->
+```text
+valid | /plugin --grammar-version plugin-control/v1 --output json --timeout-ms 30000 --non-interactive --input-file ./request.json marketplace list --scope all-current --limit 50
+valid | /plugin --input-stdin status
+valid | /plugin --input-env-prefix PI_PLUGIN_INPUT grammar --version plugin-control/v1
+valid | /plugin marketplace add owner/repository --source-kind github --scope user --ref main
+valid | /plugin browse adapter --scope all-current --marketplace-id marketplace-registration-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000 --marketplace-id marketplace-registration-v1:sha256:1111111111111111111111111111111111111111111111111111111111111111 --availability available --availability not-available --cursor marketplace-cursor-v1:next --limit 25
+valid | /plugin show demo@market --scope user --snapshot-id inspection-snapshot-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000 --detail-id inspection-detail-v1:item.0000000000000000000000000000000000000000000000000000000000000000
+valid | /plugin updates policy preview --kind application --target marketplace --scope user --marketplace-id marketplace-registration-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000 --mode automatic
+valid | /plugin updates notices acknowledge update-notice-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000 update-notice-v1:sha256:1111111111111111111111111111111111111111111111111111111111111111
+valid | /plugin updates automatic run --notice-id update-notice-v1:sha256:0000000000000000000000000000000000000000000000000000000000000000 --limit 20
+invalid:CONTROL_INPUT_CHANNEL_CONFLICT | /plugin --input-stdin --input-file ./request.json status
+invalid:CONTROL_OPTION_CONFLICT | /plugin uninstall demo@market --scope user --yes --keep-data --delete-data
+invalid:CONTROL_RETENTION_REQUIRED | /plugin uninstall demo@market --scope user --yes
+```
+<!-- native-control-examples:end -->
 
 `/plugin` without arguments opens a Pi-native marketplace and installed-plugin
 manager. The command forms remain available for deterministic operation.
