@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_FRONTMATTER_LIMITS,
@@ -78,5 +79,18 @@ describe("bounded YAML frontmatter", () => {
   it("rejects duplicate YAML documents in the generic bounded parser", () => {
     const result = readBoundedYaml("---\na: 1\n---\nb: 2\n", provenance);
     expect(result.ok).toBe(false);
+  });
+
+  it("rejects adversarial nesting in a child process without stack exhaustion", () => {
+    const child = spawnSync(process.execPath, [
+      new URL("../../fixtures/agent-skills/deep-frontmatter-child.mjs", import.meta.url).pathname,
+    ], {
+      cwd: new URL("../../../", import.meta.url),
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    expect(child, child.stderr).toMatchObject({ status: 0, signal: null });
+    expect(child.stdout).toContain('"code":"SCHEMA_INVALID"');
+    expect(`${child.stdout}${child.stderr}`).not.toMatch(/(?:call stack|stack overflow|RangeError)/i);
   });
 });

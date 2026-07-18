@@ -241,6 +241,53 @@ function convertNode(
   throw new FrontmatterFailure("YAML node is not JSON-compatible");
 }
 
+function rejectExcessiveFlowNesting(source: string, maxDepth: number): void {
+  let depth = 0;
+  let quote: "single" | "double" | undefined;
+  let escaped = false;
+  let comment = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]!;
+    if (comment) {
+      if (character === "\n") comment = false;
+      continue;
+    }
+    if (quote === "double") {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') quote = undefined;
+      continue;
+    }
+    if (quote === "single") {
+      if (character !== "'") continue;
+      if (source[index + 1] === "'") index += 1;
+      else quote = undefined;
+      continue;
+    }
+    if (character === '"') {
+      quote = "double";
+      continue;
+    }
+    if (character === "'") {
+      quote = "single";
+      continue;
+    }
+    if (character === "#" && (index === 0 || /\s/u.test(source[index - 1]!))) {
+      comment = true;
+      continue;
+    }
+    if (character === "[" || character === "{") {
+      depth += 1;
+      // yaml's compose phase was historically recursive. Rejecting at the
+      // lexical boundary keeps hostile flow collections away from that phase,
+      // even if a future parser regression reintroduces unbounded recursion.
+      if (depth > maxDepth) throw new FrontmatterFailure("YAML nesting depth limit exceeded");
+    } else if ((character === "]" || character === "}") && depth > 0) {
+      depth -= 1;
+    }
+  }
+}
+
 function parseBoundedYaml(
   source: string,
   limits: FrontmatterLimits,
@@ -249,6 +296,7 @@ function parseBoundedYaml(
   if (utf8Length(source, 0, source.length, limits.maxFrontmatterBytes) > limits.maxFrontmatterBytes) {
     throw new FrontmatterFailure("YAML document byte limit exceeded");
   }
+  rejectExcessiveFlowNesting(source, limits.maxDepth);
   const document = YAML.parseDocument(source, {
     intAsBigInt: false,
     keepSourceTokens: false,
