@@ -3,7 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import extension from "../../src/pi/extension.js";
 
 describe("packaged Pi extension factory", () => {
-  it("constructs one host, isolated MCP gateway, /plugin command, and presentation lifecycle", () => {
+  it("constructs one host, isolated MCP gateway, /plugin command, and presentation lifecycle", async () => {
     const events: string[] = [];
     const commands: string[] = [];
     const pi = {
@@ -16,7 +16,7 @@ describe("packaged Pi extension factory", () => {
       sendMessage: vi.fn(),
       setSessionName: vi.fn(),
     } as unknown as ExtensionAPI;
-    extension(pi);
+    await extension(pi);
     expect(commands).toEqual(["plugin"]);
     expect((pi as any).registerTool).toHaveBeenCalledOnce();
     expect((pi as any).registerTool).toHaveBeenCalledWith(expect.objectContaining({ name: "mcp" }));
