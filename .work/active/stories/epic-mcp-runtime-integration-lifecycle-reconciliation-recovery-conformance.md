@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-lifecycle-reconciliation
 depends_on: [epic-mcp-runtime-integration-lifecycle-reconciliation-reconciliation-participant, epic-mcp-runtime-integration-lifecycle-reconciliation-runtime-lease-cleanup]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-18
 ---
 
 # Prove Lifecycle Compensation and Recovery Reuse

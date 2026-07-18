@@ -5,14 +5,14 @@ stage: done
 tags: [refactor, infra]
 parent: null
 depends_on: []
-release_binding: null
+release_binding: 0.1.0
 gate_origin: refactor-design
 research_refs: []
 research_origin: null
 archived_atop: pre-release
 git_ref: cfb8d46
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Centralize Packaged Operation-Context Admission

@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility]
 parent: epic-native-plugin-management-inspection-diagnostics
 depends_on: []
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Define native inspection contracts and identifiers

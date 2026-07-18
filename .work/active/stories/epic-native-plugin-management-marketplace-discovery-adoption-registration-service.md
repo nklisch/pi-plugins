@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility]
 parent: epic-native-plugin-management-marketplace-discovery-adoption
 depends_on: [epic-native-plugin-management-marketplace-discovery-adoption-registration-contracts-state, epic-native-plugin-management-marketplace-discovery-adoption-source-foreign-boundaries]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Implement atomic scoped marketplace registration and removal

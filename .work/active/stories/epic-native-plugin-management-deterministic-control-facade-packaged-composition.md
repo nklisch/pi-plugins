@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, architecture]
 parent: epic-native-plugin-management-deterministic-control-facade
 depends_on: [epic-native-plugin-management-deterministic-control-facade-selection-read-dispatch, epic-native-plugin-management-deterministic-control-facade-mutation-workflow-dispatch, epic-native-plugin-management-deterministic-control-facade-result-output-exit]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Compose the Unified Packaged Control Service

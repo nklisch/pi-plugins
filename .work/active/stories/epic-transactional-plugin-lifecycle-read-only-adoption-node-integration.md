@@ -5,12 +5,12 @@ stage: done
 tags: [security, compatibility, infra]
 parent: epic-transactional-plugin-lifecycle-read-only-adoption
 depends_on: [epic-transactional-plugin-lifecycle-read-only-adoption-application-import]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-18
 ---
 
 # Wire fixed read-only Node discovery and package integration

@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, security]
 parent: epic-native-plugin-management-trusted-installation
 depends_on: [epic-native-plugin-management-trusted-installation-contracts-identifiers]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Lease one exact candidate and disclose its executable surface

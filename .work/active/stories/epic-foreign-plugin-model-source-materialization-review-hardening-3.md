@@ -5,12 +5,12 @@ stage: done
 tags: [security, infra, tests]
 parent: epic-foreign-plugin-model-source-materialization
 depends_on: [epic-foreign-plugin-model-source-materialization-review-hardening-2]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-12
-updated: 2026-07-12
+updated: 2026-07-18
 ---
 
 # Close Marketplace SHA and Recursive Limit Gaps

@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, security]
 parent: epic-native-plugin-management-trusted-installation
 depends_on: [epic-native-plugin-management-trusted-installation-configuration-custody, epic-native-plugin-management-trusted-installation-exact-trust-grants, epic-native-plugin-management-trusted-installation-lifecycle-activation-bridge]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Orchestrate resumable trusted-install sessions

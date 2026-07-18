@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, security, tests]
 parent: epic-foreign-plugin-model
 depends_on: [epic-foreign-plugin-model-marketplace-ingestion, epic-foreign-plugin-model-source-materialization, epic-foreign-plugin-model-plugin-bundle-ingestion]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-12
-updated: 2026-07-12
+updated: 2026-07-18
 ---
 
 # Enforce Pinned Git Revision at Inspection Handoff

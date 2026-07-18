@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, security, tests]
 parent: epic-foreign-plugin-model-domain-contracts
 depends_on: [epic-foreign-plugin-model-domain-contracts-package-schema-foundation, epic-foreign-plugin-model-domain-contracts-identity-source-contracts, epic-foreign-plugin-model-domain-contracts-plugin-inventory-contracts, epic-foreign-plugin-model-domain-contracts-compatibility-errors-api]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-12
-updated: 2026-07-12
+updated: 2026-07-18
 ---
 
 # Harden Canonical Source and Diagnostic Contracts

@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, tests]
 parent: epic-foreign-plugin-model-plugin-bundle-ingestion
 depends_on: [epic-foreign-plugin-model-plugin-bundle-ingestion-service-hardening]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-12
-updated: 2026-07-12
+updated: 2026-07-18
 ---
 
 # Harden Complete Bundle Inventory and Error Boundaries

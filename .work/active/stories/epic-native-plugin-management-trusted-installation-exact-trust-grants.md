@@ -5,12 +5,12 @@ stage: done
 tags: [security]
 parent: epic-native-plugin-management-trusted-installation
 depends_on: [epic-native-plugin-management-trusted-installation-candidate-lease-disclosure]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Persist exact consent through existing trust state

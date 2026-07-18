@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, infra, security]
 parent: epic-mcp-runtime-integration-launch-context
 depends_on: [epic-mcp-runtime-integration-launch-context-transport-delivery]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-18
 ---
 
 # Prove MCP Launch Lifetime and Race Conformance

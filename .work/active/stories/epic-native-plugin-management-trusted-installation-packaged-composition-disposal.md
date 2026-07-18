@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, security, infra]
 parent: epic-native-plugin-management-trusted-installation
 depends_on: [epic-native-plugin-management-trusted-installation-session-orchestration]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Compose trusted installation with host admission and disposal

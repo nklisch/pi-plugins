@@ -5,7 +5,7 @@ stage: done
 tags: [compatibility, reliability, testing]
 parent: epic-native-plugin-management-update-policy-offline-startup
 depends_on: [epic-native-plugin-management-update-policy-offline-startup-packaged-lifetime-composition]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null

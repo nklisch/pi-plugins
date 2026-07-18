@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, security]
 parent: epic-native-plugin-management-lifecycle-sync-operations
 depends_on: [epic-native-plugin-management-lifecycle-sync-operations-contracts-identifiers]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Bind Exact Targets and Prepared Update Candidates

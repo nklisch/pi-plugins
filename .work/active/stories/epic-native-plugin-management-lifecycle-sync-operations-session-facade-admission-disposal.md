@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility]
 parent: epic-native-plugin-management-lifecycle-sync-operations
 depends_on: [epic-native-plugin-management-lifecycle-sync-operations-whole-plugin-operation-orchestration, epic-native-plugin-management-lifecycle-sync-operations-uninstall-cleanup-recovery, epic-native-plugin-management-lifecycle-sync-operations-project-sync-application]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Compose Transient Operation Sessions and Facade

@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-skill-discovery
 depends_on: [epic-skills-hook-runtime-skill-discovery-observation-contract, epic-skills-hook-runtime-skill-discovery-path-verification]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-18
 ---
 
 # Assemble deterministic scope-correct skill resources

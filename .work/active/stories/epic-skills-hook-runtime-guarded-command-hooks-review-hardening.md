@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, security, infra, tests]
 parent: epic-skills-hook-runtime-guarded-command-hooks
 depends_on: [epic-skills-hook-runtime-guarded-command-hooks-integration-hardening]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-18
 ---
 
 # Make Stop continuation functional and harden execution evidence

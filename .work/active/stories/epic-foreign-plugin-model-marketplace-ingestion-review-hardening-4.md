@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, security, tests]
 parent: epic-foreign-plugin-model-marketplace-ingestion
 depends_on: [epic-foreign-plugin-model-marketplace-ingestion-review-hardening-3]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-12
-updated: 2026-07-12
+updated: 2026-07-18
 ---
 
 # Close Provenance and Direct-Merge Boundaries

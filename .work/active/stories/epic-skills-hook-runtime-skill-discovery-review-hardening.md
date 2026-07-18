@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, infra, tests]
 parent: epic-skills-hook-runtime-skill-discovery
 depends_on: [epic-skills-hook-runtime-skill-discovery-integration-hardening]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-18
 ---
 
 # Remove dead registry ownership and prove trust/dedup paths

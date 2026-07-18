@@ -5,7 +5,7 @@ stage: done
 tags: [compatibility, reliability]
 parent: epic-native-plugin-management-update-policy-offline-startup
 depends_on: [epic-native-plugin-management-update-policy-offline-startup-policy-facade, epic-native-plugin-management-update-policy-offline-startup-notification-ledger, epic-native-plugin-management-update-policy-offline-startup-startup-readiness-orchestrator]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null

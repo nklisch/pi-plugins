@@ -5,12 +5,12 @@ stage: done
 tags: [refactor]
 parent: prune-dead-marketplace-contract-seams
 depends_on: []
-release_binding: null
+release_binding: 0.1.0
 gate_origin: refactor-design
 research_refs: []
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-18
 ---
 
 # Delete Unused Refresh and Catalog Declarations

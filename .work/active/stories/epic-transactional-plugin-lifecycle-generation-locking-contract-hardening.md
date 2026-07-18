@@ -5,12 +5,12 @@ stage: done
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-generation-locking
 depends_on: [epic-transactional-plugin-lifecycle-generation-locking-sqlite-scope-lock, epic-transactional-plugin-lifecycle-generation-locking-guarded-window]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-12
-updated: 2026-07-12
+updated: 2026-07-18
 ---
 
 # Harden Generation Coordination Across Processes and Package Boundaries

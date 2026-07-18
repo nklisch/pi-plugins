@@ -5,7 +5,7 @@ stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-config-source-bridge
 depends_on: [epic-mcp-runtime-integration-config-source-bridge-capability-probe, epic-mcp-runtime-integration-config-source-bridge-conformance-suite, epic-mcp-runtime-integration-config-source-bridge-maintained-fork]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs:
   - docs/research/pi-mcp-adapter-config-source.md

@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management-packaged-host-composition
 depends_on: [epic-native-plugin-management-packaged-host-composition-durable-state-configuration, epic-native-plugin-management-packaged-host-composition-installed-revision-loader, epic-native-plugin-management-packaged-host-composition-hook-subagent-composition, epic-native-plugin-management-packaged-host-composition-mcp-composition]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Converge Reload, Recovery, Marketplace Updates, and the Application Container

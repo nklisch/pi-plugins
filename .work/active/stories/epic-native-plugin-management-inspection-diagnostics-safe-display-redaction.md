@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, security]
 parent: epic-native-plugin-management-inspection-diagnostics
 depends_on: [epic-native-plugin-management-inspection-diagnostics-contracts-identifiers]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Make inspection disclosure terminal-safe and redacted

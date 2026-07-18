@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management-marketplace-discovery-adoption
 depends_on: [epic-native-plugin-management-marketplace-discovery-adoption-refresh-atomic-status, epic-native-plugin-management-marketplace-discovery-adoption-catalog-query, epic-native-plugin-management-marketplace-discovery-adoption-adoption-preview-import]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Compose the packaged marketplace discovery capability

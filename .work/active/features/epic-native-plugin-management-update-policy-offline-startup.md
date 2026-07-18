@@ -5,7 +5,7 @@ stage: done
 tags: [compatibility, reliability]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-lifecycle-sync-operations]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null

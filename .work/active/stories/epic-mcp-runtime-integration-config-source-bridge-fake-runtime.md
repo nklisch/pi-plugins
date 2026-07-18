@@ -5,14 +5,14 @@ stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-config-source-bridge
 depends_on: [epic-mcp-runtime-integration-config-source-bridge-portable-contract]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs:
   - docs/research/pi-mcp-adapter-config-source.md
   - .agents/skills/pi-mcp-adapter-v2/SKILL.md
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-18
 ---
 
 # Build the Deterministic MCP Runtime Fake

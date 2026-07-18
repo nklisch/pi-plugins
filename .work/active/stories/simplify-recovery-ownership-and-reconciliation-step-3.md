@@ -7,12 +7,12 @@ parent: simplify-recovery-ownership-and-reconciliation
 depends_on:
   - simplify-recovery-ownership-and-reconciliation-step-1
   - simplify-recovery-ownership-and-reconciliation-step-2
-release_binding: null
+release_binding: 0.1.0
 gate_origin: refactor-design
 research_refs: []
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-18
 ---
 
 # Remove Only Proven-Unused Recovery Scaffolding

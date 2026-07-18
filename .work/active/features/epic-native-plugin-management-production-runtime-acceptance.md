@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-clean-environment-core-e2e, epic-mcp-runtime-integration-config-source-bridge-production-adapter, epic-mcp-runtime-integration-lifecycle-reconciliation, epic-skills-hook-runtime-subagent-interception-production-adapter]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Production Runtime Packaging and Acceptance

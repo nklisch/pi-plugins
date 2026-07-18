@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, tui]
 parent: epic-native-plugin-management-pi-extension-manager
 depends_on: []
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Register `/plugin` and bridge Pi modes to the control facade

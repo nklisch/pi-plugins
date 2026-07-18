@@ -5,12 +5,12 @@ stage: done
 tags: [security, infra]
 parent: epic-transactional-plugin-lifecycle-immutable-stores-promotion
 depends_on: [epic-transactional-plugin-lifecycle-immutable-stores-promotion-atomic-engine, epic-transactional-plugin-lifecycle-immutable-stores-promotion-runtime-roots]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-12
-updated: 2026-07-12
+updated: 2026-07-18
 ---
 
 # Harden content-store integration and public contracts

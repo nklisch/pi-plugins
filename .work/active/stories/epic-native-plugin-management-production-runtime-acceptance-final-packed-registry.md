@@ -5,7 +5,7 @@ stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management-production-runtime-acceptance
 depends_on: [epic-native-plugin-management-production-runtime-acceptance-concurrency-presentation-security]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null

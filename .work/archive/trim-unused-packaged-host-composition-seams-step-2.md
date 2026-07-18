@@ -5,12 +5,12 @@ stage: done
 tags: [refactor, infra]
 parent: trim-unused-packaged-host-composition-seams
 depends_on: [trim-unused-packaged-host-composition-seams-step-1]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: refactor-design
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Remove Unconsumed Packaged Host Composition Values

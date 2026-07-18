@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, infra, tests]
 parent: epic-skills-hook-runtime-hook-event-adaptation
 depends_on: [epic-skills-hook-runtime-hook-event-adaptation-integration-hardening]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-18
 ---
 
 # Snapshot namespaced Pi tool-result content

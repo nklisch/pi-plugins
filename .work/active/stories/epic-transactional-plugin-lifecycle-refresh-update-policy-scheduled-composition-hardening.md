@@ -5,12 +5,12 @@ stage: done
 tags: [infra, tests]
 parent: epic-transactional-plugin-lifecycle-refresh-update-policy
 depends_on: [epic-transactional-plugin-lifecycle-refresh-update-policy-marketplace-refresh-discovery, epic-transactional-plugin-lifecycle-refresh-update-policy-automatic-application-authority]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Schedule, compose, and harden update policy

@@ -5,7 +5,7 @@ stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-subagent-interception
 depends_on: [epic-skills-hook-runtime-subagent-interception-fake-conformance]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs:
   - docs/research/pi-subagents-lifecycle-interception.md

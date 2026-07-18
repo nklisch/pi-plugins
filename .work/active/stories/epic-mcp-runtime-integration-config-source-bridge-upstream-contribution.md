@@ -5,13 +5,13 @@ stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-config-source-bridge
 depends_on: [epic-mcp-runtime-integration-config-source-bridge-production-adapter]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs:
   - docs/research/pi-mcp-adapter-config-source.md
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-18
 ---
 
 # Contribute the MCP Source Lifecycle Upstream

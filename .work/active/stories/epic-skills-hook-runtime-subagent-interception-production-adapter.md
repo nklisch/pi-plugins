@@ -5,14 +5,14 @@ stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-subagent-interception
 depends_on: [epic-skills-hook-runtime-subagent-interception-fake-conformance, epic-skills-hook-runtime-subagent-interception-composition-integration, epic-skills-hook-runtime-subagent-interception-maintained-fork]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs:
   - docs/research/pi-subagents-lifecycle-interception.md
   - .agents/skills/pi-subagents-v18/SKILL.md
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Integrate a Qualifying Production Subagent Lifecycle Package

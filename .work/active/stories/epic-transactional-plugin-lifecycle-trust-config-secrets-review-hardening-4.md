@@ -5,12 +5,12 @@ stage: done
 tags: [security, infra, tests]
 parent: epic-transactional-plugin-lifecycle-trust-config-secrets
 depends_on: [epic-transactional-plugin-lifecycle-trust-config-secrets-review-hardening-3]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-13
-updated: 2026-07-12
+updated: 2026-07-18
 ---
 
 # Make Secret Locator Creation Collision-Safe

@@ -5,7 +5,7 @@ stage: done
 tags: [e2e-test, testing]
 parent: epic-native-plugin-management-clean-environment-core-e2e
 depends_on: [epic-native-plugin-management-clean-environment-core-e2e-golden-journeys, epic-native-plugin-management-clean-environment-core-e2e-failure-recovery]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null

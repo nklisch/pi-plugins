@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility]
 parent: null
 depends_on: [epic-skills-hook-runtime, epic-mcp-runtime-integration]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-11
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Native Plugin Management

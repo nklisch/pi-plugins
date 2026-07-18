@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, tui]
 parent: epic-native-plugin-management
 depends_on: [epic-native-plugin-management-deterministic-control-facade]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-17
-updated: 2026-07-17
+updated: 2026-07-18
 ---
 
 # Pi Extension Composition and Native Plugin Manager

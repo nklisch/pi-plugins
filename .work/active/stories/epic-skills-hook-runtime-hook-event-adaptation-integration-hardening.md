@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, infra]
 parent: epic-skills-hook-runtime-hook-event-adaptation
 depends_on: [epic-skills-hook-runtime-hook-event-adaptation-pi-lifecycle-bridge]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-18
 ---
 
 # Harden hook adaptation with golden and order evidence

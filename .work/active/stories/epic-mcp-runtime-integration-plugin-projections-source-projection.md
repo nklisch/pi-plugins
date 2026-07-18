@@ -5,12 +5,12 @@ stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration-plugin-projections
 depends_on: [epic-mcp-runtime-integration-plugin-projections-policy-plan, epic-mcp-runtime-integration-plugin-projections-alias-contract]
-release_binding: null
+release_binding: 0.1.0
 gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-18
 ---
 
 # Build the Deterministic Complete-Plugin MCP Projection
