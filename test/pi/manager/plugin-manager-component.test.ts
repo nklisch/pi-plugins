@@ -36,28 +36,56 @@ function harness() {
 }
 
 describe("plugin manager component", () => {
-  it("supports focus traversal, configured navigation, mnemonics, refresh, and layered escape", () => {
+  it("supports progressive navigation, configured keys, refresh, and layered escape", () => {
     const h = harness();
+    h.component.handleInput("\r");
     h.component.handleInput("/");
     h.component.handleInput("abc");
     h.component.handleInput("\r");
-    h.component.handleInput("\t");
     h.component.handleInput("r");
     h.component.handleInput("?");
     h.component.handleInput("\u001b");
     expect(h.intents).toEqual(expect.arrayContaining([
-      { type: "focus-next" },
+      { type: "open-section" },
       { type: "focus-query" },
       { type: "set-query", query: "abc" },
       { type: "submit-search" },
       { type: "refresh", scope: "all" },
       { type: "toggle-help" },
+      { type: "return-sections" },
     ]));
     expect(h.tui.requestRender).toHaveBeenCalled();
   });
 
+  it("moves list/action selection by a page instead of updating dead scroll offsets", () => {
+    const h = harness();
+    h.setState({ ...createPluginManagerState(), focus: { pane: "list" } });
+    h.component.handleInput("\u001b[6~");
+    h.setState({ ...createPluginManagerState(), focus: { pane: "actions", action: "inspect" } });
+    h.component.handleInput("\u001b[6~");
+    expect(h.intents).toContainEqual({ type: "move-selection", delta: 18 });
+    expect(h.intents).toContainEqual({ type: "move-action", delta: 18 });
+  });
+
+  it("returns one level per Escape before closing", () => {
+    const h = harness();
+    h.setState({ ...createPluginManagerState(), focus: { pane: "actions", action: "inspect" } });
+    h.component.handleInput("\u001b");
+    h.component.handleInput("\u001b");
+    h.component.handleInput("\u001b");
+    h.component.handleInput("\u001b");
+    expect(h.intents).toEqual(expect.arrayContaining([
+      { type: "return-detail" },
+      { type: "detail-back" },
+      { type: "return-sections" },
+      { type: "close" },
+    ]));
+    expect(h.done).toHaveBeenCalledWith({ kind: "closed" });
+  });
+
   it("emits the IME cursor marker only while the query owns focus", () => {
     const h = harness();
+    h.component.handleInput("\r");
     h.component.handleInput("/");
     expect(h.component.render(70).join("\n")).toContain(CURSOR_MARKER);
     h.component.handleInput("\u001b");
@@ -66,6 +94,7 @@ describe("plugin manager component", () => {
 
   it("offers direct Add onboarding from an empty plugin list", () => {
     const h = harness();
+    h.component.handleInput("\r");
     h.component.handleInput("A");
     expect(h.done).toHaveBeenCalledWith({ kind: "action", action: "browse-plugins" });
   });

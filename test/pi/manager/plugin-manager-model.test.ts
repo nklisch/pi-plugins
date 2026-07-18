@@ -3,6 +3,7 @@ import { trustedInstallFlowFixture } from "../../fixtures/trusted-install/plugin
 import {
   createPluginManagerState,
   pluginManagerAvailableActions,
+  pluginManagerMenuActions,
   pluginManagerReducer,
   rowKeyIdentity,
   type PluginManagerRow,
@@ -56,7 +57,7 @@ describe("plugin manager reducer", () => {
     state = pluginManagerReducer(state, { type: "intent", intent: { type: "set-view", view: "browse" } });
     expect(state.view).toBe("browse");
     expect(state.page.rows).toEqual([]);
-    expect(state.focus).toMatchObject({ pane: "tabs" });
+    expect(state.focus).toMatchObject({ pane: "sections" });
     expect(state.installedCount).toBe(5);
   });
 
@@ -76,27 +77,26 @@ describe("plugin manager reducer", () => {
       envelope: { data: { kind: "found", detail: { ...trustedInstallFlowFixture.chooseInspect, lifecycle: { ...trustedInstallFlowFixture.chooseInspect.lifecycle, activationIntent: "enabled", update: "current" } } } } as never,
     });
     expect(pluginManagerAvailableActions(state)).toEqual(["inspect", "disable", "uninstall-keep", "uninstall-delete"]);
+    expect(pluginManagerMenuActions(state)).toEqual(["disable", "uninstall-keep", "uninstall-delete"]);
   });
 
-  it("keeps independent semantic scroll anchors for list, detail, actions, disclosure, and operation", () => {
+  it("keeps independent semantic scroll anchors for detail and operation", () => {
     let state = createPluginManagerState();
-    for (const region of ["list", "detail", "actions", "disclosure", "operation"] as const) {
+    for (const region of ["detail", "operation"] as const) {
       state = pluginManagerReducer(state, { type: "intent", intent: { type: "scroll", region, delta: 7 } });
     }
-    expect(state.scroll).toEqual({ list: 7, detail: 7, actions: 7, disclosure: 7, operation: 7 });
+    expect(state.scroll).toEqual({ detail: 7, operation: 7 });
     state = pluginManagerReducer(state, { type: "intent", intent: { type: "scroll", region: "detail", delta: -99 } });
     expect(state.scroll.detail).toBe(0);
-    expect(state.scroll.list).toBe(7);
+    expect(state.scroll.operation).toBe(7);
   });
 
-  it("keeps status, diagnostics, disclosure, operation frames, and resize as presentation state only", () => {
+  it("keeps status, operation frames, and resize as presentation state only", () => {
     let state = createPluginManagerState();
     state = pluginManagerReducer(state, { type: "update-counts", unread: 2, unresolved: 3 });
-    state = pluginManagerReducer(state, { type: "toggle-disclosure", key: "diagnostics" });
     state = pluginManagerReducer(state, { type: "operation-started", action: "update" });
     state = pluginManagerReducer(state, { type: "resized", columns: 54, rows: 18 });
     expect(state.updateCounts).toEqual({ unread: 2, unresolved: 3 });
-    expect(state.disclosure.has("diagnostics")).toBe(true);
     expect(state.operation).toMatchObject({ state: "running", action: "update" });
     state = pluginManagerReducer(state, { type: "operation-cancelling" });
     const cancelling = state;

@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.3
+
+### Fixes
+
+- Replace the pane-heavy `/plugin` marketplace UI with a stable settings-style flow: sections, items, details, then actions.
+- Make Escape return exactly one level, keep PageUp/PageDown tied to visible selection, and preserve the same single-column interaction model at every terminal size.
+- Remove obsolete tab, split-pane, and disclosure focus state while retaining exact trust review in the dedicated install and confirmation surfaces.
+
 ## v0.1.2
 
 ### Features

@@ -38,10 +38,18 @@ describe("plugin manager renderer", () => {
     const lines = renderPluginManager({ state: state(), width, height: 24, theme, keybindings, focused: true });
     expect(lines.length).toBeLessThanOrEqual(24);
     expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
-    expect(lines.join("\n")).toContain("PI / PLUGINS");
+    expect(lines.join("\n")).toContain("Plugin Manager");
     expect(lines.join("\n")).toContain("My Plugins");
-    if (width >= 80) expect(lines.join("\n")).toContain("Updates 3");
+    expect(lines.join("\n")).toContain("Updates");
     expect(lines.join("\n")).not.toContain("bad\u0007");
+  });
+
+  it("keeps the selected section and item visible in very short terminals", () => {
+    const home = renderPluginManager({ state: state(), width: 42, height: 5, theme, keybindings, focused: true }).join("\n");
+    expect(home).toContain("My Plugins");
+    let list = state();
+    list = pluginManagerReducer(list, { type: "intent", intent: { type: "open-section" } });
+    expect(renderPluginManager({ state: list, width: 42, height: 5, theme, keybindings, focused: true }).join("\n")).toContain("demo");
   });
 
   it("keeps long-list selection and the focused tail action visible in small terminals", () => {
@@ -55,6 +63,7 @@ describe("plugin manager renderer", () => {
     value = pluginManagerReducer(value, { type: "page-loading", request: 1, append: false });
     value = pluginManagerReducer(value, { type: "page-loaded", request: 1, rows, append: false });
     value = pluginManagerReducer(value, { type: "resized", columns: 70, rows: 8 });
+    value = pluginManagerReducer(value, { type: "intent", intent: { type: "open-section" } });
     value = pluginManagerReducer(value, { type: "intent", intent: { type: "move-selection", delta: 49 } });
     expect(renderPluginManager({ state: value, width: 70, height: 8, theme, keybindings, focused: true }).join("\n")).toContain("demo-49");
 
@@ -72,7 +81,15 @@ describe("plugin manager renderer", () => {
   });
 
   it("preserves signed information groups and explicit empty/degraded state", () => {
-    const rendered = renderPluginManager({ state: state(), width: 120, height: 30, theme, keybindings, focused: true }).join("\n");
+    let detailed = state();
+    detailed = pluginManagerReducer(detailed, { type: "intent", intent: { type: "open-section" } });
+    detailed = pluginManagerReducer(detailed, { type: "intent", intent: { type: "open-detail" } });
+    detailed = pluginManagerReducer(detailed, { type: "detail-loading", request: 1, row: row.key });
+    detailed = pluginManagerReducer(detailed, {
+      type: "detail-loaded", request: 1, row: row.key,
+      envelope: createNativeControlEnvelope({ executionId, command: "inspection.show", status: "ok", data: { kind: "found", detail: trustedInstallFlowFixture.chooseInspect } as never }),
+    });
+    const rendered = renderPluginManager({ state: detailed, width: 120, height: 30, theme, keybindings, focused: true }).join("\n");
     expect(rendered).toContain("Runtime surface");
     expect(rendered).toContain("Compatibility / health");
     expect(rendered).toContain("Actions");
@@ -80,6 +97,7 @@ describe("plugin manager renderer", () => {
     let empty = createPluginManagerState();
     empty = pluginManagerReducer(empty, { type: "page-loading", request: 1, append: false });
     empty = pluginManagerReducer(empty, { type: "page-failed", request: 1, code: "HOST_BLOCKED" });
+    empty = pluginManagerReducer(empty, { type: "intent", intent: { type: "open-section" } });
     const error = renderPluginManager({ state: empty, width: 60, height: 16, theme, keybindings, focused: true }).join("\n");
     expect(error).toContain("HOST_BLOCKED");
     expect(error).toContain("No plugins added yet");

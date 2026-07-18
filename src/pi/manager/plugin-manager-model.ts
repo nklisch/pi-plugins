@@ -6,27 +6,27 @@ import type { JsonValue } from "../../domain/schema.js";
 import type { PluginManagerStatusTone } from "./plugin-manager-status.js";
 
 export type PluginManagerView = "installed" | "browse" | "marketplaces" | "updates" | "health";
-export type PluginManagerPane = "tabs" | "query" | "list" | "detail" | "disclosure" | "actions";
-export type PluginManagerScrollRegion = "list" | "detail" | "actions" | "disclosure" | "operation";
+export type PluginManagerPane = "sections" | "query" | "list" | "detail" | "actions";
+export type PluginManagerScrollRegion = "detail" | "operation";
 export type PluginManagerScreen = "manager" | "install-inspect" | "install-configure" | "install-result" | "operation-result";
 
 export const PluginManagerActionRegistry = Object.freeze({
-  inspect: { label: "Inspect" },
-  install: { label: "Add plugin" },
-  enable: { label: "Enable" },
-  disable: { label: "Disable" },
-  update: { label: "Review update" },
-  "uninstall-keep": { label: "Remove, keep data" },
-  "uninstall-delete": { label: "Remove and delete data" },
-  "marketplace-add": { label: "Add source" },
-  "marketplace-refresh": { label: "Refresh source" },
-  "marketplace-remove": { label: "Remove marketplace" },
-  "notice-acknowledge": { label: "Acknowledge notice" },
-  "project-sync-apply": { label: "Project sync · apply intent" },
-  "project-sync-publish": { label: "Project sync · publish intent" },
-  "project-sync-merge": { label: "Project sync · resolve merge" },
-  "browse-plugins": { label: "Discover plugins" },
-  "diagnose-host": { label: "Run diagnostics" },
+  inspect: { label: "Inspect", description: "Load exact plugin details and executable inventory" },
+  install: { label: "Add plugin", description: "Review trust and add the complete plugin" },
+  enable: { label: "Enable", description: "Load this plugin's runtime components" },
+  disable: { label: "Disable", description: "Stop loading runtime components but keep the plugin installed" },
+  update: { label: "Review update", description: "Review available changes before replacing the active revision" },
+  "uninstall-keep": { label: "Remove, keep data", description: "Uninstall the plugin and retain its persistent data" },
+  "uninstall-delete": { label: "Remove and delete data", description: "Uninstall the plugin and erase its persistent data" },
+  "marketplace-add": { label: "Add source", description: "Register another global marketplace source" },
+  "marketplace-refresh": { label: "Refresh source", description: "Fetch the latest catalog from this source" },
+  "marketplace-remove": { label: "Remove marketplace", description: "Unregister this source without inferring installed plugin state" },
+  "notice-acknowledge": { label: "Acknowledge notice", description: "Mark this update notice as read" },
+  "project-sync-apply": { label: "Project sync · apply intent", description: "Apply the project's declared plugin intent" },
+  "project-sync-publish": { label: "Project sync · publish intent", description: "Publish current project plugin intent" },
+  "project-sync-merge": { label: "Project sync · resolve merge", description: "Resolve competing project plugin intent" },
+  "browse-plugins": { label: "Discover plugins", description: "Browse compatible plugins from configured sources" },
+  "diagnose-host": { label: "Run diagnostics", description: "Inspect plugin host capabilities and blocked plugins" },
 } as const);
 export type PluginManagerActionId = keyof typeof PluginManagerActionRegistry;
 
@@ -66,7 +66,7 @@ export type PluginManagerOperationState = Readonly<{
 export type PluginManagerState = Readonly<{
   screen: PluginManagerScreen;
   view: PluginManagerView;
-  focus: Readonly<{ pane: PluginManagerPane; row?: PluginManagerRowKey; action?: string; disclosure?: string }>;
+  focus: Readonly<{ pane: PluginManagerPane; row?: PluginManagerRowKey; action?: string }>;
   query: string;
   page: Readonly<{
     rows: readonly PluginManagerRow[];
@@ -81,7 +81,6 @@ export type PluginManagerState = Readonly<{
   installedCount: number;
   updateCounts: Readonly<{ unread: number; unresolved: number }>;
   operation: PluginManagerOperationState;
-  disclosure: ReadonlySet<string>;
   viewport: Readonly<{ columns: number; rows: number }>;
   scroll: Readonly<Record<PluginManagerScrollRegion, number>>;
   help: boolean;
@@ -94,16 +93,17 @@ export type PluginManagerIntent =
   | Readonly<{ type: "submit-search" }>
   | Readonly<{ type: "move-selection"; delta: number }>
   | Readonly<{ type: "move-action"; delta: number }>
-  | Readonly<{ type: "move-disclosure"; delta: number }>
   | Readonly<{ type: "scroll"; region: PluginManagerScrollRegion; delta: number }>
   | Readonly<{ type: "select-row"; row: PluginManagerRowKey }>
+  | Readonly<{ type: "open-section" }>
+  | Readonly<{ type: "return-sections" }>
   | Readonly<{ type: "open-detail" }>
+  | Readonly<{ type: "open-actions" }>
+  | Readonly<{ type: "return-detail" }>
   | Readonly<{ type: "detail-back" }>
-  | Readonly<{ type: "focus-next" | "focus-previous" }>
   | Readonly<{ type: "focus-query" }>
   | Readonly<{ type: "next-page" }>
   | Readonly<{ type: "refresh"; scope?: "view" | "detail" | "all" }>
-  | Readonly<{ type: "toggle-disclosure"; key: string }>
   | Readonly<{ type: "toggle-help" }>
   | Readonly<{ type: "resized"; columns: number; rows: number }>
   | Readonly<{ type: "action"; action: string }>
@@ -121,7 +121,6 @@ export type PluginManagerEvent =
   | Readonly<{ type: "select-row"; row: PluginManagerRowKey }>
   | Readonly<{ type: "focus"; pane: PluginManagerPane; action?: string }>
   | Readonly<{ type: "update-counts"; unread: number; unresolved: number }>
-  | Readonly<{ type: "toggle-disclosure"; key: string }>
   | Readonly<{ type: "frame"; frame: NativeControlFrame }>
   | Readonly<{ type: "operation-started"; action: string }>
   | Readonly<{ type: "operation-cancelling" }>
@@ -138,16 +137,15 @@ export function createPluginManagerState(): PluginManagerState {
   return Object.freeze({
     screen: "manager",
     view: "installed",
-    focus: Object.freeze({ pane: "tabs" }),
+    focus: Object.freeze({ pane: "sections" }),
     query: "",
     page: Object.freeze({ rows: Object.freeze([]), loading: false, request: 0, pages: 0, append: false }),
     detail: Object.freeze({ loading: false, request: 0 }),
     installedCount: 0,
     updateCounts: Object.freeze({ unread: 0, unresolved: 0 }),
     operation: EMPTY_OPERATION,
-    disclosure: new Set<string>(),
     viewport: Object.freeze({ columns: 100, rows: 24 }),
-    scroll: Object.freeze({ list: 0, detail: 0, actions: 0, disclosure: 0, operation: 0 }),
+    scroll: Object.freeze({ detail: 0, operation: 0 }),
     help: false,
     closed: false,
   });
@@ -198,6 +196,11 @@ export function pluginManagerAvailableActions(state: PluginManagerState): readon
   return Object.freeze(actions);
 }
 
+/** Actions shown after detail is already open; Inspect is navigation, not a user operation. */
+export function pluginManagerMenuActions(state: PluginManagerState): readonly PluginManagerActionId[] {
+  return Object.freeze(pluginManagerAvailableActions(state).filter((action) => action !== "inspect"));
+}
+
 function selectedIndex(state: PluginManagerState): number {
   const selected = state.focus.row;
   if (selected === undefined) return state.page.rows.length === 0 ? -1 : 0;
@@ -209,11 +212,10 @@ function resetPage(state: PluginManagerState, view: PluginManagerView, query = s
     ...state,
     view,
     query,
-    focus: Object.freeze({ pane: "tabs" }),
+    focus: Object.freeze({ pane: "sections" }),
     page: Object.freeze({ rows: Object.freeze([]), loading: false, request: state.page.request, pages: 0, append: false }),
     detail: Object.freeze({ loading: false, request: state.detail.request }),
-    disclosure: new Set<string>(),
-    scroll: Object.freeze({ ...state.scroll, list: 0, detail: 0, actions: 0, disclosure: 0 }),
+    scroll: Object.freeze({ ...state.scroll, detail: 0 }),
   });
 }
 
@@ -226,49 +228,37 @@ function reduceIntent(state: PluginManagerState, intent: PluginManagerIntent): P
     if (state.page.rows.length === 0) return state;
     const current = Math.max(0, selectedIndex(state));
     const index = Math.max(0, Math.min(state.page.rows.length - 1, current + intent.delta));
-    const pageSize = Math.max(1, state.viewport.rows - 6);
-    const list = Math.max(0, Math.min(index, Math.max(state.scroll.list, index - pageSize + 1)));
-    return Object.freeze({ ...state, focus: Object.freeze({ pane: "list", row: state.page.rows[index]!.key }), scroll: Object.freeze({ ...state.scroll, list }) });
+    return Object.freeze({ ...state, focus: Object.freeze({ pane: "list", row: state.page.rows[index]!.key }) });
   }
   if (intent.type === "move-action") {
     const row = state.page.rows[Math.max(0, selectedIndex(state))];
-    const actions = pluginManagerAvailableActions(state);
+    const actions = pluginManagerMenuActions(state);
     if (actions.length === 0) return state;
     const current = Math.max(0, actions.indexOf(state.focus.action as PluginManagerActionId));
     const action = actions[(current + intent.delta + actions.length) % actions.length]!;
     return Object.freeze({ ...state, focus: Object.freeze({ pane: "actions", ...(row === undefined ? {} : { row: row.key }), action }) });
   }
-  if (intent.type === "move-disclosure") {
-    const keys = ["components", "diagnostics"] as const;
-    const current = Math.max(0, keys.indexOf(state.focus.disclosure as typeof keys[number]));
-    const disclosure = keys[(current + intent.delta + keys.length) % keys.length]!;
-    return Object.freeze({ ...state, focus: Object.freeze({ pane: "disclosure", ...(state.focus.row === undefined ? {} : { row: state.focus.row }), disclosure }) });
-  }
   if (intent.type === "scroll") {
     return Object.freeze({ ...state, scroll: Object.freeze({ ...state.scroll, [intent.region]: Math.max(0, state.scroll[intent.region] + intent.delta) }) });
   }
+  if (intent.type === "open-section") {
+    const row = state.page.rows[Math.max(0, selectedIndex(state))];
+    return Object.freeze({ ...state, focus: Object.freeze({ pane: "list", ...(row === undefined ? {} : { row: row.key }) }) });
+  }
+  if (intent.type === "return-sections") return Object.freeze({ ...state, focus: Object.freeze({ pane: "sections" }) });
   if (intent.type === "open-detail") {
     const index = Math.max(0, selectedIndex(state));
     const row = state.page.rows[index];
     return row === undefined ? state : Object.freeze({ ...state, focus: Object.freeze({ pane: "detail", row: row.key }) });
   }
+  if (intent.type === "open-actions") {
+    const row = state.page.rows[Math.max(0, selectedIndex(state))];
+    const action = pluginManagerMenuActions(state)[0];
+    return action === undefined ? state : Object.freeze({ ...state, focus: Object.freeze({ pane: "actions", ...(row === undefined ? {} : { row: row.key }), action }) });
+  }
+  if (intent.type === "return-detail") return Object.freeze({ ...state, focus: Object.freeze({ pane: "detail", ...(state.focus.row === undefined ? {} : { row: state.focus.row }) }) });
   if (intent.type === "detail-back") return Object.freeze({ ...state, focus: Object.freeze({ pane: "list", ...(state.focus.row === undefined ? {} : { row: state.focus.row }) }) });
   if (intent.type === "focus-query") return Object.freeze({ ...state, focus: Object.freeze({ pane: "query" }) });
-  if (intent.type === "focus-next" || intent.type === "focus-previous") {
-    const order: readonly PluginManagerPane[] = ["tabs", "query", "list", "detail", "disclosure", "actions"];
-    const current = Math.max(0, order.indexOf(state.focus.pane));
-    const direction = intent.type === "focus-next" ? 1 : -1;
-    const pane = order[(current + direction + order.length) % order.length]!;
-    const row = state.page.rows[Math.max(0, selectedIndex(state))];
-    const action = pane === "actions" ? pluginManagerAvailableActions(state)[0] : undefined;
-    const disclosure = pane === "disclosure" ? "components" : undefined;
-    return Object.freeze({ ...state, focus: Object.freeze({ pane, ...(state.focus.row === undefined ? row === undefined ? {} : { row: row.key } : { row: state.focus.row }), ...(action === undefined ? {} : { action }), ...(disclosure === undefined ? {} : { disclosure }) }) });
-  }
-  if (intent.type === "toggle-disclosure") {
-    const disclosure = new Set(state.disclosure);
-    if (disclosure.has(intent.key)) disclosure.delete(intent.key); else disclosure.add(intent.key);
-    return Object.freeze({ ...state, disclosure });
-  }
   if (intent.type === "toggle-help") return Object.freeze({ ...state, help: !state.help });
   if (intent.type === "resized") return Object.freeze({ ...state, viewport: Object.freeze({ columns: Math.max(1, intent.columns), rows: Math.max(1, intent.rows) }) });
   if (intent.type === "cancel-operation" && state.operation.state === "running") {
@@ -324,7 +314,6 @@ export function pluginManagerReducer(state: PluginManagerState, event: PluginMan
     return Object.freeze({ ...state, detail: Object.freeze({ loading: false, request: event.request, row: event.row, envelope: event.envelope }) });
   }
   if (event.type === "update-counts") return Object.freeze({ ...state, updateCounts: Object.freeze({ unread: event.unread, unresolved: event.unresolved }) });
-  if (event.type === "toggle-disclosure") return reduceIntent(state, { type: "toggle-disclosure", key: event.key });
   if (event.type === "operation-started") return Object.freeze({ ...state, operation: Object.freeze({ state: "running", action: event.action, frames: Object.freeze([]) }) });
   if (event.type === "operation-cancelling") {
     if (state.operation.state !== "running") return state;

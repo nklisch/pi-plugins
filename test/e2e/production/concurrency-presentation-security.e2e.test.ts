@@ -157,7 +157,8 @@ describe("production concurrency, presentation, and secret non-retention", () =>
       const pty = await PiPtyProcess.start({ sandbox, columns, rows, extraArgs: productionModelArgs });
       const mark = pty.mark();
       pty.send("/plugin\r");
-      const output = await pty.waitFor("PI / PLUGINS", mark, 60_000);
+      const output = await pty.waitFor("Plugin Manager", mark, 60_000);
+      pty.send("\r");
       await pty.waitFor("production-bundle", mark, 60_000);
       const semantic = pty.semanticOutput().slice(mark);
       expect(`${output}${semantic}`).toContain("My Plugins");
