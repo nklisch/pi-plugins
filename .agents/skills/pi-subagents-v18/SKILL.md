@@ -150,22 +150,41 @@ steering/resume. Their timing, payload, coverage, and void event semantics diffe
 4. **Reject:** reimplementing subagent execution; config, models, sessions,
    concurrency, turns, steering, resume, persistence, and disposal stay upstream.
 
-## Current project decision
+## Current project integration
 
-On 2026-07-16 the operator authorized the maintained-fork fallback:
+The maintained fallback is published and production-qualified:
 
-1. establish `nklisch/pi-packages` and publish the planned
-   `@nklisch/pi-subagents` package from verified upstream history;
-2. keep changes limited to the generic lifecycle provider/interceptor seam and
-   tests, preserving every no-interceptor execution behavior;
-3. integrate only published, pinned bytes that pass unchanged portable and real
-   Pi conformance;
-4. then rebase the proven generic commits onto current `gotgenes/pi-packages`,
-   open a focused upstream PR, and track return to an upstream release.
+- Exact package: `@nklisch/pi-subagents@18.0.4-nklisch.0`. It is a bundled
+  dependency of `@nklisch/pi-plugins`; the candidate-owned wrapper verifies the
+  package before loading its declared `./src/index.ts` Pi extension, then resolves
+  the documented root service export from the same verified tree. One top-level
+  Pi install is sufficient.
+- Immutable publication: registry integrity
+  `sha512-33Q8JDffXUuiT1M3XjLXCI4If9p+3AOwsUp/b5f1+B7Y5JI8Z8SVU+Dncq0umAG2IjgVYKnT9FHToFHNoZGWoQ==`,
+  installed-tree digest
+  `sha256:7dc5579d3da204be379138453295375d8ab598fab19c97ce9d7e2b0b61fbe67f`,
+  release commit `43efffb459f64e2f5f9aaee50d8ae5afa564f4f3`, annotated
+  tag object `ad55fae043abf87d4ec74a5cb0f2f8f17b1fb175`, and upstream
+  base `c76a294a777a990950da23fc06cb0caf51da7ac6`.
+- Qualification: the exact package receipt and complete package-owned tree,
+  manifest exports/Pi resource, MIT license, Node `>=22`, Pi peer `>=0.75.0`,
+  ordered lifecycle semantics, all execution paths, bounded continuation,
+  unchanged no-interceptor behavior, and portable plus real-Pi conformance all
+  pass. `pi.subagents.lifecycle-interception` is available only while this
+  complete evidence remains exact.
+- Fail-closed behavior: version, integrity, tree, manifest, API, license, range,
+  or conformance drift leaves subagent interception unavailable before drifted
+  package code executes. Plugins declaring subagent hooks remain inactive;
+  ordinary plugins continue.
+- Upstream contribution: [gotgenes/pi-packages#614](https://github.com/gotgenes/pi-packages/pull/614),
+  opened from exact current-upstream base
+  `0456e17098de1c9f9da8d3ddb90545140b021881` at exact head
+  `e74f70ae095b6f6f4d17b458015ed4a716ddf505`.
 
-Production capability remains unavailable until the published fork passes
-behavioral qualification. Authorization does not make a local/unpublished fork,
-event observer, or method-presence check sufficient.
+The verified upstream 18.0.3 analysis above remains the baseline for its public
+service, event timing, and missing lifecycle seam. Event approximation, deep
+imports, and method-presence checks remain insufficient while the project tracks
+return to a qualifying upstream release.
 
 ## Minimum qualifying semantics
 
@@ -199,3 +218,6 @@ pinned integrity/tag commit, compatible engines/peers, and behavioral probe succ
 - child events: <https://github.com/gotgenes/pi-packages/blob/c76a294a777a990950da23fc06cb0caf51da7ac6/packages/pi-subagents/src/lifecycle/child-lifecycle.ts>
 - architecture decision: <https://github.com/gotgenes/pi-packages/blob/c76a294a777a990950da23fc06cb0caf51da7ac6/packages/pi-subagents/docs/decisions/0002-extensions-on-a-minimal-core.md>
 - resume gap: <https://github.com/gotgenes/pi-packages/issues/466>
+- maintained package: <https://www.npmjs.com/package/@nklisch/pi-subagents/v/18.0.4-nklisch.0>
+- maintained release: <https://github.com/nklisch/pi-packages/releases/tag/pi-subagents-v18.0.4-nklisch.0>
+- upstream contribution: <https://github.com/gotgenes/pi-packages/pull/614>
