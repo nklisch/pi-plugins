@@ -7,6 +7,7 @@
     { "name": "secret-required", "source": "./plugins/secret-required", "description": "Secret custody unavailable fixture" },
     { "name": "mcp-required", "source": "./plugins/mcp-required", "description": "MCP capability fixture" },
     { "name": "subagent-required", "source": "./plugins/subagent-required", "description": "Subagent interception fixture" },
+    { "name": "production-bundle", "source": "./plugins/production-bundle", "description": "Complete production runtime fixture" },
     { "name": "incompatible", "source": "./plugins/incompatible", "description": "Unsupported runtime fixture" }
   ]
 }

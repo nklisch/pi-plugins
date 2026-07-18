@@ -2,7 +2,7 @@ import { E2E_TIMEOUTS } from "./constants.js";
 import type { CleanE2ESandbox } from "./environment.js";
 import { installPackedProduct } from "./environment.js";
 import { createGitFixtureRepository, startGitService, type GitFixtureRepository, type GitService } from "./git-service.js";
-import { PiRpcProcess, type ControlReport } from "./pi-rpc.js";
+import { PiRpcProcess, type ControlReport, type PiRpcStartOptions } from "./pi-rpc.js";
 import { waitForCondition } from "./process.js";
 
 export type RemoteMarketplaceJourney = Readonly<{
@@ -19,12 +19,15 @@ export async function startPackedRpc(sandbox: CleanE2ESandbox, offline = true): 
   return PiRpcProcess.start({ sandbox });
 }
 
-export async function seedRemoteMarketplace(sandbox: CleanE2ESandbox): Promise<RemoteMarketplaceJourney> {
+export async function seedRemoteMarketplace(
+  sandbox: CleanE2ESandbox,
+  options: Omit<PiRpcStartOptions, "sandbox"> = {},
+): Promise<RemoteMarketplaceJourney> {
   await installPackedProduct(sandbox);
   const repository = await createGitFixtureRepository(sandbox);
   const git = await startGitService(sandbox, repository);
   sandbox.env.PI_OFFLINE = "0";
-  const rpc = await PiRpcProcess.start({ sandbox });
+  const rpc = await PiRpcProcess.start({ sandbox, ...options });
   const registration = await rpc.plugin(
     `--non-interactive marketplace add ${git.url} --source-kind git --scope user`,
     "marketplace.add",

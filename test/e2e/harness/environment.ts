@@ -1,8 +1,10 @@
 import { access, cp, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { onTestFailed } from "vitest";
+import { createHash } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   E2E_CHECKOUT_ROOT,
   E2E_PI_VERSION,
@@ -28,13 +30,19 @@ export type E2ECapabilities = Readonly<{
 
 export type E2ESuiteArtifact = Readonly<{
   root: string;
+  candidateName: "@nklisch/pi-plugins";
+  candidateIntegrity: `sha512-${string}`;
   tarball: string;
+  consumerPackage: string;
+  publicLockfile: string;
+  npmCache: string;
   consumerTemplate: string;
   packageRoot: string;
   extensionPath: string;
   piRoot: string;
   piCli: string;
   packFiles: readonly string[];
+  packageReceipts: readonly Readonly<{ name: string; version: string; resolved: string; integrity: string }>[];
   capabilities: E2ECapabilities;
 }>;
 
@@ -123,7 +131,19 @@ export async function diagnoseE2ECapabilities(): Promise<E2ECapabilities> {
   });
 }
 
-async function auditIsolatedTree(root: string): Promise<void> {
+export async function removeInstallCommandShims(root: string): Promise<void> {
+  async function visit(path: string): Promise<void> {
+    for (const entry of await readdir(path, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const child = join(path, entry.name);
+      if (entry.name === ".bin") await rm(child, { recursive: true, force: true });
+      else await visit(child);
+    }
+  }
+  await visit(root);
+}
+
+export async function auditIsolatedTree(root: string): Promise<void> {
   async function visit(path: string): Promise<void> {
     for (const name of await readdir(path)) {
       const child = join(path, name);
@@ -135,6 +155,56 @@ async function auditIsolatedTree(root: string): Promise<void> {
     }
   }
   await visit(root);
+}
+
+function canonicalIntegrity(value: unknown): value is `sha512-${string}` {
+  if (typeof value !== "string" || !value.startsWith("sha512-")) return false;
+  const encoded = value.slice("sha512-".length);
+  const bytes = Buffer.from(encoded, "base64");
+  return bytes.length === 64 && bytes.toString("base64") === encoded;
+}
+
+async function auditConsumerLock(
+  consumerTemplate: string,
+  candidateIntegrity: `sha512-${string}`,
+): Promise<readonly Readonly<{ name: string; version: string; resolved: string; integrity: string }>[]> {
+  const lock = JSON.parse(await readFile(join(consumerTemplate, "package-lock.json"), "utf8")) as {
+    lockfileVersion?: number;
+    packages?: Record<string, { version?: string; resolved?: string; integrity?: string; inBundle?: boolean; link?: boolean }>;
+  };
+  if (lock.lockfileVersion !== 3 || lock.packages === undefined) throw new Error("production consumer requires an exact npm v3 lock");
+  const receipts: Array<Readonly<{ name: string; version: string; resolved: string; integrity: string }>> = [];
+  for (const [lockPath, row] of Object.entries(lock.packages)) {
+    if (lockPath === "" || row.inBundle === true) continue;
+    if (row.link === true) throw new Error(`production consumer lock contains a linked package: ${lockPath}`);
+    if (typeof row.version !== "string" || typeof row.resolved !== "string") {
+      throw new Error(`production consumer lock row is incomplete: ${lockPath}`);
+    }
+    if (!canonicalIntegrity(row.integrity)) {
+      // Pi 0.80.8 carries these three exact nested packages inside its own
+      // integrity-bound tarball while npm omits child SRI rows. They are never
+      // fetched or resolved independently during the offline replay.
+      if (!/^node_modules\/@earendil-works\/pi-coding-agent\/node_modules\/@earendil-works\/pi-(?:agent-core|ai|tui)$/u.test(lockPath) ||
+          !row.resolved.startsWith("https://registry.npmjs.org/")) {
+        throw new Error(`production consumer lock row has no SRI authority: ${lockPath}`);
+      }
+      continue;
+    }
+    if (lockPath === "node_modules/@nklisch/pi-plugins") {
+      if (!row.resolved.startsWith("file:../nklisch-pi-plugins-") || row.integrity !== candidateIntegrity) {
+        throw new Error("candidate lock row does not bind the packed tarball integrity");
+      }
+      continue;
+    }
+    const source = new URL(row.resolved);
+    if (source.protocol !== "https:") throw new Error(`public dependency is not registry HTTPS resolved: ${lockPath}`);
+    const name = lockPath.slice(lockPath.lastIndexOf("node_modules/") + "node_modules/".length);
+    if (!/^(?:@[a-z0-9._~-]+\/[a-z0-9._~-]+|[a-z0-9._~-]+)$/u.test(name)) {
+      throw new Error(`public dependency lock path has no canonical package name: ${lockPath}`);
+    }
+    receipts.push(Object.freeze({ name, version: row.version, resolved: row.resolved, integrity: row.integrity }));
+  }
+  return Object.freeze(receipts.sort((left, right) => left.name.localeCompare(right.name) || left.version.localeCompare(right.version)));
 }
 
 async function prepare(): Promise<E2ESuiteArtifact> {
@@ -155,51 +225,157 @@ async function prepare(): Promise<E2ESuiteArtifact> {
   const pack = JSON.parse(packed.stdout) as Array<{ filename: string; files: Array<{ path: string }> }>;
   if (pack.length !== 1) throw new Error(`npm pack returned ${pack.length} artifacts`);
   const tarball = join(root, pack[0]!.filename);
+  const candidateIntegrity = `sha512-${createHash("sha512").update(await readFile(tarball)).digest("base64")}` as const;
   const packFiles = Object.freeze(pack[0]!.files.map((entry) => entry.path).sort());
-  for (const forbidden of ["src/", "test/", ".work/", ".agents/"]) {
+  for (const forbidden of ["src/", "test/", ".work/", ".agents/", ".mockups/"]) {
     if (packFiles.some((path) => path === forbidden.slice(0, -1) || path.startsWith(forbidden))) {
       throw new Error(`packed product contains forbidden development path ${forbidden}`);
     }
   }
-  for (const required of ["package.json", "dist/index.js", "dist/pi/extension.js"]) {
+  for (const required of [
+    "package.json",
+    "dist/index.js",
+    "dist/pi/production-subagents-extension.js",
+    "dist/pi/extension.js",
+    "node_modules/@nklisch/pi-subagents/package.json",
+    "node_modules/@nklisch/pi-subagents/src/index.ts",
+  ]) {
     if (!packFiles.includes(required)) throw new Error(`packed product is missing ${required}`);
   }
 
   const consumerTemplate = join(root, "consumer-template");
-  const nodeModules = join(consumerTemplate, "node_modules");
-  await mkdir(nodeModules, { recursive: true });
-  await runChecked(capabilities.cp, ["-aL", "--reflink=auto", `${join(E2E_CHECKOUT_ROOT, "node_modules")}/.`, nodeModules], {
-    timeoutMs: E2E_TIMEOUTS.lifecycle,
-    label: "copy dereferenced isolated runtime dependencies",
-  });
-  await writeFile(join(consumerTemplate, "package.json"), `${JSON.stringify({ name: "pi-plugin-host-e2e-consumer", private: true, type: "module" }, null, 2)}\n`);
-  await runChecked(capabilities.npm, ["install", "--offline", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", tarball], {
+  const npmCache = join(root, "npm-cache");
+  const npmHome = join(root, "npm-home");
+  const npmPrefix = join(root, "npm-prefix");
+  const npmConfig = join(root, "npmrc");
+  await Promise.all([consumerTemplate, npmCache, npmHome, npmPrefix].map((path) => mkdir(path, { recursive: true })));
+  await writeFile(npmConfig, "registry=https://registry.npmjs.org/\nignore-scripts=true\naudit=false\nfund=false\n");
+  const consumerPackage = join(consumerTemplate, "package.json");
+  await writeFile(consumerPackage, `${JSON.stringify({
+    name: "pi-plugins-production-e2e-consumer",
+    private: true,
+    type: "module",
+    dependencies: {
+      "@earendil-works/pi-coding-agent": E2E_PI_VERSION,
+      "@earendil-works/pi-tui": E2E_PI_VERSION,
+      "@nklisch/pi-plugins": `file:../${pack[0]!.filename}`,
+    },
+  }, null, 2)}\n`);
+  const npmEnvironment = {
+    ...process.env,
+    HOME: npmHome,
+    NODE_OPTIONS: "",
+    NODE_PATH: "",
+    npm_config_cache: npmCache,
+    npm_config_prefix: npmPrefix,
+    npm_config_userconfig: npmConfig,
+  };
+  await runChecked(capabilities.npm, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-online"], {
     cwd: consumerTemplate,
-    env: { ...process.env, NODE_OPTIONS: "", npm_config_cache: join(root, "npm-cache") },
-    timeoutMs: E2E_TIMEOUTS.lifecycle,
-    label: "offline npm install of packed product",
+    env: npmEnvironment,
+    timeoutMs: E2E_TIMEOUTS.lifecycle * 2,
+    label: "registry-resolve production consumer lock and cache",
   });
-  // npm's command shims are irrelevant to Pi package loading and are symlinks.
-  // Remove them so the consumer tree has no checkout-independent exceptions to
-  // the no-symlink audit.
-  await rm(join(nodeModules, ".bin"), { recursive: true, force: true });
+  const nodeModules = join(consumerTemplate, "node_modules");
+  // Pi publishes a self-contained nested node_modules tree without declaring
+  // bundleDependencies. npm install can consume that tarball, but npm ci also
+  // validates the manifest dependency graph and otherwise sees those rows as
+  // missing. Declare the exact public Pi manifest closure in this acceptance
+  // consumer so the generated lock is a valid, replayable npm contract. Pi's
+  // own nested 0.80.8 bytes still win Node resolution at runtime.
+  const piPackage = JSON.parse(await readFile(join(nodeModules, "@earendil-works", "pi-coding-agent", "package.json"), "utf8")) as {
+    dependencies?: Record<string, string>;
+  };
+  const consumerManifest = JSON.parse(await readFile(consumerPackage, "utf8")) as { dependencies: Record<string, string> };
+  consumerManifest.dependencies = {
+    ...(piPackage.dependencies ?? {}),
+    ...consumerManifest.dependencies,
+  };
+  await writeFile(consumerPackage, `${JSON.stringify(consumerManifest, null, 2)}\n`);
+  await runChecked(capabilities.npm, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-online"], {
+    cwd: consumerTemplate,
+    env: npmEnvironment,
+    timeoutMs: E2E_TIMEOUTS.lifecycle * 2,
+    label: "complete exact Pi production dependency lock",
+  });
+  // Pi 0.80.8 publishes its complete nested runtime dependency closure inside
+  // its own tarball. npm's lock writer drops those inBundle markers beside a
+  // local candidate tarball, although the same installed Pi bytes are marked
+  // correctly in an ordinary registry-root lock. Restore that factual marker
+  // before ci so npm does not try to resolve newer range members outside the
+  // exact Pi SRI authority.
+  const generatedLockPath = join(consumerTemplate, "package-lock.json");
+  const generatedLock = JSON.parse(await readFile(generatedLockPath, "utf8")) as { packages: Record<string, { inBundle?: boolean }> };
+  for (const [path, row] of Object.entries(generatedLock.packages)) {
+    if (path.startsWith("node_modules/@earendil-works/pi-coding-agent/node_modules/")) {
+      row.inBundle = true;
+    }
+  }
+  await writeFile(generatedLockPath, `${JSON.stringify(generatedLock, null, 2)}\n`);
+  // Populate the cache from a true lock replay as well as initial resolution.
+  // This captures optional-platform packuments npm may consult even when their
+  // tarballs are not selected for the current Linux tree.
+  await rm(nodeModules, { recursive: true, force: true });
+  await runChecked(capabilities.npm, ["ci", "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-online"], {
+    cwd: consumerTemplate,
+    env: npmEnvironment,
+    timeoutMs: E2E_TIMEOUTS.lifecycle * 2,
+    label: "online cache population from exact production lock",
+  });
+  // npm command shims are not runtime dependencies and are the only expected
+  // install-created links. Runtime realpath auditing remains exception-free.
+  await removeInstallCommandShims(nodeModules);
 
-  const packageRoot = join(nodeModules, "@nklisch", "pi-plugin-host");
-  const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as { pi?: { extensions?: string[] } };
-  if (JSON.stringify(manifest.pi?.extensions) !== JSON.stringify(["./dist/pi/extension.js"])) {
-    throw new Error("packed product does not declare the public Pi extension entry");
+  const packageRoot = join(nodeModules, "@nklisch", "pi-plugins");
+  const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as {
+    name?: string; private?: boolean; version?: string; pi?: { extensions?: string[] };
+  };
+  if (manifest.name !== "@nklisch/pi-plugins" || manifest.private !== true || manifest.version !== "0.0.0" ||
+      JSON.stringify(manifest.pi?.extensions) !== JSON.stringify(["./dist/pi/production-subagents-extension.js", "./dist/pi/extension.js"])) {
+    throw new Error("packed product identity or Pi extension graph is invalid");
   }
   const piRoot = join(nodeModules, "@earendil-works", "pi-coding-agent");
   const piManifest = JSON.parse(await readFile(join(piRoot, "package.json"), "utf8")) as { version: string; bin: { pi: string } };
   if (piManifest.version !== E2E_PI_VERSION) throw new Error(`clean E2E requires Pi ${E2E_PI_VERSION}, found ${piManifest.version}`);
   const tuiManifest = JSON.parse(await readFile(join(nodeModules, "@earendil-works", "pi-tui", "package.json"), "utf8")) as { version: string };
   if (tuiManifest.version !== E2E_PI_VERSION) throw new Error(`clean E2E requires Pi TUI ${E2E_PI_VERSION}, found ${tuiManifest.version}`);
+  const lockReceipts = await auditConsumerLock(consumerTemplate, candidateIntegrity);
+  const receiptModule = await import(pathToFileURL(join(packageRoot, "dist", "runtime", "subagents", "pi-subagents-package.js")).href) as {
+    PI_SUBAGENTS_RECEIPT: { packageName: string; version: string; registryIntegrity: string; installedTreeDigest: string };
+  };
+  const treeModule = await import(pathToFileURL(join(packageRoot, "dist", "runtime", "published-package-receipt.js")).href) as {
+    digestPublishedPackageTree(root: string): Promise<string>;
+  };
+  const subagentReceipt = receiptModule.PI_SUBAGENTS_RECEIPT;
+  const bundledSubagentRoot = join(packageRoot, "node_modules", "@nklisch", "pi-subagents");
+  if (subagentReceipt.packageName !== "@nklisch/pi-subagents" ||
+      await treeModule.digestPublishedPackageTree(bundledSubagentRoot) !== subagentReceipt.installedTreeDigest) {
+    throw new Error("bundled subagent tree does not match its packed registry receipt");
+  }
+  const packageReceipts = Object.freeze([...lockReceipts, Object.freeze({
+    name: subagentReceipt.packageName,
+    version: subagentReceipt.version,
+    resolved: `https://registry.npmjs.org/@nklisch/pi-subagents/-/pi-subagents-${subagentReceipt.version}.tgz`,
+    integrity: subagentReceipt.registryIntegrity,
+  })].sort((left, right) => left.name.localeCompare(right.name) || left.version.localeCompare(right.version)));
   await auditIsolatedTree(nodeModules);
 
   const artifact: E2ESuiteArtifact = Object.freeze({
-    root, tarball, consumerTemplate, packageRoot,
+    root,
+    candidateName: "@nklisch/pi-plugins",
+    candidateIntegrity,
+    tarball,
+    consumerPackage,
+    publicLockfile: join(consumerTemplate, "package-lock.json"),
+    npmCache,
+    consumerTemplate,
+    packageRoot,
     extensionPath: join(packageRoot, "dist", "pi", "extension.js"),
-    piRoot, piCli: join(piRoot, piManifest.bin.pi), packFiles, capabilities,
+    piRoot,
+    piCli: join(piRoot, piManifest.bin.pi),
+    packFiles,
+    packageReceipts,
+    capabilities,
   });
   const receipt = join(root, "receipt.json");
   await writeFile(receipt, `${JSON.stringify(artifact, null, 2)}\n`);
@@ -258,8 +434,8 @@ export async function createCleanE2ESandbox(id: string): Promise<CleanE2ESandbox
     id, root,
     home: join(root, "home"), agentDir: join(root, "agent"), sessionDir: join(root, "sessions"),
     project: join(root, "project"), consumer: join(root, "consumer"),
-    packageRoot: join(root, "consumer", "node_modules", "@nklisch", "pi-plugin-host"),
-    extensionPath: join(root, "consumer", "node_modules", "@nklisch", "pi-plugin-host", "dist", "pi", "extension.js"),
+    packageRoot: join(root, "consumer", "node_modules", "@nklisch", "pi-plugins"),
+    extensionPath: join(root, "consumer", "node_modules", "@nklisch", "pi-plugins", "dist", "pi", "extension.js"),
     piCli: join(root, "consumer", "node_modules", "@earendil-works", "pi-coding-agent", relative(artifact.piRoot, artifact.piCli)),
     bin: join(root, "bin"), logs: join(root, "logs"), artifacts: resolve(E2E_CHECKOUT_ROOT, ".e2e-artifacts", id),
     capabilities: artifact.capabilities,

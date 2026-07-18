@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-production-runtime-acceptance-full-bundle-harness
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management-production-runtime-acceptance
 depends_on: [epic-native-plugin-management-production-runtime-acceptance-package-provenance]
@@ -63,3 +63,11 @@ V2 changes every observable marker. The hook writes only safe boundary/identity/
 ## Ordering and risk
 
 Depends on package/provenance so all paths and resource entries use `@nklisch/pi-plugins`. The hardest harness risk is deterministic subagent model scripting without becoming a runtime mock; user-visible Pi results and plugin-owned behavior markers remain the sole acceptance authority.
+
+## Implementation notes
+
+- Replaced checkout dependency copying with a test-owned public-registry lock/cache and immutable registry-installed consumer template. Public rows are HTTPS/SRI-bound; Pi's undeclared nested bundled closure is explicitly represented as Pi-tarball-owned authority so `npm ci` can replay it.
+- Added one V1/V2 production bundle fixture carrying a skill, three ordinary/subagent hooks, one usable and one intentionally failing MCP server, and non-sensitive late `CHANNEL` configuration.
+- Added a finite external OpenAI-compatible process that emits only model protocol responses. Real Pi tools, subagent child sessions, hook commands, MCP processes, Git, SQLite, RPC, and PTY remain acceptance authorities.
+- Added production sandbox/model/bundle/environment helpers with fixed locked ports, condition-driven waits, process cleanup, lock/SRI/realpath audits, and no checkout/global/foreign-host resolution.
+- Verified the production harness smoke plus the one-install Pi 0.80.8 infrastructure lane; startup remains local when the model service is absent and MCP stays unlaunched until an explicit tool call.

@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { E2E_CHECKOUT_ROOT, E2E_PI_VERSION } from "../harness/constants.js";
 import {
@@ -51,7 +50,7 @@ describe("packed clean-environment Pi infrastructure", () => {
         local: { recovery: "settled", runtime: "reconciled" },
         capabilities: {
           mcp: { status: "available" },
-          subagents: { status: "unavailable" },
+          subagents: { status: "available" },
         },
       },
     });
@@ -66,29 +65,22 @@ describe("packed clean-environment Pi infrastructure", () => {
     expect((piManifest.default as { version: string }).version).toBe(E2E_PI_VERSION);
   });
 
-  it("composes the exact published subagent lifecycle receipt with real Pi 0.80.8", async () => {
+  it("composes the bundled published subagent lifecycle from one top-level Pi installation", async () => {
     sandbox = await createCleanE2ESandbox("published-subagents");
-    const subagents = join(
-      sandbox.consumer,
-      "node_modules",
-      "@nklisch",
-      "pi-subagents",
-    );
-    await runChecked(sandbox.capabilities.node, [sandbox.piCli, "install", subagents], {
-      cwd: sandbox.project,
-      env: sandbox.env,
-      timeoutMs: 60_000,
-      label: "install published subagent extension",
-    });
     await installPackedProduct(sandbox);
+    expect(sandbox.installedList).toContain("@nklisch/pi-plugins");
+    expect(sandbox.installedList).not.toContain("@nklisch/pi-subagents");
 
     const rpc = await PiRpcProcess.start({ sandbox });
-    const status = await rpc.plugin("--non-interactive status", "status");
-    expect(status.envelope.data).toMatchObject({
-      capabilities: {
-        subagents: { status: "available" },
-      },
-    });
+    const [commands, status] = await Promise.all([
+      rpc.request({ type: "get_commands" }),
+      rpc.plugin("--non-interactive status", "status"),
+    ]);
+    expect(commands.data.commands).toContainEqual(expect.objectContaining({
+      name: "subagents:settings",
+      sourceInfo: expect.objectContaining({ path: expect.stringMatching(/production-subagents-extension\.js$/u) }),
+    }));
+    expect(status.envelope.data).toMatchObject({ capabilities: { subagents: { status: "available" } } });
     expect(JSON.stringify(status)).not.toContain("@nklisch/pi-subagents");
     expect(JSON.stringify(status)).not.toContain(sandbox.consumer);
     await rpc.shutdown();
