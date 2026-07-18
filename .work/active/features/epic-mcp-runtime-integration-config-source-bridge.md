@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration-config-source-bridge
 kind: feature
-stage: review
+stage: done
 tags: [compatibility, infra]
 parent: epic-mcp-runtime-integration
 depends_on: []
@@ -12,7 +12,7 @@ research_refs:
   - .agents/skills/pi-mcp-adapter-v2/SKILL.md
 research_origin: null
 created: 2026-07-16
-updated: 2026-07-18
+updated: 2026-07-17
 ---
 
 # Plugin-Scoped MCP Configuration-Source Bridge
@@ -510,3 +510,18 @@ All seven child stories are now `stage: done`. The final child opened https://gi
 Integrated feature verification remains the production receipt already recorded above: exact published fork bytes pass the unchanged portable contract, real Pi/package ordering and isolation, lifecycle cancellation/cleanup, redaction, clean packed acceptance, full `npm test`, and infrastructure E2E. The upstream branch independently passes its 51-file / 457-test suite, 30 OAuth-provider tests, compiled and packed export/CLI/license checks, and the unchanged portable lifecycle contract through its generic public API.
 
 The feature advances from `implementing` to `review`. Per caller instruction, this transition stops at the feature review boundary; independent feature review remains the orchestrator's responsibility and was not self-run here.
+
+## Standard feature review — 2026-07-18
+
+**Verdict: APPROVE.** One independent cross-model, fresh-context pass reviewed the complete portable contract, fake, conformance suite, lifecycle and launch-value providers, exact published-package wrapper/composition, packed Pi 0.80.8 evidence, and upstream PR #191. No material blockers were found.
+
+The review independently verified source-before-tool ordering, side-effect-free construction, exact source identity and CAS/removal semantics, collision isolation, cancellable lifecycle and runtime-lease drainage, callback-scoped late-value disposal/non-retention, hard-pinned capability truth, redacted fail-closed package drift, central activation/reconciliation authority, registry receipt and package export boundaries, rollback, and the generic current-main upstream contribution.
+
+Two lower-risk findings were parked without implementation, per standard-review policy and the instruction to defer refactors until the end:
+
+- `idea-make-mcp-composed-cleanup-cancellable`
+- `idea-remove-mcp-package-structural-casts`
+
+The wrapper's hard-pinned fork capability profile was recorded as intentional fail-closed behavior rather than a finding: legitimate package capability growth must trigger an explicit wrapper qualification update.
+
+The feature advances from `review` to `done` without a second review pass.
