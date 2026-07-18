@@ -1,7 +1,7 @@
 ---
 id: epic-native-plugin-management-production-runtime-acceptance-failure-recovery-drift
 kind: story
-stage: implementing
+stage: done
 tags: [compatibility, infra]
 parent: epic-native-plugin-management-production-runtime-acceptance
 depends_on: [epic-native-plugin-management-production-runtime-acceptance-full-bundle-harness]
@@ -47,3 +47,11 @@ Implement Unit 4 from the parent feature in `test/e2e/production/failure-recover
 ## Ordering and risk
 
 Depends on the production harness and can proceed as the same feature-owner layer as golden lifecycle. Crash timing is the main risk: bounded external phase conditions place faults; deterministic rollback additionally removes candidate evidence only after pending candidate authority is confirmed.
+
+## Implementation notes
+
+- Added incompatible-update rejection and externally placed interrupted Git acquisition. Fresh recovery retains complete V1 with no mixed contribution or SQLite damage.
+- Exercised one exact MCP source containing a real failing process server and a usable server. Failure remains redacted per-server health; subsequent canonical calls work. A delayed real call is cancelled through Pi RPC and the source remains usable afterward.
+- Mutated disposable installed MCP and bundled subagent manifests and executable/API bytes before startup, including drift sentinels. The affected capability is unavailable, the drifted code never executes, the dependent whole bundle stays inactive, and an ordinary skill plugin remains available.
+- Covered single and combined adapter drift and exact registry-installed snapshot restoration. Qualification and the complete V1 runtime return without state/domain/facade migration.
+- Verified all three production failure/recovery/drift tests green with deterministic cleanup and integrity checks.
