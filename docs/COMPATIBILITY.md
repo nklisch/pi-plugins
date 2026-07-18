@@ -174,9 +174,13 @@ Supported value types are:
 - string arrays where `multiple` is declared.
 
 Required fields, defaults, numeric bounds, and path validation are enforced.
-Sensitive values use an operating-system credential store through a dedicated
-secret-storage adapter. They never appear in plugin-host state, generated MCP
-configuration, logs, or compatibility reports.
+Production sensitive-value custody is unavailable and fail-closed because no
+supported operating-system backend can prove atomic no-replace ownership and
+stale-safe deletion. Required sensitive configuration therefore prevents
+activation with `SECRET_CUSTODY_UNAVAILABLE`. Plaintext collected through a
+masked or headless input boundary is not retained in plugin-host state,
+generated MCP configuration, control or terminal output, logs, compatibility
+reports, projections, recovery artifacts, or process data.
 
 Configured values are available through:
 

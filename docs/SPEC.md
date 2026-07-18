@@ -164,9 +164,13 @@ hook, or MCP component. Supported values include strings, numbers, booleans,
 directories, files, and declared string arrays. Required values, defaults,
 bounds, and path constraints are validated before activation.
 
-Sensitive values use an operating-system credential store through a dedicated
-secret-storage adapter. They never appear in plugin-host state, generated MCP
-configuration, logs, or compatibility reports.
+Production sensitive-value custody is unavailable and fail-closed. No supported
+operating-system backend can currently prove the required atomic no-replace
+ownership and stale-safe deletion contract. A plugin whose activation requires
+a sensitive value remains inactive with `SECRET_CUSTODY_UNAVAILABLE`.
+Plaintext collected through a masked or headless input boundary is not retained
+in plugin-host state, generated MCP configuration, control or terminal output,
+logs, compatibility reports, projections, recovery artifacts, or process data.
 
 Configured values are available through `${user_config.KEY}` substitution and
 `CLAUDE_PLUGIN_OPTION_<KEY>` process environment variables.
