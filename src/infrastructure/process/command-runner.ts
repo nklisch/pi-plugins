@@ -144,12 +144,6 @@ function chunksToBytes(chunks: readonly Uint8Array[], length: number): Uint8Arra
   return result;
 }
 
-function chunkStream(chunks: readonly Uint8Array[]): AsyncIterable<Uint8Array> {
-  return (async function* () {
-    for (const chunk of chunks) yield chunk;
-  })();
-}
-
 /**
  * The single Node process primitive. Both source acquisition and hook runtime
  * callers use this adapter, so tree termination and pipe draining cannot drift.

@@ -23,7 +23,6 @@ import {
   type ContentManifestEntry,
 } from "../domain/content-manifest.js";
 import {
-  PluginManifestPathRegistry,
   type ComponentLocatorClaim,
   type PluginManifestClaims,
 } from "../domain/bundle-ingestion.js";
@@ -416,10 +415,6 @@ function nestedSkillRoots(roots: readonly string[]): string | undefined {
 
 function mergeResultFailure<T>(result: ReadResult<T>): ReadResult<never> | undefined {
   return result.ok ? undefined : result;
-}
-
-function authorityManifestPath(host: NativeHost): string {
-  return host === "claude" ? PluginManifestPathRegistry.claude : PluginManifestPathRegistry.codex;
 }
 
 function manifestReader(readers: BundleReaderSet, host: NativeHost): BundleReaderSet["claudeManifest"] {

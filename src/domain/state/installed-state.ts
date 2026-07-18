@@ -317,13 +317,6 @@ function canonicalize(value: JsonValue): JsonValue {
   return value;
 }
 
-function asJsonValue(value: unknown): JsonValue {
-  // Schema inputs are JSON-shaped. This copy exists only as a hashing preimage;
-  // it is never returned as persisted state and therefore cannot reintroduce
-  // declarations through a structural type assertion.
-  return JSON.parse(JSON.stringify(value)) as JsonValue;
-}
-
 function evidenceFingerprint(tag: string, value: JsonValue, sha256: Sha256): ContentDigest {
   return hashContent(new TextEncoder().encode(`${tag}\0${JSON.stringify(canonicalize(value))}`), sha256);
 }

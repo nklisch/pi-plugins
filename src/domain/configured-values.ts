@@ -260,10 +260,6 @@ function optionByKey(configuration: PluginConfiguration): Map<string, Configurat
   return new Map(configuration.options.map((option) => [option.key, option]));
 }
 
-function equalJson(left: unknown, right: unknown): boolean {
-  return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
-}
-
 /** Verify descriptor binding, sensitivity partition, kinds, constraints, order, and revision. */
 export function verifyPluginConfigurationDocument(
   input: unknown,

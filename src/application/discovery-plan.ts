@@ -60,11 +60,6 @@ export const DiscoveryPlanSchema = z.object({
   catalogForeign: z.array(ForeignComponentDeclarationSchema).readonly()
 }).strict().readonly();
 
-type ClaimLike<T> = Readonly<{
-  value: T;
-  provenance: readonly Provenance[];
-}>;
-
 function stableJson(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
@@ -116,11 +111,6 @@ function mergeProvenance(
     }
   }
   return unique as [Provenance, ...Provenance[]];
-}
-
-function pointerField(pointer: string): string {
-  const token = pointer.split("/")[1] ?? pointer;
-  return token.replaceAll("~1", "/").replaceAll("~0", "~");
 }
 
 function normalizeCatalogPath(value: unknown, pointer: string): string {
@@ -179,13 +169,6 @@ function failure(
   details?: JsonValue,
 ): ReadResult<DiscoveryPlan> {
   return { ok: false, diagnostics: [diagnostic(code, message, plugin, provenance, details)] };
-}
-
-function authorityFor(
-  authorities: readonly MarketplaceAuthority[],
-  host: NativeHost,
-): MarketplaceAuthority | undefined {
-  return authorities.find((authority) => authority.nativeHost === host);
 }
 
 function manifestRequired(authority: MarketplaceAuthority): boolean {

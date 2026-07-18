@@ -739,7 +739,3 @@ export async function removePluginConfiguration(
   }
   return { kind: "removed" };
 }
-
-function assertNever(value: never): never {
-  throw new Error(`unhandled configuration operation result: ${String(value)}`);
-}

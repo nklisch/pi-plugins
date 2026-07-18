@@ -260,28 +260,6 @@ function compareDiagnostics(left: Diagnostic, right: Diagnostic): number {
   );
 }
 
-function componentClaim(component: Component): readonly Provenance[] {
-  switch (component.kind) {
-    case ComponentKindRegistry.skill.tag:
-      return sortedProvenance([...component.name.provenance, ...component.root.provenance]);
-    case ComponentKindRegistry.hook.tag:
-      return sortedProvenance([
-        ...component.event.provenance,
-        ...(component.matcher?.provenance ?? []),
-        ...component.handler.provenance,
-      ]);
-    case ComponentKindRegistry.mcpServer.tag:
-      return sortedProvenance([...component.nativeKey.provenance, ...component.declaration.provenance]);
-    case ComponentKindRegistry.foreign.tag:
-      return sortedProvenance([
-        ...component.nativeKind.provenance,
-        ...component.declaration.provenance,
-      ]);
-    default:
-      return assertNever(component);
-  }
-}
-
 function metadataField(metadata: RetainedMetadata): string {
   const segments = metadata.key.split(".");
   return segments[segments.length - 1] ?? metadata.key;
