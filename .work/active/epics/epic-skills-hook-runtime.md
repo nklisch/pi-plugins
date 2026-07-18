@@ -1,7 +1,7 @@
 ---
 id: epic-skills-hook-runtime
 kind: epic
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: null
 depends_on: [epic-transactional-plugin-lifecycle]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-11
-updated: 2026-07-16
+updated: 2026-07-17
 ---
 
 # Skills and Command-Hook Runtime
@@ -84,3 +84,7 @@ Mockups skipped: the epic has no new screen, page, flow, or component. `/plugin`
 - **Project scope can drift during session replacement or reload**: resources and hooks must be rebuilt for the effective cwd and current trust decision, not retained from a stale extension instance or matched by path spelling alone.
 - **Skill collision behavior is host-owned**: deterministic path ordering must preserve Pi's first-skill collision contract without silently imposing plugin precedence or dropping a conflicting skill.
 - **Subagent interception may require upstream work**: current Pi documentation exposes no native boundary and the process-based example cannot inject before start/stop. The feature may need a narrow maintained fork, but capability unavailability remains a valid non-activation outcome rather than pressure to approximate.
+
+## Aggregate review readiness — 2026-07-18
+
+All five child features are `stage: done`, including the published production subagent lifecycle adapter and upstream PR #614. The epic advances to `review` for its independent aggregate pass.

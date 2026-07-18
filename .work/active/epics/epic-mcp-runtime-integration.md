@@ -1,7 +1,7 @@
 ---
 id: epic-mcp-runtime-integration
 kind: epic
-stage: implementing
+stage: review
 tags: [compatibility, infra]
 parent: null
 depends_on: [epic-transactional-plugin-lifecycle]
@@ -10,7 +10,7 @@ gate_origin: null
 research_refs: []
 research_origin: null
 created: 2026-07-11
-updated: 2026-07-16
+updated: 2026-07-17
 ---
 
 # MCP Runtime Integration
@@ -84,3 +84,7 @@ Mockups skipped: the epic introduces no screen, flow, modal, or visual component
 - **Lifecycle replacement is the convergence hotspot**: update or disable can partially change registered sources or leave launched processes behind. Exact source inspection, abort propagation, idempotent cleanup, and the existing compensation/recovery evidence must distinguish restored, failed, and ambiguous outcomes.
 - **Offline correctness and activation proof can be confused**: requiring a remote handshake at reload would make startup network-dependent, while observing only a reload return would be too weak. Evidence must prove exact local source registration and separately report live connection/tool-discovery health.
 - **Alias and removal collisions cross multiple identities**: plugin names, marketplace names, native server keys, scopes, and foreign tool aliases can overlap. Canonical source/server identities must drive registration and removal; aliases remain derived compatibility views and never become authority.
+
+## Aggregate review readiness — 2026-07-18
+
+All four child features are `stage: done`, including the exact published production MCP adapter and upstream PR #191. The epic advances to `review` for its independent aggregate pass.
