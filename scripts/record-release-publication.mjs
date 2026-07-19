@@ -25,10 +25,24 @@ const releaseFile = join(releaseDir, `release-${version}.md`);
 const today = new Date().toISOString().slice(0, 10);
 const shortSha = sourceSha.slice(0, 7);
 
-const integrity = execFileSync(
-  "npm", ["view", `@nklisch/pi-plugins@${version}`, "dist.integrity"],
-  { cwd: root, encoding: "utf8" },
-).trim();
+// The registry is not read-after-write consistent: `npm view` immediately
+// after `npm publish` can 404 for tens of seconds. Retry before concluding
+// the version never shipped.
+function viewIntegrity(attempts = 12) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const value = execFileSync(
+        "npm", ["view", `@nklisch/pi-plugins@${version}`, "dist.integrity"],
+        { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+      ).trim();
+      if (value !== "") return value;
+    } catch { /* not visible yet */ }
+    if (attempt < attempts) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5_000);
+  }
+  return "";
+}
+
+const integrity = viewIntegrity();
 if (integrity === "") {
   console.error(`@nklisch/pi-plugins@${version} is not on the registry; refusing to record`);
   process.exit(1);
