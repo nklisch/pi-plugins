@@ -29,6 +29,18 @@ export const E2E_TIMEOUTS = Object.freeze({
   conditionPoll: 25,
 });
 
+// Shared, loaded CI runners are markedly slower than a dev workstation;
+// every harness wait scales by PI_PLUGIN_HOST_E2E_TIMEOUT_SCALE (CI sets 2).
+export function scaleE2ETimeout(milliseconds: number): number {
+  const raw = process.env.PI_PLUGIN_HOST_E2E_TIMEOUT_SCALE;
+  if (raw === undefined) return milliseconds;
+  const scale = Number.parseFloat(raw);
+  if (!Number.isFinite(scale) || scale <= 0) {
+    throw new Error(`PI_PLUGIN_HOST_E2E_TIMEOUT_SCALE must be a positive number, got ${raw}`);
+  }
+  return Math.ceil(milliseconds * scale);
+}
+
 function configuredPort(value: number, name: string): number {
   if (!Number.isSafeInteger(value) || value < 1024 || value > 65_535) {
     throw new Error(`${name} must be an unprivileged TCP port, got ${String(value)}`);

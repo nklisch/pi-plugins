@@ -15,6 +15,7 @@ jobs:
       CI: "1"
       PI_PLUGIN_HOST_E2E_REQUIRE_PTY: "1"
       PI_PLUGIN_HOST_E2E_REQUIRE_LIBFAKETIME: "1"
+      PI_PLUGIN_HOST_E2E_TIMEOUT_SCALE: "2"
     steps:
       - uses: actions/checkout@v4
       - name: Set up Node

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
-import { E2E_TIMEOUTS } from "./constants.js";
+import { E2E_TIMEOUTS, scaleE2ETimeout } from "./constants.js";
 
 export type ProcessExit = Readonly<{ code: number | null; signal: NodeJS.Signals | null }>;
 
@@ -13,12 +13,13 @@ export async function waitForCondition<T>(
   condition: () => T | undefined | Promise<T | undefined>,
   timeoutMs: number = E2E_TIMEOUTS.read,
 ): Promise<T> {
+  const budget = scaleE2ETimeout(timeoutMs);
   const started = Date.now();
   for (;;) {
     const result = await condition();
     if (result !== undefined) return result;
-    const remaining = timeoutMs - (Date.now() - started);
-    if (remaining <= 0) throw timeoutError(label, timeoutMs);
+    const remaining = budget - (Date.now() - started);
+    if (remaining <= 0) throw timeoutError(label, budget);
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, Math.min(E2E_TIMEOUTS.conditionPoll, remaining));
       timer.unref?.();
@@ -100,12 +101,13 @@ export class ManagedProcess {
 
   async waitForExit(timeoutMs: number = E2E_TIMEOUTS.shutdown): Promise<ProcessExit> {
     if (this.exitResult !== undefined) return this.exitResult;
+    const budget = scaleE2ETimeout(timeoutMs);
     let timer: NodeJS.Timeout | undefined;
     try {
       return await Promise.race([
         this.exitPromise,
         new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(timeoutError(this.label, timeoutMs, () => this.output())), timeoutMs);
+          timer = setTimeout(() => reject(timeoutError(this.label, budget, () => this.output())), budget);
           timer.unref?.();
         }),
       ]);

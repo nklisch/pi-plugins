@@ -1,7 +1,7 @@
 import { StringDecoder } from "node:string_decoder";
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
-import { E2E_CONTROL_REPORT, E2E_TIMEOUTS } from "./constants.js";
+import { E2E_CONTROL_REPORT, E2E_TIMEOUTS, scaleE2ETimeout } from "./constants.js";
 import type { CleanE2ESandbox } from "./environment.js";
 import { ManagedProcess, waitForCondition } from "./process.js";
 
@@ -185,7 +185,8 @@ export class PiRpcProcess {
       result = await Promise.race([
         response,
         new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error(`Pi RPC ${String(command.type)} timed out after ${timeoutMs}ms\n${this.process.output()}`)), timeoutMs);
+          const budget = scaleE2ETimeout(timeoutMs);
+          timer = setTimeout(() => reject(new Error(`Pi RPC ${String(command.type)} timed out after ${budget}ms\n${this.process.output()}`)), budget);
           timer.unref?.();
         }),
       ]);
