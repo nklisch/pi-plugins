@@ -84,11 +84,33 @@ describe("plugin manager component", () => {
     expect(h.component.render(70).join("\n")).not.toContain(CURSOR_MARKER);
   });
 
-  it("offers direct Add onboarding without closing the catalog", () => {
+  it("offers marketplace onboarding without a separate discovery surface", () => {
     const h = harness();
     h.component.handleInput("A");
-    expect(h.intents).toContainEqual({ type: "action", action: "browse-plugins" });
+    expect(h.intents).toContainEqual({ type: "action", action: "marketplace-add" });
     expect(h.done).not.toHaveBeenCalled();
+  });
+
+  it("uses horizontal catalog lenses and direct update shortcuts", () => {
+    const h = harness();
+    h.component.handleInput("\u001b[C");
+    h.component.handleInput("\u001b[D");
+    h.component.handleInput("\u0015");
+    let updateState = pluginManagerReducer(createPluginManagerState(), { type: "page-loading", request: 1, append: false });
+    const updateRow = {
+      key: { subject: "installed" as const, key: "user:demo", snapshotId: "snapshot", detailId: "detail" },
+      title: "demo", subtitle: "market · user", status: "update available", scope: "user" as const, plugin: "demo@market", hasUpdate: true,
+      completion: { category: "plugin" as const, value: "demo@market", safe: { text: "demo", escaped: false, truncated: false } }, data: {},
+    };
+    updateState = pluginManagerReducer(updateState, { type: "page-loaded", request: 1, rows: [updateRow], append: false });
+    h.setState(updateState);
+    h.component.handleInput("u");
+    expect(h.intents).toEqual(expect.arrayContaining([
+      { type: "cycle-filter", delta: 1 },
+      { type: "cycle-filter", delta: -1 },
+      { type: "action", action: "update-all" },
+      { type: "action", action: "update" },
+    ]));
   });
 
   it("runs a mutating action without closing the manager surface", () => {
@@ -97,6 +119,24 @@ describe("plugin manager component", () => {
     h.component.handleInput("\r");
     expect(h.intents).toContainEqual({ type: "action", action: "install" });
     expect(h.done).not.toHaveBeenCalled();
+  });
+
+  it("mounts install review inside the existing Plugins component", async () => {
+    const h = harness();
+    const child = { render: vi.fn(() => ["Review trust", "Add plugin"]), handleInput: vi.fn(), dispose: vi.fn() };
+    let done!: () => void;
+    const pending = h.component.presentInline((_tui, _theme, _keys, finish) => {
+      done = finish;
+      return child;
+    });
+    expect(h.component.render(70).join("\n")).toContain("Inline action");
+    expect(h.component.render(70).join("\n")).toContain("Review trust");
+    h.component.handleInput("x");
+    expect(child.handleInput).toHaveBeenCalledWith("x");
+    done();
+    await pending;
+    expect(child.dispose).toHaveBeenCalledOnce();
+    expect(h.component.render(70).join("\n")).toContain("Plugins");
   });
 
   it("returns from a finished inline operation to the catalog", () => {

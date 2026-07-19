@@ -67,7 +67,7 @@ function installedRows(envelope: NativeControlEnvelope): readonly PluginManagerR
       key: Object.freeze({ subject: "installed" as const, key: `${scope ?? "unknown"}:${item.plugin}`, snapshotId: parsed.data.snapshotId, detailId: item.detailId }),
       title: item.name.text,
       subtitle: `${item.marketplace.text} · ${scope ?? "unknown scope"}`,
-      status: item.condition,
+      status: "installed",
       statusTone: item.condition === "ready" ? "success" : item.condition === "degraded" ? "warning" : "error",
       ...(scope === undefined ? {} : { scope }),
       plugin: item.plugin,
@@ -148,7 +148,7 @@ function noticeRows(envelope: NativeControlEnvelope): readonly PluginManagerRow[
   }));
 }
 
-function rowsFor(view: PluginManagerState["view"], envelope: NativeControlEnvelope): readonly PluginManagerRow[] | undefined {
+function rowsFor(view: PluginManagerState["view"] | "browse", envelope: NativeControlEnvelope): readonly PluginManagerRow[] | undefined {
   if (view === "installed") return installedRows(envelope);
   if (view === "browse") return browseRows(envelope);
   if (view === "marketplaces") return marketplaceRows(envelope);
@@ -213,6 +213,7 @@ export function createPluginManagerController(input: Readonly<{
   let detailAbort: AbortController | undefined;
   let closed = false;
   let pending: Promise<void> = Promise.resolve();
+  const detailCache = new Map<string, NativeControlEnvelope>();
   const listeners = new Set<(state: PluginManagerState) => void>();
 
   function apply(event: PluginManagerEvent): void {
@@ -301,27 +302,47 @@ export function createPluginManagerController(input: Readonly<{
     }
   }
 
-  async function loadDetail(): Promise<void> {
-    if (closed) return;
+  async function loadDetail(options: Readonly<{ force?: boolean; open?: boolean }> = {}): Promise<boolean> {
+    if (closed) return false;
     const row = selectedRow(model);
-    if (row === undefined) return;
+    if (row === undefined) return false;
     const argv = detailCommand(row);
-    if (argv === undefined) return;
+    if (argv === undefined) return false;
+    const identity = rowKeyIdentity(row.key);
     detailAbort?.abort(new DOMException("superseded", "AbortError"));
-    const controller = new AbortController();
-    detailAbort = controller;
     detailRequest += 1;
     const owned = detailRequest;
     apply({ type: "detail-loading", request: owned, row: row.key });
+    const cached = options.force === true ? undefined : detailCache.get(identity);
+    if (cached !== undefined) {
+      apply({ type: "detail-loaded", request: owned, row: row.key, envelope: cached, open: options.open === true });
+      return true;
+    }
+    const controller = new AbortController();
+    detailAbort = controller;
     try {
       const result = await input.execute(argv, controller.signal);
-      if (controller.signal.aborted || owned !== detailRequest || closed) return;
-      apply({ type: "detail-loaded", request: owned, row: row.key, envelope: result.envelope });
+      if (controller.signal.aborted || owned !== detailRequest || closed) return false;
+      const parsed = NativeInspectionDetailResultSchema.safeParse(result.envelope.data);
+      const current = parsed.success && parsed.data.kind === "found";
+      const cacheable = current && result.envelope.status !== "stale" && result.envelope.status !== "conflict";
+      if (cacheable) {
+        detailCache.set(identity, result.envelope);
+        // A small FIFO bound is sufficient because authority-bearing identities
+        // naturally rotate after refreshes and mutations.
+        if (detailCache.size > 64) {
+          const oldest = detailCache.keys().next().value;
+          if (oldest !== undefined) detailCache.delete(oldest);
+        }
+      } else detailCache.delete(identity);
+      apply({ type: "detail-loaded", request: owned, row: row.key, envelope: result.envelope, open: options.open === true });
       if (result.envelope.status === "stale" || result.envelope.status === "conflict") await loadPage(false);
+      return cacheable;
     } catch (error) {
-      if (!isAbort(error, controller.signal)) {
-        // The page remains usable; detail loading has no independent authority.
+      if (!isAbort(error, controller.signal) && owned === detailRequest && !closed) {
+        apply({ type: "detail-failed", request: owned, row: row.key, code: "CONTROL_DETAIL_READ_FAILED" });
       }
+      return false;
     } finally {
       if (detailAbort === controller) detailAbort = undefined;
     }
@@ -329,7 +350,12 @@ export function createPluginManagerController(input: Readonly<{
 
   async function refresh(scope: "view" | "detail" | "all" = "all"): Promise<void> {
     if (closed) return;
-    if (scope === "detail") return loadDetail();
+    if (scope === "all") detailCache.clear();
+    if (scope === "detail") {
+      const row = selectedRow(model);
+      if (row !== undefined) detailCache.delete(rowKeyIdentity(row.key));
+      return void await loadDetail({ force: true, open: model.focus.pane === "detail" });
+    }
     const tasks: Promise<void>[] = [loadPage(false)];
     if (scope === "all") tasks.push(loadStatus());
     await Promise.all(tasks);
@@ -345,31 +371,34 @@ export function createPluginManagerController(input: Readonly<{
       if (closed) return;
       const previous = model;
       apply({ type: "intent", intent });
-      if (intent.type === "set-view" || intent.type === "submit-search") schedule(() => refresh("all"));
+      if (intent.type === "set-view" || intent.type === "submit-search") schedule(() => refresh("view"));
       else if (intent.type === "next-page" && model.page.next !== undefined && !model.page.loading) schedule(() => loadPage(true));
-      else if (intent.type === "open-detail" || intent.type === "select-row" || intent.type === "action" && intent.action === "inspect") schedule(loadDetail);
+      else if (intent.type === "open-detail" || intent.type === "action" && intent.action === "inspect") schedule(() => loadDetail({ open: true }).then(() => undefined));
       else if (intent.type === "refresh") schedule(() => refresh(intent.scope));
-      else if (intent.type === "action" && intent.action === "browse-plugins") {
-        apply({ type: "intent", intent: { type: "set-view", view: "browse" } });
-        schedule(() => refresh("all"));
-      } else if (intent.type === "cancel-operation") {
+      else if (intent.type === "cancel-operation") {
         if (previous.operation.state !== "running") return;
         input.actions?.cancel();
         apply({ type: "operation-cancelling" });
       } else if (intent.type === "action" && input.actions !== undefined) {
         const actionState = model;
-        if (intent.action === "install") {
-          const detail = NativeInspectionDetailResultSchema.safeParse(actionState.detail.envelope?.data);
-          if (!detail.success || detail.data.kind !== "found") {
-            apply({ type: "intent", intent: { type: "open-detail" } });
-            schedule(loadDetail);
-            return;
-          }
-        }
-        apply({ type: "operation-started", action: intent.action });
         schedule(async () => {
+          let resolvedState = actionState;
+          if (intent.action === "install") {
+            const detail = NativeInspectionDetailResultSchema.safeParse(resolvedState.detail.envelope?.data);
+            if (!detail.success || detail.data.kind !== "found") {
+              const requested = selectedRow(resolvedState);
+              if (!await loadDetail({ open: false })) {
+                apply({ type: "intent", intent: { type: "open-detail" } });
+                return;
+              }
+              const current = selectedRow(model);
+              if (requested === undefined || current === undefined || rowKeyIdentity(requested.key) !== rowKeyIdentity(current.key)) return;
+              resolvedState = model;
+            }
+          }
+          apply({ type: "operation-started", action: intent.action });
           try {
-            const result = await input.actions!.run(intent.action, actionState);
+            const result = await input.actions!.run(intent.action, resolvedState);
             if (result.presentation === "successor" || closed) return;
             if (result.kind !== "completed") {
               apply({ type: "operation-abandoned" });
@@ -377,6 +406,7 @@ export function createPluginManagerController(input: Readonly<{
               return;
             }
             apply({ type: "operation-finished", envelope: result.envelope });
+            detailCache.clear();
             // Refresh behind the result screen so Escape returns to current
             // authoritative state (especially after adding/removing a source).
             await refresh("all");
@@ -421,6 +451,7 @@ export function createPluginManagerController(input: Readonly<{
         void pending.catch(() => undefined);
       }
       listeners.clear();
+      detailCache.clear();
       model = createPluginManagerState();
     },
   };

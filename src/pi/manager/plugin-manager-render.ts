@@ -16,21 +16,19 @@ import { NativeControlStatusTone, pluginManagerStatusTone, type PluginManagerSta
 
 const VIEW_LABELS: Readonly<Record<PluginManagerView, string>> = Object.freeze({
   installed: "Plugins",
-  browse: "Discover",
-  marketplaces: "Sources",
+  marketplaces: "Marketplaces",
   updates: "Updates",
   health: "Health",
 });
 
 const VIEW_DESCRIPTIONS: Readonly<Record<PluginManagerView, string>> = Object.freeze({
-  installed: "Plugins added for your user account or the current project.",
-  browse: "Compatible plugins available from configured marketplace sources.",
-  marketplaces: "Global catalog sources. Plugin scope is chosen when a plugin is added.",
+  installed: "Installed and available plugins for your user account or the current project.",
+  marketplaces: "Global marketplaces. Plugin scope is chosen when a plugin is added.",
   updates: "Available plugin revisions and notices that need attention.",
   health: "Runtime capabilities, recovery state, and blocked plugins.",
 });
 
-const VIEWS: readonly PluginManagerView[] = ["installed", "browse", "marketplaces", "updates", "health"];
+const VIEWS: readonly PluginManagerView[] = ["installed", "marketplaces", "updates", "health"];
 
 function plain(value: unknown, limit = 2_048): string {
   return projectTerminalText(typeof value === "string" ? value : String(value ?? ""), limit).text;
@@ -81,8 +79,7 @@ function homeLines(state: PluginManagerState, theme: Theme, bodyHeight: number):
   const sourceCount = state.view === "marketplaces" ? state.page.rows.length : undefined;
   const values: Readonly<Record<PluginManagerView, string>> = {
     installed: `${state.installedCount} installed`,
-    browse: "browse compatible plugins",
-    marketplaces: sourceCount === undefined ? "manage global sources" : `${sourceCount} configured`,
+    marketplaces: sourceCount === undefined ? "manage marketplaces" : `${sourceCount} configured`,
     updates: state.updateCounts.unresolved === 0 ? "none pending" : `${state.updateCounts.unresolved} need attention`,
     health: "runtime and capabilities",
   };
@@ -97,9 +94,8 @@ function homeLines(state: PluginManagerState, theme: Theme, bodyHeight: number):
 }
 
 function emptyMessage(view: PluginManagerView): string {
-  if (view === "installed") return "No plugins added yet · press A to discover plugins";
-  if (view === "browse") return "No plugins available · press A to add a source";
-  if (view === "marketplaces") return "No sources configured · press A to add a GitHub marketplace";
+  if (view === "installed") return "No plugins available · press A to add a marketplace";
+  if (view === "marketplaces") return "No marketplaces configured · press A to add a GitHub marketplace";
   if (view === "updates") return "No pending plugin updates";
   return "Plugin host health is unavailable · press R to retry";
 }
@@ -133,7 +129,7 @@ function listLines(state: PluginManagerState, theme: Theme, focused: boolean, bo
     heading,
     "",
     ...(state.view === "installed" ? [
-      (["all", "installed", "updates"] as const).map((filter) => filter === state.filter ? theme.fg("accent", `[${filter}]`) : theme.fg("muted", filter)).join("  "),
+      (["all", "installed", "available", "updates"] as const).map((filter) => filter === state.filter ? theme.fg("accent", `[${filter}]`) : theme.fg("muted", filter)).join("  "),
       "",
     ] : []),
     queryLine(state, theme, focused),
@@ -177,7 +173,7 @@ function detailLines(state: PluginManagerState, theme: Theme, bodyHeight: number
         `Scope         ${row.scope ?? "unknown"}`,
         `Installed     ${plain(detail.summary.revision.installed?.text ?? "not installed")}`,
         `Available     ${plain(detail.summary.revision.available?.text ?? "not reported")}`,
-        `Source        ${sourceSummary(detail.source)}`,
+        `Origin        ${sourceSummary(detail.source)}`,
         "",
         theme.fg("accent", "Runtime surface"),
         `  ${detail.compatibility.components.counts.skills} skills · ${detail.compatibility.components.counts.hooks} command hooks · ${detail.compatibility.components.counts.mcpServers} MCP servers`,
@@ -187,7 +183,9 @@ function detailLines(state: PluginManagerState, theme: Theme, bodyHeight: number
         `  ${detail.compatibility.requirements.length} requirements · ${detail.diagnostics.length} diagnostics`,
       );
     } else {
-      lines.push(`Scope         ${row.scope ?? "unknown"}`, `Source        ${plain(row.subtitle)}`, "", theme.fg("warning", "Exact detail is unavailable. Press R to retry."));
+      lines.push(`Scope         ${row.scope ?? "unknown"}`, `Marketplace   ${plain(row.subtitle)}`, "", theme.fg("warning", "Exact detail is unavailable. Press R to retry."));
+      if (state.detail.errorCode !== undefined) lines.push(theme.fg("error", state.detail.errorCode));
+      else lines.push(...envelopeLines(state.detail.envelope, theme));
     }
   }
   if (state.operation.state !== "idle") {
@@ -264,7 +262,7 @@ function footer(state: PluginManagerState, theme: Theme, keybindings: Keybinding
     const actionHint = pluginManagerMenuActions(state).length === 0 ? "" : `${key("tui.select.confirm", "enter")} run · `;
     return theme.fg("dim", `${move} · ${actionHint}R refresh · ${key("app.interrupt", "escape")} back`);
   }
-  return theme.fg("dim", `${move} · ${key("tui.select.confirm", "enter")} details · F filter · S sources · / search · R refresh · ${key("app.interrupt", "escape")} close`);
+  return theme.fg("dim", `${move} · ←/→ lens · A add · U update · ^U all · M marketplaces · ${key("tui.select.confirm", "enter")} details · ${key("app.interrupt", "escape")} close`);
 }
 
 export function renderPluginManager(input: Readonly<{

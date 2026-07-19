@@ -13,7 +13,7 @@ const source = { kind: "github" as const, repository: "example/community" };
 const marketplaceIdentity = deriveMarketplaceSourceIdentity(source, sha256);
 const pluginIdentity = derivePluginSourceIdentity({ kind: "git", url: "https://example.com/demo.git" }, sha256);
 
-function environment(noticeCount = 1) {
+function environment(noticeCount = 1, application: "automatic" | "manual" = "automatic") {
   const notices = ["b", "c"].slice(0, noticeCount).map((suffix, index) => {
     const plugin = `${index === 0 ? "demo" : "second"}@community` as const;
     const immutableRevision = ContentDigestSchema.parse(`sha256:${suffix.repeat(64)}`);
@@ -52,7 +52,7 @@ function environment(noticeCount = 1) {
     state: { async read() { return { ok: true as const, snapshot: snapshot() }; } },
     inventory: { async discover() { return { scopes: [scope], complete: true }; } },
     mutations: { async runPreparedMutation(_request: any, prepare: any, mutationSignal: AbortSignal) { mutationSignals.push(mutationSignal); const prepared = await prepare({ snapshot: snapshot(), assertOwned: async () => undefined }); record = prepared.mutation.replace.config.records[0]; generation += 1; return { kind: "committed", value: prepared.value, snapshot: snapshot() }; } },
-    policy: { async resolve() { return { application: "automatic" as const, winningLevel: "marketplace" as const, sourceGuard: "none" as const }; } },
+    policy: { async resolve() { return { application, winningLevel: "marketplace" as const, sourceGuard: "none" as const }; } },
     lifecycle: { async inspect() { return authority; }, async apply() { applyCalls += 1; onApply?.(); return lifecycleResult; } },
     activation: { availability: () => context },
     clock: { nowEpochMilliseconds: () => 100, monotonicMilliseconds: () => 100 }, sha256,
@@ -106,6 +106,18 @@ describe("automatic update coordinator", () => {
     await expect(env.service.run({ noticeIds: [env.id], limit: 1 }, signal)).resolves.toMatchObject({ outcomes: [{ kind: "retryable" }] });
     expect(env.applyCalls()).toBe(0);
     expect(env.notice()).toMatchObject({ automatic: { retryAt: 200 } });
+  });
+
+  it("lets explicit foreground Update All bypass manual policy while retaining lifecycle safety", async () => {
+    const env = environment(1, "manual");
+    env.setContext("available");
+    await expect(env.service.run({ noticeIds: [env.id], limit: 1 }, signal)).resolves.toMatchObject({ outcomes: [{ kind: "blocked", reason: "manual" }] });
+    expect(env.applyCalls()).toBe(0);
+
+    const explicit = environment(1, "manual");
+    explicit.setContext("available");
+    await expect(explicit.service.run({ noticeIds: [explicit.id], limit: 1, explicit: true }, signal)).resolves.toMatchObject({ outcomes: [{ kind: "applied" }] });
+    expect(explicit.applyCalls()).toBe(1);
   });
 
   it("applies through lifecycle only in admitted context and resolves without acknowledging", async () => {

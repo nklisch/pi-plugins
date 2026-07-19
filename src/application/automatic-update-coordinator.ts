@@ -68,22 +68,24 @@ export function createAutomaticUpdateCoordinator(dependencies: AutomaticUpdateCo
     return undefined;
   }
 
-  async function evaluate(request: Readonly<{ noticeId: UpdateNoticeId }>, signal: AbortSignal): Promise<AutomaticUpdateEligibility> {
+  async function evaluate(request: Readonly<{ noticeId: UpdateNoticeId }>, signal: AbortSignal, explicit = false): Promise<AutomaticUpdateEligibility> {
     signal.throwIfAborted();
     const noticeId = UpdateNoticeIdSchema.parse(request.noticeId);
     const located = await locate(noticeId, signal);
     if (located === undefined || located.notice.resolution !== undefined) return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: "stale" });
     const notice = located.notice;
-    const policy = await dependencies.policy.resolve({
-      scope: located.context,
-      registrationId: MarketplaceRegistrationIdSchema.parse(notice.registrationId),
-      plugin: notice.plugin,
-      marketplaceSourceIdentity: notice.available.marketplaceSourceIdentity,
-      pluginSourceIdentity: notice.available.pluginSourceIdentity,
-    }, signal);
-    if (policy.application !== "automatic") return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: policy.sourceGuard === "none" ? "manual" : "approval-required" });
-    if (notice.automatic?.state === "retryable" && notice.automatic.retryAt! > dependencies.clock.nowEpochMilliseconds()) {
-      return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: "retryable", retryAt: notice.automatic.retryAt });
+    if (!explicit) {
+      const policy = await dependencies.policy.resolve({
+        scope: located.context,
+        registrationId: MarketplaceRegistrationIdSchema.parse(notice.registrationId),
+        plugin: notice.plugin,
+        marketplaceSourceIdentity: notice.available.marketplaceSourceIdentity,
+        pluginSourceIdentity: notice.available.pluginSourceIdentity,
+      }, signal);
+      if (policy.application !== "automatic") return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: policy.sourceGuard === "none" ? "manual" : "approval-required" });
+      if (notice.automatic?.state === "retryable" && notice.automatic.retryAt! > dependencies.clock.nowEpochMilliseconds()) {
+        return AutomaticUpdateEligibilitySchema.parse({ noticeId, kind: "retryable", retryAt: notice.automatic.retryAt });
+      }
     }
     // Without a live reload-capable context, defer before candidate materialization
     // or lifecycle inspection. Every authority is reread on the admitted call.
@@ -188,7 +190,7 @@ export function createAutomaticUpdateCoordinator(dependencies: AutomaticUpdateCo
     const outcomes: NativeAutomaticUpdateRunResult["outcomes"][number][] = [];
     for (const candidate of candidates.slice(0, parsed.limit)) {
       signal.throwIfAborted();
-      const eligibility = await evaluate({ noticeId: candidate.notice.id }, signal);
+      const eligibility = await evaluate({ noticeId: candidate.notice.id }, signal, parsed.explicit === true);
       if (eligibility.kind !== "eligible") {
         await updateNotice(candidate.context, candidate.notice.id, (notice) => eligibilityUpdate(notice, eligibility), signal);
         outcomes.push({ noticeId: candidate.notice.id, kind: eligibility.kind === "awaiting-host-context" ? "pending" : eligibility.kind === "retryable" ? "retryable" : eligibility.kind === "recovery-required" ? "recovery-required" : eligibility.kind === "stale" ? "stale" : "blocked", reason: eligibility.kind });

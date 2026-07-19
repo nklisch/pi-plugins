@@ -3,6 +3,7 @@ import type {
   ExtensionContext,
   SessionShutdownEvent,
 } from "@earendil-works/pi-coding-agent";
+import { Key, matchesKey, type Component } from "@earendil-works/pi-tui";
 import { NativeInspectionDetailResultSchema } from "../../application/native-inspection-contract.js";
 import type { NativeControlDynamicCandidate } from "../../application/native-control-help.js";
 import type { NativeControlEnvelope } from "../../application/native-control-contract.js";
@@ -44,6 +45,7 @@ function selectedRow(state: PluginManagerState): PluginManagerRow | undefined {
 }
 
 function actionIntent(action: string, state: PluginManagerState): PluginManagerActionIntent {
+  if (action === "update-all") return { action };
   const row = selectedRow(state);
   if (row === undefined) throw new TypeError("plugin manager action requires a selected row");
   if (action === "enable" || action === "disable" || action === "update") return { action, row };
@@ -71,6 +73,7 @@ export function createPluginManagerSession(input: Readonly<{
 }>): PluginManagerSession {
   let bound: Readonly<{ sessionId: string; cwd: string }> | undefined;
   let activeController: PluginManagerController | undefined;
+  let activeManagerComponent: PluginManagerComponent | undefined;
   let activeRunner: PluginManagerActionRunner | undefined;
   let activeClose: (() => void) | undefined;
   let activeOperationAbort: AbortController | undefined;
@@ -122,14 +125,49 @@ export function createPluginManagerSession(input: Readonly<{
     }
   }
 
+  async function chooseInstallScope(
+    context: ExtensionCommandContext,
+    manager: PluginManagerComponent | undefined,
+    scopes: readonly ("user" | "project")[],
+  ): Promise<"user" | "project" | undefined> {
+    const labels = scopes.map((scope) => scope === "project" ? "Current project" : "User account");
+    if (manager === undefined) {
+      const selected = await context.ui.select("Add plugin to", labels);
+      const index = selected === undefined ? -1 : labels.findIndex((label) => label === selected);
+      return index < 0 ? undefined : scopes[index];
+    }
+    return manager.presentInline<"user" | "project">((tui, theme, keybindings, done) => {
+      let index = 0;
+      const component: Component = {
+        invalidate(): void {},
+        render: () => [
+          theme.fg("accent", theme.bold("Add plugin to")),
+          "",
+          ...labels.map((label, candidate) => candidate === index ? theme.bg("selectedBg", `→ ${label}`) : `  ${label}`),
+          "",
+          theme.fg("muted", "Up/Down choose · Enter continue · Esc cancel"),
+        ],
+        handleInput(data): void {
+          if (keybindings.matches(data, "tui.select.up")) index = (index - 1 + scopes.length) % scopes.length;
+          else if (keybindings.matches(data, "tui.select.down")) index = (index + 1) % scopes.length;
+          else if (keybindings.matches(data, "tui.select.confirm") || matchesKey(data, Key.enter)) return done(scopes[index]);
+          else if (keybindings.matches(data, "tui.select.cancel") || keybindings.matches(data, "app.interrupt") || matchesKey(data, Key.escape)) return done();
+          manager.invalidate();
+          tui.requestRender();
+        },
+      };
+      return component;
+    });
+  }
+
   async function runInstallFlow(context: ExtensionCommandContext, managerState: PluginManagerState): Promise<Readonly<{ kind: "cancelled" | "handled"; presentation?: "local" | "successor" }>> {
     let row = selectedRow(managerState);
     let detail = NativeInspectionDetailResultSchema.safeParse(managerState.detail.envelope?.data);
+    const manager = activeManagerComponent;
     if (row === undefined || !detail.success || detail.data.kind !== "found") return Object.freeze({ kind: "cancelled" });
     if (row.availableScopes !== undefined && row.availableScopes.length > 1) {
-      const selected = await context.ui.select("Add plugin to", row.availableScopes.map((scope) => scope === "project" ? "Current project" : "User account"));
-      if (selected === undefined) return Object.freeze({ kind: "cancelled" });
-      const scope = selected === "Current project" ? "project" as const : "user" as const;
+      const scope = await chooseInstallScope(context, manager, row.availableScopes);
+      if (scope === undefined) return Object.freeze({ kind: "cancelled" });
       if (scope !== row.scope) {
         const scopedRow = Object.freeze({ ...row, scope });
         const argv = detailCommand(scopedRow);
@@ -147,11 +185,13 @@ export function createPluginManagerSession(input: Readonly<{
     let component: PluginInstallComponent | undefined;
     let currentRunner: PluginManagerActionRunner | undefined;
     let result: Readonly<{ kind: "cancelled" | "handled"; presentation?: "local" | "successor" }> = Object.freeze({ kind: "cancelled" });
+    const present = manager === undefined ? context.ui.custom.bind(context.ui) : manager.presentInline.bind(manager);
 
-    await context.ui.custom<void>((tui, theme, keybindings, done) => {
+    await present<void>((tui, theme, keybindings, done) => {
       const apply = (event: PluginInstallEvent): void => {
         state = pluginInstallReducer(state, event);
         component?.update(state);
+        manager?.invalidate();
         tui.requestRender();
       };
 
@@ -270,11 +310,11 @@ export function createPluginManagerSession(input: Readonly<{
         } else void runPhase(state.step === "choose-inspect" ? "open" : state.submission);
       };
 
-      component = new PluginInstallComponent({ state, theme, keybindings, height: () => tui.terminal.rows, onEvent: apply, onAction: action });
-      activeClose = () => done();
+      component = new PluginInstallComponent({ state, theme, keybindings, height: () => manager === undefined ? tui.terminal.rows : Math.max(4, tui.terminal.rows - 5), onEvent: apply, onAction: action });
+      if (manager === undefined) activeClose = () => done();
       return component;
     });
-    activeClose = undefined;
+    if (manager === undefined) activeClose = undefined;
     currentRunner?.close(closingReason ?? "quit");
     return result;
   }
@@ -290,11 +330,11 @@ export function createPluginManagerSession(input: Readonly<{
         if (action === "install") return runInstallFlow(context, state);
         let resolvedIntent: PluginManagerActionIntent;
         if (action === "marketplace-add") {
-          const sourceType = await context.ui.select("Source type", ["GitHub repository", "Git URL", "Local Git checkout"]);
+          const sourceType = await context.ui.select("Marketplace type", ["GitHub repository", "Git URL", "Local Git checkout"]);
           if (sourceType === undefined) return Object.freeze({ kind: "cancelled" as const, presentation: "local" as const });
           const sourceKind = sourceType === "Git URL" ? "git" as const : sourceType === "Local Git checkout" ? "local-git" as const : "github" as const;
           const placeholder = sourceKind === "github" ? "owner/repository" : sourceKind === "git" ? "https://example.com/plugins.git" : "/path/to/plugins";
-          const source = await context.ui.input("Source location", placeholder);
+          const source = await context.ui.input("Marketplace location", placeholder);
           if (source === undefined || source.trim().length === 0) return Object.freeze({ kind: "cancelled" as const, presentation: "local" as const });
           const ref = await context.ui.input("Git ref (optional)", "branch, tag, or commit; leave empty for default");
           if (ref === undefined) return Object.freeze({ kind: "cancelled" as const, presentation: "local" as const });
@@ -326,6 +366,7 @@ export function createPluginManagerSession(input: Readonly<{
     try {
       await context.ui.custom<PluginManagerCloseResult>((tui, theme, keybindings, done) => {
         const component = new PluginManagerComponent({ tui, theme, keybindings, controller, done });
+        activeManagerComponent = component;
         activeClose = () => component.requestClose();
         return component;
       });
@@ -338,6 +379,7 @@ export function createPluginManagerSession(input: Readonly<{
         await controller.close(closingReason ?? "quit");
         activeController = undefined;
       }
+      activeManagerComponent = undefined;
       activeClose = undefined;
     }
   }

@@ -456,7 +456,7 @@ trailing `...` is repeatable.
 | `updates.policy.set` | `/plugin updates policy set --kind application\|cadence --target global\|scope\|marketplace\|plugin [--scope user\|project\|all-current] [--marketplace-id <value>] [--plugin <value>] [--mode inherit\|manual\|automatic] [--cadence paused\|conservative\|balanced\|frequent] [--preview-id <value>] [--consent-id <value>]` | `mutation` | `decision` | Set update policy through preview |
 | `updates.notices.list` | `/plugin updates notices list [--scope user\|project\|all-current] [--plugin <value>] [--after <value>] [--limit <integer>]` | `local-read` | `none` | List update notices |
 | `updates.notices.acknowledge` | `/plugin updates notices acknowledge <notice-id>...` | `mutation` | `none` | Acknowledge update notices |
-| `updates.automatic.run` | `/plugin updates automatic run [--notice-id <value>]... [--limit <integer>]` | `mutation` | `none` | Run admitted automatic updates |
+| `updates.automatic.run` | `/plugin updates automatic run [--notice-id <value>]... [--limit <integer>] [--explicit]` | `mutation` | `none` | Run admitted plugin updates |
 | `status` | `/plugin status` | `local-read` | `none` | Show plugin host status |
 | `operation.status` | `/plugin operation status <token>` | `operation-control` | `none` | Poll an existing operation |
 | `operation.cancel` | `/plugin operation cancel <token>` | `operation-control` | `none` | Cancel an existing operation |

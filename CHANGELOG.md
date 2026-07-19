@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.1.5
+
+### Features
+
+- Unify installed and available plugins on one Plugins surface with All, Installed, Available, and Updates lenses navigated by Left/Right.
+- Add direct top-level shortcuts: `A` installs the selected plugin, `U` updates the selected plugin, `Ctrl+U` explicitly updates all eligible plugins, and `M` opens Marketplaces.
+- Keep trusted installation review and progress inside the mounted Plugins surface instead of replacing it with another custom screen.
+
+### Fixes
+
+- Preserve Add intent while exact candidate detail loads, then continue installation automatically instead of requiring a second Add.
+- Cache exact plugin details by authority-bearing row identity and refetch only after explicit refresh, stale evidence, marketplace changes, or mutations.
+- Show installed plugins as installed, consistently call catalog registrations Marketplaces, and expose exact-detail diagnostics instead of leaving detail loading stuck.
+
 ## v0.1.4
 
 ### Features

@@ -69,6 +69,13 @@ describe("plugin manager action runner", () => {
     expect(execute).toHaveBeenCalledWith(expectedArgv, expect.objectContaining({ sink: expect.any(Object) }), expect.any(AbortSignal));
   });
 
+  it("updates all eligible notices through the bounded batch facade command", async () => {
+    const execute = vi.fn(async () => ({ envelope: result(), delivery: "complete" as const, deliveredThrough: -1 }));
+    const runner = createPluginManagerActionRunner({ execute });
+    await runner.run({ action: "update-all" });
+    expect(execute).toHaveBeenCalledWith(["updates", "automatic", "run", "--limit", "100", "--explicit"], expect.objectContaining({ sink: expect.any(Object) }), expect.any(AbortSignal));
+  });
+
   it("runs host diagnostics through the concise doctor command without confirmation", async () => {
     const execute = vi.fn(async () => ({ envelope: result(), delivery: "complete" as const, deliveredThrough: -1 }));
     const confirm = vi.fn(confirmed);

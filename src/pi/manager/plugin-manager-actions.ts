@@ -24,6 +24,7 @@ export type PluginManagerActionIntent =
   | Readonly<{ action: "diagnose-host" }>
   | Readonly<{ action: "marketplace-refresh" | "marketplace-remove"; row: PluginManagerRow }>
   | Readonly<{ action: "notice-acknowledge"; row: PluginManagerRow }>
+  | Readonly<{ action: "update-all" }>
   | Readonly<{ action: "project-sync"; mode: "apply-intent" | "publish-intent" | "merge" }>
   | Readonly<{ action: "operation-status" | "operation-cancel"; token: string }>;
 
@@ -151,6 +152,7 @@ function actionArgv(intent: PluginManagerActionIntent, confirmed: boolean): read
     return nativeControlArgv("marketplace.remove", [intent.row.key.key], { confirmed });
   }
   if (intent.action === "notice-acknowledge") return nativeControlArgv("updates.notices.acknowledge", [intent.row.key.key]);
+  if (intent.action === "update-all") return nativeControlArgv("updates.automatic.run", [], { limit: 100, explicit: true });
   if (intent.action === "project-sync") return nativeControlArgv("project.sync", [], { mode: intent.mode, confirmed });
   if (intent.action === "operation-status" || intent.action === "operation-cancel") {
     return nativeControlArgv(intent.action === "operation-status" ? "operation.status" : "operation.cancel", [intent.token]);
@@ -163,7 +165,7 @@ function destination(intent: PluginManagerActionIntent): PluginManagerDestinatio
 }
 
 function activating(intent: PluginManagerActionIntent): boolean {
-  return ["enable", "disable", "update", "uninstall-keep", "uninstall-delete", "install-run", "install-apply", "install-recover", "project-sync"].includes(intent.action);
+  return ["enable", "disable", "update", "update-all", "uninstall-keep", "uninstall-delete", "install-run", "install-apply", "install-recover", "project-sync"].includes(intent.action);
 }
 
 /** One foreground facade mutation with fresh confirmation, exact frame, abort, and reload semantics. */

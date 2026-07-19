@@ -35,7 +35,7 @@ export function nativeControlArgv(
 }
 
 export function pageCommand(input: Readonly<{
-  view: PluginManagerView;
+  view: PluginManagerView | "browse";
   query: string;
   next?: string;
 }>): readonly string[] {

@@ -3,6 +3,7 @@ import { createNativeControlEnvelope } from "../../../src/application/native-con
 import type { NativeControlExecutionReport } from "../../../src/application/ports/native-control-execution.js";
 import { createPluginManagerController, mergePluginCatalogRows } from "../../../src/pi/manager/plugin-manager-controller.js";
 import type { PluginManagerRow } from "../../../src/pi/manager/plugin-manager-model.js";
+import { SplitInspectorDetailFixtures } from "../../fixtures/native-inspection/split-inspector.js";
 
 const executionId = "native-control-execution-v1:123e4567-e89b-42d3-a456-426614174000" as never;
 const snapshotId = `inspection-snapshot-v1:sha256:${"a".repeat(64)}`;
@@ -70,6 +71,24 @@ function catalogResult(argv: readonly string[], plugin = "demo@market", next?: s
   return report("inspection.list", installedPage(plugin, next), next === undefined ? undefined : { next });
 }
 
+function candidateBrowse() {
+  const detail = SplitInspectorDetailFixtures.marketplace!;
+  const candidateSnapshot = `marketplace-snapshot-v1:sha256:${"c".repeat(64)}`;
+  return report("browse", {
+    candidates: [{
+      id: `marketplace-candidate-v1:sha256:${"d".repeat(64)}`,
+      snapshot: candidateSnapshot,
+      scope: { kind: "user" },
+      registrationId: `marketplace-registration-v1:sha256:${"e".repeat(64)}`,
+      plugin: "candidate@market", marketplace: "market", name: "candidate",
+      available: { kind: "marketplace-snapshot", marketplaceRevision: "a".repeat(40), snapshot: candidateSnapshot },
+      availability: "available", source: detail.source,
+      sourceIdentity: `sha256:${"f".repeat(64)}`,
+      trust: "untrusted-not-inspected",
+    }], observations: [],
+  });
+}
+
 describe("plugin manager controller", () => {
   it("deduplicates equivalent Claude/Codex candidates by immutable source identity", () => {
     const candidate = (key: string, sourceIdentity: string, scope: "user" | "project" = "user"): PluginManagerRow => ({
@@ -98,7 +117,7 @@ describe("plugin manager controller", () => {
     await controller.refresh("all");
     expect(calls).toContainEqual(["list", "--scope", "all-current", "--query", "", "--limit", "50"]);
     expect(calls).toContainEqual(["updates", "status", "--scope", "all-current"]);
-    expect(controller.state().page.rows[0]).toMatchObject({ plugin: "demo@market", scope: "user", title: "demo" });
+    expect(controller.state().page.rows[0]).toMatchObject({ plugin: "demo@market", scope: "user", title: "demo", status: "installed" });
     expect(controller.state().updateCounts).toEqual({ unread: 2, unresolved: 3 });
   });
 
@@ -169,6 +188,66 @@ describe("plugin manager controller", () => {
       "show", "demo@market", "--scope", "user", "--snapshot-id", snapshotId, "--detail-id", detailId,
     ], expect.any(AbortSignal));
     expect(controller.state().detail.envelope?.status).toBe("stale");
+  });
+
+  it("caches exact detail across navigation and only refetches on explicit detail refresh", async () => {
+    const execute = vi.fn(async (argv: readonly string[]) => {
+      if (argv[0] === "show") return {
+        envelope: createNativeControlEnvelope({ executionId, command: "inspection.show", status: "ok", data: { kind: "found", detail: SplitInspectorDetailFixtures.disabled } as never }),
+        delivery: "complete" as const, deliveredThrough: -1,
+      };
+      return catalogResult(argv, "disabled@market");
+    });
+    const controller = createPluginManagerController({ execute });
+    await controller.refresh("view");
+    controller.dispatch({ type: "open-detail" });
+    await controller.idle();
+    controller.dispatch({ type: "detail-back" });
+    controller.dispatch({ type: "open-detail" });
+    await controller.idle();
+    expect(execute.mock.calls.filter(([argv]) => argv[0] === "show")).toHaveLength(1);
+    controller.dispatch({ type: "refresh", scope: "detail" });
+    await controller.idle();
+    expect(execute.mock.calls.filter(([argv]) => argv[0] === "show")).toHaveLength(2);
+  });
+
+  it("preserves a direct Add intent while loading missing exact detail", async () => {
+    const candidate = SplitInspectorDetailFixtures.marketplace!;
+    const execute = vi.fn(async (argv: readonly string[]) => {
+      if (argv[0] === "browse") return candidateBrowse();
+      if (argv[0] === "show") return {
+        envelope: createNativeControlEnvelope({ executionId, command: "inspection.show", status: "ok", data: { kind: "found", detail: candidate } as never }),
+        delivery: "complete" as const, deliveredThrough: -1,
+      };
+      if (argv[0] === "list") return report("inspection.list", { snapshotId, condition: "ready", items: [], observations: [] });
+      return catalogResult(argv);
+    });
+    const actions = { run: vi.fn(async () => ({ kind: "cancelled" as const })), cancel: vi.fn() };
+    const controller = createPluginManagerController({ execute, actions });
+    await controller.refresh("view");
+    controller.dispatch({ type: "action", action: "install" });
+    await controller.idle();
+    expect(execute.mock.calls.filter(([argv]) => argv[0] === "show")).toHaveLength(1);
+    expect(actions.run).toHaveBeenCalledWith("install", expect.objectContaining({ detail: expect.objectContaining({ envelope: expect.any(Object) }) }));
+  });
+
+  it("opens visible detail failure when direct Add cannot load exact authority", async () => {
+    const execute = vi.fn(async (argv: readonly string[]) => {
+      if (argv[0] === "browse") return candidateBrowse();
+      if (argv[0] === "show") throw new Error("offline");
+      if (argv[0] === "list") return report("inspection.list", { snapshotId, condition: "ready", items: [], observations: [] });
+      return catalogResult(argv);
+    });
+    const actions = { run: vi.fn(), cancel: vi.fn() };
+    const controller = createPluginManagerController({ execute, actions });
+    await controller.refresh("view");
+    controller.dispatch({ type: "action", action: "install" });
+    await controller.idle();
+    expect(actions.run).not.toHaveBeenCalled();
+    expect(controller.state()).toMatchObject({
+      focus: { pane: "detail" },
+      detail: { loading: false, errorCode: "CONTROL_DETAIL_READ_FAILED" },
+    });
   });
 
   it("detaches an admitted action on reload while closing reads and repeated cancellation remains owner-bound", async () => {

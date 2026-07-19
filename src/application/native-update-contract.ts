@@ -142,6 +142,8 @@ export type NativeUpdateAcknowledgmentResult = z.infer<typeof NativeUpdateAcknow
 export const NativeAutomaticUpdateRunRequestSchema = z.object({
   noticeIds: z.array(UpdateNoticeIdSchema).readonly().optional(),
   limit: z.number().int().min(1).max(100).default(20),
+  /** Explicit foreground user intent bypasses automatic-policy eligibility, not safety checks. */
+  explicit: z.boolean().optional(),
 }).strict().readonly();
 export type NativeAutomaticUpdateRunRequest = z.infer<typeof NativeAutomaticUpdateRunRequestSchema>;
 

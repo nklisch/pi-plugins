@@ -72,6 +72,7 @@ describe("plugin manager renderer", () => {
     value = pluginManagerReducer(value, {
       type: "detail-loaded",
       request: 1,
+      open: true,
       row: selected.key,
       envelope: createNativeControlEnvelope({ executionId, command: "inspection.show", status: "ok", data: { kind: "found", detail: trustedInstallFlowFixture.chooseInspect } as never }),
     });
@@ -86,7 +87,7 @@ describe("plugin manager renderer", () => {
     detailed = pluginManagerReducer(detailed, { type: "intent", intent: { type: "open-detail" } });
     detailed = pluginManagerReducer(detailed, { type: "detail-loading", request: 1, row: row.key });
     detailed = pluginManagerReducer(detailed, {
-      type: "detail-loaded", request: 1, row: row.key,
+      type: "detail-loaded", request: 1, row: row.key, open: true,
       envelope: createNativeControlEnvelope({ executionId, command: "inspection.show", status: "ok", data: { kind: "found", detail: trustedInstallFlowFixture.chooseInspect } as never }),
     });
     const rendered = renderPluginManager({ state: detailed, width: 120, height: 30, theme, keybindings, focused: true }).join("\n");
@@ -100,6 +101,6 @@ describe("plugin manager renderer", () => {
     empty = pluginManagerReducer(empty, { type: "intent", intent: { type: "open-section" } });
     const error = renderPluginManager({ state: empty, width: 60, height: 16, theme, keybindings, focused: true }).join("\n");
     expect(error).toContain("HOST_BLOCKED");
-    expect(error).toContain("No plugins added yet");
+    expect(error).toContain("No plugins available");
   });
 });

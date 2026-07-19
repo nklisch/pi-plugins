@@ -5,9 +5,9 @@ import type { NativeControlFrame } from "../../application/native-control-progre
 import type { JsonValue } from "../../domain/schema.js";
 import type { PluginManagerStatusTone } from "./plugin-manager-status.js";
 
-export type PluginManagerView = "installed" | "browse" | "marketplaces" | "updates" | "health";
+export type PluginManagerView = "installed" | "marketplaces" | "updates" | "health";
 export type PluginManagerPane = "query" | "list" | "detail";
-export type PluginManagerFilter = "all" | "installed" | "updates";
+export type PluginManagerFilter = "all" | "installed" | "available" | "updates";
 export type PluginManagerScrollRegion = "detail" | "operation";
 export type PluginManagerScreen = "manager" | "install-inspect" | "install-configure" | "install-result" | "operation-result";
 
@@ -16,17 +16,17 @@ export const PluginManagerActionRegistry = Object.freeze({
   install: { label: "Add plugin", description: "Review trust and add the complete plugin" },
   enable: { label: "Enable", description: "Load this plugin's runtime components" },
   disable: { label: "Disable", description: "Stop loading runtime components but keep the plugin installed" },
-  update: { label: "Review update", description: "Review available changes before replacing the active revision" },
+  update: { label: "Update plugin", description: "Update the selected installed plugin" },
+  "update-all": { label: "Update all", description: "Apply every currently eligible plugin update" },
   "uninstall-keep": { label: "Remove, keep data", description: "Uninstall the plugin and retain its persistent data" },
   "uninstall-delete": { label: "Remove and delete data", description: "Uninstall the plugin and erase its persistent data" },
-  "marketplace-add": { label: "Add source", description: "Register another global marketplace source" },
-  "marketplace-refresh": { label: "Refresh source", description: "Fetch the latest catalog from this source" },
-  "marketplace-remove": { label: "Remove marketplace", description: "Unregister this source without inferring installed plugin state" },
+  "marketplace-add": { label: "Add marketplace", description: "Register another global marketplace" },
+  "marketplace-refresh": { label: "Refresh marketplace", description: "Fetch the latest marketplace catalog" },
+  "marketplace-remove": { label: "Remove marketplace", description: "Unregister this marketplace without changing installed plugins" },
   "notice-acknowledge": { label: "Acknowledge notice", description: "Mark this update notice as read" },
   "project-sync-apply": { label: "Project sync · apply intent", description: "Apply the project's declared plugin intent" },
   "project-sync-publish": { label: "Project sync · publish intent", description: "Publish current project plugin intent" },
   "project-sync-merge": { label: "Project sync · resolve merge", description: "Resolve competing project plugin intent" },
-  "browse-plugins": { label: "Discover plugins", description: "Browse compatible plugins from configured sources" },
   "diagnose-host": { label: "Run diagnostics", description: "Inspect plugin host capabilities and blocked plugins" },
 } as const);
 export type PluginManagerActionId = keyof typeof PluginManagerActionRegistry;
@@ -58,6 +58,7 @@ export type PluginManagerDetailState = Readonly<{
   request: number;
   row?: PluginManagerRowKey;
   envelope?: NativeControlEnvelope;
+  errorCode?: string;
 }>;
 
 export type PluginManagerOperationState = Readonly<{
@@ -96,7 +97,7 @@ export type PluginManagerState = Readonly<{
 export type PluginManagerIntent =
   | Readonly<{ type: "set-view"; view: PluginManagerView }>
   | Readonly<{ type: "set-query"; query: string }>
-  | Readonly<{ type: "cycle-filter" }>
+  | Readonly<{ type: "cycle-filter"; delta?: number }>
   | Readonly<{ type: "submit-search" }>
   | Readonly<{ type: "move-selection"; delta: number }>
   | Readonly<{ type: "move-action"; delta: number }>
@@ -124,7 +125,8 @@ export type PluginManagerEvent =
   | Readonly<{ type: "page-loaded"; request: number; rows: readonly PluginManagerRow[]; next?: string; append: boolean }>
   | Readonly<{ type: "page-failed"; request: number; code: string }>
   | Readonly<{ type: "detail-loading"; request: number; row: PluginManagerRowKey }>
-  | Readonly<{ type: "detail-loaded"; request: number; row: PluginManagerRowKey; envelope: NativeControlEnvelope }>
+  | Readonly<{ type: "detail-loaded"; request: number; row: PluginManagerRowKey; envelope: NativeControlEnvelope; open: boolean }>
+  | Readonly<{ type: "detail-failed"; request: number; row: PluginManagerRowKey; code: string }>
   | Readonly<{ type: "select-row"; row: PluginManagerRowKey }>
   | Readonly<{ type: "focus"; pane: PluginManagerPane; action?: string }>
   | Readonly<{ type: "update-counts"; unread: number; unresolved: number }>
@@ -168,6 +170,7 @@ export function rowKeyIdentity(key: PluginManagerRowKey): string {
 export function pluginManagerVisibleRows(state: PluginManagerState): readonly PluginManagerRow[] {
   if (state.view !== "installed" || state.filter === "all") return state.page.rows;
   if (state.filter === "installed") return state.page.rows.filter((row) => row.key.subject === "installed");
+  if (state.filter === "available") return state.page.rows.filter((row) => row.key.subject === "candidate");
   return state.page.rows.filter((row) => row.hasUpdate === true);
 }
 
@@ -191,8 +194,7 @@ export function pluginManagerAvailableActions(state: PluginManagerState): readon
   if (state.view === "marketplaces") return Object.freeze(["marketplace-add", ...pluginManagerRowActions(row)]);
   if (state.view === "health") return Object.freeze(["diagnose-host"]);
   if (row === undefined) {
-    if (state.view === "installed") return Object.freeze(["browse-plugins", "marketplace-add"]);
-    if (state.view === "browse") return Object.freeze(["marketplace-add"]);
+    if (state.view === "installed") return Object.freeze(["marketplace-add"]);
     return Object.freeze([]);
   }
   if (row.key.subject !== "installed") return pluginManagerRowActions(row);
@@ -240,10 +242,10 @@ function reduceIntent(state: PluginManagerState, intent: PluginManagerIntent): P
   if (intent.type === "set-view") return intent.view === state.view ? state : resetPage(state, intent.view);
   if (intent.type === "set-query") return Object.freeze({ ...state, query: intent.query });
   if (intent.type === "cycle-filter") {
-    const filters: readonly PluginManagerFilter[] = ["all", "installed", "updates"];
+    const filters: readonly PluginManagerFilter[] = ["all", "installed", "available", "updates"];
     const next = Object.freeze({
       ...state,
-      filter: filters[(filters.indexOf(state.filter) + 1) % filters.length]!,
+      filter: filters[(filters.indexOf(state.filter) + (intent.delta ?? 1) + filters.length) % filters.length]!,
       detail: Object.freeze({ loading: false, request: state.detail.request }),
       scroll: Object.freeze({ ...state.scroll, detail: 0 }),
     });
@@ -334,8 +336,13 @@ export function pluginManagerReducer(state: PluginManagerState, event: PluginMan
   if (event.type === "detail-loaded") {
     if (event.request !== state.detail.request || !sameRow(event.row, state.detail.row)) return state;
     const detailed = Object.freeze({ ...state, detail: Object.freeze({ loading: false, request: event.request, row: event.row, envelope: event.envelope }) });
+    if (!event.open) return detailed;
     const action = pluginManagerMenuActions(detailed)[0];
     return Object.freeze({ ...detailed, focus: Object.freeze({ pane: "detail", row: event.row, ...(action === undefined ? {} : { action }) }) });
+  }
+  if (event.type === "detail-failed") {
+    if (event.request !== state.detail.request || !sameRow(event.row, state.detail.row)) return state;
+    return Object.freeze({ ...state, detail: Object.freeze({ loading: false, request: event.request, row: event.row, errorCode: event.code }) });
   }
   if (event.type === "update-counts") return Object.freeze({ ...state, updateCounts: Object.freeze({ unread: event.unread, unresolved: event.unresolved }) });
   if (event.type === "health-loaded") return Object.freeze({ ...state, health: Object.freeze({ status: event.status, ...(event.explanation === undefined ? {} : { explanation: event.explanation }) }) });

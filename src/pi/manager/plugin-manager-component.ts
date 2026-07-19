@@ -2,6 +2,7 @@ import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent"
 import {
   Key,
   matchesKey,
+  truncateToWidth,
   type Component,
   type Focusable,
   type TUI,
@@ -31,6 +32,7 @@ export class PluginManagerComponent implements Component, Focusable {
   private cachedWidth: number | undefined;
   private cachedRows: number | undefined;
   private cachedLines: string[] | undefined;
+  private inline: Readonly<{ component: Component; finish(value?: unknown): void }> | undefined;
 
   constructor(input: Readonly<{
     tui: TUI;
@@ -60,8 +62,31 @@ export class PluginManagerComponent implements Component, Focusable {
 
   requestClose(): void {
     if (this.disposed) return;
+    this.inline?.finish();
     this.controller.dispatch({ type: "close" });
     this.finish({ kind: "closed" });
+  }
+
+  /** Mount a child flow inside the existing manager surface instead of opening a second custom UI. */
+  presentInline<T>(factory: (tui: TUI, theme: Theme, keybindings: KeybindingsManager, done: (value?: T) => void) => Component): Promise<T | undefined> {
+    if (this.disposed || this.inline !== undefined) return Promise.resolve(undefined);
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value?: unknown): void => {
+        if (settled) return;
+        settled = true;
+        const current = this.inline;
+        this.inline = undefined;
+        (current?.component as (Component & { dispose?(): void }) | undefined)?.dispose?.();
+        this.invalidate();
+        this.tui.requestRender();
+        resolve(value as T | undefined);
+      };
+      const component = factory(this.tui, this.theme, this.keybindings, finish);
+      this.inline = Object.freeze({ component, finish });
+      this.invalidate();
+      this.tui.requestRender();
+    });
   }
 
   render(width: number): string[] {
@@ -74,7 +99,20 @@ export class PluginManagerComponent implements Component, Focusable {
     if (this.cachedLines !== undefined && this.cachedWidth === width && this.cachedRows === rows) return this.cachedLines;
     this.cachedWidth = width;
     this.cachedRows = rows;
-    this.cachedLines = [...renderPluginManager({ state: this.controller.state(), width, height: rows, theme: this.theme, keybindings: this.keybindings, focused: this.focused })];
+    if (this.inline !== undefined) {
+      const selected = pluginManagerVisibleRows(state).find((row) => state.focus.row !== undefined && rowKeyIdentity(row.key) === rowKeyIdentity(state.focus.row)) ?? pluginManagerVisibleRows(state)[0];
+      const context = [
+        this.theme.fg("accent", this.theme.bold("Plugins")),
+        truncateToWidth(`→ ${selected?.title ?? "Selected plugin"}  ${selected?.status ?? "working"}`, Math.max(1, width), ""),
+        this.theme.fg("muted", "Inline action · catalog selection and cached details are retained"),
+        "",
+      ];
+      const available = Math.max(1, rows - context.length - 1);
+      const child = this.inline.component.render(width).slice(0, available);
+      this.cachedLines = [...context, ...child, this.theme.fg("dim", "Esc back/cancel · operation remains on the Plugins surface")].slice(0, rows);
+    } else {
+      this.cachedLines = [...renderPluginManager({ state: this.controller.state(), width, height: rows, theme: this.theme, keybindings: this.keybindings, focused: this.focused })];
+    }
     return this.cachedLines;
   }
 
@@ -145,6 +183,12 @@ export class PluginManagerComponent implements Component, Focusable {
 
   handleInput(data: string): void {
     if (this.disposed) return;
+    if (this.inline !== undefined) {
+      this.inline.component.handleInput?.(data);
+      this.invalidate();
+      this.tui.requestRender();
+      return;
+    }
     if (this.keybindings.matches(data, "tui.select.cancel") || this.keybindings.matches(data, "app.interrupt")) {
       this.escape();
       this.invalidate();
@@ -158,6 +202,10 @@ export class PluginManagerComponent implements Component, Focusable {
       this.controller.dispatch(pane === "detail" && pluginManagerMenuActions(state).length > 0 ? { type: "move-action", delta: -1 } : pane === "detail" || state.operation.state !== "idle" ? { type: "scroll", region: this.scrollRegion(), delta: -1 } : { type: "move-selection", delta: -1 });
     } else if (this.keybindings.matches(data, "tui.select.down")) {
       this.controller.dispatch(pane === "detail" && pluginManagerMenuActions(state).length > 0 ? { type: "move-action", delta: 1 } : pane === "detail" || state.operation.state !== "idle" ? { type: "scroll", region: this.scrollRegion(), delta: 1 } : { type: "move-selection", delta: 1 });
+    } else if (pane === "list" && state.view === "installed" && matchesKey(data, Key.left)) {
+      this.controller.dispatch({ type: "cycle-filter", delta: -1 });
+    } else if (pane === "list" && state.view === "installed" && matchesKey(data, Key.right)) {
+      this.controller.dispatch({ type: "cycle-filter", delta: 1 });
     } else if (this.keybindings.matches(data, "tui.select.pageUp")) this.page(-1);
     else if (this.keybindings.matches(data, "tui.select.pageDown")) this.page(1);
     else if (this.keybindings.matches(data, "tui.select.confirm")) {
@@ -166,12 +214,17 @@ export class PluginManagerComponent implements Component, Focusable {
         if (action !== undefined) this.activateAction(action);
       } else this.controller.dispatch({ type: "open-detail" });
     } else if (data === "/" && pane === "list") this.controller.dispatch({ type: "focus-query" });
-    else if (data.toLowerCase() === "f" && state.view === "installed" && pane === "list") this.controller.dispatch({ type: "cycle-filter" });
-    else if (data.toLowerCase() === "s" && pane === "list") this.controller.dispatch({ type: "set-view", view: state.view === "marketplaces" ? "installed" : "marketplaces" });
-    else if (data.toLowerCase() === "a") {
+    else if (data.toLowerCase() === "m" && pane === "list") this.controller.dispatch({ type: "set-view", view: state.view === "marketplaces" ? "installed" : "marketplaces" });
+    else if (matchesKey(data, Key.ctrl("u")) && pane === "list" && state.view === "installed") this.activateAction("update-all");
+    else if (data.toLowerCase() === "u" && pane === "list" && state.view === "installed") {
+      const rows = pluginManagerVisibleRows(state);
+      const row = state.focus.row === undefined
+        ? rows[0]
+        : rows.find((candidate) => rowKeyIdentity(candidate.key) === rowKeyIdentity(state.focus.row!));
+      if (row?.key.subject === "installed" && row.hasUpdate === true) this.activateAction("update");
+    } else if (data.toLowerCase() === "a") {
       const actions = pluginManagerAvailableActions(state);
       if (actions.includes("install")) this.activateAction("install");
-      else if (actions.includes("browse-plugins")) this.activateAction("browse-plugins");
       else if (actions.includes("marketplace-add")) this.activateAction("marketplace-add");
     } else if (data.toLowerCase() === "r") this.controller.dispatch({ type: "refresh", scope: "all" });
     else if (data === "?") this.controller.dispatch({ type: "toggle-help" });
@@ -188,6 +241,7 @@ export class PluginManagerComponent implements Component, Focusable {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.inline?.finish();
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     this.done = undefined;

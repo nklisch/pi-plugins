@@ -54,8 +54,8 @@ describe("plugin manager reducer", () => {
     expect(state.page.pages).toBe(5);
     expect(state.page.rows.map((entry) => entry.title)).toEqual(["3", "4", "5", "6", "7"]);
     expect(state.installedCount).toBe(5);
-    state = pluginManagerReducer(state, { type: "intent", intent: { type: "set-view", view: "browse" } });
-    expect(state.view).toBe("browse");
+    state = pluginManagerReducer(state, { type: "intent", intent: { type: "set-view", view: "health" } });
+    expect(state.view).toBe("health");
     expect(state.page.rows).toEqual([]);
     expect(state.focus).toMatchObject({ pane: "list" });
     expect(state.installedCount).toBe(5);
@@ -63,7 +63,7 @@ describe("plugin manager reducer", () => {
 
   it("derives onboarding and lifecycle actions from current presentation evidence", () => {
     let state = createPluginManagerState();
-    expect(pluginManagerAvailableActions(state)).toEqual(["browse-plugins", "marketplace-add"]);
+    expect(pluginManagerAvailableActions(state)).toEqual(["marketplace-add"]);
     state = pluginManagerReducer(state, { type: "intent", intent: { type: "set-view", view: "marketplaces" } });
     expect(pluginManagerAvailableActions(state)).toEqual(["marketplace-add"]);
 
@@ -73,7 +73,7 @@ describe("plugin manager reducer", () => {
     expect(pluginManagerAvailableActions(state)).toEqual(["inspect"]);
     state = pluginManagerReducer(state, { type: "detail-loading", request: 1, row: row("demo").key });
     state = pluginManagerReducer(state, {
-      type: "detail-loaded", request: 1, row: row("demo").key,
+      type: "detail-loaded", request: 1, row: row("demo").key, open: true,
       envelope: { data: { kind: "found", detail: { ...trustedInstallFlowFixture.chooseInspect, lifecycle: { ...trustedInstallFlowFixture.chooseInspect.lifecycle, activationIntent: "enabled", update: "current" } } } } as never,
     });
     expect(pluginManagerAvailableActions(state)).toEqual(["inspect", "disable", "uninstall-keep", "uninstall-delete"]);

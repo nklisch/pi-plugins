@@ -112,7 +112,7 @@ function installContent(state: PluginInstallState, theme: Theme): InstallContent
         "",
         theme.bold(safe(detail.summary.plugin)),
         `${safe(detail.summary.marketplace.text)} · ${safe(detail.summary.scope.kind)}`,
-        `Source: ${safe(detail.source.kind)} · Revision: ${safe(detail.summary.revision.available?.text ?? detail.summary.revision.immutable ?? "unresolved")}`,
+        `Origin: ${safe(detail.source.kind)} · Revision: ${safe(detail.summary.revision.available?.text ?? detail.summary.revision.immutable ?? "unresolved")}`,
         theme.fg(detail.compatibility.status === "activatable" ? "success" : "error", detail.compatibility.status),
         "",
         theme.fg("accent", "Compatibility inventory"),
@@ -122,7 +122,7 @@ function installContent(state: PluginInstallState, theme: Theme): InstallContent
         choice(state, "disclosure", state.disclosure.has("candidate-components") ? "Collapse complete inventory" : "Expand complete inventory", theme),
       ],
       disclosure: state.disclosure.has("candidate-components") ? candidateDisclosure(state, theme) : [],
-      after: ["", ...progressLines(state, theme), ...(state.busy ? [""] : []), choice(state, "back", "Back to browse", theme), choice(state, "continue", state.busy ? "Loading current plugin…" : "Continue", theme)],
+      after: ["", ...progressLines(state, theme), ...(state.busy ? [""] : []), choice(state, "back", "Back to plugins", theme), choice(state, "continue", state.busy ? "Loading current plugin…" : "Continue", theme)],
     };
   }
   if (state.step === "configure-trust" && state.session !== undefined) {
