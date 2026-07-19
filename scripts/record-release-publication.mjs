@@ -72,13 +72,15 @@ ${publication}
 }
 
 const source = readFileSync(releaseFile, "utf8");
-if (!source.includes("- Pending.")) {
+if (source.includes("- Shipped:")) {
   console.log(`${releaseFile} already records a publication; nothing to do`);
   process.exit(0);
 }
-const updated = source
+const staged = source
   .replace(/^stage: implementing$/m, "stage: done")
-  .replace(/^updated: \d{4}-\d{2}-\d{2}$/m, `updated: ${today}`)
-  .replace("- Pending.", publication);
+  .replace(/^updated: \d{4}-\d{2}-\d{2}$/m, `updated: ${today}`);
+const updated = staged.includes("- Pending.")
+  ? staged.replace("- Pending.", publication)
+  : `${staged.trimEnd()}\n\n## Publication\n\n${publication}\n`;
 writeFileSync(releaseFile, updated);
 console.log(`recorded publication in ${releaseFile}`);

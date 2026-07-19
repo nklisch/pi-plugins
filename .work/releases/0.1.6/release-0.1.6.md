@@ -38,3 +38,14 @@ Release gates skipped by explicit maintainer instruction. The standard package v
 
 - Local `npm test`: typecheck, dependency boundaries, 338 files / 1,689 tests, build/import checks, and isolated packed Pi 0.80.8 RPC/JSON/PTY acceptance passed.
 - End-to-end install verified against a live dual-root GitHub marketplace (agile-workflow and krometrail from nklisch/skills both install and list as ready).
+
+## Publication
+
+- Shipped: 2026-07-19
+- Mapping: tag-based
+- Source commit: `ebbc64b`
+- Tag: `v0.1.6`
+- GitHub Actions publish run: `29699815119`
+- npm integrity: `sha512-7xL/QDEgx+IrU19xQXldGQDl6xyFKPACBYXT7YAhO0mf4zfdEr4O17cVecEnsoNMRBXjx0oK08WSKKzeo4AlsQ==`
+- GitHub: https://github.com/nklisch/pi-plugins/releases/tag/v0.1.6
+- npm: https://www.npmjs.com/package/@nklisch/pi-plugins/v/0.1.6
