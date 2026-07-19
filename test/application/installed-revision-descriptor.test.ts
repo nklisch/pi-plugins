@@ -4,6 +4,7 @@ import { createInstalledRevisionDescriptor, verifyInstalledRevisionDescriptor } 
 import { CompatibilityReportSchema } from "../../src/domain/compatibility.js";
 import { createContentManifest } from "../../src/domain/content-manifest.js";
 import { NormalizedPluginSchema } from "../../src/domain/plugin.js";
+import { MarketplaceInstallationPolicySchema } from "../../src/domain/marketplace.js";
 import { createInstalledRevisionRecord } from "../../src/domain/state/installed-state.js";
 import { createResolvedMarketplaceSource, createResolvedPluginSource } from "../../src/domain/source.js";
 
@@ -38,5 +39,25 @@ describe("installed revision descriptor", () => {
     expect(verifyInstalledRevisionDescriptor(descriptor, revision, sha256)).toEqual(descriptor);
     expect(() => verifyInstalledRevisionDescriptor({ ...descriptor, digest: `sha256:${"f".repeat(64)}` }, revision, sha256)).toThrow();
     expect(JSON.stringify(revision)).not.toContain("marketplaceSource");
+  });
+
+  it("seals the install-time marketplace policy into digest-covered reconstruction evidence", () => {
+    const { revision, loaded } = fixture();
+    const location = { host: "claude" as const, documentKind: "marketplace" as const, path: ".claude-plugin/marketplace.json" };
+    const installationPolicy = MarketplaceInstallationPolicySchema.parse({
+      availability: { value: "available", provenance: [{ location: { ...location, pointer: "/plugins/0/policy/installation" } }] },
+      declaration: { value: { installation: "AVAILABLE" }, provenance: [{ location: { ...location, pointer: "/plugins/0/policy" } }] },
+    });
+    const descriptor = createInstalledRevisionDescriptor({ loaded: { ...loaded, installationPolicy }, revision, sha256 });
+    expect(verifyInstalledRevisionDescriptor(descriptor, revision, sha256)).toEqual(descriptor);
+    expect(descriptor.loaded.installationPolicy?.availability.value).toBe("available");
+    const tampered = {
+      ...descriptor,
+      loaded: {
+        ...descriptor.loaded,
+        installationPolicy: { ...installationPolicy, availability: { ...installationPolicy.availability, value: "not-available" } },
+      },
+    };
+    expect(() => verifyInstalledRevisionDescriptor(tampered, revision, sha256)).toThrow();
   });
 });

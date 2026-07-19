@@ -54,3 +54,17 @@ return `succeeded` (previously `recovery-required` / selection failure).
 The failure was invisible end-to-end: five layers (control envelope, lifecycle
 result, broker ticket, participant observation, safeFailure sanitization) each
 discarded the underlying error. See fix-silent-install-failure-diagnostics.
+
+## Resolution update (2026-07-19)
+
+The initial fix parsed the stored install-time compatibility report at
+runtime. E2E drift tests caught that this froze install-time capability
+availability into activation: a plugin whose runtime capabilities drifted
+(package version/tree drift) would activate fail-open instead of failing
+closed. Final mechanism: the install-time marketplace policy is sealed into
+the installed-revision descriptor (`installationPolicy` on
+`LoadedInstalledPlugin`), and the runtime re-assesses live WITH that policy —
+identical report/digest when the runtime is unchanged, fail-closed when
+capabilities drift. Regression tests: descriptor policy round-trip
+(installed-revision-descriptor.test.ts) and policy-forwarding
+(runtime-desired-state.test.ts); e2e drift suite green.

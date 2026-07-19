@@ -9,6 +9,7 @@ import {
   CompatibilityReportSchema,
   type CompatibilityReport,
 } from "../../domain/compatibility.js";
+import { MarketplaceInstallationPolicySchema } from "../../domain/marketplace.js";
 import {
   NormalizedPluginSchema,
   type NormalizedPlugin,
@@ -33,6 +34,11 @@ export const LoadedInstalledPluginSchema = z.object({
   marketplaceSource: ResolvedMarketplaceSourceSchema,
   content: ContentManifestSchema,
   binding: ContentDigestSchema,
+  // The marketplace entry's installation policy at install time. Runtime
+  // re-assessment must use the same policy input or its report diverges from
+  // the install-time expectation digest; capability availability is re-probed
+  // live so runtime drift still fails closed.
+  installationPolicy: MarketplaceInstallationPolicySchema.optional(),
 }).strict().readonly();
 export type LoadedInstalledPlugin = z.infer<typeof LoadedInstalledPluginSchema>;
 

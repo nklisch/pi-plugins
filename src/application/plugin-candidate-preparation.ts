@@ -362,6 +362,7 @@ async function prepareNormalizedCandidate(
       marketplaceSource: input.marketplaceSource,
       content: materialized.content,
       binding: materialized.binding,
+      ...(input.entry.policy === undefined ? {} : { installationPolicy: input.entry.policy }),
     },
     revision,
     sha256: dependencies.sha256,

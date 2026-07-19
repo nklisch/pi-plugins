@@ -1,1 +1,0 @@
-# Unsupported native agent fixture

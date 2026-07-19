@@ -145,13 +145,17 @@ export async function buildRuntimeDesiredState(input: Readonly<{
     }
     try {
       const loaded = await input.installed.load({ scope: entry.scope, revision }, signal);
-      // Use the install-time report, not a fresh assessment: the candidate
-      // path evaluates with the marketplace entry's installation policy, and
-      // the stored descriptor carries that exact report. Re-assessing here
-      // without the policy produces a different compatibility digest, which
-      // makes every runtime projection diverge from its install-time
-      // expectation and strands installs in recovery-required.
-      const compatibility = CompatibilityReportSchema.parse(loaded.compatibility);
+      // Re-assess with the install-time marketplace policy (stored on the
+      // descriptor) so an unchanged runtime reproduces the install-time
+      // report and projection digest exactly, while live capability probing
+      // still fails closed when the runtime drifts. Assessing without the
+      // policy diverges from the install-time digest and strands installs in
+      // recovery-required; using the stored report verbatim would freeze
+      // install-time capability availability into activation.
+      const compatibility = await input.compatibility.assess({
+        plugin: loaded.plugin,
+        ...(loaded.installationPolicy === undefined ? {} : { marketplacePolicy: loaded.installationPolicy }),
+      }, signal);
       if (!compatibility.activatable) {
         blocked.push({ plugin: entry.record.plugin, code: "CAPABILITY_UNAVAILABLE", explanation: "current runtime capabilities do not support the complete plugin" });
         continue;
