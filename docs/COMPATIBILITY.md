@@ -441,7 +441,7 @@ Pi accepts:
 | Resources | Supported through MCP runtime |
 | Explicit legacy SSE transport | Retained; server not activated (no faithful runtime capability) |
 | WebSocket transport | Retained; server not activated |
-| Dynamic `headersHelper` command | Incompatible |
+| Dynamic `headersHelper` command | Retained; server not activated (no faithful runtime capability) |
 | Claude channels | Retained; not activated |
 
 Each named MCP runtime capability is checked before activation. An unavailable

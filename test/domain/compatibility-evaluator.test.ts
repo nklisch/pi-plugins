@@ -160,7 +160,7 @@ describe("pure compatibility evaluator", () => {
     expect(JSON.stringify(report)).not.toContain("do-not-copy");
   });
 
-  it("rejects unknown MCP behavior with safe, source-located diagnostics", () => {
+  it("retains un-runnable MCP declarations as metadata-only with safe, source-located diagnostics", () => {
     const value = plugin({
       components: {
         ...plugin().components,
@@ -176,7 +176,7 @@ describe("pure compatibility evaluator", () => {
     });
     const report = evaluateCompatibility({ plugin: value, capabilities: capabilities() });
     const assessment = report.components.find((item) => item.componentId === componentId("mcp-server", "4"));
-    expect(assessment?.verdict.kind).toBe("incompatible");
+    expect(assessment?.verdict.kind).toBe("metadata-only");
     expect(assessment?.diagnostics.some((diagnostic) =>
       diagnostic.details !== null && typeof diagnostic.details === "object" &&
       "sourceLocations" in diagnostic.details)).toBe(true);

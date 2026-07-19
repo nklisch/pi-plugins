@@ -122,8 +122,7 @@ src/
 │   ├── agent-skills/
 │   │   └── skill-reader.ts
 │   ├── marketplace-reader-support.ts
-│   ├── marketplace-merger.ts
-│   └── manifest-merger.ts
+│   └── marketplace-merger.ts
 ├── infrastructure/
 │   ├── filesystem/
 │   ├── git/

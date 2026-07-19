@@ -493,10 +493,9 @@ const mcpRules = {
   headersHelper: supportedRule({
     id: "mcp.headers-helper",
     surface: "mcp-server",
-    disposition: "incompatible",
+    disposition: "metadata-only",
     requirementCapabilityIds: noRequirements,
-    diagnosticCode: ErrorCodeRegistry.unsupportedDeclaration,
-    message: "Dynamic MCP header helpers cannot be executed during compatibility evaluation",
+    message: "Dynamic MCP header helpers have no faithful runtime capability; the server is retained but not activated",
     rank: 120,
   }),
   channels: supportedRule({

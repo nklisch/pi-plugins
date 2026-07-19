@@ -263,9 +263,9 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     ruleId: "mcp.headers-helper",
     positive: () => directPlugin({ components: { mcpServers: [mcp({ transport: "streamable-http", url: "https://example.invalid/mcp", headersHelper: "CANARY_HELPER" }, "10")] } }),
     negative: baseline,
-    positiveVerdict: "incompatible",
+    positiveVerdict: "metadata-only",
     diagnosticRuleId: "mcp.headers-helper",
-    positiveExpected: expectedOutcome(["incompatible"], false, {
+    positiveExpected: expectedOutcome(["metadata-only"], true, {
       diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
       diagnosticRuleIds: ["mcp.headers-helper"],
       diagnosticSourcePointers: ["/mcpServers/server-10/headersHelper"],
