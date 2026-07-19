@@ -1,9 +1,14 @@
 name: Publish package
 
-# Releases are deliberate: a maintainer dispatches this workflow from main
-# after the version bump and changelog have landed. npm authenticates the
-# workflow through OIDC, so no long-lived registry token is stored in GitHub.
+# Releases are tag-driven: `node scripts/release.mjs <bump>` prepares the
+# version bump and annotated tag locally, and pushing that tag publishes.
+# Manual dispatch from main remains available as a fallback. npm
+# authenticates the workflow through OIDC, so no long-lived registry token
+# is stored in GitHub.
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
 
 concurrency:
@@ -11,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
@@ -23,15 +28,36 @@ jobs:
       PI_PLUGIN_HOST_E2E_REQUIRE_PTY: "1"
       PI_PLUGIN_HOST_E2E_REQUIRE_LIBFAKETIME: "1"
     steps:
-      - name: Require the main branch
-        run: |
-          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
-            echo "Packages may only be published from main (got $GITHUB_REF)." >&2
-            exit 1
-          fi
-
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve and guard the release version
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest_version=$(node -p 'require("./package.json").version')
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            if [ "$tag_version" != "$manifest_version" ]; then
+              echo "Tag $GITHUB_REF_NAME does not match package.json version $manifest_version." >&2
+              exit 1
+            fi
+            git fetch --depth=1 origin main
+            if ! git merge-base --is-ancestor HEAD FETCH_HEAD; then
+              echo "Tagged commit is not on main; releases must ship from main." >&2
+              exit 1
+            fi
+          else
+            if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+              echo "Packages may only be published from main (got $GITHUB_REF)." >&2
+              exit 1
+            fi
+            tag_version="$manifest_version"
+          fi
+          echo "version=$tag_version" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node for npm trusted publishing
         uses: actions/setup-node@v6
@@ -57,7 +83,7 @@ jobs:
         run: |
           set -euo pipefail
           name=$(node -p 'require("./package.json").name')
-          version=$(node -p 'require("./package.json").version')
+          version="${{ steps.release.outputs.version }}"
           if npm view "${name}@${version}" version >/dev/null 2>&1; then
             echo "Version ${name}@${version} is already published; skipping."
             echo "published=true" >> "$GITHUB_OUTPUT"
@@ -69,3 +95,24 @@ jobs:
       - name: Publish with npm OIDC provenance
         if: steps.registry.outputs.published != 'true'
         run: npm publish --access public --provenance
+
+      - name: Record the publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/record-release-publication.mjs \
+            "${{ steps.release.outputs.version }}" "$GITHUB_RUN_ID" "$GITHUB_SHA"
+
+      - name: Commit and push the publication record
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain -- .work/releases)" ]; then
+            echo "Publication already recorded; nothing to push."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .work/releases
+          git commit -m "release: record ${{ steps.release.outputs.version }} publication"
+          git push origin HEAD:main
