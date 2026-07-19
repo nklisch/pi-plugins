@@ -1,7 +1,7 @@
 ---
 id: release-0.1.5
 kind: release
-stage: implementing
+stage: done
 tags: [tui, perf]
 parent: null
 depends_on: [keep-plugin-manager-actions-inline]
@@ -30,7 +30,14 @@ Release gates skipped by explicit maintainer instruction. The standard package v
 
 ## Publication
 
-Pending.
+- Shipped: 2026-07-18
+- Mapping: tag-based
+- Source commit: `8ded674`
+- Tag: `v0.1.5`
+- GitHub Actions publish run: `29667414489`
+- npm integrity: `sha512-fmT6+1yKouSypnoeb8Xmvd7x5BxQV7gTfxbT4UobSe/s2sBnMZUQXuVWpCmAxtBxZ9uI5RgrIiKolzH7bArXZQ==`
+- GitHub: https://github.com/nklisch/pi-plugins/releases/tag/v0.1.5
+- npm: https://www.npmjs.com/package/@nklisch/pi-plugins/v/0.1.5
 
 ## Shipped items
 
