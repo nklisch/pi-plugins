@@ -107,8 +107,16 @@ describe("update policy domain contracts", () => {
     expect(() => RefreshClaimIdSchema.parse("refresh-claim-v1:uuid:not-a-uuid")).toThrow();
   });
 
-  it("migrates scalar policy to exact overrides and resets operational memory on source replacement", () => {
-    const record = createMarketplaceConfigurationRecord({ marketplace: "community", source: marketplace, updateApplication: "automatic", refresh: { consecutiveFailures: 3, nextScheduledAt: 99 } });
+  it("applies exact overrides and resets operational memory on source replacement", () => {
+    const record = createMarketplaceConfigurationRecord({
+      marketplace: "community",
+      source: marketplace,
+      applicationOverride: "automatic",
+      refresh: {
+        consecutiveFailures: 3,
+        schedule: { anchorAt: 0, baseDelayMs: 99, jitterMs: 0, dueAt: 99, reason: "success" },
+      },
+    });
     expect(record.applicationOverride).toBe("automatic");
     expect(record.refresh.schedule?.dueAt).toBe(99);
     expect(MarketplaceUpdateRecordSchema.parse(record)).toEqual(record);

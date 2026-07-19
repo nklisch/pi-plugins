@@ -75,6 +75,7 @@ export function createNativeControlHandlerMap(input: Readonly<{
     "updates.notices.list": read,
     "updates.notices.acknowledge": mutation,
     "updates.automatic.run": mutation,
+    "config.host-precedence": mutation,
     status: read,
     "operation.status": read,
     "operation.cancel": read,

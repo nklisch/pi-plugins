@@ -281,7 +281,7 @@ export function createMcpLaunchTemplate(
       plugin: PluginKeySchema.parse(pluginInput),
       component,
     });
-    if (analysis.kind === "incompatible" || !isRecord(component.declaration.value)) fail();
+    if (analysis.kind !== "supported" || !isRecord(component.declaration.value)) fail();
     const declaration = component.declaration.value;
     return analysis.plan.transport === "stdio"
       ? stdioTemplate(declaration)

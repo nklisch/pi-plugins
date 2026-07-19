@@ -10,10 +10,10 @@ import {
   createInstalledUserStateDocument,
   createMarketplaceSnapshotRecord,
 } from "../../src/domain/state/installed-state.js";
-import { createProjectLocalStateDocumentV4 } from "../../src/domain/state/project-state.js";
-import { HostConfigDocumentSchemaV1, GenerationSchema, type Generation } from "../../src/domain/state/config-state.js";
-import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
-import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
+import { createProjectLocalStateDocument } from "../../src/domain/state/project-state.js";
+import { HostConfigDocumentSchema, GenerationSchema, type Generation } from "../../src/domain/state/config-state.js";
+import { StatePointersDocumentSchema } from "../../src/domain/state/pointers.js";
+import { TrustStateDocumentSchema } from "../../src/domain/state/trust-state.js";
 import { deriveStateBlobRef } from "../../src/domain/state/references.js";
 import {
   CanonicalProjectRootSchema,
@@ -143,7 +143,7 @@ const currentProject = CurrentProjectRuntimeContextSchema.parse({
 function lifecyclePointers(scope: ScopeContext, generation: Generation) {
   const reference = toScopeReference(scope);
   const kinds = scope.kind === "user" ? ["hostConfig", "installedUser", "trust"] : ["projectLocal"];
-  return StatePointersDocumentSchemaV1.parse({
+  return StatePointersDocumentSchema.parse({
     schemaVersion: 1,
     scope: reference,
     generation,
@@ -166,9 +166,9 @@ function lifecycleUserSnapshot(
     scope: { kind: "user" },
     generation: value,
     pointers: lifecyclePointers({ kind: "user" }, value),
-    config: HostConfigDocumentSchemaV1.parse({ schemaVersion: 1, generation: value, records: [] }),
+    config: HostConfigDocumentSchema.parse({ schemaVersion: 4, generation: value, records: [] }),
     installed: createInstalledUserStateDocument({ generation: value, marketplaces: [createMarketplaceSnapshotRecord({ marketplace: "community", source: lifecycleMarketplace, content }, sha256)], plugins }, sha256),
-    trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation: value, records }),
+    trust: TrustStateDocumentSchema.parse({ schemaVersion: 1, generation: value, records }),
     corruptions: [],
   };
 }
@@ -183,7 +183,7 @@ function lifecycleProjectSnapshot(
     scope: lifecycleProject,
     generation: value,
     pointers: lifecyclePointers(lifecycleProject, value),
-    project: createProjectLocalStateDocumentV4({
+    project: createProjectLocalStateDocument({
       schemaVersion: 4,
       generation: value,
       projectKey: lifecycleProject.projectKey,

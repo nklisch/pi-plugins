@@ -43,9 +43,9 @@ export const foreignPolicyFixtures: readonly PolicyFixture[] = [
       ],
     } }),
     negative: baseline,
-    positiveVerdict: "incompatible",
+    positiveVerdict: "metadata-only",
     diagnosticRuleId: "foreign.default-deny",
-    positiveExpected: expectedOutcome(new Array(nativeKinds.length + 1).fill("incompatible"), false, {
+    positiveExpected: expectedOutcome(new Array(nativeKinds.length + 1).fill("metadata-only"), true, {
       diagnosticCodes: new Array(nativeKinds.length + 1).fill("UNSUPPORTED_DECLARATION"),
       diagnosticRuleIds: new Array(nativeKinds.length + 1).fill("foreign.default-deny"),
       diagnosticSourcePointers: [...nativeKinds, "future-runtime-kind"].map((kind) => `/${kind}`),

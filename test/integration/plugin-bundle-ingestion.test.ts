@@ -275,7 +275,7 @@ describe("plugin bundle inspection integration", () => {
       .toEqual(expect.arrayContaining(["marketplace", "manifest"]));
   });
 
-  it("rejects contradictory catalog and manifest foreign claims end to end", async () => {
+  it("resolves contradictory catalog and manifest foreign claims by precedence end to end", async () => {
     const catalog = readClaudeMarketplace({
       name: "fixture",
       plugins: [{ name: "demo", source: "./plugin", strict: false, agents: "./agents" }],
@@ -293,12 +293,18 @@ describe("plugin bundle inspection integration", () => {
 
     const result = await service.inspect(makeInput(files, entry), new AbortController().signal);
 
-    expect(result.ok).toBe(false);
-    expect(result).toMatchObject({ diagnostics: [{ code: "CLAIM_CONFLICT" }] });
-    expect(result).not.toHaveProperty("value");
+    // Foreign components never execute: precedence wins, both declarations
+    // remain in provenance, and the plugin still inspects cleanly.
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.components.foreign).toHaveLength(1);
+    const declarations = result.value.components.foreign[0]!.declaration.provenance
+      .map((provenance) => provenance.declaration);
+    expect(declarations).toContain("./agents");
+    expect(declarations).toContain("./other-agents");
   });
 
-  it("rejects dual manifest locator conflicts without returning a partial bundle", async () => {
+  it("merges divergent dual manifest locators additively", async () => {
     const entry = mergedEntry();
     const files = new Map<string, Uint8Array>([
       [".claude-plugin/plugin.json", fixtureBytes(".claude-plugin/plugin.json", conflictFixtureRoot)],
@@ -312,10 +318,12 @@ describe("plugin bundle inspection integration", () => {
       readers: makeReaders(),
       sha256,
     });
+    // Claude's manifest points at ./skills-a, Codex's at ./skills-b; both
+    // locator targets are read and their skills unioned.
     const result = await service.inspect(makeInput(files, entry, ["skills-a", "skills-b"]), new AbortController().signal);
-    expect(result.ok).toBe(false);
-    expect(result).toMatchObject({ diagnostics: [{ code: "CLAIM_CONFLICT" }] });
-    expect(result).not.toHaveProperty("value");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.components.skills.map((skill) => skill.name.value).sort()).toEqual(["a", "b"]);
   });
 
   it("keeps malformed present JSON at the value boundary and preserves abort", async () => {

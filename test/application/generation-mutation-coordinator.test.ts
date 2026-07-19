@@ -15,11 +15,12 @@ import {
 } from "../../src/application/state-contract.js";
 import type { ScopeLockManager } from "../../src/application/ports/scope-lock.js";
 import type { LifecycleStateStore } from "../../src/application/ports/lifecycle-state-store.js";
-import { GenerationSchema, HostConfigDocumentSchemaV1 } from "../../src/domain/state/config-state.js";
-import { InstalledUserStateDocumentSchemaV1 } from "../../src/domain/state/installed-state.js";
-import { ProjectLocalStateDocumentSchemaV1 } from "../../src/domain/state/project-state.js";
-import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
-import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
+import { GenerationSchema, HostConfigDocumentSchema } from "../../src/domain/state/config-state.js";
+import { InstalledUserStateDocumentSchema } from "../../src/domain/state/installed-state.js";
+import { ProjectLocalStateDocumentSchema } from "../../src/domain/state/project-state.js";
+import { StatePointersDocumentSchema } from "../../src/domain/state/pointers.js";
+import { TrustStateDocumentSchema } from "../../src/domain/state/trust-state.js";
+import { createMarketplaceConfigurationRecord } from "../../src/domain/update-policy.js";
 import type { ScopeContext, ScopeReference } from "../../src/domain/state/scope.js";
 import type { PluginKey } from "../../src/domain/identity.js";
 import { MarketplaceSourceSchema } from "../../src/domain/source.js";
@@ -36,7 +37,7 @@ const otherProject: ScopeContext = {
 };
 const plugin = "demo@marketplace" as PluginKey;
 const sha256 = () => new Uint8Array(32);
-const config = HostConfigDocumentSchemaV1.parse({ schemaVersion: 1, generation: 0, records: [] });
+const config = HostConfigDocumentSchema.parse({ schemaVersion: 4, generation: 0, records: [] });
 
 const digest = `sha256:${"0".repeat(64)}`;
 const stateBlob = `state-blob-v1:sha256:${"1".repeat(64)}`;
@@ -49,7 +50,7 @@ function snapshot(scope: ScopeContext, generation: number): GenerationSnapshot {
   const documentKinds = scope.kind === "user"
     ? ["hostConfig", "installedUser", "trust"] as const
     : ["projectLocal"] as const;
-  const pointers = StatePointersDocumentSchemaV1.parse({
+  const pointers = StatePointersDocumentSchema.parse({
     schemaVersion: 1,
     scope: scopeReference,
     generation: value,
@@ -60,9 +61,9 @@ function snapshot(scope: ScopeContext, generation: number): GenerationSnapshot {
       scope,
       generation: value,
       pointers,
-      config: HostConfigDocumentSchemaV1.parse({ schemaVersion: 1, generation: value, records: [] }),
-      installed: InstalledUserStateDocumentSchemaV1.parse({ schemaVersion: 1, generation: value, marketplaces: [], plugins: [] }),
-      trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation: value, records: [] }),
+      config: HostConfigDocumentSchema.parse({ schemaVersion: 4, generation: value, records: [] }),
+      installed: InstalledUserStateDocumentSchema.parse({ schemaVersion: 2, generation: value, marketplaces: [], plugins: [] }),
+      trust: TrustStateDocumentSchema.parse({ schemaVersion: 1, generation: value, records: [] }),
       corruptions: [],
     };
   }
@@ -70,14 +71,15 @@ function snapshot(scope: ScopeContext, generation: number): GenerationSnapshot {
     scope,
     generation: value,
     pointers,
-    project: ProjectLocalStateDocumentSchemaV1.parse({
-      schemaVersion: 1,
+    project: ProjectLocalStateDocumentSchema.parse({
+      schemaVersion: 4,
       generation: value,
       projectKey: scope.projectKey,
       identity: scope.identity,
       declarationDigest: digest,
       marketplaces: [],
       plugins: [],
+      marketplaceUpdates: [],
     }),
     corruptions: [],
   };
@@ -87,7 +89,7 @@ function mutation(expectedGeneration = 0, scope: ScopeContext = user): VerifiedS
   return parseStateMutation({
     scope,
     expectedGeneration,
-    replace: { config: HostConfigDocumentSchemaV1.parse({ ...config, generation: expectedGeneration }) },
+    replace: { config: HostConfigDocumentSchema.parse({ ...config, generation: expectedGeneration }) },
   }, sha256);
 }
 
@@ -198,17 +200,16 @@ describe("generation-guarded prepared mutation coordinator", () => {
     expect(events).not.toContain("state.commit");
   });
 
-  it("proves a non-empty v1 adapter config against the v2 mutation", async () => {
+  it("proves a non-empty adapter config against the verified mutation", async () => {
     const events: string[] = [];
     const before = snapshot(user, 0);
-    const record = {
+    const record = createMarketplaceConfigurationRecord({
       marketplace: "marketplace",
       source: MarketplaceSourceSchema.parse({ kind: "github", repository: "example/plugins" }),
-      updateApplication: "manual" as const,
-    };
+    });
     const after = {
       ...snapshot(user, 1),
-      config: HostConfigDocumentSchemaV1.parse({
+      config: HostConfigDocumentSchema.parse({
         ...before.config,
         generation: 1,
         records: [record],
@@ -224,7 +225,7 @@ describe("generation-guarded prepared mutation coordinator", () => {
         mutation: parseStateMutation({
           scope: user,
           expectedGeneration: 0,
-          replace: { config: HostConfigDocumentSchemaV1.parse({ ...before.config, records: [record] }) },
+          replace: { config: HostConfigDocumentSchema.parse({ ...before.config, records: [record] }) },
         }, sha256),
         value: "promoted",
       }),
@@ -359,14 +360,13 @@ describe("generation-guarded prepared mutation coordinator", () => {
     const before = snapshot(user, 0);
     const unrelated = {
       ...snapshot(user, 1),
-      config: HostConfigDocumentSchemaV1.parse({
-        schemaVersion: 1,
+      config: HostConfigDocumentSchema.parse({
+        schemaVersion: 4,
         generation: 1,
-        records: [{
+        records: [createMarketplaceConfigurationRecord({
           marketplace: "unrelated",
           source: MarketplaceSourceSchema.parse({ kind: "github", repository: "example/unrelated" }),
-          updateApplication: "manual",
-        }],
+        })],
       }),
     };
     let current: GenerationSnapshot = before;
@@ -393,14 +393,13 @@ describe("generation-guarded prepared mutation coordinator", () => {
     const before = snapshot(user, 0);
     const unrelated = {
       ...snapshot(user, 1),
-      config: HostConfigDocumentSchemaV1.parse({
-        schemaVersion: 1,
+      config: HostConfigDocumentSchema.parse({
+        schemaVersion: 4,
         generation: 1,
-        records: [{
+        records: [createMarketplaceConfigurationRecord({
           marketplace: "unrelated",
           source: MarketplaceSourceSchema.parse({ kind: "github", repository: "example/unrelated" }),
-          updateApplication: "manual",
-        }],
+        })],
       }),
     };
     let current: GenerationSnapshot = before;

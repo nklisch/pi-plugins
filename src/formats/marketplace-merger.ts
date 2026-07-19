@@ -22,6 +22,11 @@ import {
 } from "../domain/identity.js";
 import { serializePluginSource } from "../domain/source.js";
 import {
+  DEFAULT_HOST_PRECEDENCE,
+  hostRank,
+  type HostPrecedence,
+} from "../domain/host-precedence.js";
+import {
   NativeHostSchema,
   type Claimed,
   type NativeHost,
@@ -33,7 +38,17 @@ import { type RetainedMetadata } from "../domain/components.js";
 
 const OPERATION = "mergeMarketplaces";
 const ENTRY_OPERATION = "mergeMarketplaceEntries";
-const HOST_RANK: Readonly<Record<NativeHost, number>> = { claude: 0, codex: 1 };
+type HostOrder = Readonly<Record<NativeHost, number>>;
+const DEFAULT_HOST_ORDER: HostOrder = { claude: 0, codex: 1 };
+
+function hostOrderFor(precedence: HostPrecedence): HostOrder {
+  return { claude: hostRank(precedence, "claude"), codex: hostRank(precedence, "codex") };
+}
+
+/** Optional reconciliation controls; the canonical default stays Claude-first. */
+export type MarketplaceMergeOptions = Readonly<{
+  hostPrecedence?: HostPrecedence;
+}>;
 
 export type MarketplaceCatalogInput = Readonly<{
   nativeHost: NativeHost;
@@ -98,17 +113,15 @@ function stableJson(value: unknown): string {
   ).join(",")}}`;
 }
 
-function hostRank(host: NativeHost): number {
-  return HOST_RANK[host];
-}
-
-function locationKey(location: SourceLocation): string {
+function locationKey(location: SourceLocation, order: HostOrder): string {
   // Encode optional fields explicitly. In particular, an omitted pointer is
   // not the same location as the RFC 6901 root ("") or an empty-property
   // pointer ("/"). JSON array encoding keeps the key injective even when a
-  // path or pointer contains the old delimiter character.
+  // path or pointer contains the old delimiter character. The host is encoded
+  // as its precedence rank (a bijection over the two hosts), so canonical
+  // ordering follows the configured precedence rather than the host name.
   return stableJson([
-    location.host,
+    order[location.host],
     location.documentKind,
     location.path,
     location.pointer === undefined ? null : location.pointer,
@@ -117,20 +130,20 @@ function locationKey(location: SourceLocation): string {
   ]);
 }
 
-function provenanceKey(provenance: Provenance): string {
-  return `${locationKey(provenance.location)}\u0000${stableJson(provenance.declaration)}`;
+function provenanceKey(provenance: Provenance, order: HostOrder): string {
+  return `${locationKey(provenance.location, order)}\u0000${stableJson(provenance.declaration)}`;
 }
 
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function compareProvenance(left: Provenance, right: Provenance): number {
-  return compareText(provenanceKey(left), provenanceKey(right));
+function compareProvenance(left: Provenance, right: Provenance, order: HostOrder): number {
+  return compareText(provenanceKey(left, order), provenanceKey(right, order));
 }
 
-function firstProvenance<T>(claim: ClaimLike<T>): Provenance {
-  return [...claim.provenance].sort(compareProvenance)[0] as Provenance;
+function firstProvenance<T>(claim: ClaimLike<T>, order: HostOrder): Provenance {
+  return [...claim.provenance].sort((a, b) => compareProvenance(a, b, order))[0] as Provenance;
 }
 
 function mergeProvenance<T>(
@@ -138,6 +151,7 @@ function mergeProvenance<T>(
   right: ClaimLike<T>,
   field: string,
   plugin: string,
+  order: HostOrder,
 ): readonly [Provenance, ...Provenance[]] {
   const values = [...left.provenance, ...right.provenance];
   for (let leftIndex = 0; leftIndex < values.length; leftIndex += 1) {
@@ -145,21 +159,21 @@ function mergeProvenance<T>(
       const first = values[leftIndex] as Provenance;
       const second = values[rightIndex] as Provenance;
       if (
-        locationKey(first.location) === locationKey(second.location) &&
+        locationKey(first.location, order) === locationKey(second.location, order) &&
         stableJson(first.declaration) !== stableJson(second.declaration)
       ) {
         // A location identifies one foreign declaration. Keeping one raw
         // value here would make an otherwise valid merge unauditable, so the
         // entry-level merger reports a typed conflict instead.
-        conflict(field, left, right, plugin);
+        conflict(field, left, right, plugin, order);
       }
     }
   }
 
   const unique: Provenance[] = [];
-  for (const candidate of values.sort(compareProvenance)) {
+  for (const candidate of values.sort((a, b) => compareProvenance(a, b, order))) {
     if (!unique.some((existing) =>
-      locationKey(existing.location) === locationKey(candidate.location) &&
+      locationKey(existing.location, order) === locationKey(candidate.location, order) &&
       stableJson(existing.declaration) === stableJson(candidate.declaration))) {
       unique.push(candidate);
     }
@@ -167,16 +181,16 @@ function mergeProvenance<T>(
   return unique as [Provenance, ...Provenance[]];
 }
 
-function compareClaims(left: ClaimLike<unknown>, right: ClaimLike<unknown>): number {
-  const locationComparison = compareProvenance(firstProvenance(left), firstProvenance(right));
+function compareClaims(left: ClaimLike<unknown>, right: ClaimLike<unknown>, order: HostOrder): number {
+  const locationComparison = compareProvenance(firstProvenance(left, order), firstProvenance(right, order), order);
   if (locationComparison !== 0) {
     return locationComparison;
   }
   return compareText(stableJson(left.value), stableJson(right.value));
 }
 
-function orderedClaims<T>(left: ClaimLike<T>, right: ClaimLike<T>): readonly [ClaimLike<T>, ClaimLike<T>] {
-  return compareClaims(left as ClaimLike<unknown>, right as ClaimLike<unknown>) <= 0
+function orderedClaims<T>(left: ClaimLike<T>, right: ClaimLike<T>, order: HostOrder): readonly [ClaimLike<T>, ClaimLike<T>] {
+  return compareClaims(left as ClaimLike<unknown>, right as ClaimLike<unknown>, order) <= 0
     ? [left, right]
     : [right, left];
 }
@@ -186,12 +200,13 @@ function conflict(
   left: unknown,
   right: unknown,
   plugin: string,
+  order: HostOrder,
 ): never {
   const leftClaim = isClaimed(left) ? left : undefined;
   const rightClaim = isClaimed(right) ? right : undefined;
   const location = leftClaim === undefined
-    ? firstProvenance(rightClaim as ClaimLike<unknown>).location
-    : firstProvenance(leftClaim).location;
+    ? firstProvenance(rightClaim as ClaimLike<unknown>, order).location
+    : firstProvenance(leftClaim, order).location;
   throw new MarketplaceClaimConflictError({
     field,
     plugin,
@@ -206,15 +221,38 @@ function mergeClaim<T>(
   left: ClaimLike<T>,
   right: ClaimLike<T>,
   plugin: string,
+  order: HostOrder,
   equals: (left: T, right: T) => boolean = (a, b) => stableJson(a) === stableJson(b),
 ): Claimed<T> {
-  const [first, second] = orderedClaims(left, right);
+  const [first, second] = orderedClaims(left, right, order);
   if (!equals(first.value, second.value)) {
-    conflict(field, first, second, plugin);
+    conflict(field, first, second, plugin, order);
   }
   return {
     value: first.value,
-    provenance: mergeProvenance(first, second, field, plugin),
+    provenance: mergeProvenance(first, second, field, plugin, order),
+  };
+}
+
+/**
+ * Presentational and advisory fields never conflict: the canonical host's
+ * declaration wins and the other host's declaration survives only in merged
+ * provenance. Real hosts apply the same precedence — Claude lets a
+ * marketplace entry override plugin.json metadata, and Codex never merges
+ * catalog metadata at all — so divergence between equivalent documents is
+ * ordinary drift, not an integrity failure that justifies dropping the entry.
+ */
+function mergePresentationalClaim<T>(
+  field: string,
+  left: ClaimLike<T>,
+  right: ClaimLike<T>,
+  plugin: string,
+  order: HostOrder,
+): Claimed<T> {
+  const [first, second] = orderedClaims(left, right, order);
+  return {
+    value: first.value,
+    provenance: mergeProvenance(first, second, field, plugin, order),
   };
 }
 
@@ -224,11 +262,12 @@ function mergeRawClaim<T>(
   left: ClaimLike<T>,
   right: ClaimLike<T>,
   plugin: string,
+  order: HostOrder,
 ): Claimed<T> {
-  const [first, second] = orderedClaims(left, right);
+  const [first, second] = orderedClaims(left, right, order);
   return {
     value: first.value,
-    provenance: mergeProvenance(first, second, field, plugin),
+    provenance: mergeProvenance(first, second, field, plugin, order),
   };
 }
 
@@ -237,11 +276,24 @@ function mergeOptionalClaim<T>(
   left: ClaimLike<T> | undefined,
   right: ClaimLike<T> | undefined,
   plugin: string,
+  order: HostOrder,
   equals?: (left: T, right: T) => boolean,
 ): ClaimLike<T> | undefined {
   if (left === undefined) return right;
   if (right === undefined) return left;
-  return mergeClaim(field, left, right, plugin, equals);
+  return mergeClaim(field, left, right, plugin, order, equals);
+}
+
+function mergeOptionalPresentational<T>(
+  field: string,
+  left: ClaimLike<T> | undefined,
+  right: ClaimLike<T> | undefined,
+  plugin: string,
+  order: HostOrder,
+): ClaimLike<T> | undefined {
+  if (left === undefined) return right;
+  if (right === undefined) return left;
+  return mergePresentationalClaim(field, left, right, plugin, order);
 }
 
 function normalizePluginSource(
@@ -260,20 +312,26 @@ function mergePolicy(
   left: NonNullable<NormalizedMarketplaceEntry["policy"]>,
   right: NonNullable<NormalizedMarketplaceEntry["policy"]>,
   plugin: string,
+  order: HostOrder,
 ): NonNullable<NormalizedMarketplaceEntry["policy"]> {
-  const authentication = mergeOptionalClaim(
+  // Availability and authentication timing are advisory at compatibility
+  // time (the marketplace policy rules are metadata-only), so a cross-host
+  // policy mismatch degrades to canonical precedence like other
+  // presentational fields.
+  const authentication = mergeOptionalPresentational(
     "policy.authentication",
     left.authentication,
     right.authentication,
     plugin,
+    order,
   );
   return {
-    availability: mergeClaim("policy.availability", left.availability, right.availability, plugin),
+    availability: mergePresentationalClaim("policy.availability", left.availability, right.availability, plugin, order),
     ...(authentication === undefined ? {} : { authentication }),
     // The normalized policy claims above determine compatibility. The raw
     // declaration is retained from both hosts for auditability even when
     // equivalent host documents use different object shapes or key order.
-    declaration: mergeRawClaim("policy.declaration", left.declaration, right.declaration, plugin),
+    declaration: mergeRawClaim("policy.declaration", left.declaration, right.declaration, plugin, order),
   };
 }
 
@@ -281,49 +339,51 @@ function mergeAuthority(
   left: MarketplaceAuthority,
   right: MarketplaceAuthority,
   plugin: string,
+  order: HostOrder,
 ): MarketplaceAuthority {
   if (left.nativeHost !== right.nativeHost) {
     throw new TypeError("Cannot merge authorities from different native hosts");
   }
-  const strict = mergeOptionalClaim("authority.strict", left.strict, right.strict, plugin);
+  const strict = mergeOptionalClaim("authority.strict", left.strict, right.strict, plugin, order);
   return {
     nativeHost: left.nativeHost,
     ...(strict === undefined ? {} : { strict }),
-    manifest: mergeClaim("authority.manifest", left.manifest, right.manifest, plugin),
-    catalogRuntime: mergeClaim("authority.catalogRuntime", left.catalogRuntime, right.catalogRuntime, plugin),
+    manifest: mergeClaim("authority.manifest", left.manifest, right.manifest, plugin, order),
+    catalogRuntime: mergeClaim("authority.catalogRuntime", left.catalogRuntime, right.catalogRuntime, plugin, order),
   };
 }
 
-function authorityOrder(authority: MarketplaceAuthority): string {
+function authorityOrder(authority: MarketplaceAuthority, order: HostOrder): string {
   const claim = authority.manifest;
-  return `${String(hostRank(authority.nativeHost)).padStart(2, "0")}\u0000${locationKey(firstProvenance(claim).location)}`;
+  return `${String(order[authority.nativeHost]).padStart(2, "0")}\u0000${locationKey(firstProvenance(claim, order).location, order)}`;
 }
 
 function mergeAuthorities(
   left: readonly MarketplaceAuthority[],
   right: readonly MarketplaceAuthority[],
   plugin: string,
+  order: HostOrder,
 ): readonly MarketplaceAuthority[] {
   const byHost = new Map<NativeHost, MarketplaceAuthority>();
   for (const authority of [...left, ...right]) {
     const existing = byHost.get(authority.nativeHost);
     byHost.set(
       authority.nativeHost,
-      existing === undefined ? authority : mergeAuthority(existing, authority, plugin),
+      existing === undefined ? authority : mergeAuthority(existing, authority, plugin, order),
     );
   }
   return [...byHost.values()].sort((a, b) =>
-    compareText(authorityOrder(a), authorityOrder(b)));
+    compareText(authorityOrder(a, order), authorityOrder(b, order)));
 }
 
 function declarationKey(declaration: MarketplaceEntryDeclaration): string {
   return `${declaration.nativeHost}\u0000${declaration.category}\u0000${declaration.field}`;
 }
 
-function declarationOrder(declaration: MarketplaceEntryDeclaration): string {
+function declarationOrder(declaration: MarketplaceEntryDeclaration, order: HostOrder): string {
   return [
-    String(hostRank(declaration.nativeHost)).padStart(2, "0"),
-    locationKey(firstProvenance(declaration.declaration).location),
+    String(order[declaration.nativeHost]).padStart(2, "0"),
+    locationKey(firstProvenance(declaration.declaration, order).location, order),
     declaration.category,
     declaration.field,
   ].join("\u0000");
@@ -333,6 +393,7 @@ function mergeDeclarations(
   left: readonly MarketplaceEntryDeclaration[],
   right: readonly MarketplaceEntryDeclaration[],
   plugin: string,
+  order: HostOrder,
 ): readonly MarketplaceEntryDeclaration[] {
   const byKey = new Map<string, MarketplaceEntryDeclaration>();
   for (const declaration of [...left, ...right]) {
@@ -351,16 +412,17 @@ function mergeDeclarations(
         existing.declaration,
         declaration.declaration,
         plugin,
+        order,
       ),
     });
   }
-  return [...byKey.values()].sort((a, b) => compareText(declarationOrder(a), declarationOrder(b)));
+  return [...byKey.values()].sort((a, b) => compareText(declarationOrder(a, order), declarationOrder(b, order)));
 }
 
-function metadataOrder(metadata: RetainedMetadata): string {
+function metadataOrder(metadata: RetainedMetadata, order: HostOrder): string {
   return [
-    String(hostRank(firstProvenance(metadata.claimed).location.host)).padStart(2, "0"),
-    locationKey(firstProvenance(metadata.claimed).location),
+    String(order[firstProvenance(metadata.claimed, order).location.host]).padStart(2, "0"),
+    locationKey(firstProvenance(metadata.claimed, order).location, order),
     metadata.key,
   ].join("\u0000");
 }
@@ -369,6 +431,7 @@ function mergeMetadata(
   left: readonly RetainedMetadata[],
   right: readonly RetainedMetadata[],
   plugin: string,
+  order: HostOrder,
 ): readonly RetainedMetadata[] {
   const byKey = new Map<string, RetainedMetadata>();
   for (const metadata of [...left, ...right]) {
@@ -379,25 +442,26 @@ function mergeMetadata(
     }
     byKey.set(metadata.key, {
       key: metadata.key,
-      claimed: mergeClaim(`metadata.${metadata.key}`, existing.claimed, metadata.claimed, plugin),
+      claimed: mergePresentationalClaim(`metadata.${metadata.key}`, existing.claimed, metadata.claimed, plugin, order),
     });
   }
-  return [...byKey.values()].sort((a, b) => compareText(metadataOrder(a), metadataOrder(b)));
+  return [...byKey.values()].sort((a, b) => compareText(metadataOrder(a, order), metadataOrder(b, order)));
 }
 
-function entryHost(entry: NormalizedMarketplaceEntry): NativeHost {
-  return firstProvenance(entry.identity).location.host;
+function entryHost(entry: NormalizedMarketplaceEntry, order: HostOrder): NativeHost {
+  return firstProvenance(entry.identity, order).location.host;
 }
 
-function entryOrder(entry: NormalizedMarketplaceEntry): string {
-  return `${String(hostRank(entryHost(entry))).padStart(2, "0")}\u0000${stableJson(entry.identity.value)}\u0000${stableJson(entry.rawDeclaration.value)}`;
+function entryOrder(entry: NormalizedMarketplaceEntry, order: HostOrder): string {
+  return `${String(order[entryHost(entry, order)]).padStart(2, "0")}\u0000${stableJson(entry.identity.value)}\u0000${stableJson(entry.rawDeclaration.value)}`;
 }
 
 function normalizeEntryPair(
   left: NormalizedMarketplaceEntry,
   right: NormalizedMarketplaceEntry,
+  order: HostOrder,
 ): readonly [NormalizedMarketplaceEntry, NormalizedMarketplaceEntry] {
-  return compareText(entryOrder(left), entryOrder(right)) <= 0
+  return compareText(entryOrder(left, order), entryOrder(right, order)) <= 0
     ? [left, right]
     : [right, left];
 }
@@ -406,16 +470,17 @@ function assertIdentity(
   marketplaceName: MarketplaceName,
   left: NormalizedMarketplaceEntry,
   right: NormalizedMarketplaceEntry,
+  order: HostOrder,
 ): void {
   if (left.identity.value.marketplaceName !== marketplaceName) {
-    conflict("identity.marketplaceName", left.identity, right.identity, left.identity.value.key);
+    conflict("identity.marketplaceName", left.identity, right.identity, left.identity.value.key, order);
   }
   if (right.identity.value.marketplaceName !== marketplaceName) {
-    conflict("identity.marketplaceName", left.identity, right.identity, right.identity.value.key);
+    conflict("identity.marketplaceName", left.identity, right.identity, right.identity.value.key, order);
   }
   if (left.identity.value.key !== right.identity.value.key ||
       left.identity.value.marketplaceEntryName !== right.identity.value.marketplaceEntryName) {
-    conflict("identity", left.identity, right.identity, left.identity.value.key);
+    conflict("identity", left.identity, right.identity, left.identity.value.key, order);
   }
 }
 
@@ -428,56 +493,58 @@ export function mergeMarketplaceEntries(
   marketplaceName: string,
   leftInput: NormalizedMarketplaceEntry,
   rightInput: NormalizedMarketplaceEntry,
+  options?: MarketplaceMergeOptions,
 ): NormalizedMarketplaceEntry {
+  const order = hostOrderFor(options?.hostPrecedence ?? DEFAULT_HOST_PRECEDENCE);
   const name = MarketplaceNameSchema.parse(marketplaceName) as MarketplaceName;
   const left = NormalizedMarketplaceEntrySchema.parse(leftInput) as NormalizedMarketplaceEntry;
   const right = NormalizedMarketplaceEntrySchema.parse(rightInput) as NormalizedMarketplaceEntry;
   // Unlike mergeMarketplaces, this public entry-level API has no catalog
   // label to trust. Bind each input to the host declared by its identity and
   // reject any cross-host claim before ordering or merging it.
-  assertEntryHost(entryHost(left), left, "left", ENTRY_OPERATION);
-  assertEntryHost(entryHost(right), right, "right", ENTRY_OPERATION);
-  const [first, second] = normalizeEntryPair(left, right);
+  assertEntryHost(entryHost(left, order), left, "left", ENTRY_OPERATION);
+  assertEntryHost(entryHost(right, order), right, "right", ENTRY_OPERATION);
+  const [first, second] = normalizeEntryPair(left, right, order);
   const plugin = first.identity.value.key;
 
-  assertIdentity(name, first, second);
+  assertIdentity(name, first, second, order);
 
   const sourceLeft = normalizePluginSource(first.source);
   const sourceRight = normalizePluginSource(second.source);
   const canonicalLeft = serializePluginSource(sourceLeft.value);
   const canonicalRight = serializePluginSource(sourceRight.value);
   if (canonicalLeft !== canonicalRight) {
-    conflict("source", sourceLeft, sourceRight, plugin);
+    conflict("source", sourceLeft, sourceRight, plugin, order);
   }
 
-  const version = mergeOptionalClaim("version", first.version, second.version, plugin);
-  const description = mergeOptionalClaim("description", first.description, second.description, plugin);
+  const version = mergeOptionalPresentational("version", first.version, second.version, plugin, order);
+  const description = mergeOptionalPresentational("description", first.description, second.description, plugin, order);
   const policy = first.policy === undefined
     ? second.policy
     : second.policy === undefined
       ? first.policy
-      : mergePolicy(first.policy, second.policy, plugin);
+      : mergePolicy(first.policy, second.policy, plugin, order);
 
   const merged = {
-    identity: mergeClaim("identity", first.identity, second.identity, plugin),
-    source: mergeClaim("source", sourceLeft, sourceRight, plugin, (a, b) =>
+    identity: mergeClaim("identity", first.identity, second.identity, plugin, order),
+    source: mergeClaim("source", sourceLeft, sourceRight, plugin, order, (a, b) =>
       serializePluginSource(a) === serializePluginSource(b),
     ),
     ...(version === undefined ? {} : { version }),
     ...(description === undefined ? {} : { description }),
     ...(policy === undefined ? {} : { policy }),
-    authorities: mergeAuthorities(first.authorities, second.authorities, plugin),
-    declarations: mergeDeclarations(first.declarations, second.declarations, plugin),
-    metadata: mergeMetadata(first.metadata, second.metadata, plugin),
-    rawDeclaration: mergeRawClaim("rawDeclaration", first.rawDeclaration, second.rawDeclaration, plugin)
+    authorities: mergeAuthorities(first.authorities, second.authorities, plugin, order),
+    declarations: mergeDeclarations(first.declarations, second.declarations, plugin, order),
+    metadata: mergeMetadata(first.metadata, second.metadata, plugin, order),
+    rawDeclaration: mergeRawClaim("rawDeclaration", first.rawDeclaration, second.rawDeclaration, plugin, order)
   };
   return NormalizedMarketplaceEntrySchema.parse(merged);
 }
 
-function diagnosticOrder(diagnostic: Diagnostic): string {
+function diagnosticOrder(diagnostic: Diagnostic, order: HostOrder): string {
   return [
-    diagnostic.location === undefined ? "99" : String(hostRank(diagnostic.location.host)).padStart(2, "0"),
-    diagnostic.location === undefined ? "" : locationKey(diagnostic.location),
+    diagnostic.location === undefined ? "99" : String(order[diagnostic.location.host]).padStart(2, "0"),
+    diagnostic.location === undefined ? "" : locationKey(diagnostic.location, order),
     diagnostic.plugin ?? "",
     diagnostic.code,
     diagnostic.message,
@@ -485,17 +552,18 @@ function diagnosticOrder(diagnostic: Diagnostic): string {
   ].join("\u0000");
 }
 
-function sourceDocumentOrder(document: NormalizedMarketplace["sourceDocuments"][number]): string {
-  return `${locationKey(document.location)}\u0000${stableJson(document.declaration)}`;
+function sourceDocumentOrder(document: NormalizedMarketplace["sourceDocuments"][number], order: HostOrder): string {
+  return `${locationKey(document.location, order)}\u0000${stableJson(document.declaration)}`;
 }
 
-function rootMetadataOrder(metadata: RetainedMetadata): string {
-  return metadataOrder(metadata);
+function rootMetadataOrder(metadata: RetainedMetadata, order: HostOrder): string {
+  return metadataOrder(metadata, order);
 }
 
 function rootConflict(
   left: NormalizedMarketplace,
   right: NormalizedMarketplace,
+  order: HostOrder,
 ): never {
   const leftClaim = left.name;
   const rightClaim = right.name;
@@ -503,7 +571,7 @@ function rootConflict(
     code: ErrorCodeRegistry.marketplaceRootInvalid,
     operation: OPERATION,
     message: `Marketplace roots declare different names: ${leftClaim.value} and ${rightClaim.value}`,
-    location: firstProvenance(leftClaim).location,
+    location: firstProvenance(leftClaim, order).location,
     details: {
       left: claimSnapshot(leftClaim),
       right: claimSnapshot(rightClaim),
@@ -641,7 +709,7 @@ function assertCatalogHost(
   }
 }
 
-function orderedInputs(inputs: readonly MarketplaceCatalogInput[]): readonly MarketplaceCatalogInput[] {
+function orderedInputs(inputs: readonly MarketplaceCatalogInput[], order: HostOrder): readonly MarketplaceCatalogInput[] {
   if (!Array.isArray(inputs) || inputs.length === 0) {
     invalidInput(new TypeError("mergeMarketplaces requires at least one catalog"));
   }
@@ -669,7 +737,7 @@ function orderedInputs(inputs: readonly MarketplaceCatalogInput[]): readonly Mar
       invalidInput(cause);
     }
   }
-  return validated.sort((left, right) => hostRank(left.nativeHost) - hostRank(right.nativeHost));
+  return validated.sort((left, right) => order[left.nativeHost] - order[right.nativeHost]);
 }
 
 /**
@@ -678,8 +746,10 @@ function orderedInputs(inputs: readonly MarketplaceCatalogInput[]): readonly Mar
  */
 export function mergeMarketplaces(
   inputs: readonly [MarketplaceCatalogInput, ...MarketplaceCatalogInput[]],
+  options?: MarketplaceMergeOptions,
 ): MarketplaceReadResult {
-  const catalogs = orderedInputs(inputs);
+  const order = hostOrderFor(options?.hostPrecedence ?? DEFAULT_HOST_PRECEDENCE);
+  const catalogs = orderedInputs(inputs, order);
   const first = catalogs[0]?.result as MarketplaceReadResult | undefined;
   if (first === undefined) {
     invalidInput(new TypeError("mergeMarketplaces requires at least one catalog"));
@@ -687,7 +757,7 @@ export function mergeMarketplaces(
   const rootName = first.marketplace.name.value;
   for (const catalog of catalogs.slice(1)) {
     if (catalog.result.marketplace.name.value !== rootName) {
-      rootConflict(first.marketplace, catalog.result.marketplace);
+      rootConflict(first.marketplace, catalog.result.marketplace, order);
     }
   }
 
@@ -702,7 +772,7 @@ export function mergeMarketplaces(
         continue;
       }
       try {
-        entries.set(name, mergeMarketplaceEntries(rootName, existing, entry));
+        entries.set(name, mergeMarketplaceEntries(rootName, existing, entry, options));
       } catch (cause) {
         if (cause instanceof MarketplaceClaimConflictError) {
           mergeDiagnostics.push(cause.toDiagnostic());
@@ -722,21 +792,22 @@ export function mergeMarketplaces(
         ? first.marketplace.name
         : catalogs[1]?.result.marketplace.name ?? first.marketplace.name,
       OPERATION,
+      order,
     ),
     entries: [...entries.values()].sort((left, right) =>
       compareText(left.identity.value.marketplaceEntryName, right.identity.value.marketplaceEntryName)),
     metadata: catalogs
       .flatMap((catalog) => catalog.result.marketplace.metadata)
-      .sort((left, right) => compareText(rootMetadataOrder(left), rootMetadataOrder(right))),
+      .sort((left, right) => compareText(rootMetadataOrder(left, order), rootMetadataOrder(right, order))),
     sourceDocuments: catalogs
       .flatMap((catalog) => catalog.result.marketplace.sourceDocuments)
-      .sort((left, right) => compareText(sourceDocumentOrder(left), sourceDocumentOrder(right))),
+      .sort((left, right) => compareText(sourceDocumentOrder(left, order), sourceDocumentOrder(right, order))),
   });
 
   const diagnostics = [
     ...catalogs.flatMap((catalog) => catalog.result.diagnostics).sort((a, b) =>
-      compareText(diagnosticOrder(a), diagnosticOrder(b))),
-    ...mergeDiagnostics.sort((a, b) => compareText(diagnosticOrder(a), diagnosticOrder(b))),
+      compareText(diagnosticOrder(a, order), diagnosticOrder(b, order))),
+    ...mergeDiagnostics.sort((a, b) => compareText(diagnosticOrder(a, order), diagnosticOrder(b, order))),
   ].map((diagnostic) => DiagnosticSchema.parse(diagnostic));
   return MarketplaceReadResultSchema.parse({
     marketplace: mergedMarketplace,

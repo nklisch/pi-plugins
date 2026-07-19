@@ -46,7 +46,7 @@ const previousRecord: InstalledRevisionRecord = createInstalledRevisionRecord({
   marketplaceSourceIdentity: deriveMarketplaceSourceIdentity(declaredMarketplace, sha256),
   pluginSourceIdentity: derivePluginSourceIdentity(declaredPluginSource, sha256),
 }, sha256);
-const policy = createMarketplaceConfigurationRecord({ marketplace: "community", source: declaredMarketplace, updateApplication: "automatic" });
+const policy = createMarketplaceConfigurationRecord({ marketplace: "community", source: declaredMarketplace, applicationOverride: "automatic" });
 const candidate = createTrustCandidate({ scope: { kind: "user" }, marketplaceSource, plugin, compatibility, content, materializationBinding: binding }, sha256);
 const trust = grantTrust(candidate, sha256);
 const projectIdentity = { kind: "path-only" as const, canonicalRoot: "file:///workspace/project/", limitation: "identity-changes-with-canonical-root" as const };

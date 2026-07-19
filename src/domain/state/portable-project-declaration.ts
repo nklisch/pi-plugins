@@ -8,7 +8,6 @@ import {
   MarketplaceSourceVariantRegistry,
   PluginSourceSchema,
 } from "../source.js";
-import { defineVersionedSchemaFamily } from "./versioning.js";
 
 /** Portable marketplace sources intentionally omit local-git. */
 export const PortableMarketplaceSourceSchema = z
@@ -425,8 +424,13 @@ function addDuplicateIssues<T extends { readonly [key: string]: unknown }>(
   }
 }
 
-/** The only fields that can cross the portable project declaration boundary. */
-export const PortableProjectDeclarationSchemaV1 = z
+/**
+ * The only fields that can cross the portable project declaration boundary.
+ * The literal version remains so a future clean cut-over can recognize stale
+ * documents; stale versions are reinitialized by the state codec, never
+ * migrated.
+ */
+export const PortableProjectDeclarationSchema = z
   .object({
     schemaVersion: z.literal(1),
     marketplaces: z.array(PortableMarketplaceDeclarationSchema).max(256).readonly(),
@@ -452,18 +456,9 @@ export const PortableProjectDeclarationSchemaV1 = z
       );
     }
   });
-export type PortableProjectDeclarationV1 = z.infer<
-  typeof PortableProjectDeclarationSchemaV1
+export type PortableProjectDeclaration = z.infer<
+  typeof PortableProjectDeclarationSchema
 >;
-
-export const PortableProjectSchemaFamily = defineVersionedSchemaFamily({
-  latestVersion: 1,
-  versions: new Map([[1, PortableProjectDeclarationSchemaV1]]),
-  migrations: new Map(),
-});
-
-export const PortableProjectDeclarationSchema = PortableProjectDeclarationSchemaV1;
-export type PortableProjectDeclaration = PortableProjectDeclarationV1;
 
 /**
  * Decode one complete `.pi/plugins.json` value. No partial collection result is
@@ -471,9 +466,9 @@ export type PortableProjectDeclaration = PortableProjectDeclarationV1;
  */
 export function parsePortableProjectDeclaration(
   input: unknown,
-): PortableProjectDeclarationV1 {
+): PortableProjectDeclaration {
   assertPortableProjectDeclarationSafe(input);
-  return PortableProjectDeclarationSchemaV1.parse(input);
+  return PortableProjectDeclarationSchema.parse(input);
 }
 
 /** Explicit decoder spelling for callers that model JSON boundaries as codecs. */

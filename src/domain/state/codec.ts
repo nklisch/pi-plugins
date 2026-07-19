@@ -2,36 +2,26 @@ import { z } from "zod";
 import {
   MarketplaceConfigurationRecordSchema,
   HostConfigDocumentSchema,
-  HostConfigSchemaFamily,
-  projectHostConfigV1ToV2,
-  type HostConfigDocumentV1,
+  GenerationSchema,
+  type Generation,
 } from "./config-state.js";
 import {
   InstalledUserStateDocumentSchema,
   createInstalledPluginRecord,
   createMarketplaceSnapshotRecord,
-  createInstalledUserStateDocumentV2,
   type InstalledPluginRecord,
-  type InstalledUserStateDocumentV1,
   type InstalledUserStateDocument,
 } from "./installed-state.js";
 import {
   ProjectLocalStateDocumentSchema,
-  createProjectLocalStateDocumentV4,
-  type ProjectLocalStateDocumentV1,
+  UNSYNCHRONIZED_PORTABLE_INTENT,
+  createProjectLocalStateDocument,
 } from "./project-state.js";
+import { PortableProjectDeclarationSchema } from "./portable-project-declaration.js";
+import { StatePointersDocumentSchema } from "./pointers.js";
 import {
-  PortableProjectDeclarationSchemaV1,
-  type PortableProjectDeclarationV1,
-} from "./portable-project-declaration.js";
-import {
-  StatePointersDocumentSchemaV1,
-  type StatePointersDocumentV1,
-} from "./pointers.js";
-import {
-  TrustStateDocumentSchemaV1,
+  TrustStateDocumentSchema,
   createTrustStateRecord,
-  type TrustStateDocumentV1,
   type TrustStateRecord,
 } from "./trust-state.js";
 import {
@@ -58,20 +48,18 @@ import { JsonValueSchema, type JsonValue } from "../schema.js";
 import { MarketplaceNameSchema, PluginKeySchema } from "../identity.js";
 import {
   MarketplaceRegistrationRecordSchema,
-  MarketplaceRegistrationRecordSchemaV3,
-  migrateMarketplaceRegistrationRecordV3,
   type MarketplaceRegistrationRecord,
 } from "../update-policy.js";
 import { TrustSubjectRefSchema } from "./references.js";
 import { serializeMarketplaceSource, type Sha256 } from "../source.js";
-import { GenerationSchema, type Generation } from "./config-state.js";
-import { migrateVersionedDocument, StateSchemaVersionSchema } from "./versioning.js";
+
+/** A readable version field; anything else is malformed, not stale. */
+const StateDocumentVersionFieldSchema = z.number().int().positive().safe();
 
 
 /** Registry-owned corruption codes and fixed summaries. */
 export const StateCorruptionCodeRegistry = {
   documentInvalid: { code: "DOCUMENT_INVALID", summary: "state document is invalid" },
-  versionUnsupported: { code: "VERSION_UNSUPPORTED", summary: "state document version is unsupported" },
   generationMismatch: { code: "GENERATION_MISMATCH", summary: "state document generation is not selected" },
   scopeMismatch: { code: "SCOPE_MISMATCH", summary: "state document scope is not selected" },
   recordInvalid: { code: "RECORD_INVALID", summary: "state record was quarantined" },
@@ -163,6 +151,27 @@ export class StateCodecError extends Error {
   }
 }
 
+/**
+ * Raised when the pointers index carries a stale or unknown schema version. A
+ * pointer document indexes every other blob, so it has no meaningful empty
+ * default of its own: the clean cut-over reinitializes the whole scope, which
+ * the state store performs. This is deliberately not a StateCodecError — a
+ * version cut-over is reinitialization, not corruption.
+ */
+export class StateVersionCutoverError extends Error {
+  readonly document: StateDocumentKind;
+  readonly foundVersion: number;
+  readonly currentVersion: number;
+
+  constructor(document: StateDocumentKind, foundVersion: number, currentVersion: number) {
+    super(`state document version ${foundVersion} is cut over to current version ${currentVersion}`);
+    this.name = "StateVersionCutoverError";
+    this.document = document;
+    this.foundVersion = foundVersion;
+    this.currentVersion = currentVersion;
+  }
+}
+
 function assertSha256(sha256: Sha256): void {
   if (typeof sha256 !== "function") throw new TypeError("state codec requires a SHA-256 function");
 }
@@ -225,7 +234,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readVersion(input: unknown): number | undefined {
   if (!isRecord(input)) return undefined;
-  const result = StateSchemaVersionSchema.safeParse(input.schemaVersion);
+  const result = StateDocumentVersionFieldSchema.safeParse(input.schemaVersion);
   return result.success ? result.data : undefined;
 }
 
@@ -264,61 +273,62 @@ function parseRoot<K extends StateDocumentKind>(
   input: unknown,
   scope: ScopeReference,
 ): Record<string, unknown> {
-  const definition = getStateDocumentDefinition(kind);
-  const version = readVersion(input);
-  if (version === undefined || version > definition.family.latestVersion || !definition.family.latestVersion) {
-    fatal(kind, scope, version === undefined ? "DOCUMENT_INVALID" : "VERSION_UNSUPPORTED");
-  }
-
-  let candidate = input;
-  if (version !== definition.family.latestVersion) {
-    try {
-      // Record-isolating decoders must not let one malformed legacy child
-      // prevent valid siblings from migrating. Upgrade only the tolerant root;
-      // each child is validated independently below.
-      if ((version === 1 || version === 2 || version === 3) && kind === "hostConfig" && isRecord(input) && Array.isArray(input.records)) {
-        const v2 = version === 1
-          ? projectHostConfigV1ToV2(input as Readonly<{ records: readonly unknown[] }>)
-          : input;
-        const v3Records = (v2.records as readonly unknown[]).map((record) => version === 3
-          ? record
-          : isRecord(record) ? { ...record, origin: { kind: "legacy" } } : record);
-        candidate = {
-          ...v2,
-          schemaVersion: 4,
-          global: { application: "manual", cadence: "balanced" },
-          scope: {},
-          records: v3Records.map((record) => {
-            const parsed = MarketplaceRegistrationRecordSchemaV3.safeParse(record);
-            return parsed.success ? migrateMarketplaceRegistrationRecordV3(parsed.data) : record;
-          }),
-        };
-      } else if ((version === 1 || version === 2 || version === 3) && kind === "projectLocal" && isRecord(input)) {
-        const updates = version === 1 ? [] : Array.isArray(input.marketplaceUpdates) ? input.marketplaceUpdates : [];
-        const v3Updates = updates.map((record) => version === 3 ? record : isRecord(record) ? { ...record, origin: { kind: "legacy" } } : record);
-        candidate = {
-          ...input,
-          schemaVersion: 4,
-          scope: {},
-          marketplaceUpdates: v3Updates.map((record) => {
-            const parsed = MarketplaceRegistrationRecordSchemaV3.safeParse(record);
-            return parsed.success ? migrateMarketplaceRegistrationRecordV3(parsed.data) : record;
-          }),
-        };
-      } else if (version === 1 && kind === "installedUser" && isRecord(input)) {
-        candidate = { ...input, schemaVersion: 2 };
-      } else {
-        candidate = migrateVersionedDocument(definition.family, input);
-      }
-    } catch {
-      fatal(kind, scope, "VERSION_UNSUPPORTED");
-    }
-  }
-  const parsed = rootSchemas[kind].safeParse(candidate);
+  const parsed = rootSchemas[kind].safeParse(input);
   if (!parsed.success || !isRecord(parsed.data)) {
     fatal(kind, scope, "DOCUMENT_INVALID");
   }
   return parsed.data;
+}
+
+/**
+ * Clean cut-over: a document at a stale or unknown (but readable) schema
+ * version is reinitialized to the kind's empty default for the requested
+ * context — never migrated and never reported as corruption. The fresh root
+ * carries the context generation so the enclosing snapshot stays coherent.
+ */
+function cutoverDocumentRoot(
+  kind: Exclude<StateDocumentKind, "pointers">,
+  context: ReturnType<typeof assertContext>,
+): Record<string, unknown> {
+  const generation = context.generation;
+  // The registry owns the current version; defaults only shape the empty doc.
+  const schemaVersion = getStateDocumentDefinition(kind).schemaVersion;
+  switch (kind) {
+    case "hostConfig":
+      return {
+        schemaVersion,
+        generation,
+        global: { application: "manual", cadence: "balanced" },
+        scope: {},
+        records: [],
+      };
+    case "installedUser":
+      return { schemaVersion, generation, marketplaces: [], plugins: [] };
+    case "trust":
+      return { schemaVersion, generation, records: [] };
+    case "projectLocal": {
+      // A project cut-over keeps the scope's verified identity evidence and
+      // marks the declaration digest as never synchronized. Enclosing-context
+      // validation still rejects a mismatched user-scope decode below.
+      const scope = context.scope;
+      return {
+        schemaVersion,
+        generation,
+        projectKey: scope.kind === "project" ? scope.projectKey : "",
+        identity: scope.kind === "project" ? scope.identity : {},
+        declarationDigest: hashContent(
+          new TextEncoder().encode(UNSYNCHRONIZED_PORTABLE_INTENT),
+          context.sha256,
+        ),
+        scope: {},
+        marketplaces: [],
+        plugins: [],
+        marketplaceUpdates: [],
+      };
+    }
+    case "portableProject":
+      return { schemaVersion, marketplaces: [], plugins: [] };
+  }
 }
 
 function validateEnclosingContext(
@@ -499,10 +509,10 @@ function decodeDocument<K extends StateDocumentKind>(
   const sha256 = context.sha256;
 
   if (kind === "pointers") {
-    return { value: StatePointersDocumentSchemaV1.parse(root) as StateDocumentFor<K>, corruptions: [] };
+    return { value: StatePointersDocumentSchema.parse(root) as StateDocumentFor<K>, corruptions: [] };
   }
   if (kind === "portableProject") {
-    return { value: PortableProjectDeclarationSchemaV1.parse(root) as StateDocumentFor<K>, corruptions: [] };
+    return { value: PortableProjectDeclarationSchema.parse(root) as StateDocumentFor<K>, corruptions: [] };
   }
   if (kind === "hostConfig") {
     const decoded = decodeRecords(kind, root.records, scope, (candidate) => MarketplaceConfigurationRecordSchema.parse(candidate));
@@ -511,7 +521,7 @@ function decodeDocument<K extends StateDocumentKind>(
   }
   if (kind === "trust") {
     const decoded = decodeRecords(kind, root.records, scope, (candidate) => createTrustStateRecord(candidate, sha256));
-    const value = TrustStateDocumentSchemaV1.parse({ ...root, records: decoded.records });
+    const value = TrustStateDocumentSchema.parse({ ...root, records: decoded.records });
     return { value: value as StateDocumentFor<K>, corruptions: decoded.corruptions };
   }
 
@@ -523,8 +533,8 @@ function decodeDocument<K extends StateDocumentKind>(
     const value = InstalledUserStateDocumentSchema.parse({ ...root, marketplaces: marketplaces.records, plugins: filtered.records });
     return { value: value as StateDocumentFor<K>, corruptions: filtered.corruptions };
   }
-  // Project plugins resolve through the host-global marketplace registry; only
-  // retained legacy project registrations require local snapshot coverage.
+  // Project plugins resolve through the host-global marketplace registry;
+  // only retained project registrations require local snapshot coverage.
   const registrations = decodeProjectMarketplaceRegistrations(root.marketplaceUpdates ?? [], marketplaces.records, scope);
   const value = ProjectLocalStateDocumentSchema.parse({ ...root, marketplaces: marketplaces.records, plugins: installed.records, marketplaceUpdates: registrations.records });
   return { value: value as StateDocumentFor<K>, corruptions: [...collectionCorruptions, ...registrations.corruptions] };
@@ -609,35 +619,28 @@ function validateForEncoding<K extends StateDocumentKind>(
     throw new Error("state document generation does not match the requested generation");
   }
   if (kind === "hostConfig") {
-    let value: unknown = input;
-    if (isRecord(input) && input.schemaVersion !== HostConfigSchemaFamily.latestVersion) {
-      value = migrateVersionedDocument(HostConfigSchemaFamily, input);
-    }
-    return HostConfigDocumentSchema.parse(value) as StateDocumentFor<K>;
+    return HostConfigDocumentSchema.parse(input) as StateDocumentFor<K>;
   }
   if (kind === "trust") {
-    const value = TrustStateDocumentSchemaV1.parse(input);
+    const value = TrustStateDocumentSchema.parse(input);
     const records = value.records.map((record) => createTrustStateRecord(record, context.sha256));
-    return TrustStateDocumentSchemaV1.parse({ ...value, records }) as StateDocumentFor<K>;
+    return TrustStateDocumentSchema.parse({ ...value, records }) as StateDocumentFor<K>;
   }
   if (kind === "installedUser") {
     if (context.scope.kind !== "user") throw new Error("installed user state requires user scope");
-    const value = input as InstalledUserStateDocument;
-    const normalized = isRecord(value) && (value as { readonly schemaVersion?: unknown }).schemaVersion === 1
-      ? createInstalledUserStateDocumentV2(value, context.sha256)
-      : InstalledUserStateDocumentSchema.parse(value);
+    const value = InstalledUserStateDocumentSchema.parse(input);
     return InstalledUserStateDocumentSchema.parse({
-      ...normalized,
-      marketplaces: normalized.marketplaces.map((record) => createMarketplaceSnapshotRecord(record, context.sha256)),
-      plugins: normalized.plugins.map((record) => createInstalledPluginRecord({ ...record, scope: context.scopeReference }, context.sha256)),
+      ...value,
+      marketplaces: value.marketplaces.map((record) => createMarketplaceSnapshotRecord(record, context.sha256)),
+      plugins: value.plugins.map((record) => createInstalledPluginRecord({ ...record, scope: context.scopeReference }, context.sha256)),
     }) as StateDocumentFor<K>;
   }
   if (kind === "projectLocal") {
     if (context.scope.kind !== "project") throw new Error("project-local state requires project scope");
-    return createProjectLocalStateDocumentV4(input, context.scope, context.sha256) as StateDocumentFor<K>;
+    return createProjectLocalStateDocument(input, context.scope, context.sha256) as StateDocumentFor<K>;
   }
-  if (kind === "portableProject") return PortableProjectDeclarationSchemaV1.parse(input) as StateDocumentFor<K>;
-  const pointers = StatePointersDocumentSchemaV1.parse(input);
+  if (kind === "portableProject") return PortableProjectDeclarationSchema.parse(input) as StateDocumentFor<K>;
+  const pointers = StatePointersDocumentSchema.parse(input);
   if (!sameScope(pointers.scope, context.scopeReference) || pointers.generation !== context.generation) {
     throw new Error("state pointer scope or generation does not match the requested context");
   }
@@ -654,7 +657,7 @@ export function hashStateDocument(input: JsonValue, sha256: Sha256): ContentDige
   return hashContent(jsonBytes(input), sha256);
 }
 
-/** Verify the raw canonical document before any migration, normalization, or record isolation. */
+/** Verify the raw canonical document before any normalization or record isolation. */
 function verifyRawDigest(
   kind: StateDocumentKind,
   input: unknown,
@@ -682,7 +685,23 @@ export function decodeStateDocument<K extends StateDocumentKind>(
   const parsedKind = StateDocumentKindSchema.parse(kind) as K;
   const parsedContext = assertContext(context);
   verifyRawDigest(parsedKind, input, parsedContext.scopeReference, context.expectedDigest, parsedContext.sha256);
-  const root = parseRoot(parsedKind, input, parsedContext.scopeReference);
+  const definition = getStateDocumentDefinition(parsedKind);
+  const version = readVersion(input);
+  if (version === undefined) {
+    fatal(parsedKind, parsedContext.scopeReference, "DOCUMENT_INVALID");
+  }
+  let root: Record<string, unknown>;
+  if (version !== definition.schemaVersion) {
+    // Clean cut-over: stale or unknown versions reinitialize to the empty
+    // default. Only the pointers index cannot reinitialize a single document,
+    // because it names every other blob in the generation.
+    if (parsedKind === "pointers") {
+      throw new StateVersionCutoverError(parsedKind, version, definition.schemaVersion);
+    }
+    root = cutoverDocumentRoot(parsedKind, parsedContext);
+  } else {
+    root = parseRoot(parsedKind, input, parsedContext.scopeReference);
+  }
   validateEnclosingContext(parsedKind, root, parsedContext);
   let decoded: DecodedDocument<StateDocumentFor<K>>;
   try {
@@ -708,14 +727,8 @@ export function encodeStateDocument<K extends StateDocumentKind>(
 
 export type {
   ContentDigest,
-  HostConfigDocumentV1,
-  InstalledUserStateDocumentV1,
-  ProjectLocalStateDocumentV1,
-  PortableProjectDeclarationV1,
   StateDocumentByKind,
   StateDocumentFor,
   StateDocumentKind,
-  StatePointersDocumentV1,
-  TrustStateDocumentV1,
   TrustStateRecord,
 };

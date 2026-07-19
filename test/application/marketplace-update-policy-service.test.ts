@@ -7,10 +7,10 @@ import {
   deriveUpdateCandidateKey,
   type MarketplaceUpdateRecord,
 } from "../../src/domain/update-policy.js";
-import { HostConfigDocumentSchemaV4, GenerationSchema } from "../../src/domain/state/config-state.js";
-import { InstalledUserStateDocumentSchemaV2 } from "../../src/domain/state/installed-state.js";
-import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
-import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
+import { HostConfigDocumentSchema, GenerationSchema } from "../../src/domain/state/config-state.js";
+import { InstalledUserStateDocumentSchema } from "../../src/domain/state/installed-state.js";
+import { StatePointersDocumentSchema } from "../../src/domain/state/pointers.js";
+import { TrustStateDocumentSchema } from "../../src/domain/state/trust-state.js";
 import { deriveStateBlobRef } from "../../src/domain/state/references.js";
 import type { GenerationSnapshot } from "../../src/application/state-contract.js";
 import type { GenerationMutationCoordinator } from "../../src/application/generation-mutation-coordinator.js";
@@ -27,7 +27,7 @@ function snapshot(record: MarketplaceUpdateRecord): Extract<GenerationSnapshot, 
   return {
     scope: { kind: "user" },
     generation,
-    pointers: StatePointersDocumentSchemaV1.parse({
+    pointers: StatePointersDocumentSchema.parse({
       schemaVersion: 1,
       scope: { kind: "user" },
       generation,
@@ -38,9 +38,9 @@ function snapshot(record: MarketplaceUpdateRecord): Extract<GenerationSnapshot, 
         digest: digest("a"),
       })),
     }),
-    config: HostConfigDocumentSchemaV4.parse({ schemaVersion: 4, generation, global: { application: "manual", cadence: "balanced" }, scope: {}, records: [record] }),
-    installed: InstalledUserStateDocumentSchemaV2.parse({ schemaVersion: 2, generation, marketplaces: [], plugins: [] }),
-    trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation, records: [] }),
+    config: HostConfigDocumentSchema.parse({ schemaVersion: 4, generation, global: { application: "manual", cadence: "balanced" }, scope: {}, records: [record] }),
+    installed: InstalledUserStateDocumentSchema.parse({ schemaVersion: 2, generation, marketplaces: [], plugins: [] }),
+    trust: TrustStateDocumentSchema.parse({ schemaVersion: 1, generation, records: [] }),
     corruptions: [],
   };
 }
@@ -78,15 +78,28 @@ describe("marketplace update policy service", () => {
       refresh: {
         claim: { id: "refresh-claim-v1:uuid:123e4567-e89b-42d3-a456-426614174000", startedAt: 10, expiresAt: 20 },
         lastCompletedAt: 9,
-        nextScheduledAt: 200,
+        schedule: { anchorAt: 0, baseDelayMs: 200, jitterMs: 0, dueAt: 200, reason: "success" },
         consecutiveFailures: 3,
       },
-      notifications: [{
+      notices: [{
+        id: `update-notice-v1:sha256:${"c".repeat(64)}`,
         scope: { kind: "user" },
         plugin: "demo@community",
+        registrationId: `marketplace-registration-v1:sha256:${"c".repeat(64)}`,
+        snapshot: `marketplace-snapshot-v1:sha256:${"c".repeat(64)}`,
+        candidateId: `marketplace-candidate-v1:sha256:${"c".repeat(64)}`,
         candidate,
+        available: {
+          immutableRevision: digest("b"),
+          marketplaceSourceIdentity,
+          pluginSourceIdentity,
+          sourceRevision: "b".repeat(40),
+        },
         display: { installed: "1.0.0", available: "1.1.0" },
-        phase: "discovered",
+        disposition: "manual-required",
+        publication: "pending",
+        unread: true,
+        discoveredAt: 9,
       }],
     });
     const current = snapshot(record);

@@ -118,12 +118,14 @@ describe("MCP compatibility plan", () => {
     { transport: "stdio", type: "http", command: "server" },
     { transport: "streamable-http", url: "https://user:CANARY_PASSWORD@example.invalid" },
     { transport: "streamable-http", url: "https://example.invalid", auth: { type: "bearer", env: "CANARY_ENV", flow: "authorization-code" } },
-  ])("fails closed for ambiguous or credential-bearing shape %#", (declaration) => {
+  ])("degrades ambiguous or credential-bearing shape without serializing secrets %#", (declaration) => {
     const result = analyzeMcpCompatibility({
       plugin: "demo@community",
       component: component(declaration),
     });
-    expect(result.kind).toBe("incompatible");
+    // Degraded servers are retained as metadata only: skipped at activation,
+    // never executed with ambiguous or literal-credential declarations.
+    expect(result.kind).toBe("metadata-only");
     expect(JSON.stringify(result)).not.toMatch(/CANARY_/u);
   });
 });

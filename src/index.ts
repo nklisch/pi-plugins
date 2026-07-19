@@ -280,11 +280,8 @@ export {
   MarketplaceRegistrationOriginSchema,
   MarketplaceRefreshAttemptSchema,
   MarketplaceRefreshMemorySchema,
-  UpdateNotificationMemorySchema,
-  MarketplaceRegistrationRecordSchemaV3,
   MarketplaceRegistrationRecordSchema,
   MarketplaceUpdateRecordSchema,
-  migrateMarketplaceRegistrationRecordV3,
   refreshDueAt,
   deriveMarketplaceSourceIdentity,
   derivePluginSourceIdentity,
@@ -321,13 +318,18 @@ export type {
   MarketplaceRegistrationOrigin,
   MarketplaceRefreshAttempt,
   MarketplaceRefreshMemory,
-  UpdateNotificationMemory,
-  MarketplaceRegistrationRecordV3,
   MarketplaceRegistrationRecord,
   MarketplaceUpdateRecord,
   RevisionComparison,
   InstalledRevisionDescriptor,
 } from "./domain/update-policy.js";
+
+export {
+  HostPrecedenceSchema,
+  DEFAULT_HOST_PRECEDENCE,
+  hostRank,
+} from "./domain/host-precedence.js";
+export type { HostPrecedence } from "./domain/host-precedence.js";
 
 export {
   ComponentVerdictRegistry,
@@ -925,17 +927,6 @@ export type { NodePluginInspectorOptions } from "./composition/create-plugin-ins
 // port; physical paths, locks, secret stores, projections, and operations stay
 // outside the package boundary.
 export {
-  StateSchemaVersionSchema,
-  defineVersionedSchemaFamily,
-  migrateVersionedDocument,
-} from "./domain/state/versioning.js";
-export type {
-  StateSchemaVersion,
-  StateMigration,
-  VersionedSchemaFamily,
-} from "./domain/state/versioning.js";
-
-export {
   CanonicalProjectRootSchema,
   ProjectIdentitySchema,
   ProjectKeySchema,
@@ -1002,24 +993,14 @@ export {
   GenerationSchema,
   UpdateApplicationPreferenceSchema,
   MarketplaceConfigurationRecordSchema,
-  HostConfigDocumentSchemaV1,
-  HostConfigDocumentSchemaV2,
-  HostConfigDocumentSchemaV3,
-  HostConfigDocumentSchemaV4,
   HostUpdateGlobalPolicySchema,
   HostUpdateScopePolicySchema,
   HostConfigDocumentSchema,
-  projectHostConfigV3ToV4,
-  HostConfigSchemaFamily,
 } from "./domain/state/config-state.js";
 export type {
   Generation,
   UpdateApplicationPreference,
   MarketplaceConfigurationRecord,
-  HostConfigDocumentV1,
-  HostConfigDocumentV2,
-  HostConfigDocumentV3,
-  HostConfigDocumentV4,
   HostUpdateGlobalPolicy,
   HostUpdateScopePolicy,
   HostConfigDocument,
@@ -1031,9 +1012,7 @@ export {
   PortablePluginConstraintSchema,
   PortableMarketplaceDeclarationSchema,
   PortablePluginDeclarationSchema,
-  PortableProjectDeclarationSchemaV1,
   PortableProjectDeclarationSchema,
-  PortableProjectSchemaFamily,
   isSafePortableRelativePath,
   assertPortableProjectDeclarationSafe,
   parsePortableProjectDeclaration,
@@ -1045,7 +1024,6 @@ export type {
   PortablePluginConstraint,
   PortableMarketplaceDeclaration,
   PortablePluginDeclaration,
-  PortableProjectDeclarationV1,
   PortableProjectDeclaration,
 } from "./domain/state/portable-project-declaration.js";
 
@@ -1061,10 +1039,7 @@ export {
   MarketplaceSnapshotRecordSchema,
   InstalledRevisionRecordSchema,
   InstalledPluginRecordSchema,
-  InstalledUserStateDocumentSchemaV1,
   InstalledUserStateDocumentSchema,
-  InstalledUserStateSchema,
-  InstalledUserStateSchemaFamily,
   createMarketplaceSnapshotRecord,
   createInstalledRevisionRecord,
   deriveStablePluginDataRef,
@@ -1088,29 +1063,17 @@ export type {
   MarketplaceSnapshotRecord,
   InstalledRevisionRecord,
   InstalledPluginRecord,
-  InstalledUserStateDocumentV1,
   InstalledUserStateDocument,
   InstalledRecordQuarantine,
   InstalledRecordCollectionDecode,
 } from "./domain/state/installed-state.js";
 
 export {
-  ProjectLocalStateDocumentSchemaV1,
-  ProjectLocalStateDocumentSchemaV2,
-  ProjectLocalStateDocumentSchemaV3,
-  ProjectLocalStateDocumentSchemaV4,
   ProjectLocalStateDocumentSchema,
-  createProjectLocalStateDocumentV4,
-  projectProjectLocalV3ToV4,
-  ProjectLocalStateSchemaFamily,
   createProjectLocalStateDocument,
   decodeProjectPlugins,
 } from "./domain/state/project-state.js";
 export type {
-  ProjectLocalStateDocumentV1,
-  ProjectLocalStateDocumentV2,
-  ProjectLocalStateDocumentV3,
-  ProjectLocalStateDocumentV4,
   ProjectLocalStateDocument,
   ProjectPluginRecordCollectionDecode,
 } from "./domain/state/project-state.js";
@@ -1120,9 +1083,7 @@ export {
   StateDocumentKindSchema,
   PointerDocumentKindSchema,
   StateDocumentPointerSchema,
-  StatePointersDocumentSchemaV1,
   StatePointersDocumentSchema,
-  StatePointersSchemaFamily,
   createStatePointersDocument,
   verifyStatePointersScope,
 } from "./domain/state/pointers.js";
@@ -1130,7 +1091,6 @@ export type {
   StateDocumentKind,
   PointerDocumentKind,
   StateDocumentPointer,
-  StatePointersDocumentV1,
   StatePointersDocument,
 } from "./domain/state/pointers.js";
 
@@ -1139,9 +1099,7 @@ export {
   ImmutableRevisionEvidenceSchema,
   TrustSubjectEvidenceSchema,
   TrustStateRecordSchema,
-  TrustStateDocumentSchemaV1,
   TrustStateDocumentSchema,
-  TrustStateSchemaFamily,
   createTrustStateRecord,
   verifyTrustStateRecord,
   createTrustStateDocument,
@@ -1152,7 +1110,6 @@ export type {
   ImmutableRevisionEvidence,
   TrustSubjectEvidence,
   TrustStateRecord,
-  TrustStateDocumentV1,
   TrustStateDocument,
 } from "./domain/state/trust-state.js";
 
@@ -1178,6 +1135,7 @@ export {
   StateCorruptionLocationSchema,
   StateCorruptionSchema,
   StateCodecError,
+  StateVersionCutoverError,
   hashStateDocument,
   decodeStateDocument,
   encodeStateDocument,
@@ -1612,6 +1570,24 @@ export type {
   NativeUpdatePolicyServiceDependencies,
 } from "./application/native-update-policy-service.js";
 export type { UpdatePolicyAuthorityPort } from "./application/ports/update-policy-authority.js";
+export {
+  HostPrecedenceOrderSchema,
+  NativeHostPrecedenceRequestSchema,
+  NativeHostPrecedenceResultSchema,
+} from "./application/host-precedence-contract.js";
+export type {
+  HostPrecedenceOrder,
+  NativeHostPrecedenceRequest,
+  NativeHostPrecedenceResult,
+} from "./application/host-precedence-contract.js";
+export {
+  createHostPrecedenceProvider,
+  createHostPrecedenceService,
+} from "./application/host-precedence-service.js";
+export type {
+  HostPrecedenceService,
+  HostPrecedenceServiceDependencies,
+} from "./application/host-precedence-service.js";
 export { createNativeUpdateManagementService } from "./application/native-update-management-service.js";
 export type { NativeUpdateManagementService } from "./application/native-update-management-service.js";
 export { createNativeUpdateManagementComposition } from "./composition/create-native-update-management-service.js";

@@ -58,7 +58,7 @@ describe("SQLite lifecycle state store", () => {
     const mutation = parseStateMutation({
       scope: { kind: "user" },
       expectedGeneration: 0,
-      replace: { config: { schemaVersion: 3, generation: 0, records: [] } },
+      replace: { config: { schemaVersion: 4, generation: 0, records: [] } },
     }, sha256);
     const [first, second] = await Promise.all([
       adapters.state.commit(mutation, signal),
@@ -73,26 +73,37 @@ describe("SQLite lifecycle state store", () => {
     database.close();
   });
 
-  it("fails closed on pointer corruption instead of replacing it with defaults", async () => {
+  it("reinitializes the scope for a stale pointer version without reporting corruption", async () => {
     const { paths, project, adapters } = await fixture();
     await adapters.close();
     const database = new DatabaseSync(paths.stateDatabase({ kind: "user" }));
     database.prepare("UPDATE current_pointer SET pointer_json = ? WHERE singleton = 1").run('{"schemaVersion":99}');
     database.close();
-    const degraded = await createNodeLifecycleStateAdapters({
+    const reopened = await createNodeLifecycleStateAdapters({
       paths,
       currentProject: project,
       sha256,
       verifyLocalFilesystem: async () => {},
     });
-    const corruptRead = await degraded.state.read({ kind: "user" }, new AbortController().signal);
-    expect(corruptRead.ok).toBe(false);
-    if (corruptRead.ok) throw new Error("corrupt pointer unexpectedly loaded");
-    expect(corruptRead.corruptions.map((corruption) => corruption.code)).toContain("VERSION_UNSUPPORTED");
-    await expect(degraded.state.read(project, new AbortController().signal)).resolves.toMatchObject({ ok: true });
+    // A stale pointer version is a clean cut-over: the scope is reinitialized
+    // to fresh generation-zero defaults instead of degrading as corruption.
+    const cutover = await reopened.state.read({ kind: "user" }, new AbortController().signal);
+    expect(cutover).toMatchObject({
+      ok: true,
+      snapshot: {
+        generation: 0,
+        config: { schemaVersion: 4, records: [] },
+        installed: { schemaVersion: 2, marketplaces: [], plugins: [] },
+        trust: { schemaVersion: 1, records: [] },
+        corruptions: [],
+      },
+    });
+    await expect(reopened.state.read(project, new AbortController().signal)).resolves.toMatchObject({ ok: true });
     const verify = new DatabaseSync(paths.stateDatabase({ kind: "user" }), { readOnly: true });
-    expect(verify.prepare("SELECT pointer_json FROM current_pointer WHERE singleton = 1").get()).toEqual({ pointer_json: '{"schemaVersion":99}' });
+    expect(verify.prepare("SELECT generation, pointer_json FROM current_pointer WHERE singleton = 1").get()).toMatchObject({ generation: 0 });
+    expect((verify.prepare("SELECT pointer_json FROM current_pointer WHERE singleton = 1").get() as { pointer_json: string }).pointer_json)
+      .not.toBe('{"schemaVersion":99}');
     verify.close();
-    await degraded.close();
+    await reopened.close();
   });
 });

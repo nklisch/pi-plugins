@@ -14,6 +14,7 @@ import {
   createPluginRuntimeProjection,
 } from "../application/ports/runtime-projection.js";
 import type { RuntimeProjectionCachePort } from "../application/runtime-projection-cache.js";
+import { CompatibilityReportSchema } from "../domain/compatibility.js";
 import { createTrustCandidate } from "../domain/trust-policy.js";
 import type { InstalledPluginRecord } from "../domain/state/installed-state.js";
 import { toScopeReference, type ScopeContext, type ScopeReference } from "../domain/state/scope.js";
@@ -144,7 +145,13 @@ export async function buildRuntimeDesiredState(input: Readonly<{
     }
     try {
       const loaded = await input.installed.load({ scope: entry.scope, revision }, signal);
-      const compatibility = await input.compatibility.assess({ plugin: loaded.plugin }, signal);
+      // Use the install-time report, not a fresh assessment: the candidate
+      // path evaluates with the marketplace entry's installation policy, and
+      // the stored descriptor carries that exact report. Re-assessing here
+      // without the policy produces a different compatibility digest, which
+      // makes every runtime projection diverge from its install-time
+      // expectation and strands installs in recovery-required.
+      const compatibility = CompatibilityReportSchema.parse(loaded.compatibility);
       if (!compatibility.activatable) {
         blocked.push({ plugin: entry.record.plugin, code: "CAPABILITY_UNAVAILABLE", explanation: "current runtime capabilities do not support the complete plugin" });
         continue;

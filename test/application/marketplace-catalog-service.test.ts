@@ -3,11 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { createMarketplaceCatalogService } from "../../src/application/marketplace-catalog-service.js";
 import { createMarketplaceConfigurationRecord } from "../../src/domain/update-policy.js";
 import { createContentManifest, createMaterializationBinding } from "../../src/domain/content-manifest.js";
-import { createMarketplaceSnapshotRecord, InstalledUserStateDocumentSchemaV2 } from "../../src/domain/state/installed-state.js";
+import { createMarketplaceSnapshotRecord, InstalledUserStateDocumentSchema } from "../../src/domain/state/installed-state.js";
 import { createResolvedMarketplaceSource, type Sha256 } from "../../src/domain/source.js";
-import { HostConfigDocumentSchemaV4, GenerationSchema } from "../../src/domain/state/config-state.js";
-import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
-import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
+import { HostConfigDocumentSchema, GenerationSchema } from "../../src/domain/state/config-state.js";
+import { TrustStateDocumentSchema } from "../../src/domain/state/trust-state.js";
+import { StatePointersDocumentSchema } from "../../src/domain/state/pointers.js";
 import { deriveStateBlobRef } from "../../src/domain/state/references.js";
 import { deriveProjectKey } from "../../src/domain/state/scope.js";
 import { readClaudeMarketplace } from "../../src/formats/claude/marketplace-reader.js";
@@ -23,7 +23,7 @@ function fixture(options: Readonly<{ currentProject?: boolean }> = {}) {
   const resolved = createResolvedMarketplaceSource({ declared: source, revision: "a".repeat(40) }, sha256);
   const content = createContentManifest([], sha256);
   const snapshot = createMarketplaceSnapshotRecord({ marketplace: "community", source: resolved, content, binding: createMaterializationBinding(resolved.hash, content.rootDigest, sha256) }, sha256);
-  const record = createMarketplaceConfigurationRecord({ marketplace: "community", source, refresh: { nextScheduledAt: 2_000, consecutiveFailures: 0 } });
+  const record = createMarketplaceConfigurationRecord({ marketplace: "community", source });
   const catalog = readClaudeMarketplace({
     name: "community",
     plugins: [
@@ -37,7 +37,7 @@ function fixture(options: Readonly<{ currentProject?: boolean }> = {}) {
     return {
       scope: { kind: "user" },
       generation,
-      pointers: StatePointersDocumentSchemaV1.parse({
+      pointers: StatePointersDocumentSchema.parse({
         schemaVersion: 1,
         scope: { kind: "user" },
         generation,
@@ -48,9 +48,9 @@ function fixture(options: Readonly<{ currentProject?: boolean }> = {}) {
           digest: digest("a"),
         })),
       }),
-      config: HostConfigDocumentSchemaV4.parse({ schemaVersion: 4, generation, global: { application: "manual", cadence: "balanced" }, scope: {}, records: [record] }),
-      installed: InstalledUserStateDocumentSchemaV2.parse({ schemaVersion: 2, generation, marketplaces: [snapshot], plugins: [] }),
-      trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation, records: [] }),
+      config: HostConfigDocumentSchema.parse({ schemaVersion: 4, generation, global: { application: "manual", cadence: "balanced" }, scope: {}, records: [record] }),
+      installed: InstalledUserStateDocumentSchema.parse({ schemaVersion: 2, generation, marketplaces: [snapshot], plugins: [] }),
+      trust: TrustStateDocumentSchema.parse({ schemaVersion: 1, generation, records: [] }),
       corruptions: [],
     };
   }

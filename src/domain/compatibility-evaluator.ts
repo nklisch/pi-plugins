@@ -62,10 +62,24 @@ type RequirementUse = Readonly<{
 }>;
 
 type PolicyDecision = Readonly<{
-  verdict: "supported" | "incompatible";
+  verdict: "supported" | "metadata-only" | "incompatible";
   requirements: readonly RequirementUse[];
   diagnostics: readonly Diagnostic[];
 }>;
+
+/**
+ * A triggered policy rule blocks activation only when its disposition says
+ * so. Metadata-only rules degrade the component instead: it stays in the
+ * compatibility evidence and is skipped at runtime projection, which keeps
+ * the rest of the plugin installable.
+ */
+function ruleOutcome(ruleId: string): "metadata-only" | "incompatible" {
+  return ruleById(ruleId).disposition === "incompatible" ? "incompatible" : "metadata-only";
+}
+
+function ruleSeverity(ruleId: string): "warning" | "error" {
+  return ruleById(ruleId).disposition === "incompatible" ? "error" : "warning";
+}
 
 export const CompatibilityEvaluationInputSchema = z
   .object({
@@ -230,6 +244,20 @@ function decision(
   };
 }
 
+/**
+ * Accumulates the worst outcome across triggered rules. Incompatible rules
+ * dominate; metadata-only rules degrade without blocking.
+ */
+function worstOutcome(
+  current: PolicyDecision["verdict"],
+  ruleId: string,
+): PolicyDecision["verdict"] {
+  const outcome = ruleOutcome(ruleId);
+  if (outcome === "incompatible") return "incompatible";
+  if (current === "incompatible") return current;
+  return "metadata-only";
+}
+
 function locationJson(location: NonNullable<Diagnostic["location"]>): JsonValue {
   return {
     host: location.host,
@@ -293,7 +321,7 @@ function evaluateSkill(
 ): PolicyDecision {
   const requirements: RequirementUse[] = [];
   const diagnostics: Diagnostic[] = [];
-  let incompatible = false;
+  let verdict: PolicyDecision["verdict"] = "supported";
 
   for (const metadata of [...component.metadata].sort((left, right) => compareText(left.key, right.key))) {
     const field = metadataField(metadata);
@@ -301,8 +329,8 @@ function evaluateSkill(
     const value = metadata.claimed.value;
 
     if (!hasMetadataNamespace(metadata.key, CompatibilityPolicyRegistry.skills.metadataPrefixes)) {
-      incompatible = true;
-      diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.skills.unknownFrontmatter.id, "error", provenance, {
+      verdict = worstOutcome(verdict, CompatibilityPolicyRegistry.skills.unknownFrontmatter.id);
+      diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.skills.unknownFrontmatter.id, ruleSeverity(CompatibilityPolicyRegistry.skills.unknownFrontmatter.id), provenance, {
         componentId: component.id,
         field,
       }));
@@ -317,8 +345,8 @@ function evaluateSkill(
     }
     if (field === "allowed-tools") {
       if (typeof value !== "string") {
-        incompatible = true;
-        diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.skills.unknownFrontmatter.id, "error", provenance, {
+        verdict = worstOutcome(verdict, CompatibilityPolicyRegistry.skills.unknownFrontmatter.id);
+        diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.skills.unknownFrontmatter.id, ruleSeverity(CompatibilityPolicyRegistry.skills.unknownFrontmatter.id), provenance, {
           componentId: component.id,
           field,
         }));
@@ -329,8 +357,8 @@ function evaluateSkill(
     }
     if (field === "disable-model-invocation") {
       if (typeof value !== "boolean") {
-        incompatible = true;
-        diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.skills.unknownFrontmatter.id, "error", provenance, {
+        verdict = worstOutcome(verdict, CompatibilityPolicyRegistry.skills.unknownFrontmatter.id);
+        diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.skills.unknownFrontmatter.id, ruleSeverity(CompatibilityPolicyRegistry.skills.unknownFrontmatter.id), provenance, {
           componentId: component.id,
           field,
         }));
@@ -340,8 +368,8 @@ function evaluateSkill(
     if (metadata.key.startsWith("codex.agents.")) {
       if (CompatibilityPolicyRegistry.skills.invocationPolicyKeys.includes(field as never)) {
         if (!knownCodexInvocationValue(value)) {
-          incompatible = true;
-          diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.skills.unknownFrontmatter.id, "error", provenance, {
+          verdict = worstOutcome(verdict, CompatibilityPolicyRegistry.skills.unknownFrontmatter.id);
+          diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.skills.unknownFrontmatter.id, ruleSeverity(CompatibilityPolicyRegistry.skills.unknownFrontmatter.id), provenance, {
             componentId: component.id,
             field,
           }));
@@ -355,22 +383,22 @@ function evaluateSkill(
       continue;
     }
     if (field === "scoped-hooks") {
-      incompatible = true;
-      diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.skills.scopedHooks.id, "error", provenance, {
+      verdict = worstOutcome(verdict, CompatibilityPolicyRegistry.skills.scopedHooks.id);
+      diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.skills.scopedHooks.id, ruleSeverity(CompatibilityPolicyRegistry.skills.scopedHooks.id), provenance, {
         componentId: component.id,
         field,
       }));
       continue;
     }
 
-    incompatible = true;
-    diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.skills.unknownFrontmatter.id, "error", provenance, {
+    verdict = worstOutcome(verdict, CompatibilityPolicyRegistry.skills.unknownFrontmatter.id);
+    diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.skills.unknownFrontmatter.id, ruleSeverity(CompatibilityPolicyRegistry.skills.unknownFrontmatter.id), provenance, {
       componentId: component.id,
       field,
     }));
   }
 
-  return decision(incompatible ? "incompatible" : "supported", requirements, diagnostics);
+  return decision(verdict, requirements, diagnostics);
 }
 
 function evaluateHook(
@@ -379,7 +407,7 @@ function evaluateHook(
 ): PolicyDecision {
   const requirements: RequirementUse[] = [];
   const diagnostics: Diagnostic[] = [];
-  let incompatible = false;
+  let verdict: PolicyDecision["verdict"] = "supported";
 
   const event = component.event.value;
   let eventRuleId: string;
@@ -395,8 +423,8 @@ function evaluateHook(
 
   if (eventRuleId === CompatibilityPolicyRegistry.hookHandlers.incompatibleEvent.id ||
       eventRuleId === CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id) {
-    incompatible = true;
-    diagnostics.push(diagnostic(pluginKey, eventRuleId, "error", component.event.provenance, {
+    verdict = worstOutcome(verdict, eventRuleId);
+    diagnostics.push(diagnostic(pluginKey, eventRuleId, ruleSeverity(eventRuleId), component.event.provenance, {
       componentId: component.id,
       field: "event",
       ...(eventRuleId === CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id ? {} : { value: event }),
@@ -405,15 +433,15 @@ function evaluateHook(
     requirements.push(...requirementUse(eventRuleId, component.event.provenance));
   }
 
-  if (!incompatible && (eventRuleId === CompatibilityPolicyRegistry.hookHandlers.supportedEvent.id ||
+  if (verdict === "supported" && (eventRuleId === CompatibilityPolicyRegistry.hookHandlers.supportedEvent.id ||
       eventRuleId === CompatibilityPolicyRegistry.hookHandlers.subagentEvent.id)) {
     const selector = compileHookSelector(component);
     if (selector.kind === "incompatible") {
-      incompatible = true;
+      verdict = worstOutcome(verdict, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id);
       const source = selector.field === "matcher"
         ? component.matcher?.provenance ?? component.event.provenance
         : component.metadata.find((metadata) => metadata.key.endsWith(".if") || metadata.key.endsWith(".conditions"))?.claimed.provenance ?? component.event.provenance;
-      diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id, "error", source, {
+      diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id, ruleSeverity(CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id), source, {
         componentId: component.id,
         field: selector.field,
       }));
@@ -436,8 +464,8 @@ function evaluateHook(
     const value = metadata.claimed.value;
 
     if (!hasMetadataNamespace(metadata.key, CompatibilityPolicyRegistry.hookEvents.metadata.prefixes)) {
-      incompatible = true;
-      diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id, "error", provenance, {
+      verdict = worstOutcome(verdict, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id);
+      diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id, ruleSeverity(CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id), provenance, {
         componentId: component.id,
         field,
       }));
@@ -445,8 +473,8 @@ function evaluateHook(
     }
     if (CompatibilityPolicyRegistry.hookEvents.metadata.statusMessage.includes(field as never)) {
       if (typeof value !== "string") {
-        incompatible = true;
-        diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id, "error", provenance, {
+        verdict = worstOutcome(verdict, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id);
+        diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id, ruleSeverity(CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id), provenance, {
           componentId: component.id,
           field,
         }));
@@ -460,9 +488,9 @@ function evaluateHook(
     }
     if (CompatibilityPolicyRegistry.hookEvents.metadata.shell.includes(field as never)) {
       if (value !== "bash" && value !== "powershell") {
-        incompatible = true;
+        verdict = worstOutcome(verdict, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id);
         const safeValue = value === "bash" || value === "powershell" ? value : undefined;
-        diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id, "error", provenance, {
+        diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id, ruleSeverity(CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id), provenance, {
           componentId: component.id,
           field,
           ...(safeValue === undefined ? {} : { value: safeValue }),
@@ -477,8 +505,8 @@ function evaluateHook(
     }
     if (CompatibilityPolicyRegistry.hookEvents.metadata.async.includes(field as never)) {
       if (typeof value !== "boolean" || value === true) {
-        incompatible = true;
-        diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.hookHandlers.async.id, "error", provenance, {
+        verdict = worstOutcome(verdict, CompatibilityPolicyRegistry.hookHandlers.async.id);
+        diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.hookHandlers.async.id, ruleSeverity(CompatibilityPolicyRegistry.hookHandlers.async.id), provenance, {
           componentId: component.id,
           field,
         }));
@@ -490,15 +518,15 @@ function evaluateHook(
       continue;
     }
 
-    incompatible = true;
-    diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id, "error", provenance, {
+    verdict = worstOutcome(verdict, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id);
+    diagnostics.push(diagnostic(pluginKey, CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id, ruleSeverity(CompatibilityPolicyRegistry.hookHandlers.unknownEvent.id), provenance, {
       componentId: component.id,
       field,
     }));
   }
 
   if (shellRuleId !== undefined) requirements.push(...requirementUse(shellRuleId, shellProvenance));
-  return decision(incompatible ? "incompatible" : "supported", requirements, diagnostics);
+  return decision(verdict, requirements, diagnostics);
 }
 
 function evaluateMcp(
@@ -509,8 +537,8 @@ function evaluateMcp(
     plugin: PluginKeySchema.parse(pluginKey),
     component,
   });
-  if (analysis.kind === "incompatible") {
-    return decision("incompatible", [], analysis.diagnostics);
+  if (analysis.kind === "incompatible" || analysis.kind === "metadata-only") {
+    return decision(analysis.kind, [], analysis.diagnostics);
   }
   return decision("supported", analysis.requirementUses.map((use) => ({
     capability: use.capability,
@@ -530,7 +558,9 @@ function evaluateForeign(
   const ruleId = component.nativeKind.value === "hook-handler"
     ? CompatibilityPolicyRegistry.hookHandlers.unsupportedHandler.id
     : CompatibilityPolicyRegistry.foreign.defaultDeny.id;
-  return decision("incompatible", [], [diagnostic(pluginKey, ruleId, "error", provenances, {
+  // Foreign components are never executed by this host, so their policy
+  // outcome is the rule's disposition: retained and skipped, or blocked.
+  return decision(ruleOutcome(ruleId), [], [diagnostic(pluginKey, ruleId, ruleSeverity(ruleId), provenances, {
     componentId: component.id,
     nativeHost: component.nativeHost,
     nativeKind: component.nativeKind.value,
@@ -746,7 +776,12 @@ export function evaluateCompatibility(input: CompatibilityEvaluationInput): Comp
       componentId: component.id,
       verdict: componentDecision.verdict === "supported"
         ? { kind: ComponentVerdictRegistry.supported.tag }
-        : { kind: ComponentVerdictRegistry.incompatible.tag, reason: componentDecision.diagnostics[0]?.message ?? "Unsupported declaration" },
+        : componentDecision.verdict === "metadata-only"
+          ? {
+            kind: ComponentVerdictRegistry.metadataOnly.tag,
+            reason: componentDecision.diagnostics[0]?.message ?? "Declaration is retained as metadata only",
+          }
+          : { kind: ComponentVerdictRegistry.incompatible.tag, reason: componentDecision.diagnostics[0]?.message ?? "Unsupported declaration" },
       requirementIds: [],
       diagnostics: componentDecision.diagnostics,
     }),

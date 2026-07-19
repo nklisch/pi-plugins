@@ -2,25 +2,24 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import {
   CompatibilityReportSchema,
   ContentDigestSchema,
   GenerationSchema,
-  HostConfigDocumentSchemaV1,
-  InstalledUserStateDocumentSchemaV1,
+  HostConfigDocumentSchema,
+  InstalledUserStateDocumentSchema,
   MarketplaceNameSchema,
   ProjectIdentitySchema,
-  PortableProjectDeclarationSchemaV1,
-  ProjectLocalStateDocumentSchemaV1,
-  StatePointersDocumentSchemaV1,
+  PortableProjectDeclarationSchema,
+  ProjectLocalStateDocumentSchema,
+  StatePointersDocumentSchema,
   StateMutationInputSchema,
   StateCodecError,
-  TrustStateDocumentSchemaV1,
+  TrustStateDocumentSchema,
   createContentManifest,
+  createMarketplaceConfigurationRecord,
   createMarketplaceSnapshotRecord,
   createMaterializationBinding,
-  defineVersionedSchemaFamily,
   createInstalledUserStateDocument,
   createProjectLocalStateDocument,
   createStatePointersDocument,
@@ -150,14 +149,13 @@ const generation0 = GenerationSchema.parse(0);
 const generation4 = GenerationSchema.parse(4);
 
 function makeUserSnapshot(generation: Generation): UserGenerationSnapshot {
-  const config = HostConfigDocumentSchemaV1.parse({
-    schemaVersion: 1,
+  const config = HostConfigDocumentSchema.parse({
+    schemaVersion: 4,
     generation,
-    records: [{
-      marketplace: "community",
+    records: [createMarketplaceConfigurationRecord({
+      marketplace: MarketplaceNameSchema.parse("community"),
       source: MarketplaceSourceSchema.parse({ kind: "github", repository: "example/marketplace" }),
-      updateApplication: "manual",
-    }],
+    })],
   });
   const installed = createInstalledUserStateDocument({
     generation,
@@ -168,7 +166,7 @@ function makeUserSnapshot(generation: Generation): UserGenerationSnapshot {
       revisions: [pluginRevision],
     }],
   }, sha256);
-  const trust = TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation, records: [] });
+  const trust = TrustStateDocumentSchema.parse({ schemaVersion: 1, generation, records: [] });
   return {
     scope: userScope,
     generation,
@@ -182,7 +180,7 @@ function makeUserSnapshot(generation: Generation): UserGenerationSnapshot {
 
 function makeProjectSnapshot(generation: Generation): ProjectGenerationSnapshot {
   const project = createProjectLocalStateDocument({
-    schemaVersion: 1,
+    schemaVersion: 4,
     generation,
     projectKey,
     identity: projectIdentity,
@@ -269,14 +267,14 @@ class FakeLifecycleStateStore implements LifecycleStateStore {
 }
 
 describe("state contract integration", () => {
-  it("loads every independently versioned v1 fixture through strict envelopes", () => {
-    expect(HostConfigDocumentSchemaV1.parse(fixture("v1/valid/host-config.json"))).toBeTruthy();
-    expect(InstalledUserStateDocumentSchemaV1.parse(fixture("v1/valid/installed-user.json"))).toBeTruthy();
-    expect(TrustStateDocumentSchemaV1.parse(fixture("v1/valid/trust.json"))).toBeTruthy();
-    expect(ProjectLocalStateDocumentSchemaV1.parse(fixture("v1/valid/project-local.json"))).toBeTruthy();
-    expect(StatePointersDocumentSchemaV1.parse(fixture("v1/valid/pointers-user.json"))).toBeTruthy();
-    expect(StatePointersDocumentSchemaV1.parse(fixture("v1/valid/pointers-project.json"))).toBeTruthy();
-    expect(PortableProjectDeclarationSchemaV1.parse(fixture("portable/valid.json"))).toBeTruthy();
+  it("loads every current fixture through strict envelopes", () => {
+    expect(HostConfigDocumentSchema.parse(fixture("v1/valid/host-config.json"))).toBeTruthy();
+    expect(InstalledUserStateDocumentSchema.parse(fixture("v1/valid/installed-user.json"))).toBeTruthy();
+    expect(TrustStateDocumentSchema.parse(fixture("v1/valid/trust.json"))).toBeTruthy();
+    expect(ProjectLocalStateDocumentSchema.parse(fixture("v1/valid/project-local.json"))).toBeTruthy();
+    expect(StatePointersDocumentSchema.parse(fixture("v1/valid/pointers-user.json"))).toBeTruthy();
+    expect(StatePointersDocumentSchema.parse(fixture("v1/valid/pointers-project.json"))).toBeTruthy();
+    expect(PortableProjectDeclarationSchema.parse(fixture("portable/valid.json"))).toBeTruthy();
   });
 
   it("quarantines mixed records while fatal roots expose no partial snapshot", () => {
@@ -321,15 +319,12 @@ describe("state contract integration", () => {
     const thirdSnapshot = createMarketplaceSnapshotRecord({ marketplace: "third", source: thirdSource, content, binding: createMaterializationBinding(thirdSource.hash, content.rootDigest, sha256) }, sha256);
     const registration = (marketplaceName: string, repository: string) => ({
       marketplace: marketplaceName,
-      source: { kind: "github", repository },
-      origin: { kind: "legacy" },
-      updateApplication: "manual",
-      refresh: { nextScheduledAt: 0, consecutiveFailures: 0 },
-      notifications: [],
+      source: { kind: "github" as const, repository },
+      origin: { kind: "native" as const },
     });
     const projectWithRegistrationCorruption = decodeStateDocument("projectLocal", {
       ...projectState,
-      schemaVersion: 3,
+      schemaVersion: 4,
       marketplaces: [...projectState.marketplaces, otherSnapshot, thirdSnapshot],
       marketplaceUpdates: [
         registration("community", "example/marketplace"),
@@ -366,12 +361,14 @@ describe("state contract integration", () => {
     }
   });
 
-  it("rejects future versions and portable canaries without partial intent", () => {
-    expect(() => decodeStateDocument("hostConfig", fixture("v1/corrupt/future-version.json"), {
+  it("cuts stale document versions over to empty defaults and rejects portable canaries without partial intent", () => {
+    const cutover = decodeStateDocument("hostConfig", fixture("v1/corrupt/future-version.json"), {
       scope: userScope,
       generation: generation0,
       sha256,
-    })).toThrowError(StateCodecError);
+    });
+    expect(cutover.value).toEqual(HostConfigDocumentSchema.parse({ schemaVersion: 4, generation: 0, records: [] }));
+    expect(cutover.corruptions).toEqual([]);
     expect(() => decodeStateDocument("pointers", fixture("v1/corrupt/scope-mismatch.json"), {
       scope: userScope,
       generation: generation0,
@@ -387,24 +384,24 @@ describe("state contract integration", () => {
     expect(() => parsePortableProjectDeclaration(fixture("portable/prohibited-canaries.json"))).toThrow();
     expect(() => parsePortableProjectDeclaration(fixture("portable/timestamps.json"))).toThrow();
     expect(canaries).toContain("CANARY_SECRET_VALUE");
-    expect(JSON.stringify(PortableProjectDeclarationSchemaV1.safeParse(fixture("portable/prohibited-canaries.json")))).not.toContain("CANARY_SECRET_VALUE");
+    expect(JSON.stringify(PortableProjectDeclarationSchema.safeParse(fixture("portable/prohibited-canaries.json")))).not.toContain("CANARY_SECRET_VALUE");
   });
 
   it("encodes records and nested object keys deterministically", () => {
-    const left = HostConfigDocumentSchemaV1.parse({
-      schemaVersion: 1,
+    const left = HostConfigDocumentSchema.parse({
+      schemaVersion: 4,
       generation: generation0,
       records: [
-        { marketplace: "team", source: { kind: "github", repository: "example/plugins" }, updateApplication: "manual" },
-        { marketplace: "alpha", source: { kind: "github", repository: "example/alpha" }, updateApplication: "automatic" },
+        createMarketplaceConfigurationRecord({ marketplace: MarketplaceNameSchema.parse("team"), source: MarketplaceSourceSchema.parse({ kind: "github", repository: "example/plugins" }) }),
+        createMarketplaceConfigurationRecord({ marketplace: MarketplaceNameSchema.parse("alpha"), source: MarketplaceSourceSchema.parse({ kind: "github", repository: "example/alpha" }), applicationOverride: "automatic" }),
       ],
     });
-    const right = HostConfigDocumentSchemaV1.parse({
-      schemaVersion: 1,
+    const right = HostConfigDocumentSchema.parse({
+      schemaVersion: 4,
       generation: generation0,
       records: [
-        { updateApplication: "automatic", source: { repository: "example/alpha", kind: "github" }, marketplace: "alpha" },
-        { updateApplication: "manual", source: { repository: "example/plugins", kind: "github" }, marketplace: "team" },
+        { ...createMarketplaceConfigurationRecord({ marketplace: MarketplaceNameSchema.parse("alpha"), source: MarketplaceSourceSchema.parse({ kind: "github", repository: "example/alpha" }), applicationOverride: "automatic" }) },
+        { ...createMarketplaceConfigurationRecord({ marketplace: MarketplaceNameSchema.parse("team"), source: MarketplaceSourceSchema.parse({ kind: "github", repository: "example/plugins" }) }) },
       ],
     });
     const context = { scope: userScope, generation: generation0, sha256 };
@@ -430,7 +427,7 @@ describe("state contract integration", () => {
     expect(user.snapshot.installed.plugins[0]!.revisions[0]!.dataRef)
       .not.toBe(project.snapshot.project.plugins[0]!.revisions[0]!.dataRef);
 
-    const nextConfig = { ...user.snapshot.config, records: user.snapshot.config.records.map((record) => ({ ...record, updateApplication: "automatic" as const })) };
+    const nextConfig = { ...user.snapshot.config, records: user.snapshot.config.records.map((record) => ({ ...record, applicationOverride: "automatic" as const })) };
     const committed = await store.commit(parseStateMutation({
       scope: userScope,
       expectedGeneration: user.snapshot.generation,
@@ -484,23 +481,10 @@ describe("state contract integration", () => {
     }, sha256), controller.signal)).rejects.toBe(reason);
   });
 
-  it("keeps fixture migration inputs and state serialization free of operational canaries", async () => {
+  it("keeps state serialization free of operational canaries", async () => {
     const serialized = JSON.stringify(makeUserSnapshot(generation0));
     for (const canary of ["CANARY_SECRET_VALUE", "authorization", "x-api-key", "generatedProjection", "NODE_ENV", "/var/lib", "2026-07-12T00:00:00.000Z", "nativeCause"]) {
       expect(serialized.toLowerCase()).not.toContain(canary.toLowerCase());
     }
-    const v1 = z.object({ schemaVersion: z.literal(1), value: z.string() }).strict();
-    const v2 = z.object({ schemaVersion: z.literal(2), value: z.string(), enabled: z.boolean() }).strict();
-    const family = defineVersionedSchemaFamily({
-      latestVersion: 2,
-      versions: new Map<number, z.ZodTypeAny>([[1, v1], [2, v2]]),
-      migrations: new Map([[1, (value: unknown) => ({ ...(value as object), schemaVersion: 2, enabled: true })]]),
-    });
-    const migrationInput = fixture("v1/corrupt/migration-v1.json");
-    expect((await import("../../src/index.js")).migrateVersionedDocument(family, migrationInput)).toEqual({
-      schemaVersion: 2,
-      value: "fixture-value",
-      enabled: true,
-    });
   });
 });

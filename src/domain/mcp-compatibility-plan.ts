@@ -85,7 +85,30 @@ export type McpCompatibilityAnalysis =
       plan: McpCompatibilityPlan;
       requirementUses: readonly McpCompatibilityRequirementUse[];
     }>
+  | Readonly<{ kind: "metadata-only"; diagnostics: readonly Diagnostic[] }>
   | Readonly<{ kind: "incompatible"; diagnostics: readonly Diagnostic[] }>;
+
+/**
+ * A diagnostic blocks activation only when its policy rule is dispositioned
+ * incompatible. Metadata-only rules degrade the server: it stays in the
+ * compatibility evidence and is skipped at runtime projection.
+ */
+function diagnosticBlocksActivation(diagnostic: Diagnostic): boolean {
+  const details = diagnostic.details;
+  const ruleId = details !== null && typeof details === "object" && !Array.isArray(details)
+    ? (details as Readonly<Record<string, JsonValue>>)["ruleId"]
+    : undefined;
+  // An untagged diagnostic predates disposition-aware rules; fail closed.
+  if (typeof ruleId !== "string") return true;
+  const rule = CompatibilityPolicyRuleRegistry[ruleId];
+  if (rule === undefined) throw new Error(`compatibility policy registry is missing rule ${ruleId}`);
+  return rule.disposition === "incompatible";
+}
+
+function downgradeToWarnings(diagnostics: readonly Diagnostic[]): readonly Diagnostic[] {
+  return diagnostics.map((entry) =>
+    entry.severity === "warning" ? entry : DiagnosticSchema.parse({ ...entry, severity: "warning" }));
+}
 
 type JsonRecord = Readonly<Record<string, JsonValue>>;
 type OAuthFlow = "authorization-code" | "client-credentials";
@@ -840,7 +863,11 @@ function analyze(plugin: PluginKey, component: McpServerComponent): McpCompatibi
   }
 
   if (diagnostics.length > 0 || transport !== "stdio" && transport !== "streamable-http") {
-    return { kind: "incompatible", diagnostics: diagnostics.sort(compareDiagnostics) };
+    const sorted = diagnostics.sort(compareDiagnostics);
+    if (sorted.some(diagnosticBlocksActivation)) {
+      return { kind: "incompatible", diagnostics: sorted };
+    }
+    return { kind: "metadata-only", diagnostics: downgradeToWarnings(sorted) };
   }
   const uses = requirementUses(ruleClaims);
   return {

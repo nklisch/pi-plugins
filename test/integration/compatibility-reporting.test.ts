@@ -121,8 +121,8 @@ describe("compatibility reporting integration", () => {
       new AbortController().signal,
     );
     expect(invalidReport.components).toHaveLength(1);
-    expect(invalidReport.components[0]?.verdict.kind).toBe("incompatible");
-    expect(invalidReport.activatable).toBe(false);
+    expect(invalidReport.components[0]?.verdict.kind).toBe("metadata-only");
+    expect(invalidReport.activatable).toBe(true);
     expect(invalidReport.requirements).toEqual([]);
     expect(invalidReport.components[0]?.diagnostics.map((diagnostic) => diagnostic.location?.pointer)).toEqual([
       "/local/auth",
@@ -136,7 +136,7 @@ describe("compatibility reporting integration", () => {
     expect(serialized).not.toContain("CANARY_CLIENT");
   });
 
-  it("reports the complete mixed normalized bundle with all-or-nothing activation", async () => {
+  it("reports the complete mixed normalized bundle with degraded-component activation", async () => {
     const plugin = await mixedBundle();
     const { service } = serviceFor(capabilities({}, {
       "pi.mcp.runtime": "CANARY_RUNTIME_PATH 2026-07-12 native error",
@@ -153,8 +153,8 @@ describe("compatibility reporting integration", () => {
     expect(new Set(report.components.map((assessment) => assessment.componentId))).toEqual(
       new Set(flattened.map((component) => component.id)),
     );
-    expect(report.components.some((assessment) => assessment.verdict.kind === "incompatible")).toBe(true);
-    expect(report.activatable).toBe(false);
+    expect(report.components.some((assessment) => assessment.verdict.kind === "metadata-only")).toBe(true);
+    expect(report.activatable).toBe(true);
     expect(report.components.find((assessment) => assessment.componentId.includes(":foreign:"))).toBeDefined();
     expect(report.components.some((assessment) => assessment.verdict.kind === "supported")).toBe(true);
     expect(report.requirements.some((item) => item.requirement.capability === "pi.subagents.lifecycle-interception")).toBe(true);
@@ -240,14 +240,14 @@ describe("compatibility reporting integration", () => {
     expect(irrelevant.activatable).toBe(true);
   });
 
-  it("fails closed for unknown hook and MCP declarations while preserving one assessment each", async () => {
+  it("degrades unknown hook and MCP declarations while preserving one assessment each", async () => {
     const plugin = await inspectNormalizedBundle({
       hooks: hookIngestionFixtures.unknowns.hooks,
       mcpServers: mcpIngestionFixtures.unknown,
     });
     const report = await serviceFor(capabilities()).service.assess({ plugin }, new AbortController().signal);
     expect(report.components).toHaveLength(4);
-    expect(report.components.every((item) => item.verdict.kind === "incompatible")).toBe(true);
+    expect(report.components.every((item) => item.verdict.kind === "metadata-only")).toBe(true);
     expect(report.components.some((component) => component.diagnostics.some((item) => item.code === "UNSUPPORTED_DECLARATION"))).toBe(true);
     expect(JSON.stringify(report)).not.toContain("CANARY_UNKNOWN");
   });

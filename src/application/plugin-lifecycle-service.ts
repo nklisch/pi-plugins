@@ -77,7 +77,7 @@ import {
 import {
   createInstalledUserStateDocument,
 } from "../domain/state/installed-state.js";
-import { createProjectLocalStateDocumentV4 } from "../domain/state/project-state.js";
+import { createProjectLocalStateDocument } from "../domain/state/project-state.js";
 import {
   ScopeContextSchema,
   createScopeContext,
@@ -306,7 +306,7 @@ function replaceTarget(
   }
   // Lifecycle owns only the target plugin. Rebuilding through the current
   // constructor preserves declaration, policy, scheduler, and registration evidence.
-  const project = createProjectLocalStateDocumentV4({
+  const project = createProjectLocalStateDocument({
     ...snapshot.project,
     generation: snapshot.generation,
     plugins: records,

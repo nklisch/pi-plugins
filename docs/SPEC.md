@@ -457,6 +457,7 @@ trailing `...` is repeatable.
 | `updates.notices.list` | `/plugin updates notices list [--scope user\|project\|all-current] [--plugin <value>] [--after <value>] [--limit <integer>]` | `local-read` | `none` | List update notices |
 | `updates.notices.acknowledge` | `/plugin updates notices acknowledge <notice-id>...` | `mutation` | `none` | Acknowledge update notices |
 | `updates.automatic.run` | `/plugin updates automatic run [--notice-id <value>]... [--limit <integer>] [--explicit]` | `mutation` | `none` | Run admitted plugin updates |
+| `config.host-precedence` | `/plugin config host-precedence <order>` | `mutation` | `none` | Set dual-host declaration precedence |
 | `status` | `/plugin status` | `local-read` | `none` | Show plugin host status |
 | `operation.status` | `/plugin operation status <token>` | `operation-control` | `none` | Poll an existing operation |
 | `operation.cancel` | `/plugin operation cancel <token>` | `operation-control` | `none` | Cancel an existing operation |

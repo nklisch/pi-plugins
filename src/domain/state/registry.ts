@@ -1,33 +1,27 @@
 import { z } from "zod";
 import {
   HostConfigDocumentSchema,
-  HostConfigSchemaFamily,
   type HostConfigDocument,
 } from "./config-state.js";
 import {
   InstalledUserStateDocumentSchema,
-  InstalledUserStateSchemaFamily,
   type InstalledUserStateDocument,
 } from "./installed-state.js";
 import {
   ProjectLocalStateDocumentSchema,
-  ProjectLocalStateSchemaFamily,
   type ProjectLocalStateDocument,
 } from "./project-state.js";
 import {
-  StatePointersDocumentSchemaV1,
-  StatePointersSchemaFamily,
-  type StatePointersDocumentV1,
+  StatePointersDocumentSchema,
+  type StatePointersDocument,
 } from "./pointers.js";
 import {
-  TrustStateDocumentSchemaV1,
-  TrustStateSchemaFamily,
-  type TrustStateDocumentV1,
+  TrustStateDocumentSchema,
+  type TrustStateDocument,
 } from "./trust-state.js";
 import {
-  PortableProjectDeclarationSchemaV1,
-  PortableProjectSchemaFamily,
-  type PortableProjectDeclarationV1,
+  PortableProjectDeclarationSchema,
+  type PortableProjectDeclaration,
 } from "./portable-project-declaration.js";
 import {
   StateDocumentKindSchema,
@@ -42,46 +36,48 @@ export type StateDocumentIsolation =
   | "none";
 
 /**
- * The authoritative routing table for durable state. New document families
- * must be added here before they can be decoded or encoded; consumers do not
- * maintain a parallel switch for versions or migration ownership.
+ * The authoritative routing table for durable state. New document kinds must
+ * be added here before they can be decoded or encoded. Each kind carries
+ * exactly one current schema; the literal schemaVersion lets a future clean
+ * cut-over recognize stale documents, which are reinitialized rather than
+ * migrated.
  */
 export const StateDocumentRegistry = {
   hostConfig: {
     schema: HostConfigDocumentSchema,
-    family: HostConfigSchemaFamily,
+    schemaVersion: 4,
     isolation: "marketplace-record",
   },
   installedUser: {
     schema: InstalledUserStateDocumentSchema,
-    family: InstalledUserStateSchemaFamily,
+    schemaVersion: 2,
     isolation: "plugin-record",
   },
   trust: {
-    schema: TrustStateDocumentSchemaV1,
-    family: TrustStateSchemaFamily,
+    schema: TrustStateDocumentSchema,
+    schemaVersion: 1,
     isolation: "trust-record",
   },
   projectLocal: {
     schema: ProjectLocalStateDocumentSchema,
-    family: ProjectLocalStateSchemaFamily,
+    schemaVersion: 4,
     isolation: "plugin-record",
   },
   portableProject: {
-    schema: PortableProjectDeclarationSchemaV1,
-    family: PortableProjectSchemaFamily,
+    schema: PortableProjectDeclarationSchema,
+    schemaVersion: 1,
     isolation: "none",
   },
   pointers: {
-    schema: StatePointersDocumentSchemaV1,
-    family: StatePointersSchemaFamily,
+    schema: StatePointersDocumentSchema,
+    schemaVersion: 1,
     isolation: "none",
   },
 } as const satisfies Record<
   StateDocumentKind,
   Readonly<{
     schema: z.ZodTypeAny;
-    family: { readonly latestVersion: number };
+    schemaVersion: number;
     isolation: StateDocumentIsolation;
   }>
 >;
@@ -90,7 +86,7 @@ export type RegisteredStateDocument = (typeof StateDocumentRegistry)[StateDocume
 
 /**
  * The registry schema is the contract source. Inferring these outputs from the
- * registered schemas prevents a new family from acquiring a second,
+ * registered schemas prevents a new kind from acquiring a second,
  * hand-maintained persistence interface in this module.
  */
 export type StateDocumentByKind<K extends StateDocumentKind = StateDocumentKind> = z.infer<
@@ -116,8 +112,8 @@ export type {
   HostConfigDocument,
   InstalledUserStateDocument,
   ProjectLocalStateDocument,
-  PortableProjectDeclarationV1,
-  StatePointersDocumentV1,
-  TrustStateDocumentV1,
+  PortableProjectDeclaration,
+  StatePointersDocument,
+  TrustStateDocument,
   StateDocumentKind,
 };

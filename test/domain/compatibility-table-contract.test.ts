@@ -149,21 +149,21 @@ describe("compatibility table contract", () => {
     expect([...observed].sort()).toEqual(Object.values(RuntimeCapabilityRegistry).map((entry) => entry.id).sort());
   });
 
-  it("covers every incompatible hook event explicitly and keeps unknown behavior fail-closed", () => {
+  it("covers every incompatible hook event explicitly and degrades unknown behavior to metadata only", () => {
     const fixture = hookPolicyFixtures.find((candidate) => candidate.id === "hook-event-incompatible");
     if (fixture === undefined) throw new Error("incompatible hook event fixture is missing");
     const report = reportFor(fixture, true);
     expect(report.components).toHaveLength(19);
-    expect(report.components.every((assessment) => assessment.verdict.kind === "incompatible")).toBe(true);
+    expect(report.components.every((assessment) => assessment.verdict.kind === "metadata-only")).toBe(true);
     expect(report.components.every((assessment) => assessment.diagnostics.some((diagnostic) => diagnostic.details &&
       detailRuleIds(diagnostic.details).includes("hook.event.incompatible")))).toBe(true);
 
     const unknown = reportFor(hookPolicyFixtures.find((candidate) => candidate.id === "hook-event-default-deny")!, true);
-    expect(unknown.components[0]?.verdict.kind).toBe("incompatible");
+    expect(unknown.components[0]?.verdict.kind).toBe("metadata-only");
     expect(detailRuleIds(unknown.components[0]?.diagnostics[0]?.details)).toContain("hook.event.default-deny");
   });
 
-  it("rejects unknown transports, auth modes, feature keys, conflicts, and malformed recognized combinations", () => {
+  it("degrades unknown transports, auth modes, feature keys, conflicts, and malformed recognized combinations", () => {
     const declarations = [
       { transport: "future-transport", command: "server" },
       { transport: "stdio", command: "server", auth: "future-auth" },
@@ -179,7 +179,7 @@ describe("compatibility table contract", () => {
       capabilities: capabilities(),
     });
     expect(report.components).toHaveLength(declarations.length);
-    expect(report.components.every((assessment) => assessment.verdict.kind === "incompatible")).toBe(true);
+    expect(report.components.every((assessment) => assessment.verdict.kind === "metadata-only")).toBe(true);
     expect(report.components.every((assessment) => assessment.diagnostics.length > 0)).toBe(true);
     expect(JSON.stringify(report)).not.toContain("future-auth");
   });

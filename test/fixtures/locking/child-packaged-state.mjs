@@ -47,7 +47,7 @@ try {
       const mutation = parseStateMutation({
         scope: { kind: "user" },
         expectedGeneration: loaded.snapshot.generation,
-        replace: { config: { schemaVersion: 2, generation: loaded.snapshot.generation, records: [] } },
+        replace: { config: { schemaVersion: 4, generation: loaded.snapshot.generation, records: [] } },
       }, sha256);
       const result = await adapters.state.commit(mutation, new AbortController().signal);
       if (result.kind === "committed") committed += 1;
@@ -57,7 +57,7 @@ try {
     const mutation = parseStateMutation({
       scope: { kind: "user" },
       expectedGeneration: 0,
-      replace: { config: { schemaVersion: 2, generation: 0, records: [] } },
+      replace: { config: { schemaVersion: 4, generation: 0, records: [] } },
     }, sha256);
     const result = await adapters.state.commit(mutation, new AbortController().signal);
     process.stdout.write(`${JSON.stringify(result)}\n`);

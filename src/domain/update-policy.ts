@@ -182,28 +182,6 @@ export const MarketplaceRefreshMemorySchema = z.object({
 }).strict().readonly();
 export type MarketplaceRefreshMemory = z.infer<typeof MarketplaceRefreshMemorySchema>;
 
-/** Exact v2/v3 refresh persistence retained only for migration. */
-export const MarketplaceRefreshMemorySchemaV3 = z.object({
-  claim: z.object({ id: RefreshClaimIdSchema, startedAt: EpochMillisecondsSchema, expiresAt: EpochMillisecondsSchema }).strict().readonly().optional(),
-  lastCompletedAt: EpochMillisecondsSchema.optional(),
-  lastAttempt: MarketplaceRefreshAttemptSchema.optional(),
-  nextScheduledAt: EpochMillisecondsSchema.default(0),
-  consecutiveFailures: z.number().int().nonnegative().safe().default(0),
-}).strict().readonly();
-export type MarketplaceRefreshMemoryV3 = z.infer<typeof MarketplaceRefreshMemorySchemaV3>;
-
-/** Retained v3 notification input. Current code uses UpdateNoticeSchema. */
-export const UpdateNotificationMemorySchema = z.object({
-  scope: ScopeReferenceSchema,
-  plugin: PluginKeySchema,
-  candidate: UpdateCandidateKeySchema,
-  available: AvailableRevisionSchema.optional(),
-  display: z.object({ installed: z.string().min(1), available: z.string().min(1) }).strict().readonly(),
-  phase: z.enum(["discovered", "emitted"]),
-  disposition: z.enum(["manual-required", "approval-required", "automatic-applied", "automatic-retryable", "recovery-required"]).optional(),
-}).strict().readonly();
-export type UpdateNotificationMemory = z.infer<typeof UpdateNotificationMemorySchema>;
-
 export const AutomaticUpdateReasonSchema = z.enum([
   "manual", "approval-required", "stale", "project-untrusted", "recovery-required",
   "configuration-required", "secret-unavailable", "capability-unavailable",
@@ -272,22 +250,6 @@ export const PluginUpdatePolicyOverrideSchema = z.object({
   mode: UpdateApplicationOverrideSchema,
 }).strict().readonly();
 export type PluginUpdatePolicyOverride = z.infer<typeof PluginUpdatePolicyOverrideSchema>;
-
-const MarketplaceUpdateRecordShapeV3 = {
-  marketplace: MarketplaceNameSchema,
-  source: MarketplaceSourceSchema,
-  updateApplication: UpdateApplicationPreferenceSchema,
-  refresh: MarketplaceRefreshMemorySchemaV3.default(() => ({ nextScheduledAt: 0, consecutiveFailures: 0 })),
-  notifications: z.array(UpdateNotificationMemorySchema).readonly().default([]),
-} as const;
-export const MarketplaceUpdateRecordSchemaV2 = z.object(MarketplaceUpdateRecordShapeV3).strict().readonly();
-export type MarketplaceUpdateRecordV2 = z.infer<typeof MarketplaceUpdateRecordSchemaV2>;
-
-export const MarketplaceRegistrationRecordSchemaV3 = z.object({
-  ...MarketplaceUpdateRecordShapeV3,
-  origin: MarketplaceRegistrationOriginSchema,
-}).strict().readonly();
-export type MarketplaceRegistrationRecordV3 = z.infer<typeof MarketplaceRegistrationRecordSchemaV3>;
 
 export const MarketplaceRegistrationRecordSchema = z.object({
   marketplace: MarketplaceNameSchema,
@@ -409,90 +371,18 @@ export function backoffDelayMs(failures: number, baseMs: number, maxMs: number):
   return Math.min(maxMs, baseMs * 2 ** Math.min(count - 1, 31));
 }
 
-function legacySchedule(nextScheduledAt: number): UpdateScheduleMemory | undefined {
-  return nextScheduledAt <= 0 ? undefined : UpdateScheduleMemorySchema.parse({ anchorAt: 0, baseDelayMs: nextScheduledAt, jitterMs: 0, dueAt: nextScheduledAt, reason: "legacy" });
-}
-
-function digestSuffix(value: string): string {
-  const match = /:sha256:([0-9a-f]{64})$/.exec(value);
-  return match?.[1] ?? "0".repeat(64);
-}
-
-/** Deterministic and loss-preserving enough to retain legacy notice evidence without claiming exact catalog authority. */
-export function migrateMarketplaceRegistrationRecordV3(recordInput: MarketplaceRegistrationRecordV3): MarketplaceRegistrationRecord {
-  const record = MarketplaceRegistrationRecordSchemaV3.parse(recordInput);
-  const notices = record.notifications.flatMap((notification) => {
-    if (notification.available === undefined) return [];
-    const suffix = digestSuffix(notification.candidate);
-    return [UpdateNoticeSchema.parse({
-      id: `update-notice-v1:sha256:${suffix}`,
-      scope: notification.scope,
-      plugin: notification.plugin,
-      registrationId: `marketplace-registration-v1:sha256:${suffix}`,
-      snapshot: `marketplace-snapshot-v1:sha256:${suffix}`,
-      candidateId: `marketplace-candidate-v1:sha256:${suffix}`,
-      candidate: notification.candidate,
-      available: notification.available,
-      display: notification.display,
-      disposition: notification.disposition === "automatic-applied" ? "automatic-applied" :
-        notification.disposition === "automatic-retryable" ? "automatic-retryable" :
-        notification.disposition === "recovery-required" ? "recovery-required" :
-        notification.disposition === "approval-required" ? "approval-required" : "manual-required",
-      publication: notification.phase === "emitted" ? "published" : "pending",
-      unread: true,
-      discoveredAt: record.refresh.lastCompletedAt ?? record.refresh.lastAttempt?.completedAt ?? 0,
-      ...(notification.disposition === "automatic-applied" ? {
-        resolution: { kind: "installed", at: record.refresh.lastCompletedAt ?? record.refresh.lastAttempt?.completedAt ?? 0 },
-        automatic: { state: "applied", attemptedAt: record.refresh.lastCompletedAt ?? record.refresh.lastAttempt?.completedAt ?? 0 },
-      } : {}),
-    })];
-  });
-  return MarketplaceRegistrationRecordSchema.parse({
-    marketplace: record.marketplace,
-    source: record.source,
-    origin: record.origin,
-    ...(record.updateApplication === "automatic" && record.source.kind !== "local-git" ? { applicationOverride: "automatic" } : {}),
-    pluginOverrides: [],
-    refresh: {
-      ...(record.refresh.claim === undefined ? {} : { claim: record.refresh.claim }),
-      ...(record.refresh.lastCompletedAt === undefined ? {} : { lastCompletedAt: record.refresh.lastCompletedAt }),
-      ...(record.refresh.lastAttempt === undefined ? {} : { lastAttempt: record.refresh.lastAttempt }),
-      ...(legacySchedule(record.refresh.nextScheduledAt) === undefined ? {} : { schedule: legacySchedule(record.refresh.nextScheduledAt) }),
-      consecutiveFailures: record.refresh.consecutiveFailures,
-    },
-    notices,
-  });
-}
-
 export function createMarketplaceConfigurationRecord(input: Readonly<{
   marketplace: MarketplaceName;
   source: MarketplaceSource;
   applicationOverride?: UpdateApplicationOverride;
-  /** Compatibility input; automatic maps to an exact marketplace override, manual maps to inherit. */
-  updateApplication?: UpdateApplicationPreference;
-  refresh?: Partial<MarketplaceRefreshMemory> & Readonly<{ nextScheduledAt?: number }>;
+  refresh?: Partial<MarketplaceRefreshMemory>;
   notices?: readonly UpdateNotice[];
-  notifications?: readonly UpdateNotificationMemory[];
   origin?: MarketplaceRegistrationOrigin;
 }>): MarketplaceUpdateRecord {
   const source = MarketplaceSourceSchema.parse(input.source);
-  const legacyDue = input.refresh?.nextScheduledAt;
-  const refreshInput = input.refresh === undefined ? {} : Object.fromEntries(Object.entries(input.refresh).filter(([key]) => key !== "nextScheduledAt"));
-  const refresh = MarketplaceRefreshMemorySchema.parse({
-    consecutiveFailures: 0,
-    ...refreshInput,
-    ...(refreshInput.schedule === undefined && legacyDue !== undefined && legacySchedule(legacyDue) !== undefined ? { schedule: legacySchedule(legacyDue) } : {}),
-  });
-  const requestedOverride = input.applicationOverride ?? (input.updateApplication === "automatic" ? "automatic" : undefined);
+  const refresh = MarketplaceRefreshMemorySchema.parse({ consecutiveFailures: 0, ...input.refresh });
+  const requestedOverride = input.applicationOverride;
   const applicationOverride = source.kind === "local-git" && requestedOverride === "automatic" ? "manual" : requestedOverride;
-  const migratedNotices = input.notices ?? (input.notifications === undefined ? [] : migrateMarketplaceRegistrationRecordV3(MarketplaceRegistrationRecordSchemaV3.parse({
-    marketplace: input.marketplace,
-    source,
-    origin: input.origin ?? { kind: "legacy" },
-    updateApplication: input.updateApplication ?? "manual",
-    refresh: { nextScheduledAt: legacyDue ?? 0, consecutiveFailures: input.refresh?.consecutiveFailures ?? 0 },
-    notifications: input.notifications,
-  })).notices);
   return MarketplaceRegistrationRecordSchema.parse({
     marketplace: MarketplaceNameSchema.parse(input.marketplace),
     source,
@@ -500,25 +390,12 @@ export function createMarketplaceConfigurationRecord(input: Readonly<{
     ...(applicationOverride === undefined || applicationOverride === "inherit" ? {} : { applicationOverride }),
     pluginOverrides: [],
     refresh,
-    notices: migratedNotices,
+    notices: input.notices ?? [],
   });
 }
 
 export function parseMarketplaceUpdateRecord(input: unknown): MarketplaceUpdateRecord {
-  const current = MarketplaceRegistrationRecordSchema.safeParse(input);
-  if (current.success) return current.data;
-  const v3 = MarketplaceRegistrationRecordSchemaV3.safeParse(input);
-  if (v3.success) return migrateMarketplaceRegistrationRecordV3(v3.data);
-  const v2 = MarketplaceUpdateRecordSchemaV2.safeParse(input);
-  if (v2.success) return migrateMarketplaceRegistrationRecordV3(MarketplaceRegistrationRecordSchemaV3.parse({ ...v2.data, origin: { kind: "legacy" } }));
-  if (input === null || typeof input !== "object" || Array.isArray(input)) throw current.error;
-  const value = input as Record<string, unknown>;
-  return createMarketplaceConfigurationRecord({
-    marketplace: MarketplaceNameSchema.parse(value.marketplace),
-    source: MarketplaceSourceSchema.parse(value.source),
-    updateApplication: UpdateApplicationPreferenceSchema.parse(value.updateApplication),
-    origin: { kind: "legacy" },
-  });
+  return MarketplaceRegistrationRecordSchema.parse(input);
 }
 
 export function replaceMarketplaceConfigurationSource(record: MarketplaceUpdateRecord, source: MarketplaceSource): MarketplaceUpdateRecord {

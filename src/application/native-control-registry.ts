@@ -54,6 +54,10 @@ import {
   TrustedInstallSessionTokenSchema,
   TrustedInstallStatusResultSchema,
 } from "./trusted-install-contract.js";
+import {
+  NativeHostPrecedenceRequestSchema,
+  NativeHostPrecedenceResultSchema,
+} from "./host-precedence-contract.js";
 import { HostStatusSnapshotSchema } from "./host-observation-contract.js";
 import {
   NativeControlAdoptionImportResponseSchema,
@@ -283,6 +287,7 @@ const registry = {
   "updates.notices.list": command({ path: ["updates", "notices", "list"], aliases: [], summary: safe("List update notices"), safety: "local-read", input: "none", request: NoticesListControlSchema, response: NativeUpdateNotificationPageSchema, positionals: [], options: [readScopeOption, option("--plugin", "plugin", "string"), option("--after", "after", "string"), option("--limit", "limit", "integer")] }),
   "updates.notices.acknowledge": command({ path: ["updates", "notices", "acknowledge"], aliases: [{ path: ["updates", "notices", "ack"] }], summary: safe("Acknowledge update notices"), safety: "mutation", input: "none", request: NoticesAckControlSchema, response: NativeUpdateAcknowledgmentResultSchema, positionals: [positional("notice-id", true, true)], options: [] }),
   "updates.automatic.run": command({ path: ["updates", "automatic", "run"], aliases: [], summary: safe("Run admitted plugin updates"), safety: "mutation", input: "none", request: AutomaticRunControlSchema, response: NativeAutomaticUpdateRunResultSchema, positionals: [], options: [option("--notice-id", "noticeIds", "repeatable"), option("--limit", "limit", "integer"), option("--explicit", "explicit", "flag")] }),
+  "config.host-precedence": command({ path: ["config", "host-precedence"], visibility: "primary", aliases: [], summary: safe("Set dual-host declaration precedence"), safety: "mutation", input: "none", request: NativeHostPrecedenceRequestSchema, response: NativeHostPrecedenceResultSchema, positionals: [positional("order")], options: [] }),
   status: command({ path: ["status"], visibility: "primary", aliases: [], summary: safe("Show plugin host status"), safety: "local-read", input: "none", request: EmptyRequestSchema, response: HostStatusSnapshotSchema, positionals: [], options: [] }),
   "operation.status": command({ path: ["operation", "status"], visibility: "protocol", aliases: [], summary: safe("Poll an existing operation"), safety: "operation-control", input: "none", request: OperationControlSchema, response: OperationStatusResponseSchema, positionals: [positional("token")], options: [] }),
   "operation.cancel": command({ path: ["operation", "cancel"], visibility: "protocol", aliases: [], summary: safe("Cancel an existing operation"), safety: "operation-control", input: "none", request: OperationControlSchema, response: OperationCancellationResponseSchema, positionals: [positional("token")], options: [] }),

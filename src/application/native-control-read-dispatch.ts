@@ -14,7 +14,7 @@ import type {
   NativeControlSelectionFailure,
   NativeControlSelectionService,
 } from "./native-control-selection.js";
-import {
+import { humanForSelectionFailure,
   projectNativeControlFailure,
   projectNativeControlResponse,
   type NativeControlDispatchResult,
@@ -35,13 +35,14 @@ export type NativeControlReadDependencies = Readonly<{
 }>;
 
 function selectionFailure(failure: NativeControlSelectionFailure): NativeControlDispatchResult {
+  const human = humanForSelectionFailure(failure);
   switch (failure.kind) {
-    case "not-found": return projectNativeControlFailure("not-found", "CONTROL_TARGET_NOT_FOUND", "reinspect");
-    case "ambiguous": return projectNativeControlFailure("partial", "CONTROL_TARGET_AMBIGUOUS", "confirm-exact");
-    case "stale": return projectNativeControlFailure("stale", "CONTROL_SELECTION_STALE", "reinspect");
-    case "invalid": return projectNativeControlFailure("not-found", "CONTROL_IDENTIFIER_INVALID", "reinspect");
-    case "unavailable": return projectNativeControlFailure("unavailable", "CONTROL_SELECTION_UNAVAILABLE", "retry");
-    case "wrong-subject": return projectNativeControlFailure("not-found", "CONTROL_TARGET_WRONG_SUBJECT", "reinspect");
+    case "not-found": return projectNativeControlFailure("not-found", "CONTROL_TARGET_NOT_FOUND", "reinspect", human);
+    case "ambiguous": return projectNativeControlFailure("partial", "CONTROL_TARGET_AMBIGUOUS", "confirm-exact", human);
+    case "stale": return projectNativeControlFailure("stale", "CONTROL_SELECTION_STALE", "reinspect", human);
+    case "invalid": return projectNativeControlFailure("not-found", "CONTROL_IDENTIFIER_INVALID", "reinspect", human);
+    case "unavailable": return projectNativeControlFailure("unavailable", "CONTROL_SELECTION_UNAVAILABLE", "retry", human);
+    case "wrong-subject": return projectNativeControlFailure("not-found", "CONTROL_TARGET_WRONG_SUBJECT", "reinspect", human);
   }
 }
 

@@ -4,13 +4,13 @@ import { createMarketplaceRegistrationService } from "../../src/application/mark
 import { createContentManifest, createMaterializationBinding } from "../../src/domain/content-manifest.js";
 import { createResolvedMarketplaceSource, type MarketplaceSource, type Sha256 } from "../../src/domain/source.js";
 import { HostConfigDocumentSchema, GenerationSchema } from "../../src/domain/state/config-state.js";
-import { InstalledUserStateDocumentSchemaV2 } from "../../src/domain/state/installed-state.js";
-import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
-import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
+import { InstalledUserStateDocumentSchema } from "../../src/domain/state/installed-state.js";
+import { TrustStateDocumentSchema } from "../../src/domain/state/trust-state.js";
+import { StatePointersDocumentSchema } from "../../src/domain/state/pointers.js";
 import { deriveStateBlobRef } from "../../src/domain/state/references.js";
 import { readClaudeMarketplace } from "../../src/formats/claude/marketplace-reader.js";
 import type { GenerationSnapshot } from "../../src/application/state-contract.js";
-import { createProjectLocalStateDocumentV4 } from "../../src/domain/state/project-state.js";
+import { createProjectLocalStateDocument } from "../../src/domain/state/project-state.js";
 import { deriveProjectKey } from "../../src/domain/state/scope.js";
 
 const sha256: Sha256 = (bytes) => new Uint8Array(createHash("sha256").update(bytes).digest());
@@ -21,7 +21,7 @@ function environment(options: Readonly<{ abortAfterCommit?: AbortController; amb
   let current: Extract<GenerationSnapshot, { scope: { kind: "user" } }> = {
     scope: { kind: "user" },
     generation,
-    pointers: StatePointersDocumentSchemaV1.parse({
+    pointers: StatePointersDocumentSchema.parse({
       schemaVersion: 1,
       scope: { kind: "user" },
       generation,
@@ -39,8 +39,8 @@ function environment(options: Readonly<{ abortAfterCommit?: AbortController; amb
       scope: {},
       records: [],
     }),
-    installed: InstalledUserStateDocumentSchemaV2.parse({ schemaVersion: 2, generation, marketplaces: [], plugins: [] }),
-    trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation, records: [] }),
+    installed: InstalledUserStateDocumentSchema.parse({ schemaVersion: 2, generation, marketplaces: [], plugins: [] }),
+    trust: TrustStateDocumentSchema.parse({ schemaVersion: 1, generation, records: [] }),
     corruptions: [],
   };
   const content = createContentManifest([], sha256);
@@ -164,7 +164,7 @@ describe("marketplace registration service", () => {
     const projectKey = deriveProjectKey(identity, sha256);
     const scope = { kind: "project" as const, identity, projectKey };
     const emptyContent = createContentManifest([], sha256);
-    const project = createProjectLocalStateDocumentV4({
+    const project = createProjectLocalStateDocument({
       schemaVersion: 4,
       generation,
       projectKey,
@@ -178,7 +178,7 @@ describe("marketplace registration service", () => {
     const snapshot = {
       scope,
       generation,
-      pointers: StatePointersDocumentSchemaV1.parse({
+      pointers: StatePointersDocumentSchema.parse({
         schemaVersion: 1,
         scope: { kind: "project", projectKey },
         generation,

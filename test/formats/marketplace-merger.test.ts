@@ -380,6 +380,89 @@ describe("dual marketplace merger", () => {
     expect(details.right.provenance).toHaveLength(1);
   });
 
+  it("degrades description, version, category, and policy drift to canonical precedence", () => {
+    // Dual-root catalogs drift on presentational fields constantly (the
+    // nklisch/skills marketplace diverged on every entry). Real hosts resolve
+    // this by precedence; the entry must survive with both provenances.
+    const result = mergeMarketplaces([
+      {
+        nativeHost: "claude",
+        result: claudeCatalog([{
+          name: "drifted",
+          source: "./plugins/drifted",
+          version: "1.0.0",
+          description: "claude text",
+          category: "claude-category",
+          policy: { installation: "AVAILABLE" },
+        }]),
+      },
+      {
+        nativeHost: "codex",
+        result: codexCatalog([{
+          name: "drifted",
+          source: { source: "local", path: "./plugins/drifted" },
+          version: "2.0.0",
+          description: "codex text",
+          category: "codex-category",
+          policy: { installation: "INSTALLED_BY_DEFAULT" },
+        }]),
+      },
+    ]);
+
+    expect(result.diagnostics).toHaveLength(0);
+    const entry = result.marketplace.entries.find((candidate) =>
+      candidate.identity.value.marketplaceEntryName === "drifted");
+    expect(entry).toBeDefined();
+    expect(entry?.version?.value).toBe("1.0.0");
+    expect(entry?.description?.value).toBe("claude text");
+    expect(entry?.policy?.availability.value).toBe("available");
+    // Superseded declarations remain auditable in merged provenance.
+    expect(entry?.version?.provenance.length).toBe(2);
+    expect(entry?.description?.provenance.length).toBe(2);
+  });
+
+  it("flips presentational winners to the codex host under codex-first precedence", () => {
+    // Same drift shape as the canonical precedence test above; the user
+    // configured codex-first, so Codex declarations win presentation while
+    // both provenances remain auditable.
+    const result = mergeMarketplaces([
+      {
+        nativeHost: "claude",
+        result: claudeCatalog([{
+          name: "drifted",
+          source: "./plugins/drifted",
+          version: "1.0.0",
+          description: "claude text",
+          category: "claude-category",
+          policy: { installation: "AVAILABLE" },
+        }]),
+      },
+      {
+        nativeHost: "codex",
+        result: codexCatalog([{
+          name: "drifted",
+          source: { source: "local", path: "./plugins/drifted" },
+          version: "2.0.0",
+          description: "codex text",
+          category: "codex-category",
+          policy: { installation: "INSTALLED_BY_DEFAULT" },
+        }]),
+      },
+    ], { hostPrecedence: ["codex", "claude"] });
+
+    expect(result.diagnostics).toHaveLength(0);
+    const entry = result.marketplace.entries.find((candidate) =>
+      candidate.identity.value.marketplaceEntryName === "drifted");
+    expect(entry).toBeDefined();
+    expect(entry?.version?.value).toBe("2.0.0");
+    expect(entry?.description?.value).toBe("codex text");
+    expect(entry?.policy?.availability.value).toBe("installed-by-default");
+    expect(entry?.version?.provenance.length).toBe(2);
+    expect(entry?.description?.provenance.length).toBe(2);
+    // Canonical host ordering follows the configured precedence.
+    expect(entry?.authorities.map((authority) => authority.nativeHost)).toEqual(["codex", "claude"]);
+  });
+
   it("treats selectors and root identity as fatal to the appropriate scope", () => {
     const left = claudeCatalog([{ name: "shared", source: { source: "url", url: "https://example.com/plugin.git", ref: "main" } }]);
     const right = codexCatalog([{ name: "shared", source: { source: "git-subdir", url: "https://example.com/plugin.git", path: "plugin", ref: "main" }, policy: { installation: "AVAILABLE" } }]);

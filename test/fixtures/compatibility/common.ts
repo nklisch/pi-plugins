@@ -123,7 +123,7 @@ export function expectedRequirement(
 }
 
 export function expectedOutcome(
-  componentVerdicts: readonly ("supported" | "incompatible")[],
+  componentVerdicts: readonly ("supported" | "metadata-only" | "incompatible")[],
   activatable: boolean,
   options: Readonly<Partial<Omit<PolicyOutcome, "componentVerdicts" | "activatable">>> = {},
 ): PolicyOutcome {
@@ -143,7 +143,7 @@ export type PolicyFixture = Readonly<{
   ruleId: string;
   positive: () => NormalizedPlugin;
   negative: () => NormalizedPlugin;
-  positiveVerdict: "supported" | "incompatible";
+  positiveVerdict: "supported" | "metadata-only" | "incompatible";
   positiveExpected: PolicyOutcome;
   negativeExpected: PolicyOutcome;
   positivePolicy?: unknown;

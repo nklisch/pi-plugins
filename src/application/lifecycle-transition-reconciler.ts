@@ -5,7 +5,7 @@ import { ScopeContextSchema, toScopeReference, type ScopeContext } from "../doma
 import { type Generation } from "../domain/state/config-state.js";
 import { InstalledPluginRecordSchema, type InstalledPluginRecord } from "../domain/state/installed-state.js";
 import { createInstalledUserStateDocument } from "../domain/state/installed-state.js";
-import { createProjectLocalStateDocumentV4 } from "../domain/state/project-state.js";
+import { createProjectLocalStateDocument } from "../domain/state/project-state.js";
 import { parseStateMutation, type GenerationSnapshot, type StateMutation } from "./state-contract.js";
 import type { GenerationMutationCoordinator } from "./generation-mutation-coordinator.js";
 import {
@@ -96,7 +96,7 @@ function replaceTarget(snapshot: GenerationSnapshot, plugin: PluginKey, replacem
     const installed = createInstalledUserStateDocument({ ...snapshot.installed, generation: snapshot.generation, plugins: next }, sha256);
     return parseStateMutation({ scope: snapshot.scope, expectedGeneration: snapshot.generation, replace: { installed } }, sha256);
   }
-  const project = createProjectLocalStateDocumentV4({ ...snapshot.project, generation: snapshot.generation, plugins: next }, snapshot.scope, sha256);
+  const project = createProjectLocalStateDocument({ ...snapshot.project, generation: snapshot.generation, plugins: next }, snapshot.scope, sha256);
   return parseStateMutation({ scope: snapshot.scope, expectedGeneration: snapshot.generation, replace: { project } }, sha256);
 }
 

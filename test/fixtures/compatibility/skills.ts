@@ -94,7 +94,7 @@ export const skillPolicyFixtures: readonly PolicyFixture[] = [
     ], "6")] } }),
     positiveVerdict: "supported",
     positiveExpected: expectedOutcome(["supported"], true),
-    negativeExpected: expectedOutcome(["incompatible"], false, {
+    negativeExpected: expectedOutcome(["metadata-only"], true, {
       diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
       diagnosticRuleIds: ["skill.unknown-frontmatter"],
       diagnosticSourcePointers: ["/agents/openai.yaml/policy"],
@@ -120,9 +120,9 @@ export const skillPolicyFixtures: readonly PolicyFixture[] = [
       metadata("agent-skills.scoped-hooks", { event: "SessionStart" }, "/hooks"),
     ], "8")] } }),
     negative: baseline,
-    positiveVerdict: "incompatible",
+    positiveVerdict: "metadata-only",
     diagnosticRuleId: "skill.scoped-hooks",
-    positiveExpected: expectedOutcome(["incompatible"], false, {
+    positiveExpected: expectedOutcome(["metadata-only"], true, {
       diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
       diagnosticRuleIds: ["skill.scoped-hooks"],
       diagnosticSourcePointers: ["/hooks"],
@@ -136,9 +136,9 @@ export const skillPolicyFixtures: readonly PolicyFixture[] = [
       metadata("agent-skills.future-runtime", "CANARY_SKILL_VALUE", "/future-runtime"),
     ], "9")] } }),
     negative: baseline,
-    positiveVerdict: "incompatible",
+    positiveVerdict: "metadata-only",
     diagnosticRuleId: "skill.unknown-frontmatter",
-    positiveExpected: expectedOutcome(["incompatible"], false, {
+    positiveExpected: expectedOutcome(["metadata-only"], true, {
       diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
       diagnosticRuleIds: ["skill.unknown-frontmatter"],
       diagnosticSourcePointers: ["/future-runtime"],

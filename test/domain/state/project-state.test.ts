@@ -12,15 +12,12 @@ import {
   deriveProjectKey,
   type ScopeContext,
 } from "../../../src/domain/state/scope.js";
-import { migrateVersionedDocument } from "../../../src/domain/state/versioning.js";
 import { createMarketplaceConfigurationRecord } from "../../../src/domain/update-policy.js";
 import {
-  ProjectLocalStateDocumentSchemaV1,
-  ProjectLocalStateSchemaFamily,
+  ProjectLocalStateDocumentSchema,
   createProjectLocalStateDocument,
-  createProjectLocalStateDocumentV4,
   decodeProjectPlugins,
-  type ProjectLocalStateDocumentV1,
+  type ProjectLocalStateDocument,
 } from "../../../src/domain/state/project-state.js";
 
 const sha256 = (bytes: Uint8Array): Uint8Array =>
@@ -92,7 +89,8 @@ describe("project-local lifecycle state", () => {
       plugins: [pluginInput],
     }, context as Extract<ScopeContext, { kind: "project" }>, sha256);
 
-    expect(ProjectLocalStateDocumentSchemaV1.parse(document)).toEqual(document);
+    expect(ProjectLocalStateDocumentSchema.parse(document)).toEqual(document);
+    expect(document.schemaVersion).toBe(4);
     expect(document.projectKey).toBe(projectKey);
     expect(document.identity).toEqual(identity);
     expect(document.plugins[0]!.revisions[0]!.dataRef).toContain("plugin-data-v1:");
@@ -160,7 +158,7 @@ describe("project-local lifecycle state", () => {
   });
 
   it("allows project-scoped plugins to reference the host-global marketplace registry", () => {
-    const document = createProjectLocalStateDocumentV4({
+    const document = createProjectLocalStateDocument({
       schemaVersion: 4,
       generation: 3,
       projectKey,
@@ -181,7 +179,7 @@ describe("project-local lifecycle state", () => {
       marketplace: "community",
       source: marketplaceInput.source.declared,
     });
-    const document = createProjectLocalStateDocumentV4({
+    const document = createProjectLocalStateDocument({
       schemaVersion: 4,
       generation: 3,
       projectKey,
@@ -196,29 +194,28 @@ describe("project-local lifecycle state", () => {
     expect(document.marketplaceUpdates).toEqual([updateRecord]);
   });
 
-  it("migrates v1 without inventing project update authority", () => {
-    expect(ProjectLocalStateSchemaFamily.latestVersion).toBe(4);
-    const migrated = migrateVersionedDocument(ProjectLocalStateSchemaFamily, {
-      schemaVersion: 1,
+  it("keeps the single current schema strict and schema-derived", () => {
+    expect(ProjectLocalStateDocumentSchema.safeParse({
+      schemaVersion: 4,
       generation: 0,
       projectKey,
       identity,
       declarationDigest: content.rootDigest,
       marketplaces: [],
       plugins: [],
-    });
-    expect(migrated.schemaVersion).toBe(4);
-    expect(migrated.marketplaceUpdates).toEqual([]);
-    expect(ProjectLocalStateDocumentSchemaV1.safeParse({
-      schemaVersion: 1,
-      generation: 0,
-      projectKey,
-      identity,
-      declarationDigest: content.rootDigest,
-      marketplaces: [],
-      plugins: [],
+      marketplaceUpdates: [],
       operation: { kind: "install" },
     }).success).toBe(false);
-    expectTypeOf<z.infer<typeof ProjectLocalStateDocumentSchemaV1>>().toEqualTypeOf<ProjectLocalStateDocumentV1>();
+    expect(ProjectLocalStateDocumentSchema.safeParse({
+      schemaVersion: 3,
+      generation: 0,
+      projectKey,
+      identity,
+      declarationDigest: content.rootDigest,
+      marketplaces: [],
+      plugins: [],
+      marketplaceUpdates: [],
+    }).success).toBe(false);
+    expectTypeOf<z.infer<typeof ProjectLocalStateDocumentSchema>>().toEqualTypeOf<ProjectLocalStateDocument>();
   });
 });

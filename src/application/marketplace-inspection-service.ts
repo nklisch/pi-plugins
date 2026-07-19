@@ -5,6 +5,11 @@ import { verifyResolvedMarketplaceSource, type Sha256 } from "../domain/source.j
 import { createContentIndex } from "./content-index.js";
 import type { ContentReadPort } from "./ports/content-read.js";
 import {
+  DEFAULT_HOST_PRECEDENCE,
+  HostPrecedenceSchema,
+  type HostPrecedence,
+} from "../domain/host-precedence.js";
+import {
   MarketplaceInspectionLimitsSchema,
   type MarketplaceInspectionLimits,
   type MarketplaceInspectionReaders,
@@ -51,6 +56,8 @@ function createService(dependencies: Readonly<{
   readers: MarketplaceInspectionReaders;
   sha256: Sha256;
   limits?: Partial<MarketplaceInspectionLimits>;
+  /** Resolves the user's canonical host order at call time; defaults to Claude-first. */
+  hostPrecedence?: () => Promise<HostPrecedence>;
 }>): MarketplaceInspectionService {
   const limits = MarketplaceInspectionLimitsSchema.parse({ maxCatalogBytes: 1024 * 1024, ...(dependencies.limits ?? {}) });
   if (typeof dependencies.sha256 !== "function") throw new TypeError("marketplace inspection requires SHA-256");
@@ -92,7 +99,10 @@ function createService(dependencies: Readonly<{
       }
       if (inputs.length === 0) throw boundary("materialized marketplace has no supported catalog");
       if (inputs.length === 1) return inputs[0]!.result;
-      return dependencies.readers.merge(inputs as unknown as Parameters<MarketplaceInspectionReaders["merge"]>[0]);
+      const precedence = dependencies.hostPrecedence === undefined
+        ? DEFAULT_HOST_PRECEDENCE
+        : HostPrecedenceSchema.parse(await dependencies.hostPrecedence());
+      return dependencies.readers.merge(inputs as unknown as Parameters<MarketplaceInspectionReaders["merge"]>[0], { hostPrecedence: precedence });
     },
   };
 }
@@ -102,6 +112,8 @@ export function createMarketplaceInspectionService(dependencies: Readonly<{
   readers: MarketplaceInspectionReaders;
   sha256: Sha256;
   limits?: Partial<MarketplaceInspectionLimits>;
+  /** Resolves the user's canonical host order at call time; defaults to Claude-first. */
+  hostPrecedence?: () => Promise<HostPrecedence>;
 }>): MarketplaceInspectionService {
   return createService(dependencies);
 }

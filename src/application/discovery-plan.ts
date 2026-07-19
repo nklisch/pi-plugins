@@ -26,13 +26,23 @@ import {
   type NativeHost,
   type Provenance,
 } from "../domain/provenance.js";
+import {
+  DEFAULT_HOST_PRECEDENCE,
+  hostRank,
+  type HostPrecedence,
+} from "../domain/host-precedence.js";
 import { PluginKeySchema } from "../domain/identity.js";
 import { JsonValueSchema, type JsonValue } from "../domain/schema.js";
 import { splitForeignDeclaration } from "../domain/foreign-identity.js";
 import type { ContentIndex } from "./content-index.js";
 
 const OPERATION = "createDiscoveryPlan";
-const HOST_RANK: Readonly<Record<NativeHost, number>> = { claude: 0, codex: 1 };
+type HostOrder = Readonly<Record<NativeHost, number>>;
+const DEFAULT_HOST_ORDER: HostOrder = { claude: 0, codex: 1 };
+
+function hostOrderFor(precedence: HostPrecedence): HostOrder {
+  return { claude: hostRank(precedence, "claude"), codex: hostRank(precedence, "codex") };
+}
 
 export type ManifestPresence = Readonly<{
   nativeHost: NativeHost;
@@ -80,8 +90,8 @@ function locationKey(provenance: Provenance): string {
   ]);
 }
 
-function compareProvenance(left: Provenance, right: Provenance): number {
-  const host = HOST_RANK[left.location.host] - HOST_RANK[right.location.host];
+function compareProvenance(left: Provenance, right: Provenance, order: HostOrder): number {
+  const host = order[left.location.host] - order[right.location.host];
   if (host !== 0) return host;
   const a = locationKey(left);
   const b = locationKey(right);
@@ -90,18 +100,19 @@ function compareProvenance(left: Provenance, right: Provenance): number {
 
 type ProvenanceCarrier = Readonly<{ provenance: readonly Provenance[] }> | readonly Provenance[];
 
-function firstProvenance(claim: ProvenanceCarrier): Provenance {
+function firstProvenance(claim: ProvenanceCarrier, order: HostOrder): Provenance {
   const provenance = Array.isArray(claim)
     ? claim
     : (claim as Readonly<{ provenance: readonly Provenance[] }>).provenance;
-  return [...provenance].sort(compareProvenance)[0] as Provenance;
+  return [...provenance].sort((a, b) => compareProvenance(a, b, order))[0] as Provenance;
 }
 
 function mergeProvenance(
   left: readonly Provenance[],
   right: readonly Provenance[],
+  order: HostOrder,
 ): readonly [Provenance, ...Provenance[]] {
-  const values = [...left, ...right].sort(compareProvenance);
+  const values = [...left, ...right].sort((a, b) => compareProvenance(a, b, order));
   const unique: Provenance[] = [];
   for (const value of values) {
     if (!unique.some((existing) =>
@@ -187,17 +198,18 @@ function locatorSourceRank(source: ComponentLocatorClaim["source"]): number {
   return source === "catalog" ? 0 : source === "manifest" ? 1 : 2;
 }
 
-function locatorOrder(locator: ComponentLocatorClaim): string {
+function locatorOrder(locator: ComponentLocatorClaim, order: HostOrder): string {
   return [
     targetKey(locator),
     String(locatorSourceRank(locator.source)),
-    String(HOST_RANK[locator.nativeHost]),
+    String(order[locator.nativeHost]),
     stableJson(locator.provenance.map(locationKey)),
   ].join("\u0000");
 }
 
 function deduplicateLocators(
   locators: readonly ComponentLocatorClaim[],
+  order: HostOrder,
 ): readonly ComponentLocatorClaim[] {
   const byKey = new Map<string, ComponentLocatorClaim>();
   for (const candidate of locators) {
@@ -208,69 +220,36 @@ function deduplicateLocators(
       byKey.set(key, validated);
       continue;
     }
-    const currentRank = [locatorSourceRank(current.source), HOST_RANK[current.nativeHost]];
-    const nextRank = [locatorSourceRank(validated.source), HOST_RANK[validated.nativeHost]];
+    const currentRank = [locatorSourceRank(current.source), order[current.nativeHost]];
+    const nextRank = [locatorSourceRank(validated.source), order[validated.nativeHost]];
     const preferred = nextRank[0]! < currentRank[0]! ||
       (nextRank[0] === currentRank[0]! && nextRank[1]! < currentRank[1]!)
       ? validated
       : current;
     byKey.set(key, {
       ...preferred,
-      provenance: mergeProvenance(current.provenance, validated.provenance),
+      provenance: mergeProvenance(current.provenance, validated.provenance, order),
     });
   }
   return [...byKey.values()].sort((left, right) => {
-    const a = locatorOrder(left);
-    const b = locatorOrder(right);
+    const a = locatorOrder(left, order);
+    const b = locatorOrder(right, order);
     return a < b ? -1 : a > b ? 1 : 0;
   });
 }
 
-function locatorField(locator: ComponentLocatorClaim): ComponentLocatorClaim["componentKind"] {
-  return locator.componentKind;
-}
-
-function explicitLocatorConflict(
-  locators: readonly ComponentLocatorClaim[],
-  plugin: string,
-): ReadResult<DiscoveryPlan> | undefined {
-  const explicit = locators.filter((locator) =>
-    locator.source === "catalog" || locator.source === "manifest");
-  for (let leftIndex = 0; leftIndex < explicit.length; leftIndex += 1) {
-    const left = explicit[leftIndex] as ComponentLocatorClaim;
-    for (let rightIndex = leftIndex + 1; rightIndex < explicit.length; rightIndex += 1) {
-      const right = explicit[rightIndex] as ComponentLocatorClaim;
-      if (left.source === right.source || left.nativeHost !== right.nativeHost) continue;
-      if (locatorField(left) !== locatorField(right) || targetKey(left) === targetKey(right)) continue;
-      const leftProvenance = firstProvenance(left);
-      const rightProvenance = firstProvenance(right);
-      return failure(
-        ErrorCodeRegistry.claimConflict,
-        `Conflicting explicit ${left.componentKind} locators`,
-        plugin,
-        leftProvenance,
-        {
-          field: `locator.${left.componentKind}`,
-          left: JsonValueSchema.parse(left),
-          right: JsonValueSchema.parse(right),
-          locations: JsonValueSchema.parse([leftProvenance.location, rightProvenance.location]),
-        },
-      );
-    }
-  }
-  return undefined;
-}
 
 function ensureExplicitTargets(
   content: ContentIndex,
   locators: readonly ComponentLocatorClaim[],
   plugin: string,
+  order: HostOrder,
 ): ReadResult<DiscoveryPlan> | undefined {
   for (const locator of locators) {
     const path = contentPath(locator.target);
     if (path === undefined) continue;
     const entry = content.get(path);
-    const provenance = firstProvenance(locator);
+    const provenance = firstProvenance(locator, order);
     const expectedKind = locator.target.kind;
     if (entry === undefined) {
       return failure(
@@ -299,6 +278,7 @@ function catalogLocator(
   authority: "authoritative" | "supplemental",
   target: ComponentLocatorClaim["target"],
   provenance: readonly Provenance[],
+  order: HostOrder,
 ): ComponentLocatorClaim {
   const componentKind = declaration.field === "skills"
     ? "skill"
@@ -311,13 +291,14 @@ function catalogLocator(
     authority,
     source: "catalog",
     target,
-    provenance: mergeProvenance(provenance, []),
+    provenance: mergeProvenance(provenance, [], order),
   };
 }
 
 function catalogPathLocators(
   declaration: MarketplaceEntryDeclaration,
   authority: "authoritative" | "supplemental",
+  order: HostOrder,
 ): ComponentLocatorClaim[] {
   const raw = declaration.declaration.value;
   const pointer = declaration.declaration.provenance[0]?.location.pointer ?? `/${declaration.field}`;
@@ -329,13 +310,14 @@ function catalogPathLocators(
       authority,
       { kind: targetKind, path: normalizeCatalogPath(value, `${pointer}/${index}`) },
       declarationProvenance,
+      order,
     ));
   }
   if (declaration.field === "mcpServers" && raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
-    return [catalogLocator(declaration, authority, { kind: "inline", declaration: JsonValueSchema.parse(raw) }, declarationProvenance)];
+    return [catalogLocator(declaration, authority, { kind: "inline", declaration: JsonValueSchema.parse(raw) }, declarationProvenance, order)];
   }
   if (declaration.field === "hooks" && raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
-    return [catalogLocator(declaration, authority, { kind: "inline", declaration: JsonValueSchema.parse(raw) }, declarationProvenance)];
+    return [catalogLocator(declaration, authority, { kind: "inline", declaration: JsonValueSchema.parse(raw) }, declarationProvenance, order)];
   }
   if (typeof raw !== "string") {
     throw new Error(`${declaration.field} must be a path${declaration.field === "skills" ? " or array of paths" : " or inline object"}`);
@@ -345,6 +327,7 @@ function catalogPathLocators(
     authority,
     { kind: targetKind, path: normalizeCatalogPath(raw, pointer) },
     declarationProvenance,
+    order,
   )];
 }
 
@@ -412,10 +395,11 @@ function manifestPresence(
   required: boolean,
   plugin: string,
   authority: MarketplaceAuthority,
+  order: HostOrder,
 ): ReadResult<ManifestPresence> {
   const path = host === "claude" ? PluginManifestPathRegistry.claude : PluginManifestPathRegistry.codex;
   const entry = content.get(path);
-  const provenance = firstProvenance(authority.manifest);
+  const provenance = firstProvenance(authority.manifest, order);
   if (entry === undefined) {
     if (required) {
       return {
@@ -448,8 +432,9 @@ function manifestPresence(
 
 function authorityClaims(
   entry: NormalizedMarketplaceEntry,
+  order: HostOrder,
 ): readonly MarketplaceAuthority[] {
-  return [...entry.authorities].sort((left, right) => HOST_RANK[left.nativeHost] - HOST_RANK[right.nativeHost]);
+  return [...entry.authorities].sort((left, right) => order[left.nativeHost] - order[right.nativeHost]);
 }
 
 /**
@@ -461,12 +446,15 @@ export function createDiscoveryPlan(input: Readonly<{
   content: ContentIndex;
   claudeManifest?: PluginManifestClaims;
   codexManifest?: PluginManifestClaims;
+  /** Canonical host order for plan ordering and locator preference; defaults to Claude-first. */
+  hostPrecedence?: HostPrecedence;
 }>): ReadResult<DiscoveryPlan> {
   try {
+    const order = hostOrderFor(input.hostPrecedence ?? DEFAULT_HOST_PRECEDENCE);
     const entry = NormalizedMarketplaceEntrySchema.parse(input.entry);
     const content = input.content;
     const plugin = PluginKeySchema.parse(entry.identity.value.key);
-    const authorities = authorityClaims(entry);
+    const authorities = authorityClaims(entry, order);
     const manifests: ManifestPresence[] = [];
     const locators: ComponentLocatorClaim[] = [];
     const foreign: ForeignComponentDeclaration[] = [];
@@ -474,7 +462,7 @@ export function createDiscoveryPlan(input: Readonly<{
     for (const authority of authorities) {
       const host = NativeHostSchema.parse(authority.nativeHost);
       MarketplaceAuthoritySchema.parse(authority);
-      const presence = manifestPresence(content, host, manifestRequired(authority), plugin, authority);
+      const presence = manifestPresence(content, host, manifestRequired(authority), plugin, authority, order);
       if (!presence.ok) return presence;
       manifests.push(presence.value);
 
@@ -494,7 +482,7 @@ export function createDiscoveryPlan(input: Readonly<{
       for (const declaration of entry.declarations.filter((item) => item.nativeHost === host)) {
         if (declaration.field === "skills" || declaration.field === "hooks" || declaration.field === "mcpServers") {
           try {
-            locators.push(...catalogPathLocators(declaration, catalogAuthority));
+            locators.push(...catalogPathLocators(declaration, catalogAuthority, order));
           } catch (error) {
             return failure(
               ErrorCodeRegistry.schemaInvalid,
@@ -512,19 +500,20 @@ export function createDiscoveryPlan(input: Readonly<{
       locators.push(...conventionLocators(entry, content, host, authority, manifestPresent));
     }
 
-    const claimFailure = explicitLocatorConflict(locators, plugin);
-    if (claimFailure !== undefined) return claimFailure;
-    const targetFailure = ensureExplicitTargets(content, locators, plugin);
+    // Divergent explicit locators across hosts are intentionally not a
+    // conflict: each host may point at its own tree, and every locator
+    // target is read and unioned downstream.
+    const targetFailure = ensureExplicitTargets(content, locators, plugin, order);
     if (targetFailure !== undefined) return targetFailure;
 
     return {
       ok: true,
       value: {
-        manifests: manifests.sort((left, right) => HOST_RANK[left.nativeHost] - HOST_RANK[right.nativeHost]),
-        locators: deduplicateLocators(locators),
+        manifests: manifests.sort((left, right) => order[left.nativeHost] - order[right.nativeHost]),
+        locators: deduplicateLocators(locators, order),
         catalogForeign: foreign.sort((left, right) => {
-          const a = `${HOST_RANK[left.nativeHost]}\u0000${left.nativeKind.value}\u0000${left.declarationSubkey}`;
-          const b = `${HOST_RANK[right.nativeHost]}\u0000${right.nativeKind.value}\u0000${right.declarationSubkey}`;
+          const a = `${order[left.nativeHost]}\u0000${left.nativeKind.value}\u0000${left.declarationSubkey}`;
+          const b = `${order[right.nativeHost]}\u0000${right.nativeKind.value}\u0000${right.declarationSubkey}`;
           return a < b ? -1 : a > b ? 1 : 0;
         }),
       },

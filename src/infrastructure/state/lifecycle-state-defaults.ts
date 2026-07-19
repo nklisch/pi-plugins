@@ -1,24 +1,27 @@
 import { hashContent } from "../../domain/content-manifest.js";
 import { HostConfigDocumentSchema } from "../../domain/state/config-state.js";
 import { InstalledUserStateDocumentSchema } from "../../domain/state/installed-state.js";
-import { ProjectLocalStateDocumentSchema } from "../../domain/state/project-state.js";
-import { TrustStateDocumentSchemaV1 } from "../../domain/state/trust-state.js";
+import {
+  ProjectLocalStateDocumentSchema,
+  UNSYNCHRONIZED_PORTABLE_INTENT,
+} from "../../domain/state/project-state.js";
+import { TrustStateDocumentSchema } from "../../domain/state/trust-state.js";
 import type { ScopeContext } from "../../domain/state/scope.js";
 import type { Sha256 } from "../../domain/source.js";
 import type {
   HostConfigDocument,
   InstalledUserStateDocument,
   ProjectLocalStateDocument,
-  TrustStateDocumentV1,
+  TrustStateDocument,
 } from "../../application/state-contract.js";
 
-export const UNSYNCHRONIZED_PORTABLE_INTENT = "portable-project-intent-unsynchronized-v1";
+export { UNSYNCHRONIZED_PORTABLE_INTENT };
 
 export type LifecycleStateDefaultDocuments =
   | Readonly<{
       config: HostConfigDocument;
       installed: InstalledUserStateDocument;
-      trust: TrustStateDocumentV1;
+      trust: TrustStateDocument;
     }>
   | Readonly<{ project: ProjectLocalStateDocument }>;
 
@@ -36,7 +39,7 @@ export function createLifecycleStateDefaultDocuments(
         records: [],
       }),
       installed: InstalledUserStateDocumentSchema.parse({ schemaVersion: 2, generation: 0, marketplaces: [], plugins: [] }),
-      trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation: 0, records: [] }),
+      trust: TrustStateDocumentSchema.parse({ schemaVersion: 1, generation: 0, records: [] }),
     });
   }
   const declarationDigest = hashContent(

@@ -13,7 +13,6 @@ import {
   verifyTrustSubjectRef,
   type TrustSubjectRef,
 } from "./references.js";
-import { defineVersionedSchemaFamily } from "./versioning.js";
 import { GenerationSchema } from "./config-state.js";
 
 /** Trust state stores a decision, not the policy that made that decision. */
@@ -107,8 +106,12 @@ function addDuplicateSubjectIssues(
   }
 }
 
-/** Independently versioned trust envelope. Policy remains in a later feature. */
-export const TrustStateDocumentSchemaV1 = z
+/**
+ * The only trust envelope schema. The literal version remains so a future
+ * clean cut-over can recognize stale documents; stale versions are
+ * reinitialized by the state codec, never migrated.
+ */
+export const TrustStateDocumentSchema = z
   .object({
     schemaVersion: z.literal(1),
     generation: GenerationSchema,
@@ -119,16 +122,7 @@ export const TrustStateDocumentSchemaV1 = z
   .superRefine((document, context) => {
     addDuplicateSubjectIssues(document.records, context);
   });
-export type TrustStateDocumentV1 = z.infer<typeof TrustStateDocumentSchemaV1>;
-
-export const TrustStateSchemaFamily = defineVersionedSchemaFamily<TrustStateDocumentV1>({
-  latestVersion: 1,
-  versions: new Map([[1, TrustStateDocumentSchemaV1]]),
-  migrations: new Map(),
-});
-
-export const TrustStateDocumentSchema = TrustStateDocumentSchemaV1;
-export type TrustStateDocument = TrustStateDocumentV1;
+export type TrustStateDocument = z.infer<typeof TrustStateDocumentSchema>;
 
 const TrustSubjectEvidenceInputSchema = TrustSubjectEvidenceSchema;
 const TrustStateRecordInputSchema = z
@@ -168,9 +162,9 @@ export function verifyTrustStateRecord(
 export function createTrustStateDocument(
   input: unknown,
   sha256: Sha256,
-): TrustStateDocumentV1 {
-  const value = TrustStateDocumentSchemaV1.parse(input);
-  return TrustStateDocumentSchemaV1.parse({
+): TrustStateDocument {
+  const value = TrustStateDocumentSchema.parse(input);
+  return TrustStateDocumentSchema.parse({
     ...value,
     records: value.records.map((record) => createTrustStateRecord(record, sha256)),
   });

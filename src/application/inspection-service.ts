@@ -8,7 +8,7 @@ import {
 } from "./inspection-contract.js";
 import { createContentIndex, type ContentIndex, type ManifestFileEntry } from "./content-index.js";
 import { createDiscoveryPlan, type DiscoveryPlan } from "./discovery-plan.js";
-import { reconcilePluginBundle } from "./bundle-reconciler.js";
+import { reconcilePluginBundle, buildPrecedenceResolutionMetadata } from "./bundle-reconciler.js";
 import type { MaterializedPlugin } from "./source-materialization.js";
 import type { ContentReadPort } from "./ports/content-read.js";
 import type {
@@ -54,9 +54,16 @@ import {
   type Sha256,
 } from "../domain/source.js";
 import {
+  SkillComponentSchema,
   type Component,
   type SkillComponent,
 } from "../domain/components.js";
+import {
+  DEFAULT_HOST_PRECEDENCE,
+  HostPrecedenceSchema,
+  hostRank,
+  type HostPrecedence,
+} from "../domain/host-precedence.js";
 
 const OPERATION = "inspectPluginBundle";
 const ABSOLUTE_ROOT = /^(?:\/|[A-Za-z]:[\\/])/u;
@@ -67,6 +74,12 @@ type InspectionDependencies = Readonly<{
   readers: BundleReaderSet;
   sha256: Sha256;
   limits?: Partial<BundleDocumentLimitsContract>;
+  /**
+   * Resolves the user's canonical host order at call time. Defaults to
+   * Claude-first. Changing precedence only affects new inspections; stored
+   * normalized plugins are never rewritten.
+   */
+  hostPrecedence?: () => Promise<HostPrecedence>;
 }>;
 
 export interface PluginInspectionService {
@@ -449,15 +462,59 @@ function uniqueProvenances(locator: ComponentLocatorClaim): readonly Provenance[
   });
 }
 
-function duplicateSkillName(components: readonly Component[]): string | undefined {
-  const names = new Map<string, SkillComponent>();
+/**
+ * Same-name skills from different host trees cannot both activate. Blocking
+ * the whole plugin over that is the opposite of best-effort: keep the
+ * precedence winner (canonical host order, then root path for determinism),
+ * record the superseded skills on the winner as resolution metadata, and
+ * activate the rest of the plugin untouched.
+ */
+function dedupeSkillNames(components: readonly Component[], precedence: HostPrecedence): readonly Component[] {
+  const hostOrder = (host: string): number =>
+    host === "claude" || host === "codex" ? hostRank(precedence, host) : precedence.length;
+  const skillSortKey = (component: SkillComponent): string => {
+    const location = [...component.root.provenance].sort((left, right) => {
+      const host = hostOrder(left.location.host) - hostOrder(right.location.host);
+      if (host !== 0) return host;
+      const a = `${left.location.host}\u0000${left.location.path}`;
+      const b = `${right.location.host}\u0000${right.location.path}`;
+      return a < b ? -1 : a > b ? 1 : 0;
+    })[0]?.location;
+    return `${String(hostOrder(location?.host ?? "")).padStart(2, "0")}\u0000${location?.path ?? ""}\u0000${component.root.value}`;
+  };
+  const byName = new Map<string, SkillComponent[]>();
   for (const component of components) {
     if (component.kind !== "skill") continue;
-    const previous = names.get(component.name.value);
-    if (previous !== undefined && previous.root.value !== component.root.value) return component.name.value;
-    names.set(component.name.value, component);
+    const group = byName.get(component.name.value) ?? [];
+    group.push(component);
+    byName.set(component.name.value, group);
   }
-  return undefined;
+  const replacements = new Map<string, SkillComponent>();
+  const dropped = new Set<string>();
+  for (const group of byName.values()) {
+    const distinct = new Map(group.map((skill) => [skill.id, skill]));
+    if (distinct.size < 2) continue;
+    const ordered = [...distinct.values()].sort((left, right) => {
+      const a = skillSortKey(left);
+      const b = skillSortKey(right);
+      return a < b ? -1 : a > b ? 1 : 0;
+    });
+    const winner = ordered[0]!;
+    const notes = ordered.slice(1).map((loser) =>
+      buildPrecedenceResolutionMetadata("skill.name", winner.root, loser.root, {
+        claude: hostRank(precedence, "claude"),
+        codex: hostRank(precedence, "codex"),
+      }));
+    replacements.set(winner.id, SkillComponentSchema.parse({ ...winner, metadata: [...winner.metadata, ...notes] }));
+    for (const loser of ordered.slice(1)) dropped.add(loser.id);
+  }
+  if (replacements.size === 0 && dropped.size === 0) return components;
+  const result: Component[] = [];
+  for (const component of components) {
+    if (dropped.has(component.id)) continue;
+    result.push(replacements.get(component.id) ?? component);
+  }
+  return result;
 }
 
 function createService(dependencies: InspectionDependencies): PluginInspectionService {
@@ -469,6 +526,12 @@ function createService(dependencies: InspectionDependencies): PluginInspectionSe
   async function inspect(input: BundleInspectionInput, signal: AbortSignal): Promise<BundleInspectionResult> {
     abortIfRequested(signal);
     const plugin = safePlugin(input);
+    // Resolve the user's host precedence once per inspection so one run sees
+    // a single canonical order even if the preference changes mid-flight.
+    const precedence = dependencies.hostPrecedence === undefined
+      ? DEFAULT_HOST_PRECEDENCE
+      : HostPrecedenceSchema.parse(await dependencies.hostPrecedence());
+    abortIfRequested(signal);
     let entry: NormalizedMarketplaceEntry;
     try {
       entry = NormalizedMarketplaceEntrySchema.parse(input.entry);
@@ -544,7 +607,7 @@ function createService(dependencies: InspectionDependencies): PluginInspectionSe
       return bytes;
     };
 
-    const initialPlan = createDiscoveryPlan({ entry, content });
+    const initialPlan = createDiscoveryPlan({ entry, content, hostPrecedence: precedence });
     if (!initialPlan.ok) return initialPlan;
 
     const manifestClaims: PluginManifestClaims[] = [];
@@ -577,7 +640,8 @@ function createService(dependencies: InspectionDependencies): PluginInspectionSe
       content: ContentIndex;
       claudeManifest?: PluginManifestClaims;
       codexManifest?: PluginManifestClaims;
-    } = { entry, content };
+      hostPrecedence?: HostPrecedence;
+    } = { entry, content, hostPrecedence: precedence };
     const claudeManifest = manifestClaims.find((claim) => claim.nativeHost === "claude");
     const codexManifest = manifestClaims.find((claim) => claim.nativeHost === "codex");
     if (claudeManifest !== undefined) discoveryInput.claudeManifest = claudeManifest;
@@ -702,18 +766,16 @@ function createService(dependencies: InspectionDependencies): PluginInspectionSe
       }
     }
 
-    const duplicateName = duplicateSkillName(components);
-    if (duplicateName !== undefined) return failure(ErrorCodeRegistry.claimConflict, `duplicate Agent Skill name: ${duplicateName}`, entry.identity.value.key);
-
     return reconcilePluginBundle({
       entry,
       source,
       manifestClaims,
       foreignDeclarations: plan.catalogForeign,
       configuration: [],
-      components,
+      components: dedupeSkillNames(components, precedence),
       metadata: entry.metadata,
       sha256: dependencies.sha256,
+      hostPrecedence: precedence,
     });
   }
 

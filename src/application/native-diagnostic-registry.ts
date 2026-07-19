@@ -47,6 +47,12 @@ export const NativeDiagnosticRegistry = Object.freeze({
   candidateMissing: { code: "CANDIDATE_MISSING", category: "freshness", severity: "warning", rank: 920, blocks: false, unavailable: true, action: "refresh-marketplace", summary: "The exact marketplace candidate is unavailable." },
   sourceUnavailable: { code: "SOURCE_UNAVAILABLE", category: "evidence", severity: "warning", rank: 930, blocks: false, unavailable: true, action: "retry-read", summary: "Plugin source content is unavailable." },
   sourceInvalid: { code: "SOURCE_INVALID", category: "integrity", severity: "error", rank: 940, blocks: true, unavailable: false, action: "inspect-source", summary: "Plugin source content is invalid." },
+  // Specific, user-presentable source failures. Provenance carries the host
+  // document (.claude-plugin/... vs .codex-plugin/...) and pointer; the
+  // `reason` fact is a fixed vocabulary the presenter maps to plain language.
+  sourceDocumentInvalid: { code: "SOURCE_DOCUMENT_INVALID", category: "integrity", severity: "error", rank: 941, blocks: true, unavailable: false, action: "inspect-source", summary: "A plugin document is invalid." },
+  sourceDeclarationConflict: { code: "SOURCE_DECLARATION_CONFLICT", category: "integrity", severity: "error", rank: 942, blocks: true, unavailable: false, action: "inspect-source", summary: "Two plugin declarations disagree." },
+  sourceContentUnsafe: { code: "SOURCE_CONTENT_UNSAFE", category: "integrity", severity: "error", rank: 943, blocks: true, unavailable: false, action: "inspect-source", summary: "The plugin source is not safe to install." },
   adoptionUnreadable: { code: "ADOPTION_DOCUMENT_UNREADABLE", category: "adoption", severity: "warning", rank: 950, blocks: false, unavailable: false, action: "retry-read", summary: "A foreign adoption document is unreadable." },
   adoptionChanged: { code: "ADOPTION_DOCUMENT_CHANGED", category: "adoption", severity: "warning", rank: 951, blocks: false, unavailable: false, action: "retry-read", summary: "A foreign adoption document changed during inspection." },
   evidenceUnavailable: { code: "EVIDENCE_UNAVAILABLE", category: "evidence", severity: "warning", rank: 1000, blocks: false, unavailable: true, action: "retry-read", summary: "Required inspection evidence is unavailable." },

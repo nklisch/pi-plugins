@@ -284,7 +284,9 @@ function derivePluginMcpProjection(
       fail("MCP_COMPONENT_ID_MISMATCH", [component.id]);
     }
     const analysis = analyzeMcpCompatibility({ plugin: projection.plugin, component });
-    if (analysis.kind === "incompatible") fail("MCP_DECLARATION_UNSUPPORTED", [component.id]);
+    // Runtime projection only receives activatable components; a degraded or
+    // blocked analysis here means the activation evidence drifted.
+    if (analysis.kind !== "supported") fail("MCP_DECLARATION_UNSUPPORTED", [component.id]);
     for (const capability of analysis.plan.requirementCapabilityIds) {
       if (!runtimeSupports(capability, runtime)) {
         fail("MCP_RUNTIME_CAPABILITY_MISMATCH", [component.id]);

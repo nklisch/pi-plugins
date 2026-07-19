@@ -28,7 +28,7 @@ function fixture() {
   const resolved = createResolvedMarketplaceSource({ declared: source, revision: "a".repeat(40) }, sha256);
   const contentManifest = createContentManifest([], sha256);
   const marketplaceSnapshot = createMarketplaceSnapshotRecord({ marketplace: "community", source: resolved, content: contentManifest, binding: createMaterializationBinding(resolved.hash, contentManifest.rootDigest, sha256) }, sha256);
-  const registration = createMarketplaceConfigurationRecord({ marketplace: "community", source, refresh: { nextScheduledAt: 1_000, consecutiveFailures: 0 } });
+  const registration = createMarketplaceConfigurationRecord({ marketplace: "community", source });
   const registrationId = deriveMarketplaceRegistrationId({ scope: { kind: "user" }, source }, sha256);
   catalogCache = { kind: "ready", validator: { kind: "git-commit", revision: resolved.revision }, etag: { kind: "not-applicable" } };
   const corruption = { document: "installedUser", scope: { kind: "user" }, code: "RECORD_INVALID", recordIdentity: "broken@community", location: { kind: "pointer", value: "/plugins/0" }, summary: "state record was quarantined" } as const;

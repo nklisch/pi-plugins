@@ -79,11 +79,10 @@ function makeEnvironment(options: Readonly<{
   const record = createMarketplaceConfigurationRecord({
     marketplace: "community",
     source: marketplace,
-    updateApplication: options.automatic ? "automatic" : "manual",
+    ...(options.automatic ? { applicationOverride: "automatic" as const } : {}),
     ...(options.activeClaim ? {
       refresh: {
         claim: { id: "refresh-claim-v1:uuid:123e4567-e89b-42d3-a456-426614174099", startedAt: 500, expiresAt: 5_000 },
-        nextScheduledAt: 0,
         consecutiveFailures: 0,
       },
     } : {}),

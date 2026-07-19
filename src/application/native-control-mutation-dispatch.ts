@@ -1,7 +1,8 @@
 import { NativeControlCommandRegistry, type NativeControlCommand } from "./native-control-registry.js";
 import type { NativeControlApplicationDependencies, NativeControlDispatchContext } from "./ports/native-control-applications.js";
 import type { NativeControlDispatchResult } from "./native-control-projection.js";
-import { projectNativeControlFailure, projectNativeControlResponse } from "./native-control-projection.js";
+import { presentRecoveryRequired } from "./native-failure-presenter.js";
+import { humanForSelectionFailure, projectNativeControlFailure, projectNativeControlResponse } from "./native-control-projection.js";
 import { currentProjectFailure } from "./native-control-read-dispatch.js";
 import type { MarketplaceRefreshResult } from "./update-contract.js";
 import { createNativeControlSelectionService, type NativeControlSelectionService } from "./native-control-selection.js";
@@ -37,7 +38,11 @@ function installStatus(command: NativeControlCommand["command"], result: Trusted
     : result.kind === "recovery-required" ? "recovery-required"
     : result.kind === "cancelled" ? "cancelled"
     : "failed";
-  return projectNativeControlResponse(command, result, { status, ...(operation === undefined ? {} : { operation }) });
+  return projectNativeControlResponse(command, result, {
+    status,
+    ...(operation === undefined ? {} : { operation }),
+    ...(result.kind === "recovery-required" ? { human: [presentRecoveryRequired()] } : {}),
+  });
 }
 
 function lifecycleStatus(command: NativeControlCommand["command"], result: NativeLifecycleOperationPreviewResult | NativeLifecycleOperationResult): NativeControlDispatchResult {
@@ -53,7 +58,11 @@ function lifecycleStatus(command: NativeControlCommand["command"], result: Nativ
     : result.kind === "recovery-required" ? "recovery-required"
     : result.kind === "cancelled" ? "cancelled"
     : "failed";
-  return projectNativeControlResponse(command, result, { status, ...(operation === undefined ? {} : { operation }) });
+  return projectNativeControlResponse(command, result, {
+    status,
+    ...(operation === undefined ? {} : { operation }),
+    ...(result.kind === "recovery-required" ? { human: [presentRecoveryRequired()] } : {}),
+  });
 }
 
 export function foldMarketplaceRefreshStatus(result: MarketplaceRefreshResult): NativeControlDispatchResult["status"] {
@@ -65,7 +74,7 @@ export function foldMarketplaceRefreshStatus(result: MarketplaceRefreshResult): 
 }
 
 function inputFailure(result: unknown): NativeControlDispatchResult {
-  return projectNativeControlFailure("input-required", "CONTROL_INPUT_REQUIRED", "provide-input", result);
+  return projectNativeControlFailure("input-required", "CONTROL_INPUT_REQUIRED", "provide-input");
 }
 
 async function activateSession(
@@ -110,11 +119,11 @@ async function lifecycle(
       ...(request.snapshotId === undefined ? {} : { installed: { snapshotId: request.snapshotId, detailId: request.detailId } }),
       ...(request.candidateSnapshotId === undefined ? {} : { candidate: { snapshotId: request.candidateSnapshotId, detailId: request.candidateDetailId } }),
     }, signal);
-    if (selected.kind !== "selected") return projectNativeControlFailure(selected.kind === "stale" ? "stale" : selected.kind === "ambiguous" ? "partial" : selected.kind === "unavailable" ? "unavailable" : "not-found", "CONTROL_TARGET_SELECTION_FAILED", "reinspect");
+    if (selected.kind !== "selected") return projectNativeControlFailure(selected.kind === "stale" ? "stale" : selected.kind === "ambiguous" ? "partial" : selected.kind === "unavailable" ? "unavailable" : "not-found", "CONTROL_TARGET_SELECTION_FAILED", "reinspect", humanForSelectionFailure(selected));
     ownerRequest = { operation: "update", target: { inspectionSnapshotId: selected.installed.snapshotId, detailId: selected.installed.summary.detailId }, candidate: { inspectionSnapshotId: selected.candidate.snapshotId, detailId: selected.candidate.summary.detailId } };
   } else {
     const selected = await selection.installed(pluginSelector(request), signal);
-    if (selected.kind !== "selected") return projectNativeControlFailure(selected.kind === "stale" ? "stale" : selected.kind === "ambiguous" ? "partial" : selected.kind === "unavailable" ? "unavailable" : "not-found", "CONTROL_TARGET_SELECTION_FAILED", "reinspect");
+    if (selected.kind !== "selected") return projectNativeControlFailure(selected.kind === "stale" ? "stale" : selected.kind === "ambiguous" ? "partial" : selected.kind === "unavailable" ? "unavailable" : "not-found", "CONTROL_TARGET_SELECTION_FAILED", "reinspect", humanForSelectionFailure(selected));
     ownerRequest = { operation: command.command.slice("lifecycle.".length), target: { inspectionSnapshotId: selected.detail.snapshotId, detailId: selected.detail.summary.detailId } };
   }
 
@@ -166,7 +175,7 @@ export function createNativeControlMutationDispatcher(dependencies: NativeContro
         }
         case "install.open": {
           const selected = await selection.candidate(pluginSelector(request), signal);
-          if (selected.kind !== "selected") return projectNativeControlFailure(selected.kind === "stale" ? "stale" : selected.kind === "ambiguous" ? "partial" : selected.kind === "unavailable" ? "unavailable" : "not-found", "CONTROL_TARGET_SELECTION_FAILED", "reinspect");
+          if (selected.kind !== "selected") return projectNativeControlFailure(selected.kind === "stale" ? "stale" : selected.kind === "ambiguous" ? "partial" : selected.kind === "unavailable" ? "unavailable" : "not-found", "CONTROL_TARGET_SELECTION_FAILED", "reinspect", humanForSelectionFailure(selected));
           const result = await dependencies.trustedInstallation.open({ inspectionSnapshotId: selected.detail.snapshotId, detailId: selected.detail.summary.detailId }, signal);
           return installStatus(command.command, result);
         }
@@ -178,7 +187,7 @@ export function createNativeControlMutationDispatcher(dependencies: NativeContro
         }
         case "install.run": {
           const selected = await selection.candidate(pluginSelector(request), signal);
-          if (selected.kind !== "selected") return projectNativeControlFailure(selected.kind === "stale" ? "stale" : selected.kind === "ambiguous" ? "partial" : selected.kind === "unavailable" ? "unavailable" : "not-found", "CONTROL_TARGET_SELECTION_FAILED", "reinspect");
+          if (selected.kind !== "selected") return projectNativeControlFailure(selected.kind === "stale" ? "stale" : selected.kind === "ambiguous" ? "partial" : selected.kind === "unavailable" ? "unavailable" : "not-found", "CONTROL_TARGET_SELECTION_FAILED", "reinspect", humanForSelectionFailure(selected));
           let unavailableInput: unknown;
           const result = await dependencies.trustedInstallation.run(
             { inspectionSnapshotId: selected.detail.snapshotId, detailId: selected.detail.summary.detailId },
@@ -213,6 +222,11 @@ export function createNativeControlMutationDispatcher(dependencies: NativeContro
         case "updates.policy.apply":
         case "updates.policy.set":
           return dispatchNativeControlPolicy(command, { updates: dependencies.updates, selection }, signal);
+        case "config.host-precedence": {
+          const result = await dependencies.config.hostPrecedence.setHostPrecedence(request, signal);
+          const status = result.kind === "changed" ? "ok" : result.kind === "unchanged" ? "no-change" : result.kind === "stale" ? "stale" : "rejected";
+          return projectNativeControlResponse(command.command, result, { status });
+        }
         case "updates.notices.acknowledge": {
           const result = await dependencies.updates.acknowledge({ ids: request.ids }, signal);
           return projectNativeControlResponse(command.command, result, { status: result.missing.length > 0 ? "partial" : "ok" });

@@ -18,9 +18,9 @@ import {
   createInstalledPluginRecord,
   createInstalledRevisionRecord,
 } from "../../src/domain/state/installed-state.js";
-import { HostConfigDocumentSchemaV1, GenerationSchema, type Generation } from "../../src/domain/state/config-state.js";
-import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
-import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
+import { HostConfigDocumentSchema, GenerationSchema, type Generation } from "../../src/domain/state/config-state.js";
+import { StatePointersDocumentSchema } from "../../src/domain/state/pointers.js";
+import { TrustStateDocumentSchema } from "../../src/domain/state/trust-state.js";
 import { deriveStateBlobRef } from "../../src/domain/state/references.js";
 import { grantTrust, createTrustCandidate } from "../../src/domain/trust-policy.js";
 import { deriveMarketplaceSourceIdentity, derivePluginSourceIdentity } from "../../src/domain/update-policy.js";
@@ -66,7 +66,7 @@ const trustCandidate = createTrustCandidate({ scope: { kind: "user" }, marketpla
 const trust = grantTrust(trustCandidate, sha256);
 
 function pointers(generation: Generation) {
-  return StatePointersDocumentSchemaV1.parse({
+  return StatePointersDocumentSchema.parse({
     schemaVersion: 1,
     scope: { kind: "user" },
     generation,
@@ -85,9 +85,9 @@ function snapshot(generation: number, installed: ReturnType<typeof createInstall
     scope: { kind: "user" },
     generation: value,
     pointers: pointers(value),
-    config: HostConfigDocumentSchemaV1.parse({ schemaVersion: 1, generation: value, records: [] }),
+    config: HostConfigDocumentSchema.parse({ schemaVersion: 4, generation: value, records: [] }),
     installed: createInstalledUserStateDocument({ generation: value, marketplaces: [marketplace], plugins: installed }, sha256),
-    trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation: value, records }),
+    trust: TrustStateDocumentSchema.parse({ schemaVersion: 1, generation: value, records }),
     corruptions: [],
   };
 }

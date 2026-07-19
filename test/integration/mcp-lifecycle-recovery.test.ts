@@ -37,8 +37,8 @@ import {
   InstalledPluginRecordSchema,
   type InstalledPluginRecord,
 } from "../../src/domain/state/installed-state.js";
-import { GenerationSchema, HostConfigDocumentSchemaV1 } from "../../src/domain/state/config-state.js";
-import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
+import { GenerationSchema, HostConfigDocumentSchema } from "../../src/domain/state/config-state.js";
+import { TrustStateDocumentSchema } from "../../src/domain/state/trust-state.js";
 import type { GenerationSnapshot } from "../../src/application/state-contract.js";
 import { NormalizedPluginSchema } from "../../src/domain/plugin.js";
 import {
@@ -212,13 +212,13 @@ function snapshot(generation: number, plugins: readonly InstalledPluginRecord[])
     scope,
     generation: value,
     pointers: {} as never,
-    config: HostConfigDocumentSchemaV1.parse({ schemaVersion: 1, generation: value, records: [] }),
+    config: HostConfigDocumentSchema.parse({ schemaVersion: 4, generation: value, records: [] }),
     installed: createInstalledUserStateDocument({
       generation: value,
       marketplaces: [marketplace],
       plugins,
     }, sha256),
-    trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation: value, records: [] }),
+    trust: TrustStateDocumentSchema.parse({ schemaVersion: 1, generation: value, records: [] }),
     corruptions: [],
   };
 }

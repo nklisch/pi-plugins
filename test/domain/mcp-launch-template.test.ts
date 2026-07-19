@@ -71,7 +71,7 @@ describe("canonical MCP launch templates", () => {
       expect(analyzeMcpCompatibility({
         plugin: "demo@community",
         component: candidate,
-      }).kind).toBe("incompatible");
+      }).kind).toBe("metadata-only");
       expect(() => createMcpLaunchTemplate(candidate, "demo@community")).toThrow(McpLaunchTemplateError);
     } finally {
       aliases.splice(0, aliases.length, ...original);
@@ -161,7 +161,7 @@ describe("canonical MCP launch templates", () => {
       features: { headers: { "X-Trace": "CANARY_CONFLICTING_HEADER" } },
     }, "headers-conflict");
     const result = analyzeMcpCompatibility({ plugin: "demo@community", component: conflict });
-    expect(result.kind).toBe("incompatible");
+    expect(result.kind).toBe("metadata-only");
     expect(JSON.stringify(result)).not.toContain("CANARY_CONFLICTING_HEADER");
     expect(() => createMcpLaunchTemplate(conflict, "demo@community"))
       .toThrow(McpLaunchTemplateError);
@@ -173,14 +173,14 @@ describe("canonical MCP launch templates", () => {
     ["X-Sig", "CANARY_SIG", "3"],
     ["X-Session-Id", "CANARY_SESSION", "4"],
     ["X-JWT", "CANARY_JWT", "5"],
-  ])("rejects static %s credential carriers while accepting late-bound equivalents", (name, canary, token) => {
+  ])("degrades static %s credential carriers while accepting late-bound equivalents", (name, canary, token) => {
     const unsafe = component({
       type: "http",
       url: "https://example.invalid/mcp",
       headers: { [name]: canary },
     }, token);
     const result = analyzeMcpCompatibility({ plugin: "demo@community", component: unsafe });
-    expect(result.kind).toBe("incompatible");
+    expect(result.kind).toBe("metadata-only");
     expect(JSON.stringify(result)).not.toContain(canary);
     expect(() => createMcpLaunchTemplate(unsafe, "demo@community"))
       .toThrow(McpLaunchTemplateError);
@@ -200,7 +200,7 @@ describe("canonical MCP launch templates", () => {
     ["session", "8"],
     ["jwt", "9"],
   ])(
-    "rejects static %s query credentials without serializing plaintext",
+    "degrades static %s query credentials without serializing plaintext",
     (name, token) => {
       const canary = `CANARY_QUERY_${name}`;
       const unsafe = component({
@@ -208,7 +208,7 @@ describe("canonical MCP launch templates", () => {
         url: `https://example.invalid/mcp?${name}=${canary}`,
       }, token);
       const result = analyzeMcpCompatibility({ plugin: "demo@community", component: unsafe });
-      expect(result.kind).toBe("incompatible");
+      expect(result.kind).toBe("metadata-only");
       expect(JSON.stringify(result)).not.toContain(canary);
       expect(template({
         type: "http",
@@ -226,12 +226,12 @@ describe("canonical MCP launch templates", () => {
     { type: "http", url: "https://example.invalid", headers: { Alpha: "one", alpha: "two" } },
     { type: "http", url: "https://example.invalid", headers: { Authorization: "${TOKEN}" }, bearerTokenEnv: "TOKEN" },
     { type: "http", url: "https://example.invalid", auth: { type: "bearer", env: "ONE" }, bearerTokenEnv: "TWO" },
-  ])("rejects conflicting aliases and literal credential material", (declaration) => {
+  ])("degrades conflicting aliases and literal credential material", (declaration) => {
     const candidate = component(declaration);
     expect(analyzeMcpCompatibility({
       plugin: "demo@community",
       component: candidate,
-    }).kind).toBe("incompatible");
+    }).kind).toBe("metadata-only");
     expect(() => createMcpLaunchTemplate(candidate, "demo@community")).toThrow(McpLaunchTemplateError);
   });
 

@@ -4,10 +4,10 @@ import { createExactTrustGrantService } from "../../src/application/exact-trust-
 import { createContentManifest, createMaterializationBinding } from "../../src/domain/content-manifest.js";
 import { createResolvedMarketplaceSource } from "../../src/domain/source.js";
 import { createTrustCandidate, grantTrust } from "../../src/domain/trust-policy.js";
-import { HostConfigDocumentSchemaV1 } from "../../src/domain/state/config-state.js";
-import { InstalledUserStateDocumentSchemaV1 } from "../../src/domain/state/installed-state.js";
-import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
-import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
+import { HostConfigDocumentSchema } from "../../src/domain/state/config-state.js";
+import { InstalledUserStateDocumentSchema } from "../../src/domain/state/installed-state.js";
+import { StatePointersDocumentSchema } from "../../src/domain/state/pointers.js";
+import { TrustStateDocumentSchema } from "../../src/domain/state/trust-state.js";
 import { capabilities, directPlugin, sha256 as fixtureSha } from "../fixtures/compatibility/common.js";
 import { evaluateCompatibility } from "../../src/domain/compatibility-evaluator.js";
 
@@ -32,10 +32,10 @@ function snapshot(records: readonly ReturnType<typeof grantTrust>[] = [], genera
   const scope = { kind: "user" as const };
   return {
     scope, generation,
-    pointers: StatePointersDocumentSchemaV1.parse({ schemaVersion: 1, scope, generation, documents: ["hostConfig", "installedUser", "trust"].map((kind) => ({ kind, generation, blob, digest })) }),
-    config: HostConfigDocumentSchemaV1.parse({ schemaVersion: 1, generation, records: [] }),
-    installed: InstalledUserStateDocumentSchemaV1.parse({ schemaVersion: 1, generation, marketplaces: [], plugins: [] }),
-    trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation, records }),
+    pointers: StatePointersDocumentSchema.parse({ schemaVersion: 1, scope, generation, documents: ["hostConfig", "installedUser", "trust"].map((kind) => ({ kind, generation, blob, digest })) }),
+    config: HostConfigDocumentSchema.parse({ schemaVersion: 4, generation, records: [] }),
+    installed: InstalledUserStateDocumentSchema.parse({ schemaVersion: 2, generation, marketplaces: [], plugins: [] }),
+    trust: TrustStateDocumentSchema.parse({ schemaVersion: 1, generation, records }),
     corruptions: [],
   } as never;
 }

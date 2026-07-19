@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { createMarketplaceRefreshService } from "../../src/application/marketplace-refresh-service.js";
 import { createContentManifest, createMaterializationBinding } from "../../src/domain/content-manifest.js";
 import { createMarketplaceSnapshotRecord } from "../../src/domain/state/installed-state.js";
-import { createProjectLocalStateDocumentV4 } from "../../src/domain/state/project-state.js";
-import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
+import { createProjectLocalStateDocument } from "../../src/domain/state/project-state.js";
+import { StatePointersDocumentSchema } from "../../src/domain/state/pointers.js";
 import { deriveStateBlobRef } from "../../src/domain/state/references.js";
 import { deriveProjectKey } from "../../src/domain/state/scope.js";
 import { GenerationSchema } from "../../src/domain/state/config-state.js";
@@ -17,7 +17,7 @@ const sha256: Sha256 = (bytes) => new Uint8Array(createHash("sha256").update(byt
 const digest = (value: string) => `sha256:${value.repeat(64)}` as `sha256:${string}`;
 
 function pointers(scope: { projectKey: string }, generation: number) {
-  return StatePointersDocumentSchemaV1.parse({
+  return StatePointersDocumentSchema.parse({
     schemaVersion: 1,
     scope: { kind: "project", projectKey: scope.projectKey },
     generation,
@@ -39,7 +39,7 @@ describe("marketplace refresh project authority", () => {
     const resolved = createResolvedMarketplaceSource({ declared: source, revision: "a".repeat(40) }, sha256);
     const binding = createMaterializationBinding(resolved.hash, content.rootDigest, sha256);
     const selected = createMarketplaceSnapshotRecord({ marketplace: "community", source: resolved, content, binding }, sha256);
-    const record = createMarketplaceConfigurationRecord({ marketplace: "community", source, refresh: { nextScheduledAt: 0, consecutiveFailures: 0 } });
+    const record = createMarketplaceConfigurationRecord({ marketplace: "community", source });
     const claim = { id: "refresh-claim-v1:uuid:123e4567-e89b-42d3-a456-426614174099", startedAt: 1_000, expiresAt: 901_000 };
     const claimedRecord = MarketplaceRegistrationRecordSchema.parse({ ...record, refresh: { ...record.refresh, claim } });
 
@@ -47,7 +47,7 @@ describe("marketplace refresh project authority", () => {
       scope,
       generation: GenerationSchema.parse(generation),
       pointers: pointers(scope, generation),
-      project: createProjectLocalStateDocumentV4({
+      project: createProjectLocalStateDocument({
         schemaVersion: 4,
         generation,
         projectKey: scope.projectKey,

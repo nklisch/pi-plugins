@@ -2,106 +2,96 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
   GenerationSchema,
-  HostConfigDocumentSchemaV1,
-  HostConfigDocumentSchemaV3,
-  HostConfigDocumentSchemaV4,
-  HostConfigSchemaFamily,
-  projectHostConfigV3ToV4,
+  HostConfigDocumentSchema,
   MarketplaceConfigurationRecordSchema,
   UpdateApplicationPreferenceSchema,
-  type HostConfigDocumentV1,
+  type HostConfigDocument,
 } from "../../../src/domain/state/config-state.js";
-import { migrateVersionedDocument } from "../../../src/domain/state/versioning.js";
+import { createMarketplaceConfigurationRecord } from "../../../src/domain/update-policy.js";
 import { MarketplaceNameSchema } from "../../../src/domain/identity.js";
 import { MarketplaceSourceSchema } from "../../../src/domain/source.js";
 
 const marketplace = MarketplaceNameSchema.parse("team");
 const remoteSource = MarketplaceSourceSchema.parse({ kind: "github", repository: "example/plugins" });
 
+function record(overrides: Record<string, unknown> = {}) {
+  return { ...createMarketplaceConfigurationRecord({ marketplace, source: remoteSource }), ...overrides };
+}
+
 function document(overrides: Record<string, unknown> = {}) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 4,
     generation: 0,
-    records: [{ marketplace, source: remoteSource, updateApplication: "manual" }],
+    global: { application: "manual", cadence: "balanced" },
+    scope: {},
+    records: [record()],
     ...overrides,
   };
 }
 
 describe("host marketplace configuration state", () => {
-  it("retains strict legacy inputs while making v4 current", () => {
-    const parsed = HostConfigDocumentSchemaV1.parse(document({ generation: 3 }));
+  it("parses the single current document schema and applies policy defaults", () => {
+    const parsed = HostConfigDocumentSchema.parse({ schemaVersion: 4, generation: 3, records: [record()] });
+    expect(parsed.schemaVersion).toBe(4);
     expect(parsed.generation).toBe(3);
+    expect(parsed.global).toEqual({ application: "manual", cadence: "balanced", resolution: { hostPrecedence: ["claude", "codex"] } });
+    expect(parsed.scope).toEqual({});
+    expect(parsed.records[0]?.marketplace).toBe(marketplace);
     expect(UpdateApplicationPreferenceSchema.parse("manual")).toBe("manual");
     expect(GenerationSchema.parse(0)).toBe(0);
-    expect(HostConfigSchemaFamily.latestVersion).toBe(4);
   });
 
-  it("rejects duplicate marketplaces, unknown fields, and malformed lease windows", () => {
-    expect(HostConfigDocumentSchemaV1.safeParse(document({ records: [document().records[0], document().records[0]] })).success).toBe(false);
-    expect(HostConfigDocumentSchemaV4.safeParse({
+  it("decodes documents without a resolution block to the Claude-first default", () => {
+    const parsed = HostConfigDocumentSchema.parse({
       schemaVersion: 4,
-      generation: 0,
-      global: { application: "manual", cadence: "balanced" },
-      scope: { schedulerLease: { id: `update-scheduler-lease-v1:uuid:123e4567-e89b-42d3-a456-426614174000`, startedAt: 10, renewedAt: 9, expiresAt: 20 } },
+      generation: 1,
+      global: { application: "automatic", cadence: "frequent" },
+      scope: {},
+      records: [],
+    });
+    expect(parsed.global.resolution.hostPrecedence).toEqual(["claude", "codex"]);
+  });
+
+  it("round-trips a codex-first resolution preference", () => {
+    const parsed = HostConfigDocumentSchema.parse({
+      schemaVersion: 4,
+      generation: 2,
+      global: { application: "manual", cadence: "balanced", resolution: { hostPrecedence: ["codex", "claude"] } },
+      scope: {},
+      records: [],
+    });
+    expect(parsed.global.resolution.hostPrecedence).toEqual(["codex", "claude"]);
+    expect(HostConfigDocumentSchema.parse(JSON.parse(JSON.stringify(parsed)))).toEqual(parsed);
+  });
+
+  it("rejects malformed resolution preferences", () => {
+    expect(HostConfigDocumentSchema.safeParse({
+      schemaVersion: 4,
+      generation: 2,
+      global: { application: "manual", cadence: "balanced", resolution: { hostPrecedence: ["claude", "claude"] } },
+      scope: {},
+      records: [],
+    }).success).toBe(false);
+    expect(HostConfigDocumentSchema.safeParse({
+      schemaVersion: 4,
+      generation: 2,
+      global: { application: "manual", cadence: "balanced", resolution: {} },
+      scope: {},
       records: [],
     }).success).toBe(false);
   });
 
-  it("migrates v1-v3 deterministically into global-manual v4", () => {
-    const migrated = migrateVersionedDocument(HostConfigSchemaFamily, document());
-    expect(migrated).toMatchObject({ schemaVersion: 4, global: { application: "manual", cadence: "balanced" }, scope: {} });
-    expect(migrated.records[0]?.applicationOverride).toBeUndefined();
-    expect(migrated.records[0]?.refresh).toEqual({ consecutiveFailures: 0 });
-
-    const automatic = migrateVersionedDocument(HostConfigSchemaFamily, document({
-      records: [{ marketplace, source: remoteSource, updateApplication: "automatic" }],
-    }));
-    expect(automatic.records[0]?.applicationOverride).toBe("automatic");
-    expect(() => migrateVersionedDocument(HostConfigSchemaFamily, { ...document(), schemaVersion: 5 })).toThrow(/newer/);
-  });
-
-  it("preserves finalized v3 registration provenance and refresh evidence", () => {
-    const v3 = HostConfigDocumentSchemaV3.parse({
-      schemaVersion: 3,
-      generation: 7,
-      records: [{
-        marketplace,
-        source: remoteSource,
-        updateApplication: "automatic",
-        origin: {
-          kind: "adoption",
-          candidateId: `adoption-v1:sha256:${"a".repeat(64)}`,
-          documents: [{ host: "claude", document: "claude-known-marketplaces", pointer: "/team" }],
-        },
-        refresh: {
-          claim: { id: "refresh-claim-v1:uuid:123e4567-e89b-42d3-a456-426614174000", startedAt: 10, expiresAt: 20 },
-          lastCompletedAt: 8,
-          lastAttempt: { completedAt: 8, outcome: "succeeded" },
-          nextScheduledAt: 99,
-          consecutiveFailures: 2,
-        },
-        notifications: [],
-      }],
-    });
-    const migrated = projectHostConfigV3ToV4(v3);
-    expect(migrated).toMatchObject({ schemaVersion: 4, generation: 7 });
-    expect(migrated.records[0]).toMatchObject({
-      marketplace,
-      source: remoteSource,
-      origin: v3.records[0]!.origin,
-      applicationOverride: "automatic",
-      refresh: {
-        claim: v3.records[0]!.refresh.claim,
-        lastCompletedAt: 8,
-        lastAttempt: v3.records[0]!.refresh.lastAttempt,
-        schedule: { dueAt: 99, reason: "legacy" },
-        consecutiveFailures: 2,
-      },
-    });
+  it("rejects duplicate marketplaces, unknown fields, and malformed lease windows", () => {
+    expect(HostConfigDocumentSchema.safeParse(document({ records: [record(), record()] })).success).toBe(false);
+    expect(HostConfigDocumentSchema.safeParse(document({ unexpected: true })).success).toBe(false);
+    expect(HostConfigDocumentSchema.safeParse({
+      ...document({ records: [] }),
+      scope: { schedulerLease: { id: `update-scheduler-lease-v1:uuid:123e4567-e89b-42d3-a456-426614174000`, startedAt: 10, renewedAt: 9, expiresAt: 20 } },
+    }).success).toBe(false);
   });
 
   it("derives public document types from strict schemas", () => {
-    expectTypeOf<z.infer<typeof HostConfigDocumentSchemaV1>>().toEqualTypeOf<HostConfigDocumentV1>();
+    expectTypeOf<z.infer<typeof HostConfigDocumentSchema>>().toEqualTypeOf<HostConfigDocument>();
     expectTypeOf<z.infer<typeof MarketplaceConfigurationRecordSchema>>().toEqualTypeOf<
       import("../../../src/domain/state/config-state.js").MarketplaceConfigurationRecord
     >();

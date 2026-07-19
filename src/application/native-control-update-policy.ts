@@ -33,7 +33,7 @@ export async function dispatchNativeControlPolicy(
 
   const preview = await dependencies.updates.previewPolicy(change as never, signal);
   if (preview.kind === "rejected") return projectNativeControlResponse(command.command, preview, { status: "rejected" });
-  if (request.previewId !== undefined && request.previewId !== preview.preview.previewId) return projectNativeControlFailure("stale", "CONTROL_POLICY_PREVIEW_STALE", "reparse", preview);
+  if (request.previewId !== undefined && request.previewId !== preview.preview.previewId) return projectNativeControlFailure("stale", "CONTROL_POLICY_PREVIEW_STALE", "reparse");
   if (preview.preview.consent.required && request.consentId === undefined) {
     return projectNativeControlResponse(command.command, preview, { status: "input-required" });
   }

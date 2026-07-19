@@ -103,8 +103,8 @@ describe("compatibility capability service", () => {
 
     expect(probe.snapshot).toHaveBeenCalledTimes(1);
     expect(report).toEqual(evaluateCompatibility({ ...request, capabilities: snapshot }));
-    expect(report.activatable).toBe(false);
-    expect(report.components.find((item) => item.verdict.kind === "incompatible")).toBeDefined();
+    expect(report.activatable).toBe(true);
+    expect(report.components.find((item) => item.verdict.kind === "metadata-only")).toBeDefined();
   });
 
   it("keeps domain incompatibility as a successful report with mixed capability availability", async () => {
@@ -115,7 +115,7 @@ describe("compatibility capability service", () => {
 
     expect(report.activatable).toBe(false);
     expect(report.components).toHaveLength(2);
-    expect(report.components.find((item) => item.verdict.kind === "incompatible")).toBeDefined();
+    expect(report.components.find((item) => item.verdict.kind === "metadata-only")).toBeDefined();
     const skill = report.components.find((item) => item.componentId.includes(":skill:"));
     expect(skill?.verdict).toEqual({ kind: "supported" });
     expect(report.requirements).toContainEqual(expect.objectContaining({

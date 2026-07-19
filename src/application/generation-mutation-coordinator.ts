@@ -4,24 +4,12 @@ import { z } from "zod";
 import {
   GenerationSchema,
   HostConfigDocumentSchema,
-  HostConfigDocumentSchemaV1,
-  HostConfigDocumentSchemaV2,
-  HostConfigDocumentSchemaV3,
-  projectHostConfigV1ToV2,
-  projectHostConfigV2ToV3,
-  projectHostConfigV3ToV4,
   type Generation,
 } from "../domain/state/config-state.js";
-import { InstalledUserStateDocumentSchema, InstalledUserStateDocumentSchemaV1 } from "../domain/state/installed-state.js";
-import {
-  ProjectLocalStateDocumentSchema,
-  ProjectLocalStateDocumentSchemaV1,
-  ProjectLocalStateDocumentSchemaV2,
-  ProjectLocalStateDocumentSchemaV3,
-  projectProjectLocalV3ToV4,
-} from "../domain/state/project-state.js";
-import { StatePointersDocumentSchemaV1 } from "../domain/state/pointers.js";
-import { TrustStateDocumentSchemaV1 } from "../domain/state/trust-state.js";
+import { InstalledUserStateDocumentSchema } from "../domain/state/installed-state.js";
+import { ProjectLocalStateDocumentSchema } from "../domain/state/project-state.js";
+import { StatePointersDocumentSchema } from "../domain/state/pointers.js";
+import { TrustStateDocumentSchema } from "../domain/state/trust-state.js";
 import { StateCorruptionSchema } from "../domain/state/codec.js";
 import {
   ProjectIdentitySchema,
@@ -211,10 +199,10 @@ function subjects(scope: ScopeReference, plugins: readonly PluginKey[]): readonl
 const UserGenerationSnapshotSchema = z.object({
   scope: z.object({ kind: z.literal("user") }).strict().readonly(),
   generation: GenerationSchema,
-  pointers: StatePointersDocumentSchemaV1,
-  config: z.union([HostConfigDocumentSchema, HostConfigDocumentSchemaV3, HostConfigDocumentSchemaV2, HostConfigDocumentSchemaV1]),
-  installed: z.union([InstalledUserStateDocumentSchema, InstalledUserStateDocumentSchemaV1]),
-  trust: TrustStateDocumentSchemaV1,
+  pointers: StatePointersDocumentSchema,
+  config: HostConfigDocumentSchema,
+  installed: InstalledUserStateDocumentSchema,
+  trust: TrustStateDocumentSchema,
   corruptions: z.array(StateCorruptionSchema).readonly(),
 }).strict().readonly();
 
@@ -225,8 +213,8 @@ const ProjectGenerationSnapshotSchema = z.object({
     projectKey: ProjectKeySchema,
   }).strict().readonly(),
   generation: GenerationSchema,
-  pointers: StatePointersDocumentSchemaV1,
-  project: z.union([ProjectLocalStateDocumentSchema, ProjectLocalStateDocumentSchemaV3, ProjectLocalStateDocumentSchemaV2, ProjectLocalStateDocumentSchemaV1]),
+  pointers: StatePointersDocumentSchema,
+  project: ProjectLocalStateDocumentSchema,
   corruptions: z.array(StateCorruptionSchema).readonly(),
 }).strict().readonly();
 
@@ -238,17 +226,13 @@ function validateSnapshot(snapshot: unknown, scope: ScopeContext): GenerationSna
   const parsed = parsedScope.kind === "user"
     ? UserGenerationSnapshotSchema.parse(snapshot)
     : ProjectGenerationSnapshotSchema.parse(snapshot);
-  // Keep the adapter's envelope version in returned evidence for source
-  // compatibility with older in-memory stores. V2 mutation verification below
-  // compares a canonical compatibility view, so this does not weaken the
-  // current state contract.
   const normalized = parsed as unknown as GenerationSnapshot;
   const snapshotScope = ScopeContextSchema.parse(normalized.scope);
   if (!sameScopeContext(snapshotScope, parsedScope) || !sameScopeReference(toScopeReference(snapshotScope), toScopeReference(parsedScope))) {
     throw new Error("state store returned a snapshot for the wrong scope");
   }
   const generation = GenerationSchema.parse(parsed.generation);
-  const pointers = StatePointersDocumentSchemaV1.parse(parsed.pointers);
+  const pointers = StatePointersDocumentSchema.parse(parsed.pointers);
   if (pointers.generation !== generation || !sameScopeReference(pointers.scope, toScopeReference(parsedScope))) {
     throw new Error("state store returned pointers for the wrong scope or generation");
   }
@@ -344,29 +328,9 @@ function nextGenerationDocument<T extends Readonly<{ generation: Generation }>>(
 }
 
 function compatibleDocumentEqual(actual: unknown, expected: unknown): boolean {
-  if (sameJson(actual, expected)) return true;
-  if (actual === null || typeof actual !== "object" || expected === null || typeof expected !== "object") return false;
-  const actualRecord = actual as Record<string, unknown>;
-  const expectedRecord = expected as Record<string, unknown>;
-  if (expectedRecord.schemaVersion !== 4) return false;
-  if ("records" in actualRecord && "records" in expectedRecord && Array.isArray(actualRecord.records) && Array.isArray(expectedRecord.records)) {
-    if (actualRecord.schemaVersion === 1) {
-      const v2 = HostConfigDocumentSchemaV2.parse(projectHostConfigV1ToV2(actualRecord as Readonly<{ records: readonly unknown[] }>));
-      return sameJson(projectHostConfigV3ToV4(projectHostConfigV2ToV3(v2)), expectedRecord);
-    }
-    if (actualRecord.schemaVersion === 2) return sameJson(projectHostConfigV3ToV4(projectHostConfigV2ToV3(HostConfigDocumentSchemaV2.parse(actualRecord))), expectedRecord);
-    if (actualRecord.schemaVersion === 3) return sameJson(projectHostConfigV3ToV4(HostConfigDocumentSchemaV3.parse(actualRecord)), expectedRecord);
-  }
-  if ("marketplaces" in actualRecord && "plugins" in actualRecord && "marketplaces" in expectedRecord && "plugins" in expectedRecord) {
-    const v2 = actualRecord.schemaVersion === 1 ? { ...actualRecord, schemaVersion: 2, marketplaceUpdates: [] } : actualRecord;
-    const v3 = v2.schemaVersion === 2 && Array.isArray(v2.marketplaceUpdates) ? {
-      ...v2,
-      schemaVersion: 3 as const,
-      marketplaceUpdates: v2.marketplaceUpdates.map((record) => ({ ...(record as Record<string, unknown>), origin: { kind: "legacy" as const } })),
-    } : v2;
-    if (v3.schemaVersion === 3) return sameJson(projectProjectLocalV3ToV4(ProjectLocalStateDocumentSchemaV3.parse(v3)), expectedRecord);
-  }
-  return false;
+  // Only one current version exists, so commit acknowledgment is an exact
+  // comparison; there is no legacy envelope to normalize first.
+  return sameJson(actual, expected);
 }
 
 function samePointerShape(

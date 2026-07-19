@@ -58,7 +58,6 @@ import {
   type ResolvedPluginSource,
   type Sha256,
 } from "../source.js";
-import { defineVersionedSchemaFamily } from "./versioning.js";
 import {
   StableSourceIdentitySchema,
   type StableSourceIdentity,
@@ -108,7 +107,7 @@ export type ComponentEvidenceKind = z.infer<typeof ComponentEvidenceKindSchema>;
 
 /** The only source facts retained in an installed record. No URL, declaration, or path is stored. */
 const InstalledSourceEvidenceMetadataSchema = {
-  /** Optional on v1 records; v2 migration fills unknown identity explicitly. */
+  /** Optional evidence identity; older records may predate identity capture. */
   marketplaceSourceIdentity: StableSourceIdentitySchema.optional(),
   pluginSourceIdentity: StableSourceIdentitySchema.optional(),
   declaredVersion: z.string().min(1).optional(),
@@ -230,39 +229,12 @@ function addDuplicatePluginIssues(
   addDuplicateIssues(records.map((record) => record.plugin), ["plugins"], "installed plugin", context);
 }
 
-function validateMarketplaceCoverage(
-  marketplaces: readonly MarketplaceSnapshotRecord[],
-  plugins: readonly InstalledPluginRecord[],
-  context: z.RefinementCtx,
-): void {
-  const snapshotsByName = new Map(marketplaces.map((record) => [record.marketplace, record]));
-  for (const [index, plugin] of plugins.entries()) {
-    const pluginMarketplace = plugin.plugin.slice(plugin.plugin.lastIndexOf("@") + 1) as MarketplaceName;
-    const snapshot = snapshotsByName.get(pluginMarketplace);
-    if (snapshot === undefined) {
-      addIssue(context, ["plugins", index, "plugin"], "installed plugin must have a corresponding marketplace snapshot");
-      continue;
-    }
-    // A marketplace snapshot is the catalog selected for discovery, not the
-    // source of truth for already-installed marketplace-relative content.
-    // Each installed revision carries its own immutable source/content binding.
-    void snapshot;
-  }
-}
-
-export const InstalledUserStateDocumentSchemaV1 = z.object({
-  schemaVersion: z.literal(1),
-  generation: GenerationSchema,
-  marketplaces: z.array(MarketplaceSnapshotRecordSchema).readonly(),
-  plugins: z.array(InstalledPluginRecordSchema).readonly(),
-}).strict().readonly().superRefine((document, context) => {
-  addDuplicateMarketplaceIssues(document.marketplaces, context);
-  addDuplicatePluginIssues(document.plugins, context);
-  validateMarketplaceCoverage(document.marketplaces, document.plugins, context);
-});
-export type InstalledUserStateDocumentV1 = z.infer<typeof InstalledUserStateDocumentSchemaV1>;
-
-export const InstalledUserStateDocumentSchemaV2 = z.object({
+/**
+ * The only installed-user schema. The literal version remains so a future
+ * clean cut-over can recognize stale documents; stale versions are
+ * reinitialized by the state codec, never migrated.
+ */
+export const InstalledUserStateDocumentSchema = z.object({
   schemaVersion: z.literal(2),
   generation: GenerationSchema,
   marketplaces: z.array(MarketplaceSnapshotRecordSchema).readonly(),
@@ -278,27 +250,7 @@ export const InstalledUserStateDocumentSchemaV2 = z.object({
     if (!snapshots.has(MarketplaceNameSchema.parse(marketplace))) addIssue(context, ["plugins", index, "plugin"], "installed plugin must have a corresponding marketplace snapshot");
   }
 });
-export type InstalledUserStateDocumentV2 = z.infer<typeof InstalledUserStateDocumentSchemaV2>;
-
-function migrateInstalledV1(input: unknown): InstalledUserStateDocumentV2 {
-  const value = InstalledUserStateDocumentSchemaV1.parse(input);
-  const plugins = value.plugins.map((plugin) => ({
-    ...plugin,
-    revisions: plugin.revisions.map((revision) => ({
-      ...revision,
-      evidence: revision.evidence,
-    })),
-  }));
-  return InstalledUserStateDocumentSchemaV2.parse({ ...value, schemaVersion: 2, plugins });
-}
-
-export const InstalledUserStateSchemaFamily = defineVersionedSchemaFamily({
-  latestVersion: 2,
-  versions: new Map<number, z.ZodTypeAny>([[1, InstalledUserStateDocumentSchemaV1], [2, InstalledUserStateDocumentSchemaV2]]),
-  migrations: new Map([[1, migrateInstalledV1]]),
-});
-export const InstalledUserStateDocumentSchema = InstalledUserStateDocumentSchemaV2;
-export type InstalledUserStateDocument = InstalledUserStateDocumentV2;
+export type InstalledUserStateDocument = z.infer<typeof InstalledUserStateDocumentSchema>;
 
 function isRecord(input: unknown): input is Record<string, unknown> {
   return input !== null && typeof input === "object" && !Array.isArray(input);
@@ -627,29 +579,20 @@ export function createInstalledPluginRecord(input: unknown, sha256: Sha256): Ins
 }
 
 const InstalledUserStateInputSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2)]).optional(),
+  schemaVersion: z.literal(2).optional(),
   generation: GenerationSchema,
   marketplaces: z.array(z.unknown()),
   plugins: z.array(z.unknown()),
 }).strict();
 
 /** Build a complete user document; malformed known records fail the write. */
-export function createInstalledUserStateDocument(input: unknown, sha256: Sha256): InstalledUserStateDocumentV1 {
+export function createInstalledUserStateDocument(input: unknown, sha256: Sha256): InstalledUserStateDocument {
   const value = InstalledUserStateInputSchema.parse(input);
   const marketplaces = value.marketplaces.map((marketplace) => createMarketplaceSnapshotRecord(marketplace, sha256));
   const plugins = value.plugins.map((plugin) =>
     createInstalledPluginRecord({ ...(plugin as Record<string, unknown>), scope: { kind: "user" } }, sha256),
   );
-  return InstalledUserStateDocumentSchemaV1.parse({ schemaVersion: 1, generation: value.generation, marketplaces, plugins });
-}
-
-/** Build the current v2 envelope without weakening the v1 constructor used by migration fixtures. */
-export function createInstalledUserStateDocumentV2(input: unknown, sha256: Sha256): InstalledUserStateDocumentV2 {
-  if (isRecord(input) && input.schemaVersion === 2) {
-    const { schemaVersion: _version, ...legacyInput } = input;
-    return migrateInstalledV1(createInstalledUserStateDocument({ ...legacyInput, schemaVersion: 1 }, sha256));
-  }
-  return migrateInstalledV1(createInstalledUserStateDocument(input, sha256));
+  return InstalledUserStateDocumentSchema.parse({ schemaVersion: 2, generation: value.generation, marketplaces, plugins });
 }
 
 export type InstalledRecordQuarantine = Readonly<{
@@ -708,8 +651,6 @@ export function decodeInstalledUserPlugins(input: unknown, sha256: Sha256): Inst
   return decodeInstalledPluginRecords(withUserScope, sha256);
 }
 
-// Keep these aliases explicit for callers that use the document terminology.
-export const InstalledUserStateSchema = InstalledUserStateDocumentSchemaV1;
 export type { MarketplaceName, ResolvedMarketplaceSource, ResolvedPluginSource };
 export type {
   MarketplaceContentRef,

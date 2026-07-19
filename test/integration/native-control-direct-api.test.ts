@@ -40,6 +40,7 @@ const samples: Readonly<Record<string, readonly string[]>> = {
   "updates.notices.list": ["updates", "notices", "list"],
   "updates.notices.acknowledge": ["updates", "notices", "acknowledge", notice],
   "updates.automatic.run": ["updates", "automatic", "run"],
+  "config.host-precedence": ["config", "host-precedence", "codex-first"],
   status: ["status"],
   "operation.status": ["operation", "status", operationToken],
   "operation.cancel": ["operation", "cancel", operationToken],

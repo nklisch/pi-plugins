@@ -72,6 +72,7 @@ import { createBackgroundUpdateCoordinator } from "./background-update-coordinat
 import { createNativeUpdateManagementComposition } from "./create-native-update-management-service.js";
 import { createAutomaticUpdateLifecycleAdapter } from "./automatic-update-lifecycle-adapter.js";
 import { createNativeControlService } from "./create-native-control-service.js";
+import { createHostPrecedenceProvider, createHostPrecedenceService } from "../application/host-precedence-service.js";
 import { createNativeControlCurrentProjectPort } from "./create-native-control-current-project.js";
 import { createNodeControlTimeoutPort } from "../infrastructure/node/node-control-timeout.js";
 import type { NativePluginControlService } from "../application/native-control-service.js";
@@ -186,6 +187,9 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
         const project = await createPiProjectContextAdapters({ binding, sha256, git: createNodeCommandRunner() });
         const state = await createNodeLifecycleStateAdapters({ paths, currentProject: project.scope, sha256 });
         own(() => state.close());
+        // Host precedence is read through the state store at call time so a
+        // preference change applies to the next inspection without restart.
+        const hostPrecedence = createHostPrecedenceProvider(state.state);
         const configurations = await createSqlitePluginConfigurationStore({ root: paths.configurationRoot });
         own(async () => configurations[Symbol.asyncDispose]());
         const recoveryAdapters = await createNodeRecoveryAdapters({ hostRoot: paths.hostRoot });
@@ -223,7 +227,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           },
         });
         const compatibility = createCompatibilityService(capabilities);
-        const inspection = createNodePluginInspector();
+        const inspection = createNodePluginInspector({ hostPrecedence });
         const projections = createRuntimeProjectionCache({ content: content.content, sha256 });
         const selections = createRuntimeSelectionCatalog(project.current());
         own(() => selections.close());
@@ -303,6 +307,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           retryDelayMs: { minimum: 5, maximum: 100 },
         });
         const mutations = createGenerationMutationCoordinator({ scheduler: createKeyedMutationScheduler(), locks, state: state.state });
+        const hostPrecedenceConfig = createHostPrecedenceService({ state: state.state, mutations, sha256 });
         const reconciler = createLifecycleTransitionReconciler({ mutations, state: state.state, reload, transitions: recoveryAdapters.transitionStore, sha256 });
         const sourceOptions = {
           ...(options.source ?? {}),
@@ -343,6 +348,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           content: createManifestContentReader(sha256),
           readers: { claude: readClaudeMarketplace, codex: readCodexMarketplace, merge: mergeMarketplaces },
           sha256,
+          hostPrecedence,
         });
         const marketplaceProbe = createMarketplacePluginProbe({
           state: state.state,
@@ -640,6 +646,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
             trustedInstallation: trustedInstallation.application,
             operations: operationApplication,
             updates: updateApplication,
+            config: Object.freeze({ hostPrecedence: hostPrecedenceConfig }),
             status: hostStatus,
             currentProject: createNativeControlCurrentProjectPort({
               scope: project.scope,

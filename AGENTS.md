@@ -56,3 +56,14 @@ body pointing at the relevant `.mockups/` paths.
 structure, behind-the-scenes refactors, or feature-level UI that cleanly
 reuses existing components and patterns. Mock new surfaces, design-system
 shifts, and multi-screen epics.
+
+## State Versioning Policy (Clean Cut-Overs)
+
+This project does not maintain backward-compatibility shims or schema
+migrations. Each state document kind has exactly ONE current schema version
+(`StateDocumentRegistry` is the authority). Decoding a document at a stale or
+unknown version reinitializes it to the empty default — never migrated, never
+reported as corruption. Breaking changes land as clean cut-overs: bump the
+version, let old state reinitialize. Do not add `migrate*` / `project*ToV*`
+helpers, versioned schema families, or multi-version decode paths. Additive
+fields with schema defaults are fine without a version bump.

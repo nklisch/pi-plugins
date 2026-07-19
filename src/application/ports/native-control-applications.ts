@@ -7,6 +7,7 @@ import type { NativeInspectionService } from "../native-inspection-contract.js";
 import type { NativeLifecycleOperationService } from "../native-lifecycle-operation-contract.js";
 import type { NativeUpdateManagementService } from "../native-update-management-service.js";
 import type { TrustedInstallationService } from "../trusted-install-contract.js";
+import type { HostPrecedenceService } from "../host-precedence-service.js";
 import type { NativeControlExecutionId } from "../native-control-contract.js";
 import type { NativeControlInputPort } from "./native-control-input.js";
 import type { NativeControlProgressSink } from "./native-control-execution.js";
@@ -14,6 +15,10 @@ import type { NativeControlCurrentProjectPort } from "../native-control-selectio
 
 export interface NativeControlHostStatusPort {
   snapshot(): HostStatusSnapshot;
+}
+
+export interface NativeControlConfigPort {
+  readonly hostPrecedence: Pick<HostPrecedenceService, "setHostPrecedence">;
 }
 
 export interface NativeControlMarketplacePort {
@@ -29,6 +34,7 @@ export type NativeControlApplicationDependencies = Readonly<{
   trustedInstallation: TrustedInstallationService;
   operations: NativeLifecycleOperationService;
   updates: NativeUpdateManagementService;
+  config: NativeControlConfigPort;
   status: NativeControlHostStatusPort;
   currentProject: NativeControlCurrentProjectPort;
 }>;

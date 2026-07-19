@@ -12,9 +12,12 @@ import { readCodexHooks } from "../formats/codex/hook-reader.js";
 import { readCodexPluginManifest } from "../formats/codex/manifest-reader.js";
 import { readCodexMcp } from "../formats/codex/mcp-reader.js";
 import { type Sha256 } from "../domain/source.js";
+import type { HostPrecedence } from "../domain/host-precedence.js";
 
 export type NodePluginInspectorOptions = Readonly<{
   limits?: Partial<BundleDocumentLimitsContract>;
+  /** Resolves the user's canonical host order at call time; defaults to Claude-first. */
+  hostPrecedence?: () => Promise<HostPrecedence>;
 }>;
 
 function sha256(bytes: Uint8Array): Uint8Array {
@@ -55,5 +58,6 @@ export function createNodePluginInspector(options: NodePluginInspectorOptions = 
     readers,
     sha256: hash,
     limits,
+    ...(options.hostPrecedence === undefined ? {} : { hostPrecedence: options.hostPrecedence }),
   });
 }

@@ -25,6 +25,7 @@ import {
   unavailableEvidenceFinding,
   type NativeDiagnosticInput,
 } from "./native-diagnostic-compiler.js";
+import { projectInspectionFailureFindings } from "./inspection-failure-projection.js";
 import { projectSafeComponents, projectSafeProvenance, projectSafeSource } from "./native-inspection-disclosure.js";
 import { NativeDisplayLimits, toSafeDisplayField } from "./native-inspection-display.js";
 import {
@@ -139,7 +140,13 @@ export function createNativeCandidateInspector(dependencies: CandidateInspection
         return await dependencies.content.withMaterialized(candidate, signal, async (materialized) => {
           const inspected = await dependencies.inspector.inspect({ entry: candidate.entry, materialized }, signal);
           if (!inspected.ok) {
-            const diagnostics = compileNativeDiagnostics({ findings: [finding("sourceInvalid", detailId)] }, dependencies.sha256);
+            // Surface the real inspection failures (document, pointer,
+            // reason vocabulary) alongside the umbrella blocking code —
+            // "source invalid" alone is not actionable.
+            const diagnostics = compileNativeDiagnostics(
+              { findings: projectInspectionFailureFindings(inspected.diagnostics, detailId) },
+              dependencies.sha256,
+            );
             const names = parsePluginKey(subject.plugin);
             const summary = NativeInspectionSummarySchema.parse({
               detailId, subject: subject.subject, scope: subject.scope, plugin: subject.plugin,

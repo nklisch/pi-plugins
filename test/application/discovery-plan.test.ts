@@ -140,7 +140,7 @@ describe("authority-aware discovery planning", () => {
     expect(result.value.locators[0]?.source).toBe("manifest");
   });
 
-  it("fails contradictory catalog and manifest locators instead of applying authority precedence", () => {
+  it("unions divergent catalog and manifest locators additively", () => {
     const entry = readClaudeMarketplace({
       name: "catalog",
       plugins: [{ name: "demo", source: "./demo", strict: false, skills: ["./catalog-skills"] }],
@@ -161,12 +161,14 @@ describe("authority-aware discovery planning", () => {
         { kind: "directory", path: "manifest-skills", mode: 0o755 },
       ),
     });
-    expect(result).toMatchObject({
-      diagnostics: [{
-        code: "CLAIM_CONFLICT",
-        details: { locations: [{ host: "claude" }, { host: "claude" }] },
-      }],
-    });
+    // Real hosts treat catalog declarations as additive supplements to the
+    // manifest, so divergent locators union rather than conflict.
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const paths = result.value.locators.map((locator) =>
+      locator.target.kind === "directory" || locator.target.kind === "file" ? locator.target.path : undefined);
+    expect(paths).toContain("./catalog-skills");
+    expect(paths).toContain("./manifest-skills");
   });
 
   it("fails explicit locators that are absent from the verified content index", () => {

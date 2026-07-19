@@ -15,7 +15,7 @@ import { NativeDisplayLimits, toSafeDisplayField } from "./native-inspection-dis
 
 const encoder = new TextEncoder();
 
-type NativeDiagnosticFinding = Readonly<{
+export type NativeDiagnosticFinding = Readonly<{
   key: NativeDiagnosticRegistryKey;
   subjectId?: import("./native-inspection-contract.js").InspectionDetailId;
   componentId?: import("../domain/components.js").ComponentId;

@@ -3,15 +3,13 @@ import { z } from "zod";
 import {
   PortableMarketplaceSourceSchema,
   PortablePluginSourceSchema,
-  PortableProjectDeclarationSchemaV1,
-  PortableProjectSchemaFamily,
+  PortableProjectDeclarationSchema,
   assertPortableProjectDeclarationSafe,
   decodePortableProjectDeclaration,
   isSafePortableRelativePath,
   parsePortableProjectDeclaration,
-  type PortableProjectDeclarationV1,
+  type PortableProjectDeclaration,
 } from "../../../src/domain/state/portable-project-declaration.js";
-import { migrateVersionedDocument } from "../../../src/domain/state/versioning.js";
 
 const validDeclaration = {
   schemaVersion: 1,
@@ -103,14 +101,14 @@ describe("portable project plugin intent", () => {
   });
 
   it("enforces unique declaration identities", () => {
-    expect(PortableProjectDeclarationSchemaV1.safeParse({
+    expect(PortableProjectDeclarationSchema.safeParse({
       ...validDeclaration,
       marketplaces: [
         ...validDeclaration.marketplaces,
         validDeclaration.marketplaces[0],
       ],
     }).success).toBe(false);
-    expect(PortableProjectDeclarationSchemaV1.safeParse({
+    expect(PortableProjectDeclarationSchema.safeParse({
       ...validDeclaration,
       plugins: [
         ...validDeclaration.plugins,
@@ -120,7 +118,7 @@ describe("portable project plugin intent", () => {
   });
 
   it("allows plugin intent to use the host-global marketplace registry", () => {
-    expect(PortableProjectDeclarationSchemaV1.safeParse({
+    expect(PortableProjectDeclarationSchema.safeParse({
       ...validDeclaration,
       marketplaces: [],
       plugins: [{ plugin: "missing@other", enabled: true }],
@@ -180,7 +178,7 @@ describe("portable project plugin intent", () => {
 
     for (const invalid of invalidValues) {
       expect(() => parsePortableProjectDeclaration(invalid), JSON.stringify(invalid)).toThrow();
-      expect(PortableProjectDeclarationSchemaV1.safeParse(invalid).success).toBe(false);
+      expect(PortableProjectDeclarationSchema.safeParse(invalid).success).toBe(false);
     }
   });
 
@@ -195,22 +193,15 @@ describe("portable project plugin intent", () => {
 
     expect(() => parsePortableProjectDeclaration(malformed)).toThrow();
     expect(() => assertPortableProjectDeclarationSafe(malformed)).not.toThrow();
-    expect(PortableProjectDeclarationSchemaV1.safeParse(malformed).success).toBe(false);
+    expect(PortableProjectDeclarationSchema.safeParse(malformed).success).toBe(false);
     expect(() => parsePortableProjectDeclaration({
       ...validDeclaration,
       schemaVersion: 2,
     })).toThrow();
   });
 
-  it("keeps the portable family independent and schema-derived", () => {
-    expect(PortableProjectSchemaFamily.latestVersion).toBe(1);
-    expect(migrateVersionedDocument(PortableProjectSchemaFamily, validDeclaration)).toEqual(
-      PortableProjectDeclarationSchemaV1.parse(validDeclaration),
-    );
-    expect(() => migrateVersionedDocument(PortableProjectSchemaFamily, {
-      ...validDeclaration,
-      schemaVersion: 2,
-    })).toThrow(/newer/);
-    expectTypeOf<z.infer<typeof PortableProjectDeclarationSchemaV1>>().toEqualTypeOf<PortableProjectDeclarationV1>();
+  it("derives the public declaration type from the single current schema", () => {
+    expect(PortableProjectDeclarationSchema.parse(validDeclaration)).toEqual(validDeclaration);
+    expectTypeOf<z.infer<typeof PortableProjectDeclarationSchema>>().toEqualTypeOf<PortableProjectDeclaration>();
   });
 });

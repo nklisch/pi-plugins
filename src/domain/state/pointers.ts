@@ -6,12 +6,11 @@ import {
   type ScopeReference,
 } from "./scope.js";
 import { GenerationSchema, type Generation } from "./config-state.js";
-import { defineVersionedSchemaFamily } from "./versioning.js";
 
 /**
  * The kind registry is the one source for pointer labels. The full
- * StateDocumentRegistry adds schemas and migration families without creating a
- * second list of pointer-addressable kinds.
+ * StateDocumentRegistry adds schemas without creating a second list of
+ * pointer-addressable kinds.
  */
 export const StateDocumentKindRegistry = {
   hostConfig: { tag: "host-config", label: "host configuration" },
@@ -72,7 +71,7 @@ function sameScope(left: ScopeReference, right: ScopeReference): boolean {
  * Pointer validation is intentionally stricter than record validation: there
  * is no safe sibling to expose when the selected generation is ambiguous.
  */
-export const StatePointersDocumentSchemaV1 = z
+export const StatePointersDocumentSchema = z
   .object({
     schemaVersion: z.literal(1),
     scope: ScopeReferenceSchema,
@@ -128,32 +127,23 @@ export const StatePointersDocumentSchemaV1 = z
       );
     }
   });
-export type StatePointersDocumentV1 = z.infer<
-  typeof StatePointersDocumentSchemaV1
+export type StatePointersDocument = z.infer<
+  typeof StatePointersDocumentSchema
 >;
-
-export const StatePointersSchemaFamily = defineVersionedSchemaFamily<StatePointersDocumentV1>({
-  latestVersion: 1,
-  versions: new Map([[1, StatePointersDocumentSchemaV1]]),
-  migrations: new Map(),
-});
-
-export const StatePointersDocumentSchema = StatePointersDocumentSchemaV1;
-export type StatePointersDocument = StatePointersDocumentV1;
 
 /** Validate a pointer document at the domain boundary. */
 export function createStatePointersDocument(
   input: unknown,
-): StatePointersDocumentV1 {
-  return StatePointersDocumentSchemaV1.parse(input);
+): StatePointersDocument {
+  return StatePointersDocumentSchema.parse(input);
 }
 
 export function verifyStatePointersScope(
   input: unknown,
   scope: ScopeReference,
   generation: Generation,
-): StatePointersDocumentV1 {
-  const document = StatePointersDocumentSchemaV1.parse(input);
+): StatePointersDocument {
+  const document = StatePointersDocumentSchema.parse(input);
   const expectedScope = ScopeReferenceSchema.parse(scope);
   if (!sameScope(document.scope, expectedScope)) {
     throw new Error("state pointer scope does not match the requested scope");

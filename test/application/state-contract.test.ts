@@ -4,7 +4,8 @@ import {
   isVerifiedStateMutation,
   parseStateMutation,
 } from "../../src/application/state-contract.js";
-import { HostConfigDocumentSchemaV1 } from "../../src/domain/state/config-state.js";
+import { HostConfigDocumentSchema } from "../../src/domain/state/config-state.js";
+import { createMarketplaceConfigurationRecord } from "../../src/domain/update-policy.js";
 import { MarketplaceNameSchema } from "../../src/domain/identity.js";
 import {
   MarketplaceSourceSchema,
@@ -14,14 +15,13 @@ import {
 } from "../../src/domain/source.js";
 
 const source = MarketplaceSourceSchema.parse({ kind: "github", repository: "example/plugins" });
-const config = HostConfigDocumentSchemaV1.parse({
-  schemaVersion: 1,
+const config = HostConfigDocumentSchema.parse({
+  schemaVersion: 4,
   generation: 2,
-  records: [{
+  records: [createMarketplaceConfigurationRecord({
     marketplace: MarketplaceNameSchema.parse("team"),
     source,
-    updateApplication: "manual",
-  }],
+  })],
 });
 const sha256 = () => new Uint8Array(32);
 

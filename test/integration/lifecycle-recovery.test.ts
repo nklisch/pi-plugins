@@ -9,9 +9,7 @@ import { createLifecycleTransitionRecord } from "../../src/application/ports/lif
 import { deriveLifecyclePendingTransitionRef } from "../../src/application/plugin-lifecycle-contract.js";
 import { createInstalledPluginRecord, createInstalledRevisionRecord, createMarketplaceSnapshotRecord } from "../../src/domain/state/installed-state.js";
 import {
-  createProjectLocalStateDocumentV3,
-  createProjectLocalStateDocumentV4,
-  projectProjectLocalV3ToV4,
+  createProjectLocalStateDocument,
 } from "../../src/domain/state/project-state.js";
 import { createScopeContext, deriveProjectKey, toScopeReference } from "../../src/domain/state/scope.js";
 import { createContentManifest } from "../../src/domain/content-manifest.js";
@@ -34,8 +32,8 @@ describe("node lifecycle recovery composition", () => {
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 
-  it("recovers a V3-migrated project transition without changing lifecycle, intent, policy, or registration evidence", async () => {
-    const root = await mkdtemp(join(process.cwd(), ".test-lifecycle-v3-recovery-"));
+  it("recovers a project transition without changing lifecycle, intent, policy, or registration evidence", async () => {
+    const root = await mkdtemp(join(process.cwd(), ".test-lifecycle-recovery-project-"));
     try {
       const identity = { kind: "path-only" as const, canonicalRoot: "file:///recovery-project/" as never, limitation: "identity-changes-with-canonical-root" as const };
       const scope = createScopeContext({ kind: "project", identity, projectKey: deriveProjectKey(identity, sha256) }, sha256);
@@ -57,23 +55,19 @@ describe("node lifecycle recovery composition", () => {
         createMarketplaceSnapshotRecord({ marketplace: "adopted", source: adoptedSource, content }, sha256),
       ];
       const declarationDigest = `sha256:${"d".repeat(64)}` as never;
-      const legacyProject = createProjectLocalStateDocumentV3({
-        schemaVersion: 3,
+      const project = createProjectLocalStateDocument({
+        schemaVersion: 4,
         generation: 0,
         projectKey: scope.projectKey,
         identity: scope.identity,
         declarationDigest,
+        scope: { application: "automatic" },
         marketplaces,
         plugins: [pending],
         marketplaceUpdates: [
-          { marketplace: "compatibility", source: nativeSource.declared, updateApplication: "automatic", origin: { kind: "native" } },
-          { marketplace: "adopted", source: adoptedSource.declared, updateApplication: "manual", origin: { kind: "adoption", candidateId: `adoption-v1:sha256:${"e".repeat(64)}`, documents: [{ host: "claude", document: "claude-known-marketplaces" }] } },
+          { marketplace: "compatibility", source: nativeSource.declared, origin: { kind: "native" }, applicationOverride: "automatic" },
+          { marketplace: "adopted", source: adoptedSource.declared, origin: { kind: "adoption", candidateId: `adoption-v1:sha256:${"e".repeat(64)}`, documents: [{ host: "claude", document: "claude-known-marketplaces" }] } },
         ],
-      }, scope, sha256);
-      const migrated = projectProjectLocalV3ToV4(legacyProject);
-      const project = createProjectLocalStateDocumentV4({
-        ...migrated,
-        scope: { application: "automatic" },
       }, scope, sha256);
       let snapshot: any = { scope, generation: 0, project, pointers: {}, corruptions: [] };
       const state = { async read() { return { ok: true as const, snapshot }; }, async commit() { throw new Error("coordinator owns commit"); } };

@@ -10,11 +10,11 @@ import {
 import { ContentDigestSchema, createContentManifest, hashContent } from "../../src/domain/content-manifest.js";
 import { MarketplaceSourceSchema, createResolvedMarketplaceSource } from "../../src/domain/source.js";
 import { ProjectIdentitySchema, deriveProjectKey } from "../../src/domain/state/scope.js";
-import { HostConfigDocumentSchemaV4, GenerationSchema } from "../../src/domain/state/config-state.js";
-import { ProjectLocalStateDocumentSchemaV4 } from "../../src/domain/state/project-state.js";
-import { createMarketplaceSnapshotRecord, InstalledUserStateDocumentSchemaV2 } from "../../src/domain/state/installed-state.js";
-import { StatePointersDocumentSchemaV1 } from "../../src/domain/state/pointers.js";
-import { TrustStateDocumentSchemaV1 } from "../../src/domain/state/trust-state.js";
+import { HostConfigDocumentSchema, GenerationSchema } from "../../src/domain/state/config-state.js";
+import { ProjectLocalStateDocumentSchema } from "../../src/domain/state/project-state.js";
+import { createMarketplaceSnapshotRecord, InstalledUserStateDocumentSchema } from "../../src/domain/state/installed-state.js";
+import { StatePointersDocumentSchema } from "../../src/domain/state/pointers.js";
+import { TrustStateDocumentSchema } from "../../src/domain/state/trust-state.js";
 import { isVerifiedStateMutation, type UserGenerationSnapshot, type ProjectGenerationSnapshot } from "../../src/application/state-contract.js";
 import { createMarketplaceUpdateRecordsMutation, marketplaceUpdateRecords } from "../../src/application/marketplace-update-state.js";
 import { deriveStateBlobRef } from "../../src/domain/state/references.js";
@@ -26,7 +26,7 @@ const generation = GenerationSchema.parse(7);
 const source = MarketplaceSourceSchema.parse({ kind: "github", repository: "example/community" });
 
 function userPointers() {
-  return StatePointersDocumentSchemaV1.parse({
+  return StatePointersDocumentSchema.parse({
     schemaVersion: 1, scope: { kind: "user" }, generation,
     documents: ["hostConfig", "installedUser", "trust"].map((document) => ({
       kind: document, generation,
@@ -39,8 +39,8 @@ function userSnapshot(config: unknown): UserGenerationSnapshot {
   return {
     scope: { kind: "user" }, generation, pointers: userPointers(),
     config: config as UserGenerationSnapshot["config"],
-    installed: InstalledUserStateDocumentSchemaV2.parse({ schemaVersion: 2, generation, marketplaces: [], plugins: [] }),
-    trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation, records: [] }), corruptions: [],
+    installed: InstalledUserStateDocumentSchema.parse({ schemaVersion: 2, generation, marketplaces: [], plugins: [] }),
+    trust: TrustStateDocumentSchema.parse({ schemaVersion: 1, generation, records: [] }), corruptions: [],
   };
 }
 
@@ -50,13 +50,13 @@ function projectSnapshot(record: MarketplaceUpdateRecord): ProjectGenerationSnap
   const resolvedSource = createResolvedMarketplaceSource({ declared: source, revision: "a".repeat(40) }, sha256);
   const content = createContentManifest([{ kind: "file", path: "README.md", mode: 0o644, size: 0, digest: hashContent(new Uint8Array(), sha256) }], sha256);
   const marketplace = createMarketplaceSnapshotRecord({ marketplace: "community", source: resolvedSource, content }, sha256);
-  const project = ProjectLocalStateDocumentSchemaV4.parse({
+  const project = ProjectLocalStateDocumentSchema.parse({
     schemaVersion: 4, generation, projectKey, identity, declarationDigest: content.rootDigest, scope: {},
     marketplaces: [marketplace], plugins: [], marketplaceUpdates: [record],
   });
   return {
     scope: { kind: "project", identity, projectKey }, generation,
-    pointers: StatePointersDocumentSchemaV1.parse({
+    pointers: StatePointersDocumentSchema.parse({
       schemaVersion: 1, scope: { kind: "project", projectKey }, generation,
       documents: [{ kind: "projectLocal", generation, blob: deriveStateBlobRef({ document: "projectLocal", scope: "project", generation }, sha256), digest: digest("a") }],
     }),
@@ -92,8 +92,9 @@ function richRecord(): MarketplaceUpdateRecord {
 }
 
 describe("marketplace update state projection", () => {
-  it("reads compatible records with v4 defaults and strict parsing", () => {
-    const records = marketplaceUpdateRecords(userSnapshot({ schemaVersion: 1, generation, records: [{ marketplace: "community", source, updateApplication: "manual" }] }));
+  it("reads current records with defaults and strict parsing", () => {
+    const minimal = createMarketplaceConfigurationRecord({ marketplace: "community", source });
+    const records = marketplaceUpdateRecords(userSnapshot(HostConfigDocumentSchema.parse({ schemaVersion: 4, generation, records: [minimal] })));
     expect(records[0]).toMatchObject({ marketplace: "community", refresh: { consecutiveFailures: 0 }, notices: [] });
     const rich = richRecord();
     expect(marketplaceUpdateRecords(userSnapshot({ schemaVersion: 4, generation, global: { application: "manual", cadence: "balanced" }, scope: {}, records: [rich] }))).toEqual([rich]);
@@ -101,7 +102,7 @@ describe("marketplace update state projection", () => {
 
   it("projects a v4 user envelope to a verified frozen v4 mutation", () => {
     const rich = richRecord();
-    const snapshot = userSnapshot(HostConfigDocumentSchemaV4.parse({ schemaVersion: 4, generation, global: { application: "manual", cadence: "balanced" }, scope: {}, records: [rich] }));
+    const snapshot = userSnapshot(HostConfigDocumentSchema.parse({ schemaVersion: 4, generation, global: { application: "manual", cadence: "balanced" }, scope: {}, records: [rich] }));
     const mutation = createMarketplaceUpdateRecordsMutation(snapshot, marketplaceUpdateRecords(snapshot), sha256);
     expect(isVerifiedStateMutation(mutation)).toBe(true);
     if (!("config" in mutation.replace)) throw new Error("expected config replacement");

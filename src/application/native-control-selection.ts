@@ -32,6 +32,12 @@ export type NativeControlUpdateSelector = z.infer<typeof NativeControlUpdateSele
 
 export type NativeControlSelectionFailure = Readonly<{
   kind: "not-found" | "ambiguous" | "stale" | "invalid" | "unavailable" | "wrong-subject";
+  /**
+   * When the target exists but cannot be inspected, the detail's diagnostics
+   * ride along so the failure envelope can explain WHY in user terms instead
+   * of emitting a bare selection-failure code.
+   */
+  diagnostics?: readonly NativeInspectionDetail["diagnostics"][number][];
 }>;
 export type NativeControlInstalledSelectionResult = Readonly<{ kind: "selected"; detail: NativeInspectionDetail }> | NativeControlSelectionFailure;
 export type NativeControlCandidateSelectionResult = NativeControlInstalledSelectionResult;
@@ -70,7 +76,7 @@ async function detail(
     if (result.kind === "stale") return { kind: "stale" };
     if (result.kind === "invalid-id") return { kind: "invalid" };
     if (result.kind === "missing") return { kind: "not-found" };
-    if (result.kind === "unavailable") return { kind: "unavailable" };
+    if (result.kind === "unavailable") return { kind: "unavailable", diagnostics: result.diagnostics };
     if (result.detail.summary.subject !== subject || result.detail.summary.plugin !== selector.plugin || !scopeMatches(result.detail.summary, selector.scope)) return { kind: "wrong-subject" };
     return { kind: "selected", detail: result.detail };
   }
@@ -94,7 +100,7 @@ async function detail(
     if (selected.kind === "stale") return { kind: "stale" };
     if (selected.kind === "invalid-id") return { kind: "invalid" };
     if (selected.kind === "missing") return { kind: "not-found" };
-    if (selected.kind === "unavailable") return { kind: "unavailable" };
+    if (selected.kind === "unavailable") return { kind: "unavailable", diagnostics: selected.diagnostics };
     if (selected.detail.summary.subject !== subject || selected.detail.summary.plugin !== selector.plugin || !scopeMatches(selected.detail.summary, selector.scope)) return { kind: "wrong-subject" };
     return { kind: "selected", detail: NativeInspectionDetailSchema.parse(selected.detail) };
   }

@@ -12,13 +12,18 @@ changes in place to describe the supported truth.
 | Verdict | Meaning |
 |---|---|
 | Supported | Pi preserves the relevant runtime behavior. A supported component may name runtime requirements that must be available before activation. |
-| Metadata-only | The field affects discovery or presentation but not runtime behavior. |
-| Incompatible | Pi cannot preserve the declared behavior; the plugin does not activate. |
+| Metadata-only | The declaration is retained as evidence but never executed. This is also the degradation verdict: a component Pi cannot run faithfully is skipped, reported, and does not block the rest of the plugin. |
+| Incompatible | Pi cannot preserve the declared behavior and will not install the plugin over it. Reserved for security gates (such as plaintext non-loopback HTTP with credentials); everything else degrades to metadata-only. |
+
+Maximum compatibility with gentle degradation is the product rule: any
+construct Pi does not execute is safe to install, so unsupported components
+degrade instead of blocking the plugin. Degraded components stay visible in
+the compatibility report before activation.
 
 Runtime integrations and platform capabilities are represented as explicit
 `RuntimeRequirement` assessments, not as a fourth component verdict. A supported
 component whose required capability is unavailable prevents activation. Unknown
-runtime declarations are incompatible. Unknown presentation metadata is retained
+runtime declarations degrade to metadata-only. Unknown presentation metadata is retained
 for diagnostics and treated as metadata-only.
 
 Read results use the common domain diagnostic contract: success values carry
@@ -147,16 +152,20 @@ content.
 | Conventional `hooks/hooks.json` | Supported | Supported | Supported subset |
 | MCP path or inline object | Supported | Supported | Supported subset |
 | Conventional `.mcp.json` | Supported | Supported when declared or discovered | Supported subset |
-| Claude agents | Supported | Not a plugin component | Incompatible |
-| Codex apps/connectors | Not a plugin component | Supported | Incompatible |
-| LSP servers | Supported | Not shared | Incompatible |
-| Monitors | Supported | Not shared | Incompatible |
-| Themes and output styles | Supported | Not shared | Incompatible |
-| Channels | Supported through MCP | Not shared | Incompatible |
-| Plugin dependencies | Supported by Claude | Not shared | Incompatible |
+| Claude agents | Supported | Not a plugin component | Retained; not activated |
+| Codex apps/connectors | Not a plugin component | Supported | Retained; not activated |
+| LSP servers | Supported | Not shared | Retained; not activated |
+| Monitors | Supported | Not shared | Retained; not activated |
+| Themes and output styles | Supported | Not shared | Retained; not activated |
+| Channels | Supported through MCP | Not shared | Retained; not activated |
+| Plugin dependencies | Supported by Claude | Not shared | Retained; not activated |
 
 When both manifests exist, equivalent component declarations collapse.
-Conflicting declarations are incompatible; neither manifest wins silently.
+Conflicting declarations of a supported runtime component remain incompatible;
+neither manifest wins silently. Presentational metadata (descriptions,
+versions, categories, tags, display names) resolves by precedence instead —
+marketplace entry, then Claude, then Codex — matching how real hosts treat
+metadata drift.
 
 ## Supporting plugin configuration
 
@@ -213,7 +222,7 @@ incompatible.
 | Codex `agents/openai.yaml` presentation | Metadata-only |
 | Codex implicit-invocation policy | Mapped to Pi skill visibility where representable |
 | `allowed-tools` | Supported; requires Pi to preserve the same restriction |
-| Skill-scoped hooks | Incompatible without a skill-activation hook lifecycle |
+| Skill-scoped hooks | Retained; not activated (no skill-activation hook lifecycle) |
 
 Unknown skill frontmatter does not silently gain runtime meaning.
 
@@ -236,12 +245,12 @@ Only command hooks are compatible.
 | `shell: "bash"` | Supported where Bash is available |
 | `shell: "powershell"` | Supported; requires Windows and PowerShell |
 | Tool-event `if` rules | Supported |
-| `async` | Incompatible |
-| `asyncRewake` | Incompatible |
-| `type: "http"` | Incompatible |
-| `type: "prompt"` | Incompatible |
-| `type: "agent"` | Incompatible |
-| `type: "mcp_tool"` | Incompatible |
+| `async` | Retained; hook not activated |
+| `asyncRewake` | Retained; hook not activated |
+| `type: "http"` | Retained; hook not activated |
+| `type: "prompt"` | Retained; hook not activated |
+| `type: "agent"` | Retained; hook not activated |
+| `type: "mcp_tool"` | Retained; hook not activated |
 
 Matching handlers run concurrently where the foreign contract does. Identical
 handlers are deduplicated by their normalized executable form.
@@ -261,22 +270,22 @@ handlers are deduplicated by their normalized executable form.
 | `Stop` | Supported | settled agent lifecycle plus guarded continuation |
 | `SubagentStart` | Supported; requires subagent interception | subagent pre-start interception |
 | `SubagentStop` | Supported; requires subagent interception | subagent pre-stop interception |
-| `PermissionRequest` | Incompatible | Pi exposes no equivalent permission-dialog boundary |
-| `PermissionDenied` | Incompatible | no equivalent denial-classifier event |
-| `Setup` | Incompatible | no equivalent setup invocation |
-| `UserPromptExpansion` | Incompatible | no equivalent post-expansion boundary |
-| `PostToolBatch` | Incompatible | Pi exposes completion events per tool, not one blocking batch gate |
-| `Notification` | Incompatible | no equivalent complete notification taxonomy |
-| `MessageDisplay` | Incompatible | no equivalent display-only stream transformation contract |
-| `TaskCreated`, `TaskCompleted` | Incompatible | no portable task lifecycle contract |
-| `StopFailure` | Incompatible | no equivalent classified provider-failure event |
-| `TeammateIdle` | Incompatible | no agent-team equivalent |
-| `InstructionsLoaded` | Incompatible | no equivalent per-instruction load event |
-| `ConfigChange`, `CwdChanged`, `FileChanged` | Incompatible | no equivalent foreign event contract |
-| `WorktreeCreate`, `WorktreeRemove` | Incompatible | no equivalent hook-controlled lifecycle |
-| `Elicitation`, `ElicitationResult` | Incompatible as hooks | MCP runtime handles elicitation directly |
+| `PermissionRequest` | Retained; hook not activated | Pi exposes no equivalent permission-dialog boundary |
+| `PermissionDenied` | Retained; hook not activated | no equivalent denial-classifier event |
+| `Setup` | Retained; hook not activated | no equivalent setup invocation |
+| `UserPromptExpansion` | Retained; hook not activated | no equivalent post-expansion boundary |
+| `PostToolBatch` | Retained; hook not activated | Pi exposes completion events per tool, not one blocking batch gate |
+| `Notification` | Retained; hook not activated | no equivalent complete notification taxonomy |
+| `MessageDisplay` | Retained; hook not activated | no equivalent display-only stream transformation contract |
+| `TaskCreated`, `TaskCompleted` | Retained; hook not activated | no portable task lifecycle contract |
+| `StopFailure` | Retained; hook not activated | no equivalent classified provider-failure event |
+| `TeammateIdle` | Retained; hook not activated | no agent-team equivalent |
+| `InstructionsLoaded` | Retained; hook not activated | no equivalent per-instruction load event |
+| `ConfigChange`, `CwdChanged`, `FileChanged` | Retained; hook not activated | no equivalent foreign event contract |
+| `WorktreeCreate`, `WorktreeRemove` | Retained; hook not activated | no equivalent hook-controlled lifecycle |
+| `Elicitation`, `ElicitationResult` | Retained; not activated as hooks | MCP runtime handles elicitation directly |
 
-A plugin declaring any incompatible event does not activate.
+A plugin declaring any of these events installs; only the affected hooks are skipped, and the skip is reported before activation.
 
 ## Hook matcher mapping
 
@@ -300,7 +309,7 @@ contract. `Write|Edit`, comma-separated sets, anchored expressions, empty
 matchers, and `*` are tested explicitly.
 
 Tool-event `if` rules evaluate against the normalized tool name and input.
-Unsupported permission-rule syntax is incompatible.
+Unsupported permission-rule syntax degrades the hook to metadata-only (the hook is skipped, not the plugin).
 
 ## Hook input
 
@@ -430,10 +439,10 @@ Pi accepts:
 | MCP sampling | Supported; requires the MCP runtime capability |
 | Form and URL elicitation | Supported; requires MCP runtime support and an interactive Pi UI mode |
 | Resources | Supported through MCP runtime |
-| Explicit legacy SSE transport | Incompatible unless the runtime preserves it exactly |
-| WebSocket transport | Incompatible |
+| Explicit legacy SSE transport | Retained; server not activated (no faithful runtime capability) |
+| WebSocket transport | Retained; server not activated |
 | Dynamic `headersHelper` command | Incompatible |
-| Claude channels | Incompatible |
+| Claude channels | Retained; not activated |
 
 Each named MCP runtime capability is checked before activation. An unavailable
 requirement prevents activation while preserving the component's `supported`

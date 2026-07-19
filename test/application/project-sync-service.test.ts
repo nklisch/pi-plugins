@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createProjectSyncService } from "../../src/application/project-sync-service.js";
 import { createScopeContext, deriveProjectKey } from "../../src/domain/state/scope.js";
-import { createProjectLocalStateDocumentV4 } from "../../src/domain/state/project-state.js";
+import { createProjectLocalStateDocument } from "../../src/domain/state/project-state.js";
 import { createMarketplaceConfigurationRecord } from "../../src/domain/update-policy.js";
 import { createInstalledPluginRecord, createInstalledRevisionRecord } from "../../src/domain/state/installed-state.js";
 import { encodeProjectIntentDeclaration } from "../../src/application/project-intent-codec.js";
@@ -25,7 +25,7 @@ function fixture(configure?: (scope: any) => Readonly<{ records: readonly any[];
     scope,
     generation: 0,
     pointers: {},
-    project: createProjectLocalStateDocumentV4({ schemaVersion: 4, generation: 0, projectKey: scope.projectKey, identity: scope.identity, declarationDigest: `sha256:${"0".repeat(64)}`, scope: {}, marketplaces: [], plugins: [], marketplaceUpdates: [] }, scope, sha256),
+    project: createProjectLocalStateDocument({ schemaVersion: 4, generation: 0, projectKey: scope.projectKey, identity: scope.identity, declarationDigest: `sha256:${"0".repeat(64)}`, scope: {}, marketplaces: [], plugins: [], marketplaceUpdates: [] }, scope, sha256),
     corruptions: [],
   };
   const configured = configure?.(scope);

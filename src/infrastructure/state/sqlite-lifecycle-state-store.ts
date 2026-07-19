@@ -10,9 +10,9 @@ import {
   type StateLoadResult,
   type VerifiedStateMutation,
 } from "../../application/state-contract.js";
-import { hashStateDocument, decodeStateDocument, encodeStateDocument, StateCodecError, StateCorruptionSchema } from "../../domain/state/codec.js";
+import { hashStateDocument, decodeStateDocument, encodeStateDocument, StateCodecError, StateVersionCutoverError, StateCorruptionSchema } from "../../domain/state/codec.js";
 import { GenerationSchema } from "../../domain/state/config-state.js";
-import { createStatePointersDocument, type PointerDocumentKind, type StatePointersDocumentV1 } from "../../domain/state/pointers.js";
+import { createStatePointersDocument, type PointerDocumentKind, type StatePointersDocument } from "../../domain/state/pointers.js";
 import { deriveStateBlobRef } from "../../domain/state/references.js";
 import { createScopeContext, ScopeContextSchema, toScopeReference, type ScopeContext } from "../../domain/state/scope.js";
 import type { Sha256 } from "../../domain/source.js";
@@ -185,7 +185,7 @@ function writeGeneration(
   documents: Readonly<Record<string, unknown>>,
   sha256: Sha256,
   previousGeneration?: number,
-): StatePointersDocumentV1 {
+): StatePointersDocument {
   const pointers = Object.entries(documents).map(([rawKind, document]) => {
     const kind = rawKind as PointerDocumentKind;
     const encoded = encodeDocument(kind, document, scope, generation, sha256);
@@ -226,15 +226,31 @@ function initializeScope(database: DatabaseSync, scope: ScopeContext, sha256: Sh
   if (readProtocol(database) !== undefined) throw new LifecycleStateAdapterError("STATE_CORRUPT", "new lifecycle state database is not empty");
   database.prepare("INSERT INTO protocol(singleton, protocol, version, scope_json) VALUES (1, ?, ?, ?)")
     .run(PROTOCOL, VERSION, JSON.stringify(scope));
+  writeScopeDefaults(database, scope, sha256);
+}
+
+function writeScopeDefaults(database: DatabaseSync, scope: ScopeContext, sha256: Sha256): void {
   const defaults = createLifecycleStateDefaultDocuments(scope, sha256) as Readonly<Record<string, unknown>>;
   writeGeneration(database, scope, 0, scope.kind === "user"
     ? { hostConfig: defaults.config, installedUser: defaults.installed, trust: defaults.trust }
     : { projectLocal: defaults.project }, sha256);
 }
 
+/**
+ * Clean cut-over for a stale pointers index. The pointer document names every
+ * blob in its generation, so no single document can be reinitialized on its
+ * own; the whole scope returns to its fresh generation-0 defaults instead.
+ */
+function reinitializeScope(database: DatabaseSync, scope: ScopeContext, sha256: Sha256): void {
+  database.prepare("DELETE FROM state_blobs").run();
+  database.prepare("DELETE FROM generation_pointers").run();
+  database.prepare("DELETE FROM current_pointer").run();
+  writeScopeDefaults(database, scope, sha256);
+}
+
 function decodeBlob(
   database: DatabaseSync,
-  pointer: StatePointersDocumentV1["documents"][number],
+  pointer: StatePointersDocument["documents"][number],
   scope: ScopeContext,
   sha256: Sha256,
 ): { value: unknown; corruptions: readonly ReturnType<typeof safeCorruption>[] } {
@@ -263,7 +279,16 @@ function readSnapshot(database: DatabaseSync, scope: ScopeContext, sha256: Sha25
     if (row === undefined) throw new StateCodecError(safeCorruption(scope));
     const generation = GenerationSchema.parse(row.generation);
     const rawPointer = JSON.parse(row.pointer_json);
-    const decodedPointer = decodeStateDocument("pointers", rawPointer, { scope, generation, sha256 });
+    let decodedPointer: ReturnType<typeof decodeStateDocument<"pointers">>;
+    try {
+      decodedPointer = decodeStateDocument("pointers", rawPointer, { scope, generation, sha256 });
+    } catch (error) {
+      if (!(error instanceof StateVersionCutoverError)) throw error;
+      // A stale pointers version is a clean cut-over, not corruption:
+      // reinitialize the scope at generation 0 and read the fresh snapshot.
+      reinitializeScope(database, scope, sha256);
+      return readSnapshot(database, scope, sha256);
+    }
     const pointers = decodedPointer.value;
     if (pointers.generation !== row.generation) throw new StateCodecError(safeCorruption(scope));
     const values = new Map<PointerDocumentKind, unknown>();

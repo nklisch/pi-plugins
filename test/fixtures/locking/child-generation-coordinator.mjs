@@ -3,7 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { createKeyedMutationScheduler } from "../../../src/infrastructure/state/keyed-mutation-scheduler.js";
 import { createGenerationMutationCoordinator } from "../../../src/application/generation-mutation-coordinator.js";
 import { parseStateMutation } from "../../../src/application/state-contract.js";
-import { HostConfigDocumentSchemaV1 } from "../../../src/domain/state/config-state.js";
+import { HostConfigDocumentSchema } from "../../../src/domain/state/config-state.js";
 import { createSqliteScopeLockManager } from "../../../src/infrastructure/state/sqlite-scope-lock.js";
 
 const [lockRoot, statePath, role, mode = "normal"] = process.argv.slice(2);
@@ -18,7 +18,7 @@ const mutation = parseStateMutation({
   scope,
   expectedGeneration: 0,
   replace: {
-    config: HostConfigDocumentSchemaV1.parse({ schemaVersion: 1, generation: 0, records: [] }),
+    config: HostConfigDocumentSchema.parse({ schemaVersion: 4, generation: 0, records: [] }),
   },
 }, sha256);
 
@@ -70,8 +70,8 @@ async function stateSnapshot() {
       generation,
       documents: [pointer("hostConfig"), pointer("installedUser"), pointer("trust")],
     },
-    config: { schemaVersion: 1, generation, records: [] },
-    installed: { schemaVersion: 1, generation, marketplaces: [], plugins: [] },
+    config: { schemaVersion: 4, generation, records: [] },
+    installed: { schemaVersion: 2, generation, marketplaces: [], plugins: [] },
     trust: { schemaVersion: 1, generation, records: [] },
     corruptions: [],
   };

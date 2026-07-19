@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  StatePointersDocumentSchemaV1,
+  StatePointersDocumentSchema,
   StateDocumentPointerSchema,
   createStatePointersDocument,
 } from "../../../src/domain/state/pointers.js";
@@ -32,10 +32,10 @@ describe("generation pointers", () => {
     expect(parsed.documents).toHaveLength(3);
     expect(StateDocumentPointerSchema.parse(userPointer).kind).toBe("hostConfig");
 
-    expect(StatePointersDocumentSchemaV1.safeParse(pointerDocument({
+    expect(StatePointersDocumentSchema.safeParse(pointerDocument({
       documents: [userPointer],
     })).success).toBe(false);
-    expect(StatePointersDocumentSchemaV1.safeParse(pointerDocument({
+    expect(StatePointersDocumentSchema.safeParse(pointerDocument({
       documents: pointerDocument().documents.map((value) => ({ ...value, generation: 3 })),
     })).success).toBe(false);
   });
@@ -49,14 +49,14 @@ describe("generation pointers", () => {
       documents: [{ kind: "projectLocal", generation: 0, blob: projectBlob, digest }],
     });
     expect(project.documents[0]?.kind).toBe("projectLocal");
-    expect(StatePointersDocumentSchemaV1.safeParse({
+    expect(StatePointersDocumentSchema.safeParse({
       ...project,
       documents: [{ kind: "trust", generation: 0, blob: projectBlob, digest }],
     }).success).toBe(false);
   });
 
   it("rejects a non-previous generation and physical path fields", () => {
-    expect(StatePointersDocumentSchemaV1.safeParse(pointerDocument({ previousGeneration: 4 })).success).toBe(false);
+    expect(StatePointersDocumentSchema.safeParse(pointerDocument({ previousGeneration: 4 })).success).toBe(false);
     expect(StateDocumentPointerSchema.safeParse({ ...userPointer, path: "/tmp/state.json" }).success).toBe(false);
   });
 });

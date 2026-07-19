@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 4,
   "generation": 0,
   "projectKey": "project-v1:sha256:1111111111111111111111111111111111111111111111111111111111111111",
   "identity": {
@@ -8,6 +8,8 @@
     "limitation": "identity-changes-with-canonical-root"
   },
   "declarationDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "scope": {},
   "marketplaces": [],
-  "plugins": []
+  "plugins": [],
+  "marketplaceUpdates": []
 }

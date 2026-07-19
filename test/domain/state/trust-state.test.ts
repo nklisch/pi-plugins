@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  TrustStateDocumentSchemaV1,
-  TrustStateSchemaFamily,
+  TrustStateDocumentSchema,
   TrustSubjectEvidenceSchema,
   createTrustStateRecord,
 } from "../../../src/domain/state/trust-state.js";
 import { deriveTrustSubjectRef } from "../../../src/domain/state/references.js";
-import { migrateVersionedDocument } from "../../../src/domain/state/versioning.js";
 import { CanonicalSourceSchema } from "../../../src/domain/source.js";
 import { ContentDigestSchema } from "../../../src/domain/content-manifest.js";
 import { PluginKeySchema } from "../../../src/domain/identity.js";
@@ -44,12 +42,12 @@ describe("trust state", () => {
 
   it("rejects duplicate subjects in one independently versioned document", () => {
     const record = createTrustStateRecord({ evidence, status: "granted" }, sha256);
-    expect(TrustStateDocumentSchemaV1.safeParse({
+    expect(TrustStateDocumentSchema.safeParse({
       schemaVersion: 1,
       generation: 0,
       records: [record, record],
     }).success).toBe(false);
-    expect(migrateVersionedDocument(TrustStateSchemaFamily, {
+    expect(TrustStateDocumentSchema.parse({
       schemaVersion: 1,
       generation: 0,
       records: [record],

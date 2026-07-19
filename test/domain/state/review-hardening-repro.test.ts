@@ -9,7 +9,6 @@ import { JsonValueSchema } from "../../../src/domain/schema.js";
 import { createResolvedPluginSource, MarketplaceSourceSchema } from "../../../src/domain/source.js";
 import {
   createInstalledRevisionRecord,
-  InstalledUserStateDocumentSchemaV1,
 } from "../../../src/domain/state/installed-state.js";
 import {
   StateCodecError,
@@ -18,7 +17,8 @@ import {
   encodeStateDocument,
   hashStateDocument,
 } from "../../../src/domain/state/codec.js";
-import { GenerationSchema, HostConfigDocumentSchemaV1 } from "../../../src/domain/state/config-state.js";
+import { GenerationSchema, HostConfigDocumentSchema } from "../../../src/domain/state/config-state.js";
+import { createMarketplaceConfigurationRecord } from "../../../src/domain/update-policy.js";
 import { MarketplaceNameSchema } from "../../../src/domain/identity.js";
 import { parseStateMutation } from "../../../src/application/state-contract.js";
 
@@ -57,8 +57,21 @@ const report = CompatibilityReportSchema.parse({
 });
 const revisionInput = { plugin, compatibility: report, content };
 const context = { scope: { kind: "user" as const }, generation: GenerationSchema.parse(0), sha256 };
-const sourceRecord = { marketplace: MarketplaceNameSchema.parse("team"), source: MarketplaceSourceSchema.parse({ kind: "github", repository: "example/plugins" }), updateApplication: "manual" as const };
-const validConfig = HostConfigDocumentSchemaV1.parse({ schemaVersion: 1, generation: 0, records: [sourceRecord] });
+const sourceRecord = createMarketplaceConfigurationRecord({
+  marketplace: MarketplaceNameSchema.parse("team"),
+  source: MarketplaceSourceSchema.parse({ kind: "github", repository: "example/plugins" }),
+});
+const validConfig = HostConfigDocumentSchema.parse({ schemaVersion: 4, generation: 0, records: [sourceRecord] });
+
+function rawConfig(records: unknown[]) {
+  return {
+    schemaVersion: 4,
+    generation: 0,
+    global: { application: "manual", cadence: "balanced" },
+    scope: {},
+    records,
+  };
+}
 
 describe("review hardening regressions", () => {
   it("persists only a strict evidence summary, never normalized declarations", () => {
@@ -75,7 +88,7 @@ describe("review hardening regressions", () => {
   });
 
   it("verifies the exact raw digest before isolating identifiable siblings", () => {
-    const raw = { schemaVersion: 1, generation: 0, records: [sourceRecord, { marketplace: "bad", sourceRecord: true }] } as const;
+    const raw = rawConfig([sourceRecord, { marketplace: "bad", sourceRecord: true }]) as const;
     const rawDigest = hashStateDocument(JsonValueSchema.parse(raw), sha256);
     const decoded = decodeStateDocument("hostConfig", raw, { ...context, expectedDigest: rawDigest });
     expect(decoded.value.records).toHaveLength(1);
@@ -95,10 +108,10 @@ describe("review hardening regressions", () => {
   });
 
   it("fails the smallest document for an unidentifiable record but isolates a bad sibling", () => {
-    const raw = { schemaVersion: 1, generation: 0, records: [sourceRecord, { source: sourceRecord.source }] };
+    const raw = rawConfig([sourceRecord, { source: sourceRecord.source }]);
     expect(() => decodeStateDocument("hostConfig", raw, context)).toThrowError(StateCodecError);
 
-    const identifiableCorruption = { schemaVersion: 1, generation: 0, records: [sourceRecord, { marketplace: "other", source: sourceRecord.source, updateApplication: "broken" }] };
+    const identifiableCorruption = rawConfig([sourceRecord, { marketplace: "other", source: sourceRecord.source, updateApplication: "broken" }]);
     const decoded = decodeStateDocument("hostConfig", identifiableCorruption, context);
     expect(decoded.value.records.map((record) => record.marketplace)).toEqual(["team"]);
     expect(decoded.corruptions).toHaveLength(1);
@@ -125,5 +138,3 @@ describe("review hardening regressions", () => {
     expect(JSON.stringify(safe)).not.toContain("native cause");
   });
 });
-
-void InstalledUserStateDocumentSchemaV1;

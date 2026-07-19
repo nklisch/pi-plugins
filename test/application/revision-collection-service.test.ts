@@ -5,7 +5,7 @@ import { createContentManifest } from "../../src/domain/content-manifest.js";
 import { createPluginStoreIdentityFromEvidence } from "../../src/domain/content-store.js";
 import { NormalizedPluginSchema } from "../../src/domain/plugin.js";
 import { createInstalledPluginRecord, createInstalledUserStateDocument, createMarketplaceSnapshotRecord } from "../../src/domain/state/installed-state.js";
-import { createProjectLocalStateDocumentV4 } from "../../src/domain/state/project-state.js";
+import { createProjectLocalStateDocument } from "../../src/domain/state/project-state.js";
 import { createScopeContext, deriveProjectKey, toScopeReference } from "../../src/domain/state/scope.js";
 import { createResolvedMarketplaceSource, createResolvedPluginSource } from "../../src/domain/source.js";
 import { createRevisionCollectionService } from "../../src/application/revision-collection-service.js";
@@ -134,7 +134,7 @@ describe("revision collection service", () => {
     const marketplaceSource = createResolvedMarketplaceSource({ declared: { kind: "github", repository: "example/community" }, revision: "c".repeat(40) }, sha256);
     const marketplace = createMarketplaceSnapshotRecord({ marketplace: "community", source: marketplaceSource, content }, sha256);
     const declarationDigest = `sha256:${"d".repeat(64)}` as never;
-    const project = createProjectLocalStateDocumentV4({
+    const project = createProjectLocalStateDocument({
       schemaVersion: 4,
       generation: 0,
       projectKey: scope.projectKey,

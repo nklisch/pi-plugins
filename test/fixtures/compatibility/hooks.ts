@@ -126,7 +126,7 @@ export const hookPolicyFixtures: readonly PolicyFixture[] = [
     positiveExpected: expectedOutcome(["supported"], true, {
       requirements: [expectedRequirement("hook", "6", "pi.hooks.command")],
     }),
-    negativeExpected: expectedOutcome(["incompatible"], false, {
+    negativeExpected: expectedOutcome(["metadata-only"], true, {
       diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
       diagnosticRuleIds: ["hook.event.default-deny"],
       diagnosticSourcePointers: ["/hooks/PreToolUse/0/if"],
@@ -144,9 +144,9 @@ export const hookPolicyFixtures: readonly PolicyFixture[] = [
       ], "9"),
     ] } }),
     negative: baseline,
-    positiveVerdict: "incompatible",
+    positiveVerdict: "metadata-only",
     diagnosticRuleId: "hook.async",
-    positiveExpected: expectedOutcome(["incompatible", "incompatible"], false, {
+    positiveExpected: expectedOutcome(["metadata-only", "metadata-only"], true, {
       diagnosticCodes: ["UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION"],
       diagnosticRuleIds: ["hook.async", "hook.async"],
       diagnosticSourcePointers: ["/hooks/SessionStart/0/async", "/hooks/SessionEnd/0/asyncRewake"],
@@ -170,9 +170,9 @@ export const hookPolicyFixtures: readonly PolicyFixture[] = [
       declaration: claimFixture({ type: "http", url: "https://example.invalid/CANARY" }, fixtureProvenance("hooks/hooks.json", "/hooks/SessionStart/0/hooks/0", "claude", "hooks")),
     }] } }),
     negative: baseline,
-    positiveVerdict: "incompatible",
+    positiveVerdict: "metadata-only",
     diagnosticRuleId: "hook.handler.unsupported",
-    positiveExpected: expectedOutcome(["incompatible"], false, {
+    positiveExpected: expectedOutcome(["metadata-only"], true, {
       diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
       diagnosticRuleIds: ["hook.handler.unsupported"],
       diagnosticSourcePointers: ["/hooks/SessionStart/0/hooks/0/type", "/hooks/SessionStart/0/hooks/0"],
@@ -196,7 +196,7 @@ export const hookPolicyFixtures: readonly PolicyFixture[] = [
       requirements: CompatibilityPolicyRegistry.hookEvents.supported.map((_, index) =>
         expectedRequirement("hook", `d${(index + 1).toString(16)}`, "pi.hooks.command")),
     }),
-    negativeExpected: expectedOutcome(["incompatible"], false, {
+    negativeExpected: expectedOutcome(["metadata-only"], true, {
       diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
       diagnosticRuleIds: ["hook.event.incompatible"],
       diagnosticSourcePointers: ["/hooks/PermissionRequest"],
@@ -228,9 +228,9 @@ export const hookPolicyFixtures: readonly PolicyFixture[] = [
       hook(event, { kind: "exec", command: "check", args: [] }, [], `a${(index + 1).toString(16)}`),
     ) } }),
     negative: baseline,
-    positiveVerdict: "incompatible",
+    positiveVerdict: "metadata-only",
     diagnosticRuleId: "hook.event.incompatible",
-    positiveExpected: expectedOutcome(CompatibilityPolicyRegistry.hookEvents.incompatible.map(() => "incompatible"), false, {
+    positiveExpected: expectedOutcome(CompatibilityPolicyRegistry.hookEvents.incompatible.map(() => "metadata-only"), true, {
       diagnosticCodes: CompatibilityPolicyRegistry.hookEvents.incompatible.map(() => "UNSUPPORTED_DECLARATION"),
       diagnosticRuleIds: CompatibilityPolicyRegistry.hookEvents.incompatible.map(() => "hook.event.incompatible"),
       diagnosticSourcePointers: CompatibilityPolicyRegistry.hookEvents.incompatible.map((event) => `/hooks/${event}`),
@@ -247,9 +247,9 @@ export const hookPolicyFixtures: readonly PolicyFixture[] = [
     ruleId: "hook.event.default-deny",
     positive: () => directPlugin({ components: { hooks: [hook("FutureLifecycleEvent", { kind: "exec", command: "check", args: [] }, [], "b")] } }),
     negative: baseline,
-    positiveVerdict: "incompatible",
+    positiveVerdict: "metadata-only",
     diagnosticRuleId: "hook.event.default-deny",
-    positiveExpected: expectedOutcome(["incompatible"], false, {
+    positiveExpected: expectedOutcome(["metadata-only"], true, {
       diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
       diagnosticRuleIds: ["hook.event.default-deny"],
       diagnosticSourcePointers: ["/hooks/FutureLifecycleEvent"],

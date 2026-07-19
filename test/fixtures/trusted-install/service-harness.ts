@@ -16,9 +16,9 @@ import {
   createInstalledUserStateDocument,
   createMarketplaceSnapshotRecord,
 } from "../../../src/domain/state/installed-state.js";
-import { HostConfigDocumentSchemaV1, GenerationSchema } from "../../../src/domain/state/config-state.js";
-import { StatePointersDocumentSchemaV1 } from "../../../src/domain/state/pointers.js";
-import { TrustStateDocumentSchemaV1 } from "../../../src/domain/state/trust-state.js";
+import { HostConfigDocumentSchema, GenerationSchema } from "../../../src/domain/state/config-state.js";
+import { StatePointersDocumentSchema } from "../../../src/domain/state/pointers.js";
+import { TrustStateDocumentSchema } from "../../../src/domain/state/trust-state.js";
 import { deriveStateBlobRef } from "../../../src/domain/state/references.js";
 import { CurrentProjectRuntimeContextSchema } from "../../../src/application/ports/project-trust.js";
 import { createPluginConfigurationDocument, digestConfigurationDescriptors } from "../../../src/domain/configured-values.js";
@@ -148,7 +148,7 @@ const subject = {
 
 function pointers(generationInput: number) {
   const generation = GenerationSchema.parse(generationInput);
-  return StatePointersDocumentSchemaV1.parse({
+  return StatePointersDocumentSchema.parse({
     schemaVersion: 1,
     scope: { kind: "user" },
     generation,
@@ -167,9 +167,9 @@ function initialSnapshot() {
     scope: { kind: "user" as const },
     generation,
     pointers: pointers(generation),
-    config: HostConfigDocumentSchemaV1.parse({ schemaVersion: 1, generation, records: [] }),
+    config: HostConfigDocumentSchema.parse({ schemaVersion: 4, generation, records: [] }),
     installed: createInstalledUserStateDocument({ generation, marketplaces: [marketplace], plugins: [] }, trustedInstallHarnessSha256),
-    trust: TrustStateDocumentSchemaV1.parse({ schemaVersion: 1, generation, records: [] }),
+    trust: TrustStateDocumentSchema.parse({ schemaVersion: 1, generation, records: [] }),
     corruptions: [],
   } as any;
 }

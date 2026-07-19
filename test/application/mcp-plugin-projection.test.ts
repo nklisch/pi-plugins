@@ -288,7 +288,7 @@ describe("plugin MCP projection", () => {
 
       aliases.splice(aliases.indexOf("runtimeStartupTimeout"), 1);
       const removed = evaluateCompatibility({ plugin: added.plugin, capabilities: capabilities() });
-      expect(removed.components[0]?.verdict.kind).toBe("incompatible");
+      expect(removed.components[0]?.verdict.kind).toBe("metadata-only");
       expect(() => create(added)).toThrow(DomainContractError);
     } finally {
       aliases.splice(0, aliases.length, ...original);

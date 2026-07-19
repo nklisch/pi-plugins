@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createNativeUpdatePolicyService } from "../../src/application/native-update-policy-service.js";
-import { GenerationSchema, HostConfigDocumentSchemaV4 } from "../../src/domain/state/config-state.js";
-import { ProjectLocalStateDocumentSchemaV4 } from "../../src/domain/state/project-state.js";
+import { GenerationSchema, HostConfigDocumentSchema } from "../../src/domain/state/config-state.js";
+import { ProjectLocalStateDocumentSchema } from "../../src/domain/state/project-state.js";
 import { createMarketplaceConfigurationRecord } from "../../src/domain/update-policy.js";
 import { deriveMarketplaceRegistrationId } from "../../src/domain/marketplace-registration.js";
 import { deriveProjectKey } from "../../src/domain/state/scope.js";
@@ -13,7 +13,7 @@ const signal = new AbortController().signal;
 
 function environment(records: readonly unknown[] = []) {
   let generation = 0;
-  let config = HostConfigDocumentSchemaV4.parse({
+  let config = HostConfigDocumentSchema.parse({
     schemaVersion: 4,
     generation: GenerationSchema.parse(0),
     global: { application: "manual", cadence: "balanced" },
@@ -35,7 +35,7 @@ function environment(records: readonly unknown[] = []) {
     readCount += 1;
     if (readCount === advanceAtRead) {
       generation += 1;
-      config = HostConfigDocumentSchemaV4.parse({ ...config, generation, scope: { application: "automatic" } });
+      config = HostConfigDocumentSchema.parse({ ...config, generation, scope: { application: "automatic" } });
     }
     return { ok: true as const, snapshot: snapshot() };
   } };
@@ -45,7 +45,7 @@ function environment(records: readonly unknown[] = []) {
       const prepared = await prepare({ snapshot: snapshot(), assertOwned: async () => undefined });
       await prepared.beforeCommit?.();
       generation += 1;
-      config = HostConfigDocumentSchemaV4.parse({ ...prepared.mutation.replace.config, generation });
+      config = HostConfigDocumentSchema.parse({ ...prepared.mutation.replace.config, generation });
       return { kind: "committed" as const, value: prepared.value, snapshot: snapshot() };
     },
   };
@@ -108,8 +108,8 @@ describe("native update policy service", () => {
     const changedIdentity = { ...identity, canonicalRoot: "file:///project-b/" as never };
     const projectKey = deriveProjectKey(identity, sha256);
     const projectScope = { kind: "project" as const, identity, projectKey };
-    const userSnapshot = () => ({ scope: { kind: "user" as const }, generation: 0, config: HostConfigDocumentSchemaV4.parse({ schemaVersion: 4, generation: 0, global: { application: "manual", cadence: "balanced" }, scope: {}, records: [] }), installed: { plugins: [] }, trust: { records: [] }, pointers: { generation: 0, scope: { kind: "user" }, documents: [] }, corruptions: [] }) as never;
-    const projectSnapshot = () => ({ scope: projectScope, generation, project: ProjectLocalStateDocumentSchemaV4.parse({ schemaVersion: 4, generation, projectKey, identity, declarationDigest: `sha256:${"b".repeat(64)}`, scope: {}, marketplaces: [], plugins: [], marketplaceUpdates: [] }), pointers: { generation, scope: { kind: "project", projectKey }, documents: [] }, corruptions: [] }) as never;
+    const userSnapshot = () => ({ scope: { kind: "user" as const }, generation: 0, config: HostConfigDocumentSchema.parse({ schemaVersion: 4, generation: 0, global: { application: "manual", cadence: "balanced" }, scope: {}, records: [] }), installed: { plugins: [] }, trust: { records: [] }, pointers: { generation: 0, scope: { kind: "user" }, documents: [] }, corruptions: [] }) as never;
+    const projectSnapshot = () => ({ scope: projectScope, generation, project: ProjectLocalStateDocumentSchema.parse({ schemaVersion: 4, generation, projectKey, identity, declarationDigest: `sha256:${"b".repeat(64)}`, scope: {}, marketplaces: [], plugins: [], marketplaceUpdates: [] }), pointers: { generation, scope: { kind: "project", projectKey }, documents: [] }, corruptions: [] }) as never;
     let currentIdentity = identity;
     let currentTrust: "trusted" | "untrusted" = "trusted";
     const service = createNativeUpdatePolicyService({

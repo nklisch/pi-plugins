@@ -443,7 +443,10 @@ export function createNativeUpdatePolicyService(dependencies: NativeUpdatePolicy
           ...(nextAt === undefined ? {} : { nextAt }),
         };
       });
-    return NativeUpdatePolicyStatusSchema.parse({ global: authority.user.config.global, scopes, policies, inventoryComplete: authority.complete });
+    // The status contract exposes only update policy; reconciliation
+    // resolution preferences live on the same global object but are not part
+    // of this strict view.
+    return NativeUpdatePolicyStatusSchema.parse({ global: { application: authority.user.config.global.application, cadence: authority.user.config.global.cadence }, scopes, policies, inventoryComplete: authority.complete });
   }
 
   return Object.freeze({ preview, apply, status, authority: authorityPort });

@@ -15,7 +15,7 @@ import { createResolvedMarketplaceSource, createResolvedPluginSource } from "../
 import {
   InstalledPluginRecordSchema,
   InstalledRevisionRecordSchema,
-  InstalledUserStateDocumentSchemaV1,
+  InstalledUserStateDocumentSchema,
   MarketplaceSnapshotRecordSchema,
   createInstalledPluginRecord,
   createInstalledRevisionRecord,
@@ -24,7 +24,7 @@ import {
   decodeInstalledUserPlugins,
   type InstalledPluginRecord,
   type InstalledRevisionRecord,
-  type InstalledUserStateDocumentV1,
+  type InstalledUserStateDocument,
   type MarketplaceSnapshotRecord,
 } from "../../../src/domain/state/installed-state.js";
 import {
@@ -190,13 +190,14 @@ describe("installed lifecycle state", () => {
         revisions: [revisionInput()],
       }],
     }, sha256);
-    expect(InstalledUserStateDocumentSchemaV1.parse(document)).toEqual(document);
+    expect(document.schemaVersion).toBe(2);
+    expect(InstalledUserStateDocumentSchema.parse(document)).toEqual(document);
     expect(document.plugins[0]!.selectedRevision).toBe(document.plugins[0]!.revisions[0]!.revision);
     expect(() => InstalledPluginRecordSchema.parse({
       ...document.plugins[0],
       selectedRevision: "sha256:" + "f".repeat(64),
     })).toThrow(/selected/);
-    expect(() => InstalledUserStateDocumentSchemaV1.parse({
+    expect(() => InstalledUserStateDocumentSchema.parse({
       ...document,
       plugins: [document.plugins[0], document.plugins[0]],
     })).toThrow(/duplicate/);
@@ -237,6 +238,6 @@ describe("installed lifecycle state", () => {
     expectTypeOf<z.infer<typeof MarketplaceSnapshotRecordSchema>>().toEqualTypeOf<MarketplaceSnapshotRecord>();
     expectTypeOf<z.infer<typeof InstalledRevisionRecordSchema>>().toEqualTypeOf<InstalledRevisionRecord>();
     expectTypeOf<z.infer<typeof InstalledPluginRecordSchema>>().toEqualTypeOf<InstalledPluginRecord>();
-    expectTypeOf<z.infer<typeof InstalledUserStateDocumentSchemaV1>>().toEqualTypeOf<InstalledUserStateDocumentV1>();
+    expectTypeOf<z.infer<typeof InstalledUserStateDocumentSchema>>().toEqualTypeOf<InstalledUserStateDocument>();
   });
 });

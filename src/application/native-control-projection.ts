@@ -9,6 +9,8 @@ import type {
 } from "./native-control-contract.js";
 import { NativeControlCommandRegistry, type NativeControlCommandId } from "./native-control-registry.js";
 import { projectNativeControlSchemaJson } from "./native-control-redaction.js";
+import { presentControlFailure, presentNativeDiagnostics } from "./native-failure-presenter.js";
+import type { NativeDiagnostic } from "./native-inspection-contract.js";
 
 export type NativeControlDispatchResult = Readonly<{
   status: NativeControlStatus;
@@ -65,14 +67,29 @@ export function projectNativeControlFailure(
   status: NativeControlStatus,
   code: string,
   action: NativeControlDiagnostic["action"],
-  _privateContext?: unknown,
+  human?: readonly SafeDisplayField[],
 ): NativeControlDispatchResult {
+  // Every failure envelope carries user-facing text: callers may pass richer
+  // lines composed from the underlying inspection diagnostics; otherwise the
+  // presenter maps the control code to plain marketplace/plugin language.
+  // Raw error context is deliberately never promoted into the envelope.
+  const fallback = presentControlFailure(code);
+  const lines = human ?? (fallback === undefined ? [] : [fallback]);
   return Object.freeze({
     status,
-    // Failure context often contains input-channel or owner-private values.
-    // Stable diagnostics carry the actionable contract; arbitrary context is
-    // deliberately not promoted into the command's response schema.
     diagnostics: Object.freeze([controlDiagnostic(code, "error", action)]),
-    human: Object.freeze([]),
+    human: Object.freeze([...lines]),
   });
+}
+
+/**
+ * Human lines for a selection failure: the underlying inspection diagnostics
+ * (document, host, reason) when the target existed but couldn't be prepared.
+ */
+export function humanForSelectionFailure(
+  failure: Readonly<{ diagnostics?: readonly NativeDiagnostic[] }>,
+): readonly SafeDisplayField[] | undefined {
+  if (failure.diagnostics === undefined) return undefined;
+  const lines = presentNativeDiagnostics(failure.diagnostics);
+  return lines.length > 0 ? lines : undefined;
 }

@@ -1,11 +1,16 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 4,
   "generation": 0,
+  "global": { "application": "manual", "cadence": "balanced" },
+  "scope": {},
   "records": [
     {
       "marketplace": "team",
       "source": { "kind": "github", "repository": "example/plugins" },
-      "updateApplication": "manual"
+      "origin": { "kind": "native" },
+      "pluginOverrides": [],
+      "refresh": { "consecutiveFailures": 0 },
+      "notices": []
     }
   ]
 }

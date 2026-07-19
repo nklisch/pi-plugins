@@ -82,9 +82,9 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     ruleId: "mcp.transport.sse",
     positive: () => directPlugin({ components: { mcpServers: [mcp({ transport: "sse", url: "https://example.invalid/mcp" }, "5")] } }),
     negative: baseline,
-    positiveVerdict: "incompatible",
+    positiveVerdict: "metadata-only",
     diagnosticRuleId: "mcp.transport.sse",
-    positiveExpected: expectedOutcome(["incompatible"], false, {
+    positiveExpected: expectedOutcome(["metadata-only"], true, {
       diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
       diagnosticRuleIds: ["mcp.transport.sse"],
       diagnosticSourcePointers: ["/mcpServers/server-5/transport"],
@@ -98,9 +98,9 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     ruleId: "mcp.transport.websocket",
     positive: () => directPlugin({ components: { mcpServers: [mcp({ transport: "websocket", url: "wss://example.invalid/mcp" }, "6")] } }),
     negative: baseline,
-    positiveVerdict: "incompatible",
+    positiveVerdict: "metadata-only",
     diagnosticRuleId: "mcp.transport.websocket",
-    positiveExpected: expectedOutcome(["incompatible"], false, {
+    positiveExpected: expectedOutcome(["metadata-only"], true, {
       diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
       diagnosticRuleIds: ["mcp.transport.websocket"],
       diagnosticSourcePointers: ["/mcpServers/server-6/transport"],
@@ -182,7 +182,7 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
         ...mcpRequirements("b2", "streamable-http"),
       ],
     }),
-    negativeExpected: expectedOutcome(["incompatible", "incompatible", "incompatible", "incompatible"], false, {
+    negativeExpected: expectedOutcome(["metadata-only", "metadata-only", "metadata-only", "metadata-only"], true, {
       diagnosticCodes: ["UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION"],
       diagnosticRuleIds: ["mcp.default-deny", "mcp.default-deny", "mcp.default-deny", "mcp.default-deny"],
       diagnosticSourcePointers: [
@@ -279,9 +279,9 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
     ruleId: "mcp.channels",
     positive: () => directPlugin({ components: { mcpServers: [mcp({ transport: "streamable-http", url: "https://example.invalid/mcp", channels: ["CANARY_CHANNEL"] }, "11")] } }),
     negative: baseline,
-    positiveVerdict: "incompatible",
+    positiveVerdict: "metadata-only",
     diagnosticRuleId: "mcp.channels",
-    positiveExpected: expectedOutcome(["incompatible"], false, {
+    positiveExpected: expectedOutcome(["metadata-only"], true, {
       diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
       diagnosticRuleIds: ["mcp.channels"],
       diagnosticSourcePointers: ["/mcpServers/server-11/channels"],
@@ -335,12 +335,12 @@ export const mcpPolicyFixtures: readonly PolicyFixture[] = [
       }, "1a"),
     ] } }),
     negative: baseline,
-    positiveVerdict: "incompatible",
+    positiveVerdict: "metadata-only",
     diagnosticRuleId: "mcp.default-deny",
     positiveExpected: expectedOutcome([
-      "incompatible", "incompatible", "incompatible", "incompatible", "incompatible",
-      "incompatible", "incompatible", "incompatible", "incompatible",
-    ], false, {
+      "metadata-only", "metadata-only", "metadata-only", "metadata-only", "metadata-only",
+      "metadata-only", "metadata-only", "metadata-only", "metadata-only",
+    ], true, {
       diagnosticCodes: [
         "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION",
         "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION", "UNSUPPORTED_DECLARATION",

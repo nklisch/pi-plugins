@@ -91,7 +91,7 @@ function plugin(overrides: Record<string, unknown> = {}): NormalizedPlugin {
 }
 
 describe("pure compatibility evaluator", () => {
-  it("assesses every flattened component exactly once and fails closed for foreign components", () => {
+  it("assesses every flattened component exactly once and degrades foreign components to metadata only", () => {
     const report = evaluateCompatibility({ plugin: plugin(), capabilities: capabilities() });
     expect(report.components).toHaveLength(4);
     expect(report.components.map((assessment) => assessment.componentId)).toEqual([
@@ -100,8 +100,8 @@ describe("pure compatibility evaluator", () => {
       componentId("mcp-server", "2"),
       componentId("foreign", "3"),
     ]);
-    expect(report.components.find((assessment) => assessment.componentId.includes(":foreign:"))?.verdict.kind).toBe("incompatible");
-    expect(report.activatable).toBe(false);
+    expect(report.components.find((assessment) => assessment.componentId.includes(":foreign:"))?.verdict.kind).toBe("metadata-only");
+    expect(report.activatable).toBe(true);
     expect(report.requirements.map((assessment) => assessment.requirement.capability)).toEqual([
       "pi.skill.allowed-tools",
       "pi.hooks.command",
@@ -183,7 +183,7 @@ describe("pure compatibility evaluator", () => {
     expect(JSON.stringify(report)).not.toContain("secret-helper");
   });
 
-  it("rejects literal structured credentials and authorization/bearer ambiguity", () => {
+  it("degrades literal structured credentials and authorization/bearer ambiguity to metadata only", () => {
     const declarations = [
       { transport: "stdio", command: "server", env: { API_TOKEN: "CANARY_STATIC_ENV" } },
       { type: "http", url: "https://example.invalid/mcp", headers: { Authorization: "Bearer CANARY_STATIC_HEADER" } },
@@ -205,9 +205,9 @@ describe("pure compatibility evaluator", () => {
     });
     const report = evaluateCompatibility({ plugin: value, capabilities: capabilities() });
     expect(report.components.map((item) => item.verdict.kind)).toEqual([
-      "incompatible",
-      "incompatible",
-      "incompatible",
+      "metadata-only",
+      "metadata-only",
+      "metadata-only",
     ]);
     expect(JSON.stringify(report)).not.toMatch(/CANARY_STATIC_(?:ENV|HEADER)/);
   });
@@ -233,7 +233,7 @@ describe("pure compatibility evaluator", () => {
       }),
       capabilities: capabilities(),
     });
-    expect(arbitraryCondition.components[0]?.verdict.kind).toBe("incompatible");
+    expect(arbitraryCondition.components[0]?.verdict.kind).toBe("metadata-only");
     expect(arbitraryCondition.components[0]?.diagnostics[0]?.code).toBe("UNSUPPORTED_DECLARATION");
     expect(arbitraryCondition.components[0]?.diagnostics[0]?.location?.pointer).toBe("/components");
     expect(arbitraryCondition.components[0]?.diagnostics[0]?.details).toMatchObject({
@@ -262,7 +262,7 @@ describe("pure compatibility evaluator", () => {
       }),
       capabilities: capabilities(),
     });
-    expect(ambiguousOAuth.components[0]?.verdict.kind).toBe("incompatible");
+    expect(ambiguousOAuth.components[0]?.verdict.kind).toBe("metadata-only");
     expect(ambiguousOAuth.components[0]?.diagnostics[0]?.code).toBe("UNSUPPORTED_DECLARATION");
     expect(ambiguousOAuth.components[0]?.diagnostics[0]?.location?.pointer).toBe("/components/oauth");
     expect(ambiguousOAuth.components[0]?.diagnostics[0]?.details).toMatchObject({
@@ -291,7 +291,7 @@ describe("pure compatibility evaluator", () => {
       }),
       capabilities: capabilities(),
     });
-    expect(malformedFeature.components[0]?.verdict.kind).toBe("incompatible");
+    expect(malformedFeature.components[0]?.verdict.kind).toBe("metadata-only");
     expect(malformedFeature.components[0]?.diagnostics[0]?.code).toBe("UNSUPPORTED_DECLARATION");
     expect(malformedFeature.components[0]?.diagnostics[0]?.location?.pointer).toBe("/components/features/sampling/enabled");
     expect(malformedFeature.components[0]?.diagnostics[0]?.details).toMatchObject({
@@ -300,7 +300,7 @@ describe("pure compatibility evaluator", () => {
     });
   });
 
-  it("rejects bearer/OAuth selector conflicts and credential-bearing MCP URLs", () => {
+  it("degrades bearer/OAuth selector conflicts and credential-bearing MCP URLs to metadata only", () => {
     const combinedAuth = evaluateCompatibility({
       plugin: plugin({
         components: {
@@ -322,7 +322,7 @@ describe("pure compatibility evaluator", () => {
       }),
       capabilities: capabilities(),
     });
-    expect(combinedAuth.components[0]?.verdict.kind).toBe("incompatible");
+    expect(combinedAuth.components[0]?.verdict.kind).toBe("metadata-only");
     expect(combinedAuth.components[0]?.diagnostics[0]?.location?.pointer).toBe("/components/auth");
     expect(JSON.stringify(combinedAuth)).not.toContain("CANARY_BEARER_ENV");
 
@@ -346,7 +346,7 @@ describe("pure compatibility evaluator", () => {
       }),
       capabilities: capabilities(),
     });
-    expect(embeddedCredentials.components[0]?.verdict.kind).toBe("incompatible");
+    expect(embeddedCredentials.components[0]?.verdict.kind).toBe("metadata-only");
     expect(embeddedCredentials.components[0]?.diagnostics[0]?.location?.pointer).toBe("/components/url");
     expect(JSON.stringify(embeddedCredentials)).not.toContain("CANARY_URL_USER");
     expect(JSON.stringify(embeddedCredentials)).not.toContain("CANARY_URL_PASSWORD");
