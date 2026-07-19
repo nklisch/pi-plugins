@@ -7,6 +7,7 @@ import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "no
 import { pathToFileURL } from "node:url";
 import {
   E2E_CHECKOUT_ROOT,
+  E2E_PACKAGE_VERSION,
   E2E_PI_VERSION,
   E2E_SECRET_CANARY,
   E2E_TIMEOUTS,
@@ -330,7 +331,7 @@ async function prepare(): Promise<E2ESuiteArtifact> {
   const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as {
     name?: string; private?: boolean; version?: string; pi?: { extensions?: string[] };
   };
-  if (manifest.name !== "@nklisch/pi-plugins" || manifest.private !== false || manifest.version !== "0.1.3" ||
+  if (manifest.name !== "@nklisch/pi-plugins" || manifest.private !== false || manifest.version !== E2E_PACKAGE_VERSION ||
       JSON.stringify(manifest.pi?.extensions) !== JSON.stringify(["./dist/pi/production-subagents-extension.js", "./dist/pi/extension.js"])) {
     throw new Error("packed product identity or Pi extension graph is invalid");
   }

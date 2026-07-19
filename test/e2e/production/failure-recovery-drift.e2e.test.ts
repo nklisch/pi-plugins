@@ -88,10 +88,12 @@ describe("production failure, recovery, and package drift", () => {
     await installProductionBundle({ sandbox, rpc: journey.rpc, version: "v1" });
 
     await publishProductionBundleRevision(sandbox, journey.repository, "v2");
-    const hooksPath = join(journey.repository.working, "plugins", "production-bundle", "hooks", "hooks.json");
-    const hooks = JSON.parse(await readFile(hooksPath, "utf8"));
-    hooks.hooks.PermissionRequest = [{ hooks: [{ type: "command", command: "node never.mjs" }] }];
-    await writeFile(hooksPath, `${JSON.stringify(hooks, null, 2)}\n`);
+    // Incompatibility must trip a rule that still blocks under gentle
+    // degradation: plaintext non-loopback MCP transport is a security gate.
+    const manifestPath = join(journey.repository.working, "plugins", "production-bundle", ".claude-plugin", "plugin.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.mcpServers.insecure = { type: "http", url: "http://example.invalid/mcp" };
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     await commitFixture(journey.repository, "incompatible production update");
     await journey.rpc.plugin("--non-interactive marketplace refresh", "marketplace.refresh");
     const rejected = await journey.rpc.plugin(`update ${PRODUCTION_PLUGIN} --scope user --yes`, "lifecycle.update");

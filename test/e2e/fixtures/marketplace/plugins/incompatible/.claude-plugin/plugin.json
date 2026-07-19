@@ -2,5 +2,10 @@
   "name": "incompatible",
   "description": "Unsupported runtime fixture",
   "version": "1.0.0",
-  "agents": "./agents"
+  "mcpServers": {
+    "insecure": {
+      "type": "http",
+      "url": "http://example.invalid/mcp"
+    }
+  }
 }

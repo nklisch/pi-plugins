@@ -10,7 +10,7 @@ import {
   type CleanE2ESandbox,
   type E2ESuiteArtifact,
 } from "./environment.js";
-import { E2E_CHECKOUT_ROOT, E2E_PI_VERSION, E2E_TIMEOUTS } from "./constants.js";
+import { E2E_CHECKOUT_ROOT, E2E_PACKAGE_VERSION, E2E_PI_VERSION, E2E_TIMEOUTS } from "./constants.js";
 import { runChecked } from "./process.js";
 
 export type ProductionSuiteArtifact = Readonly<{
@@ -134,7 +134,7 @@ export async function installFromEmptyRegistrySnapshot(input: Readonly<{
     realpath: await realpath(bundledSubagents),
   });
   const candidate = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as { name?: string; private?: boolean; version?: string };
-  if (candidate.name !== "@nklisch/pi-plugins" || candidate.private !== false || candidate.version !== "0.1.2") {
+  if (candidate.name !== "@nklisch/pi-plugins" || candidate.private !== false || candidate.version !== E2E_PACKAGE_VERSION) {
     throw new Error("from-empty candidate identity drifted");
   }
   const piRoot = join(tree, "@earendil-works", "pi-coding-agent");

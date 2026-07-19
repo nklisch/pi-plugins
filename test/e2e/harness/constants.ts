@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,6 +9,13 @@ export const E2E_MODEL_PORT = Number.parseInt(process.env.PI_PLUGIN_HOST_E2E_MOD
 export const E2E_CONTROL_REPORT = "plugin-host:control-report-v1";
 export const E2E_SECRET_CANARY = "PI-PLUGIN-HOST-E2E-SECRET-CANARY";
 export const E2E_CHECKOUT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+
+// The version the packed candidate must report, derived from the checkout so
+// releases never leave a stale hardcoded pin behind (the 0.1.3/0.1.2 pins
+// this replaces broke CI silently for two releases).
+export const E2E_PACKAGE_VERSION = (JSON.parse(
+  readFileSync(resolve(E2E_CHECKOUT_ROOT, "package.json"), "utf8"),
+) as { version: string }).version;
 
 export const E2E_TIMEOUTS = Object.freeze({
   startup: 15_000,

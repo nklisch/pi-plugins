@@ -19,7 +19,7 @@ Native plugin management for [Pi](https://github.com/badlogic/pi-mono), with com
 ## Install
 
 ```bash
-pi install npm:@nklisch/pi-plugins@0.1.3
+pi install npm:@nklisch/pi-plugins
 ```
 
 Then start Pi and run `/plugin`. The manager uses the same progressive list footprint as Pi settings: choose **My Plugins**, **Discover**, **Sources**, **Updates**, or **Health**, then drill into an item and its available actions. Escape returns one level. On a clean installation, open Sources and choose **Add Source**, or use:
