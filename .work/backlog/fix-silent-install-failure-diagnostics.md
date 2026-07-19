@@ -1,7 +1,7 @@
 ---
 id: fix-silent-install-failure-diagnostics
 kind: story
-stage: implementing
+stage: done
 tags: [tui, compatibility, reliability]
 parent: null
 depends_on: []
@@ -66,3 +66,13 @@ selection-failure envelopes (after concurrent hostPrecedence work lands),
 recovery-required needs a human line, and the TUI swallow should point at the
 envelope. The digest-mismatch saga showed FIVE layers each discarding the
 underlying error (see fix-runtime-projection-digest-mismatch item).
+
+Completed: dispatcher now attaches inspection diagnostics + presenter human
+lines to every selection-failure envelope; projectNativeControlFailure maps
+every control code to plain-language fallback text; recovery-required install
+and lifecycle results carry a recovery explanation line. Verification: full
+npm test green (338 files / 1,689 tests + packed Pi PTY acceptance).
+Deferred hardening (not user-facing install errors): deeper runtime journal
+diagnostics (broker ticket masking, safeFailure sanitization chain) remain
+internal-only by design; richer operator-facing recovery detail is a future
+doctor-surface concern.
