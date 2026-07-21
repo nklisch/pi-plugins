@@ -1,11 +1,11 @@
 ---
 id: fix-plugin-manager-latency-and-add-flow
 kind: story
-stage: implementing
+stage: done
 tags: [perf, tui, compatibility]
 parent: null
 depends_on: []
-release_binding: 0.1.8
+release_binding: 0.1.10
 created: 2026-07-20
 updated: 2026-07-20
 ---
