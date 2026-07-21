@@ -8,18 +8,18 @@ import { PluginInstallComponent, renderPluginInstall } from "../../../src/pi/man
 const theme = { fg: (_token: string, text: string) => text, bg: (_token: string, text: string) => text, bold: (text: string) => text } as any;
 
 describe("signed plugin install flow", () => {
-  it("preserves choose/inspect → configure/trust → activation-result hierarchy", () => {
+  it("flattens open → configure/add → activation-result with the disclosure optional", () => {
     let state = createPluginInstallState(trustedInstallFlowFixture.chooseInspect);
     let lines = renderPluginInstall({ state, width: 84, height: 30, theme });
-    expect(lines.join("\n")).toContain("Step 1/3 · Review plugin");
-    expect(lines.join("\n")).toContain("Compatibility inventory");
-    expect(lines.join("\n")).toContain("1 skills · 1 hooks · 1 MCP servers");
+    expect(lines.join("\n")).toContain("Add plugin");
+    expect(lines.join("\n")).toContain("install session");
+    expect(lines.join("\n")).toContain("activatable");
 
     state = pluginInstallReducer(state, { type: "session-opened", session: trustedInstallFlowFixture.states.missingInput.session });
     lines = renderPluginInstall({ state, width: 84, height: 30, theme });
-    expect(lines.join("\n")).toContain("Step 2/3 · Configure and review trust");
+    expect(lines.join("\n")).toContain("Step 1/2 · Configure and add");
     expect(lines.join("\n")).toContain("Executable surface");
-    expect(lines.join("\n")).toContain("Expand exact executable disclosure");
+    expect(lines.join("\n")).toContain("Review exact executable disclosure (optional)");
     expect(lines.join("\n")).not.toContain("bundle-hook");
 
     state = pluginInstallReducer(state, { type: "toggle-disclosure", key: "executable" });
@@ -29,7 +29,7 @@ describe("signed plugin install flow", () => {
 
     state = pluginInstallReducer(state, { type: "activation-result", result: trustedInstallFlowFixture.activationResult });
     lines = renderPluginInstall({ state, width: 84, height: 30, theme });
-    expect(lines.join("\n")).toContain("Step 3/3 · Activation result");
+    expect(lines.join("\n")).toContain("Step 2/2 · Activation result");
     expect(lines.join("\n")).toContain("succeeded");
     expect(lines.join("\n")).toContain("1 discoverable skills");
     expect(lines.every((line) => visibleWidth(line) <= 84)).toBe(true);
@@ -62,15 +62,15 @@ describe("signed plugin install flow", () => {
     expect(JSON.stringify(state)).not.toContain("SECRET-CANARY");
   });
 
-  it("requires keyboard inspection through the end of exact disclosure before Continue", () => {
+  it("grants exact consent from the Add action without forcing disclosure review", () => {
     let state = createPluginInstallState(trustedInstallFlowFixture.chooseInspect);
     state = pluginInstallReducer(state, { type: "session-opened", session: trustedInstallFlowFixture.states.missingInput.session });
-    state = pluginInstallReducer(state, { type: "toggle-disclosure", key: "executable" });
-    state = pluginInstallReducer(state, { type: "focus", focus: "disclosure" });
+    // All fixture fields are required: focus starts on the first one, not on the disclosure.
+    expect(state.focus).toEqual({ field: "NAME" });
     const actions: unknown[] = [];
     let component!: PluginInstallComponent;
     const keybindings = {
-      matches: (data: string, id: string) => id === "tui.select.confirm" ? data === "\r" : id === "tui.select.pageDown" ? data === "\u001b[6~" : false,
+      matches: (data: string, id: string) => id === "tui.select.confirm" ? data === "\r" : id === "tui.select.down" ? data === "\u001b[B" : false,
     } as any;
     const onEvent = (event: any) => {
       state = pluginInstallReducer(state, event);
@@ -78,20 +78,26 @@ describe("signed plugin install flow", () => {
     };
     component = new PluginInstallComponent({ state, theme, keybindings, height: () => 6, onEvent, onAction: (action) => actions.push(action) });
     component.render(44);
-    component.handleInput("\t");
-    component.handleInput("\t");
-    component.handleInput("\r");
-    expect(actions).toEqual([]);
-    onEvent({ type: "focus", focus: "disclosure" });
-    for (let index = 0; index < 128; index += 1) {
-      component.handleInput("\u001b[6~");
-      component.render(44);
-    }
-    component.handleInput("\t");
-    component.handleInput("\t");
+    // Arrow keys move focus through the menu; no scrolling is required to act.
+    component.handleInput("\u001b[B");
+    component.handleInput("\u001b[B");
+    component.handleInput("\u001b[B");
+    component.handleInput("\u001b[B");
+    component.handleInput("\u001b[B");
+    expect(state.focus).toBe("continue");
     component.handleInput("\r");
     expect(state.consentId).toBe(state.session?.consent.consentId);
     expect(actions).toContainEqual({ type: "continue" });
+  });
+
+  it("keeps the focused control inside the visible window", () => {
+    let state = createPluginInstallState(trustedInstallFlowFixture.chooseInspect);
+    state = pluginInstallReducer(state, { type: "session-opened", session: trustedInstallFlowFixture.states.missingInput.session });
+    state = pluginInstallReducer(state, { type: "toggle-disclosure", key: "executable" });
+    state = pluginInstallReducer(state, { type: "focus", focus: "continue" });
+    // A short viewport over an expanded disclosure must still reveal the focused Add action.
+    const lines = renderPluginInstall({ state, width: 60, height: 8, theme });
+    expect(lines.join("\n")).toContain("Add plugin");
   });
 
   it("clears exact consent and retained values whenever authority becomes stale", () => {

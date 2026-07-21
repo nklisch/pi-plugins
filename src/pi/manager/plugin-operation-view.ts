@@ -1,5 +1,5 @@
 import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
+import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, type Component, type TUI } from "@earendil-works/pi-tui";
 import type { NativeControlEnvelope } from "../../application/native-control-contract.js";
 import { TrustedInstallActivationResultSchema } from "../../application/trusted-install-contract.js";
 import { NativeControlFrameSchema, type NativeControlFrame } from "../../application/native-control-progress.js";
@@ -22,6 +22,8 @@ export class PluginOperationView implements Component {
   private offset = 0;
   private cancellationRequested = false;
   private disposed = false;
+  private inline: Readonly<{ component: Component; finish(value?: unknown): void }> | undefined;
+  private readonly tui: TUI | undefined;
 
   constructor(input: Readonly<{
     theme: Theme;
@@ -30,6 +32,7 @@ export class PluginOperationView implements Component {
     title?: string;
     cancel(): void;
     close?(): void;
+    tui?: TUI;
   }>) {
     this.theme = input.theme;
     this.keybindings = input.keybindings;
@@ -37,6 +40,32 @@ export class PluginOperationView implements Component {
     this.title = safe(input.title ?? "Plugin operation", 256);
     this.cancel = input.cancel;
     this.close = input.close;
+    this.tui = input.tui;
+  }
+
+  /**
+   * Mount a child inside this surface. Pi's ui.custom does not stack — a
+   * nested custom would replace this view and never restore it — so input
+   * custody collected mid-operation mounts inline and yields this slot back.
+   */
+  presentInline<T>(factory: (tui: TUI, theme: Theme, keybindings: KeybindingsManager, done: (value?: T) => void) => Component): Promise<T | undefined> {
+    const tui = this.tui;
+    if (this.disposed || this.inline !== undefined || tui === undefined) return Promise.resolve(undefined);
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value?: unknown): void => {
+        if (settled) return;
+        settled = true;
+        const current = this.inline;
+        this.inline = undefined;
+        (current?.component as (Component & { dispose?(): void }) | undefined)?.dispose?.();
+        tui.requestRender();
+        resolve(value as T | undefined);
+      };
+      const component = factory(tui, this.theme, this.keybindings, finish);
+      this.inline = Object.freeze({ component, finish });
+      tui.requestRender();
+    });
   }
 
   push(frameInput: NativeControlFrame): void {
@@ -89,6 +118,11 @@ export class PluginOperationView implements Component {
 
   handleInput(data: string): void {
     if (this.disposed) return;
+    if (this.inline !== undefined) {
+      this.inline.component.handleInput?.(data);
+      this.tui?.requestRender();
+      return;
+    }
     if (this.keybindings.matches(data, "tui.select.cancel") || this.keybindings.matches(data, "app.interrupt")) {
       if (this.envelope !== undefined) this.close?.();
       else if (!this.cancellationRequested) {
@@ -103,6 +137,15 @@ export class PluginOperationView implements Component {
 
   render(width: number): string[] {
     if (this.disposed) return [];
+    if (this.inline !== undefined) {
+      const height = Math.max(1, this.height());
+      const child = this.inline.component.render(width).slice(0, Math.max(1, height - 2));
+      return [
+        this.theme.fg("accent", this.theme.bold(this.title)),
+        ...child,
+        this.theme.fg("dim", "esc back/cancel"),
+      ].slice(0, height);
+    }
     const wrapped = this.content().flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width)))
       .map((line) => truncateToWidth(line, Math.max(1, width), ""));
     const height = Math.max(1, this.height());
@@ -114,6 +157,8 @@ export class PluginOperationView implements Component {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.inline?.finish();
+    this.inline = undefined;
     this.cancel = undefined;
     this.close = undefined;
     this.frames = [];

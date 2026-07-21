@@ -1,4 +1,5 @@
-import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, ExtensionContext, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import type { Component, TUI } from "@earendil-works/pi-tui";
 import type {
   NativeControlInputPort,
   NativeControlInputRequest,
@@ -7,6 +8,7 @@ import type {
 import type { SensitiveValue } from "../../application/sensitive-value.js";
 import { ConfirmationSurface } from "./confirmation-surface.js";
 import { MaskedInputSurface, type MaskedInputResult } from "./masked-input-surface.js";
+import { TextInputSurface } from "./text-input-surface.js";
 import { formatMcpEndpoint, projectTerminalText } from "./pi-terminal-text.js";
 
 export interface PiControlInputPort extends NativeControlInputPort {
@@ -18,6 +20,20 @@ export type PiControlInputPreset = Readonly<{
   nonSensitive?: Readonly<Record<string, unknown>>;
   consentId?: string;
 }>;
+
+/**
+ * Mounts a child component inside the currently presented manager or
+ * operation surface. Pi's ui.custom does not stack: a second custom replaces
+ * the first in the editor container and closing it restores the Pi editor,
+ * not the previous surface. Input custody collected mid-operation therefore
+ * goes through the active surface's inline slot whenever one exists.
+ */
+export type PiInlinePresenter = Readonly<{
+  presentInline<T>(factory: (tui: TUI, theme: Theme, keybindings: KeybindingsManager, done: (value?: T) => void) => Component): Promise<T | undefined>;
+}>;
+
+/** Resolve the active inline presenter, if a manager/operation surface owns one. */
+export type PiInlinePresenterSource = () => PiInlinePresenter | undefined;
 
 function safe(value: unknown, limit = 512): string {
   return projectTerminalText(typeof value === "string" ? value : String(value ?? ""), limit).text;
@@ -32,6 +48,7 @@ export function createPiControlInputPort(input: Readonly<{
   context: ExtensionCommandContext;
   mode: ExtensionContext["mode"];
   preset?: PiControlInputPreset;
+  present?: PiInlinePresenterSource;
 }>): PiControlInputPort {
   let terminal = false;
   let cancelled = false;
@@ -39,6 +56,12 @@ export function createPiControlInputPort(input: Readonly<{
   let cancelActive: (() => void) | undefined;
 
   async function masked(label: string, signal: AbortSignal): Promise<MaskedInputResult> {
+    const presenter = input.present?.();
+    if (presenter !== undefined) {
+      const value = await presenter.presentInline<MaskedInputResult>((_tui, theme, keybindings, done) =>
+        new MaskedInputSurface({ theme, keybindings, label, done }));
+      return value ?? Object.freeze({ kind: "cancelled" as const });
+    }
     let settle: ((value: MaskedInputResult) => void) | undefined;
     const abort = () => settle?.(Object.freeze({ kind: "cancelled" }));
     signal.addEventListener("abort", abort, { once: true });
@@ -76,6 +99,12 @@ export function createPiControlInputPort(input: Readonly<{
       ...(request.consent.configurationEnvironmentNames.length === 0 ? [] : [`configuration environment names: ${request.consent.configurationEnvironmentNames.map((name) => safe(name.text)).join(", ")}`]),
     ];
     if (input.mode === "rpc") return input.context.ui.confirm("Plugin trust / action", [...lines, ...disclosure].join(" · "), { signal });
+    const presenter = input.present?.();
+    if (presenter !== undefined) {
+      const confirmed = await presenter.presentInline<boolean>((tui, theme, keybindings, done) =>
+        new ConfirmationSurface({ theme, keybindings, title: "Confirm exact plugin action", lines, disclosure, height: () => tui.terminal.rows, done }));
+      return confirmed === true;
+    }
     let settle: ((confirmed: boolean) => void) | undefined;
     const abort = () => settle?.(false);
     signal.addEventListener("abort", abort, { once: true });
@@ -117,7 +146,16 @@ export function createPiControlInputPort(input: Readonly<{
               nonSensitive.push(Object.freeze({ key: field.key, value: preset[field.key] }));
               continue;
             }
-            const value = await input.context.ui.input(field.label.text, field.description?.text, { signal });
+            const presenter = input.present?.();
+            const value = presenter === undefined
+              ? await input.context.ui.input(field.label.text, field.description?.text, { signal })
+              : await presenter.presentInline<string>((_tui, theme, keybindings, done) => new TextInputSurface({
+                  theme,
+                  keybindings,
+                  label: field.label.text,
+                  ...(field.description === undefined ? {} : { description: field.description.text }),
+                  done: (entry) => done(entry),
+                }));
             if (value === undefined) return Object.freeze({ kind: "cancelled" as const });
             nonSensitive.push(Object.freeze({ key: field.key, value }));
           }

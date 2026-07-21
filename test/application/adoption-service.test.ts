@@ -6,9 +6,11 @@ import {
 } from "../../src/domain/adoption.js";
 import {
   deriveProjectKey,
+  ProjectIdentitySchema,
   type ScopeContext,
 } from "../../src/domain/state/scope.js";
 import type { Sha256, MarketplaceSource } from "../../src/domain/source.js";
+import { MarketplaceNameSchema } from "../../src/domain/identity.js";
 import {
   type AdoptionReaderRegistry,
   type ForeignStateFileObservation,
@@ -45,7 +47,7 @@ function observations(sourceByDocument: Partial<Record<keyof typeof AdoptionDocu
 
 function serviceWith(
   fileObservations: ForeignStateFileObservation[] | (() => ForeignStateFileObservation[]),
-  register: MarketplaceRegistrationPort["register"] = async () => ({ kind: "registered", marketplace: "catalog" }),
+  register: MarketplaceRegistrationPort["register"] = async () => ({ kind: "registered", marketplace: MarketplaceNameSchema.parse("catalog") }),
 ) {
   const files: ForeignStateFilesPort = { readAll: async () => typeof fileObservations === "function" ? fileObservations() : fileObservations };
   return createAdoptionService({ files, readers, registrations: { register }, sha256 });
@@ -96,7 +98,7 @@ describe("adoption service", () => {
     const calls: unknown[] = [];
     const register: MarketplaceRegistrationPort["register"] = async (request) => {
       calls.push(request);
-      return { kind: "registered", marketplace: "catalog" };
+      return { kind: "registered", marketplace: MarketplaceNameSchema.parse("catalog") };
     };
     const service = serviceWith(observations({ "claude-known-marketplaces": githubDocument }), register);
     const discovered = await service.discover(new AbortController().signal);
@@ -111,17 +113,17 @@ describe("adoption service", () => {
   });
 
   it("blocks local sources before project registration while allowing remote sources", async () => {
-    const identity = {
-      kind: "path-only" as const,
+    const identity = ProjectIdentitySchema.parse({
+      kind: "path-only",
       canonicalRoot: "file:///tmp/project/",
-      limitation: "identity-changes-with-canonical-root" as const,
-    };
+      limitation: "identity-changes-with-canonical-root",
+    });
     const scope: ScopeContext = {
       kind: "project",
       identity,
       projectKey: deriveProjectKey(identity, sha256),
     };
-    const register = vi.fn<MarketplaceRegistrationPort["register"]>(async () => ({ kind: "registered", marketplace: "catalog" }));
+    const register = vi.fn<MarketplaceRegistrationPort["register"]>(async () => ({ kind: "registered", marketplace: MarketplaceNameSchema.parse("catalog") }));
     const localService = serviceWith(observations({ "claude-known-marketplaces": localDocument }), register);
     const localCandidate = (await localService.discover(new AbortController().signal)).candidates[0]!;
     const localResult = await localService.adopt({ candidateIds: [localCandidate.id], scope }, new AbortController().signal);
@@ -142,7 +144,7 @@ describe("adoption service", () => {
     const register: MarketplaceRegistrationPort["register"] = async ({ source }) => {
       calls.push(source);
       controller.abort();
-      return { kind: "registered", marketplace: "catalog" };
+      return { kind: "registered", marketplace: MarketplaceNameSchema.parse("catalog") };
     };
     const service = serviceWith(observations({ "claude-known-marketplaces": first }), register);
     const candidates = (await service.discover(new AbortController().signal)).candidates;

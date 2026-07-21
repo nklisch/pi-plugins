@@ -312,12 +312,8 @@ mark = len(buffer); send(("/" + args["command"] + " status\r").encode()); wait_f
 mark = len(buffer); send(b"/reload\r"); wait_for("Plugin Host command collision", mark, 60)
 mark = len(buffer); send(("/" + args["command"] + "\r").encode()); wait_for("Plugins", mark, 60); wait_for("demo", mark, 60)
 mark = len(buffer); send(b"\r"); wait_for("Runtime surface", mark, 60)
-mark = len(buffer); send(b"\r"); wait_for("Add plugin to", mark, 60); send(b"\r"); wait_for("Step 1/3", mark, 60)
-mark = len(buffer); send(b"\r"); wait_for("Step 2/3", mark, 60)
-send(b"\r")
-for _ in range(16): send(b"\x1b[6~")
-send(b"\t\t\r")
-mark = len(buffer); wait_for("Step 3/3", mark, 90); wait_for("succeeded", mark, 90)
+mark = len(buffer); send(b"\r"); wait_for("Add plugin to", mark, 60); send(b"\r"); wait_for("Step 1/2", mark, 60)
+mark = len(buffer); send(b"\r"); wait_for("Step 2/2", mark, 90); wait_for("succeeded", mark, 90)
 send(b"\x1b")
 pump(time.monotonic() + 0.5)
 send(b"\x04")
@@ -345,7 +341,7 @@ if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
     transcript,
   })], { cwd: workspace, env, timeout: 240_000 });
   const tuiBytes = await readFile(transcript, "utf8");
-  for (const expected of ["Plugins", "Step 1/3", "Step 2/3", "Step 3/3", "Final owner result", "succeeded", "demo"]) {
+  for (const expected of ["Plugins", "Step 1/2", "Step 2/2", "Final owner result", "succeeded", "demo"]) {
     if (!tuiBytes.includes(expected)) throw new Error(`real Pi PTY transcript missing ${expected}`);
   }
   if (tuiBytes.includes("SECRET-CANARY")) throw new Error("real Pi PTY transcript leaked a secret canary");

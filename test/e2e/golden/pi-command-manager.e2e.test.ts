@@ -41,9 +41,12 @@ describe("packed headless and native Pi manager parity", () => {
     await journey.rpc.shutdown();
 
     const wide = await PiPtyProcess.start({ sandbox, columns: 120, rows: 30 });
+    // Wait for Pi's interactive footer before dispatching the command; the
+    // extension host admits commands only after session startup completes.
+    await wide.waitFor("clear/exit", 0, 60_000);
     const start = wide.mark();
     wide.send("/plugin\r");
-    await wide.waitFor("Plugin Manager", start, 60_000);
+    await wide.waitFor("Plugins", start, 60_000);
     const browse = wide.mark();
     wide.send("\u001b[B\r");
     await wide.waitFor("core-local", browse, 60_000);
@@ -52,20 +55,21 @@ describe("packed headless and native Pi manager parity", () => {
     await wide.shutdown();
 
     const narrow = await PiPtyProcess.start({ sandbox, columns: 58, rows: 24 });
+    await narrow.waitFor("clear/exit", 0, 60_000);
     const narrowStart = narrow.mark();
     narrow.send("/plugin\r");
-    const output = await narrow.waitFor("Plugin Manager", narrowStart, 60_000);
-    expect(output.slice(narrowStart)).toContain("My Plugins");
-    expect(output.slice(narrowStart)).toContain("Discover");
-    expect(output.slice(narrowStart)).toContain("Sources");
-    expect(output.slice(narrowStart)).toContain("Updates");
-    expect(output.slice(narrowStart)).toContain("Health");
+    const output = await narrow.waitFor("Plugins", narrowStart, 60_000);
+    expect(output.slice(narrowStart)).toContain("[all]");
+    expect(output.slice(narrowStart)).toContain("installed");
+    expect(output.slice(narrowStart)).toContain("available");
+    expect(output.slice(narrowStart)).toContain("a add");
+    expect(output.slice(narrowStart)).toContain("m marketplaces");
     narrow.send("\u001b\u0004");
     await narrow.shutdown();
   });
 
-  it("renders all signed install steps through the real PTY [idea-fix-packed-candidate-inspection, idea-production-projection-publication]", async () => {
-    sandbox = await createCleanE2ESandbox("golden-native-install-xfail");
+  it("renders the flattened signed add flow through the real PTY", async () => {
+    sandbox = await createCleanE2ESandbox("golden-native-install");
     const ptyCapability = await diagnosePtyCapability(sandbox);
     if (!ptyCapability.available) {
       expect(ptyCapability.reason).toContain("util-linux PTY capability missing");
@@ -74,23 +78,30 @@ describe("packed headless and native Pi manager parity", () => {
     const journey = await seedRemoteMarketplace(sandbox);
     await journey.rpc.shutdown();
     const pty = await PiPtyProcess.start({ sandbox, columns: 120, rows: 30 });
+    await pty.waitFor("clear/exit", 0, 60_000);
     let mark = pty.mark();
     pty.send("/plugin\r");
-    await pty.waitFor("Plugin Manager", mark, 60_000);
-    mark = pty.mark();
-    pty.send("\u001b[B\r");
+    await pty.waitFor("Plugins", mark, 60_000);
     await pty.waitFor("core-local", mark, 60_000);
-    pty.send("\r");
-    await pty.waitFor("Runtime surface", mark, 60_000);
-    mark = pty.mark();
-    pty.send("\r\r");
-    await pty.waitFor("Step 1/3 · Review plugin", mark, 60_000);
     mark = pty.mark();
     pty.send("\r");
-    await pty.waitFor("Step 2/3 · Configure and review trust", mark, 60_000);
+    await pty.waitFor("Runtime surface", mark, 90_000);
+    mark = pty.mark();
+    // Enter on the only detail action (Add plugin) chooses the install scope,
+    // then opens the session directly: no review screen between detail and add.
+    pty.send("\r");
+    await pty.waitFor("Add plugin to", mark, 60_000);
+    pty.send("\r");
+    await pty.waitFor("Step 1/2 · Configure and add", mark, 60_000);
+    // The single required field starts focused; Enter edits it in place.
+    pty.send("\r");
+    await pty.waitFor("editing", mark, 60_000);
     pty.send("e2e-value\r");
+    await pty.waitFor("set: e2e-value", mark, 60_000);
     mark = pty.mark();
-    await pty.waitFor("Step 3/3 · Activation result", mark, 90_000);
+    // Field → disclosure → back → Add plugin; the disclosure is never a gate.
+    pty.send("\u001b[B\u001b[B\u001b[B\r");
+    await pty.waitFor("Step 2/2 · Activation result", mark, 120_000);
     expect(pty.semanticOutput().slice(mark)).toContain("succeeded");
     await pty.shutdown();
   });

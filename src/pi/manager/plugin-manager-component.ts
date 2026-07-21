@@ -104,12 +104,10 @@ export class PluginManagerComponent implements Component, Focusable {
       const context = [
         this.theme.fg("accent", this.theme.bold("Plugins")),
         truncateToWidth(`→ ${selected?.title ?? "Selected plugin"}  ${selected?.status ?? "working"}`, Math.max(1, width), ""),
-        this.theme.fg("muted", "Inline action · catalog selection and cached details are retained"),
-        "",
       ];
       const available = Math.max(1, rows - context.length - 1);
       const child = this.inline.component.render(width).slice(0, available);
-      this.cachedLines = [...context, ...child, this.theme.fg("dim", "Esc back/cancel · operation remains on the Plugins surface")].slice(0, rows);
+      this.cachedLines = [...context, ...child, this.theme.fg("dim", "esc back/cancel")].slice(0, rows);
     } else {
       this.cachedLines = [...renderPluginManager({ state: this.controller.state(), width, height: rows, theme: this.theme, keybindings: this.keybindings, focused: this.focused })];
     }

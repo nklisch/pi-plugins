@@ -23,9 +23,9 @@ import {
   type AdoptionPreviewRequest,
   type AdoptionPreviewResult,
   type AdoptionReaderRegistry,
-  type AdoptionSelectionRequest,
   type ForeignStateFileObservation,
 } from "./adoption-contract.js";
+import type { z } from "zod";
 import type { ForeignStateFilesPort } from "./ports/foreign-state-files.js";
 import type { MarketplaceRegistrationPort } from "./ports/marketplace-registration.js";
 import type { Sha256 } from "../domain/source.js";
@@ -111,7 +111,7 @@ export interface AdoptionService {
   import(request: AdoptionImportRequest, signal: AbortSignal): Promise<AdoptionImportResult>;
   /** Compatibility aliases retained for existing integrations during adoption API migration. */
   discover(signal: AbortSignal): Promise<AdoptionDiscoveryResult>;
-  adopt(request: AdoptionSelectionRequest, signal: AbortSignal): Promise<AdoptionImportResult>;
+  adopt(request: z.input<typeof AdoptionSelectionRequestSchema>, signal: AbortSignal): Promise<AdoptionImportResult>;
 }
 
 export type AdoptionServiceDependencies = Readonly<{
@@ -261,7 +261,7 @@ export function createAdoptionService(
     return AdoptionImportResultSchema.parse({ outcomes, diagnostics: discovery.diagnostics });
   }
 
-  async function adopt(request: AdoptionSelectionRequest, signal: AbortSignal): Promise<AdoptionImportResult> {
+  async function adopt(request: z.input<typeof AdoptionSelectionRequestSchema>, signal: AbortSignal): Promise<AdoptionImportResult> {
     throwIfAborted(signal);
     const parsedRequest = AdoptionSelectionRequestSchema.parse(request);
     const scope = createScopeContext(ScopeContextSchema.parse(parsedRequest.scope), dependencies.sha256);

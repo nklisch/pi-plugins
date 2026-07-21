@@ -34,7 +34,7 @@ export default async function packagedPluginHostExtension(pi: ExtensionAPI): Pro
     manager,
     channel,
     handoff,
-    createInput: (context, mode) => createPiControlInputPort({ context, mode }),
+    createInput: (context, mode) => createPiControlInputPort({ context, mode, present: () => manager.inlinePresenter?.() }),
   });
   command.register();
   createPluginManagerLifecycle({ pi, publisher, manager, command, channel, handoff }).register();

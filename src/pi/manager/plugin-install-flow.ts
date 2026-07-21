@@ -16,6 +16,8 @@ export type PluginInstallState = Readonly<{
   disclosure: ReadonlySet<string>;
   consentId?: string;
   values: Readonly<Record<string, unknown>>;
+  /** In-place non-sensitive field editing; never a nested surface. */
+  editing?: Readonly<{ key: string; buffer: string; cursor: number }>;
   focus: PluginInstallFocus;
   scroll: Readonly<{ content: number; disclosure: number }>;
   submission: "apply" | "recover";
@@ -29,6 +31,9 @@ export type PluginInstallEvent =
   | Readonly<{ type: "toggle-disclosure"; key: string }>
   | Readonly<{ type: "consent"; consentId: string }>
   | Readonly<{ type: "set-value"; key: string; value: unknown }>
+  | Readonly<{ type: "edit-start"; key: string }>
+  | Readonly<{ type: "edit-buffer"; buffer: string; cursor: number }>
+  | Readonly<{ type: "edit-end" }>
   | Readonly<{ type: "focus"; focus: PluginInstallFocus }>
   | Readonly<{ type: "scroll"; region: "content" | "disclosure"; delta: number }>
   | Readonly<{ type: "busy"; value: boolean }>
@@ -54,14 +59,18 @@ export function pluginInstallReducer(state: PluginInstallState, event: PluginIns
   if (event.type === "session-opened") {
     const evidenceCurrent = state.session === undefined || state.session.consent.consentId === event.session.consent.consentId &&
       state.session.binding.contentDigest === event.session.binding.contentDigest;
-    const { result: _result, consentId: _consentId, ...rest } = state;
+    const { result: _result, consentId: _consentId, editing: _editing, ...rest } = state;
+    // Land on the first required value when one exists; otherwise land on the
+    // primary action. Optional values and the exact disclosure are power-user
+    // surface, never a forced gate.
+    const required = event.session.fields.find((field) => field.required);
     return Object.freeze({
       ...rest,
       step: "configure-trust",
       session: event.session,
       disclosure: new Set<string>(),
       values: evidenceCurrent ? state.values : Object.freeze({}),
-      focus: event.session.fields[0] === undefined ? "disclosure" : Object.freeze({ field: event.session.fields[0].key }),
+      focus: required === undefined ? "continue" : Object.freeze({ field: required.key }),
       scroll: Object.freeze({ content: 0, disclosure: 0 }),
       submission: event.submission ?? state.submission,
       busy: false,
@@ -93,6 +102,20 @@ export function pluginInstallReducer(state: PluginInstallState, event: PluginIns
   }
   if (event.type === "consent") return Object.freeze({ ...state, consentId: event.consentId });
   if (event.type === "set-value") return Object.freeze({ ...state, values: Object.freeze({ ...state.values, [event.key]: event.value }) });
+  if (event.type === "edit-start") {
+    const current = state.values[event.key];
+    const buffer = typeof current === "string" ? current : "";
+    return Object.freeze({ ...state, editing: Object.freeze({ key: event.key, buffer, cursor: buffer.length }) });
+  }
+  if (event.type === "edit-buffer") {
+    if (state.editing === undefined) return state;
+    return Object.freeze({ ...state, editing: Object.freeze({ ...state.editing, buffer: event.buffer, cursor: event.cursor }) });
+  }
+  if (event.type === "edit-end") {
+    if (state.editing === undefined) return state;
+    const { editing: _editing, ...rest } = state;
+    return Object.freeze(rest);
+  }
   if (event.type === "focus") return Object.freeze({ ...state, focus: event.focus });
   if (event.type === "scroll") return Object.freeze({ ...state, scroll: Object.freeze({ ...state.scroll, [event.region]: Math.max(0, state.scroll[event.region] + event.delta) }) });
   if (event.type === "busy") return Object.freeze({ ...state, busy: event.value, ...(event.value ? { frames: Object.freeze([]) } : {}) });
@@ -100,7 +123,7 @@ export function pluginInstallReducer(state: PluginInstallState, event: PluginIns
   if (event.type === "back") {
     if (state.step === "activation-result") return Object.freeze({ ...state, step: state.session === undefined ? "choose-inspect" : "configure-trust", focus: "continue", scroll: Object.freeze({ content: 0, disclosure: 0 }) });
     if (state.step === "configure-trust") {
-      const { consentId: _consentId, ...rest } = state;
+      const { consentId: _consentId, editing: _editing, ...rest } = state;
       return Object.freeze({ ...rest, step: "choose-inspect", focus: "continue", disclosure: new Set<string>(), scroll: Object.freeze({ content: 0, disclosure: 0 }), busy: false });
     }
     return state;

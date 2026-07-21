@@ -16,8 +16,8 @@ import {
 import type { PackagedPluginHost } from "../../composition/packaged-plugin-host-contract.js";
 import type { PluginManagerLiveOperation, PluginManagerPresentation } from "../plugin-command.js";
 import type { PiManagerReloadHandoff, PluginManagerDestination } from "../pi-manager-reload-handoff.js";
-import { presentConfirmationSurface } from "./confirmation-surface.js";
-import { createPiControlInputPort } from "./pi-control-input.js";
+import { ConfirmationSurface, presentConfirmationSurface } from "./confirmation-surface.js";
+import { createPiControlInputPort, type PiInlinePresenter } from "./pi-control-input.js";
 import { createPiManagerFrameSink } from "./pi-manager-frame-sink.js";
 import { PluginInstallComponent, type PluginInstallComponentAction } from "./plugin-install-component.js";
 import { createPluginInstallState, pluginInstallReducer, type PluginInstallEvent } from "./plugin-install-flow.js";
@@ -32,6 +32,7 @@ import { detailCommand } from "./plugin-manager-commands.js";
 import { createPluginManagerController, type PluginManagerController } from "./plugin-manager-controller.js";
 import { pluginManagerVisibleRows, rowKeyIdentity, type PluginManagerRow, type PluginManagerState } from "./plugin-manager-model.js";
 import { PluginOperationView } from "./plugin-operation-view.js";
+import { TextInputSurface } from "./text-input-surface.js";
 
 export interface PluginManagerSession extends PluginManagerPresentation {
   bind(context: ExtensionContext): void;
@@ -78,6 +79,7 @@ export function createPluginManagerSession(input: Readonly<{
   let activeClose: (() => void) | undefined;
   let activeOperationAbort: AbortController | undefined;
   let activeOperationReloadSafe = false;
+  let activeOperationPresenter: PiInlinePresenter | undefined;
   let presentationDetached = false;
   let closingReason: SessionShutdownEvent["reason"] | undefined;
   let completions: readonly NativeControlDynamicCandidate[] = Object.freeze([]);
@@ -86,6 +88,11 @@ export function createPluginManagerSession(input: Readonly<{
   function execute(context: ExtensionCommandContext, argv: readonly string[], options: Readonly<{ sink: NativeControlFrameSink; input?: ReturnType<typeof createPiControlInputPort> }>, signal: AbortSignal): Promise<NativeControlExecutionReport> {
     return input.host.runWithPiOperationContext(context, signal, (application) =>
       application.control.runArgv(argv, { mode: "tui", output: "json", sink: options.sink, ...(options.input === undefined ? {} : { input: options.input }) }, signal));
+  }
+
+  function currentPresenter(): PiInlinePresenter | undefined {
+    if (activeManagerComponent !== undefined) return activeManagerComponent;
+    return activeOperationPresenter;
   }
 
   function freshRunner(context: ExtensionCommandContext, options: Readonly<{
@@ -100,10 +107,23 @@ export function createPluginManagerSession(input: Readonly<{
       session: { sessionId: context.sessionManager.getSessionId(), cwd: context.cwd },
       ...(options.onFrame === undefined ? {} : { onFrame: options.onFrame }),
       ...(options.confirm === true ? {
-        confirm: (confirmation: PluginManagerActionConfirmation, signal: AbortSignal) => presentConfirmationSurface(context, {
-          title: confirmation.title,
-          lines: confirmation.lines,
-        }, signal),
+        confirm: (confirmation: PluginManagerActionConfirmation, signal: AbortSignal) => {
+          const presenter = currentPresenter();
+          if (presenter !== undefined) {
+            return presenter.presentInline<boolean>((tui, theme, keybindings, done) => new ConfirmationSurface({
+              theme,
+              keybindings,
+              title: confirmation.title,
+              lines: confirmation.lines,
+              height: () => tui.terminal.rows,
+              done,
+            })).then((confirmed) => confirmed === true);
+          }
+          return presentConfirmationSurface(context, {
+            title: confirmation.title,
+            lines: confirmation.lines,
+          }, signal);
+        },
       } : {}),
     });
     activeRunner = runner;
@@ -125,32 +145,35 @@ export function createPluginManagerSession(input: Readonly<{
     }
   }
 
-  async function chooseInstallScope(
+  // Pi's own ui.select/ui.input cannot receive keystrokes while a custom
+  // component owns the keyboard, so interactive prompts inside the manager
+  // are presented inline like every other manager surface.
+  async function promptChoice(
     context: ExtensionCommandContext,
-    manager: PluginManagerComponent | undefined,
-    scopes: readonly ("user" | "project")[],
-  ): Promise<"user" | "project" | undefined> {
-    const labels = scopes.map((scope) => scope === "project" ? "Current project" : "User account");
+    title: string,
+    labels: readonly string[],
+  ): Promise<number | undefined> {
+    const manager = activeManagerComponent;
     if (manager === undefined) {
-      const selected = await context.ui.select("Add plugin to", labels);
+      const selected = await context.ui.select(title, [...labels]);
       const index = selected === undefined ? -1 : labels.findIndex((label) => label === selected);
-      return index < 0 ? undefined : scopes[index];
+      return index < 0 ? undefined : index;
     }
-    return manager.presentInline<"user" | "project">((tui, theme, keybindings, done) => {
+    return manager.presentInline<number>((tui, theme, keybindings, done) => {
       let index = 0;
       const component: Component = {
         invalidate(): void {},
         render: () => [
-          theme.fg("accent", theme.bold("Add plugin to")),
+          theme.fg("accent", theme.bold(title)),
           "",
           ...labels.map((label, candidate) => candidate === index ? theme.bg("selectedBg", `→ ${label}`) : `  ${label}`),
           "",
-          theme.fg("muted", "Up/Down choose · Enter continue · Esc cancel"),
+          theme.fg("muted", "up/down choose · enter continue · escape cancel"),
         ],
         handleInput(data): void {
-          if (keybindings.matches(data, "tui.select.up")) index = (index - 1 + scopes.length) % scopes.length;
-          else if (keybindings.matches(data, "tui.select.down")) index = (index + 1) % scopes.length;
-          else if (keybindings.matches(data, "tui.select.confirm") || matchesKey(data, Key.enter)) return done(scopes[index]);
+          if (keybindings.matches(data, "tui.select.up")) index = (index - 1 + labels.length) % labels.length;
+          else if (keybindings.matches(data, "tui.select.down")) index = (index + 1) % labels.length;
+          else if (keybindings.matches(data, "tui.select.confirm") || matchesKey(data, Key.enter)) return done(index);
           else if (keybindings.matches(data, "tui.select.cancel") || keybindings.matches(data, "app.interrupt") || matchesKey(data, Key.escape)) return done();
           manager.invalidate();
           tui.requestRender();
@@ -158,6 +181,32 @@ export function createPluginManagerSession(input: Readonly<{
       };
       return component;
     });
+  }
+
+  async function promptText(
+    context: ExtensionCommandContext,
+    label: string,
+    description?: string,
+  ): Promise<string | undefined> {
+    const manager = activeManagerComponent;
+    if (manager === undefined) return context.ui.input(label, description);
+    return manager.presentInline<string>((tui, theme, keybindings, done) => new TextInputSurface({
+      theme,
+      keybindings,
+      label,
+      ...(description === undefined ? {} : { description }),
+      done: (value) => done(value),
+    }));
+  }
+
+  async function chooseInstallScope(
+    context: ExtensionCommandContext,
+    manager: PluginManagerComponent | undefined,
+    scopes: readonly ("user" | "project")[],
+  ): Promise<"user" | "project" | undefined> {
+    const labels = scopes.map((scope) => scope === "project" ? "Current project" : "User account");
+    const index = await promptChoice(context, "Add plugin to", labels);
+    return index === undefined ? undefined : scopes[index];
   }
 
   async function runInstallFlow(context: ExtensionCommandContext, managerState: PluginManagerState): Promise<Readonly<{ kind: "cancelled" | "handled"; presentation?: "local" | "successor" }>> {
@@ -200,7 +249,7 @@ export function createPluginManagerSession(input: Readonly<{
         apply({ type: "busy", value: true });
         const port = phase === "open"
           ? undefined
-          : createPiControlInputPort({ context, mode: "tui", preset: { nonSensitive: state.values, ...(state.consentId === undefined ? {} : { consentId: state.consentId }) } });
+          : createPiControlInputPort({ context, mode: "tui", preset: { nonSensitive: state.values, ...(state.consentId === undefined ? {} : { consentId: state.consentId }) }, present: currentPresenter });
         const runner = freshRunner(context, {
           ...(port === undefined ? {} : { input: port }),
           onFrame: (frame) => {
@@ -222,8 +271,11 @@ export function createPluginManagerSession(input: Readonly<{
             }
             const opened = TrustedInstallOpenResultSchema.safeParse(phaseResult.envelope.data);
             if (!opened.success || opened.data.kind !== "opened") {
-              apply({ type: "authority-stale" });
               context.ui.notify("Install candidate evidence changed; review the refreshed candidate before continuing.", "warning");
+              // Leave the flow so the manager can refresh authority behind it;
+              // retrying with the same stale evidence would loop.
+              result = Object.freeze({ kind: "handled", presentation: "local" });
+              done();
               return;
             }
             apply({ type: "session-opened", session: opened.data.session });
@@ -277,26 +329,23 @@ export function createPluginManagerSession(input: Readonly<{
           return;
         }
         if (event.type === "edit-field") {
+          // Non-sensitive values edit in place inside the component; only the
+          // sensitive path routes here because secrets never enter flow state.
           if (event.sensitive) {
             context.ui.notify("Sensitive values stay out of flow state and are collected in masked custody only when Apply begins.", "info");
-            return;
           }
-          const field = state.session?.fields.find((entry) => entry.key === event.key);
-          if (field === undefined) return;
-          void context.ui.input(field.label.text, field.description?.text).then((value) => {
-            if (value !== undefined && !closed) apply({ type: "set-value", key: field.key, value });
-          });
           return;
         }
         if (event.type === "back") {
           if (state.busy) return;
-          if (state.step === "choose-inspect") {
-            result = Object.freeze({ kind: "cancelled" });
-            done();
-          } else if (state.step === "activation-result") {
+          if (state.step === "activation-result") {
             result = Object.freeze({ kind: "handled", presentation: "local" });
-            done();
-          } else apply({ type: "back" });
+          } else {
+            // The flattened flow has no review screen to fall back to; Back
+            // from configuration exits the flow like Back from the open step.
+            result = Object.freeze({ kind: "cancelled" });
+          }
+          done();
           return;
         }
         if (state.step === "activation-result") {
@@ -310,8 +359,11 @@ export function createPluginManagerSession(input: Readonly<{
         } else void runPhase(state.step === "choose-inspect" ? "open" : state.submission);
       };
 
-      component = new PluginInstallComponent({ state, theme, keybindings, height: () => manager === undefined ? tui.terminal.rows : Math.max(4, tui.terminal.rows - 5), onEvent: apply, onAction: action });
+      component = new PluginInstallComponent({ state, theme, keybindings, height: () => manager === undefined ? tui.terminal.rows : Math.max(4, tui.terminal.rows - 3), onEvent: apply, onAction: action });
       if (manager === undefined) activeClose = () => done();
+      // The candidate was already reviewed in the manager detail pane; open
+      // the install session immediately instead of staging a review screen.
+      queueMicrotask(() => action({ type: "continue" }));
       return component;
     });
     if (manager === undefined) activeClose = undefined;
@@ -330,17 +382,18 @@ export function createPluginManagerSession(input: Readonly<{
         if (action === "install") return runInstallFlow(context, state);
         let resolvedIntent: PluginManagerActionIntent;
         if (action === "marketplace-add") {
-          const sourceType = await context.ui.select("Marketplace type", ["GitHub repository", "Git URL", "Local Git checkout"]);
-          if (sourceType === undefined) return Object.freeze({ kind: "cancelled" as const, presentation: "local" as const });
-          const sourceKind = sourceType === "Git URL" ? "git" as const : sourceType === "Local Git checkout" ? "local-git" as const : "github" as const;
+          const sourceKinds = ["github", "git", "local-git"] as const;
+          const typeIndex = await promptChoice(context, "Marketplace type", ["GitHub repository", "Git URL", "Local Git checkout"]);
+          if (typeIndex === undefined) return Object.freeze({ kind: "cancelled" as const, presentation: "local" as const });
+          const sourceKind = sourceKinds[typeIndex]!;
           const placeholder = sourceKind === "github" ? "owner/repository" : sourceKind === "git" ? "https://example.com/plugins.git" : "/path/to/plugins";
-          const source = await context.ui.input("Marketplace location", placeholder);
+          const source = await promptText(context, "Marketplace location", placeholder);
           if (source === undefined || source.trim().length === 0) return Object.freeze({ kind: "cancelled" as const, presentation: "local" as const });
-          const ref = await context.ui.input("Git ref (optional)", "branch, tag, or commit; leave empty for default");
+          const ref = await promptText(context, "Git ref (optional)", "branch, tag, or commit; leave empty for default");
           if (ref === undefined) return Object.freeze({ kind: "cancelled" as const, presentation: "local" as const });
           resolvedIntent = { action: "marketplace-add", source: source.trim(), sourceKind, ...(ref.trim().length === 0 ? {} : { ref: ref.trim() }) };
         } else resolvedIntent = actionIntent(action, state);
-        const port = createPiControlInputPort({ context, mode: "tui" });
+        const port = createPiControlInputPort({ context, mode: "tui", present: currentPresenter });
         const runner = freshRunner(context, {
           input: port,
           confirm: true,
@@ -419,7 +472,9 @@ export function createPluginManagerSession(input: Readonly<{
           height: () => tui.terminal.rows,
           cancel: () => linked.controller.abort(new DOMException("plugin command cancelled", "AbortError")),
           close: () => done(),
+          tui,
         });
+        activeOperationPresenter = Object.freeze({ presentInline: (factory) => view.presentInline(factory) });
         activeClose = () => done();
         task = Promise.resolve().then(async () => {
           const sink = createPiManagerFrameSink({
@@ -452,6 +507,7 @@ export function createPluginManagerSession(input: Readonly<{
       linked.dispose();
       if (activeOperationAbort === linked.controller) activeOperationAbort = undefined;
       activeOperationReloadSafe = false;
+      activeOperationPresenter = undefined;
       activeClose = undefined;
     }
   }
@@ -471,10 +527,13 @@ export function createPluginManagerSession(input: Readonly<{
     async presentHandoff(context, destination, envelope): Promise<void> {
       const current = bound;
       if (current === undefined || current.sessionId !== context.sessionManager.getSessionId() || current.cwd !== context.cwd) return;
-      await presentStaticOperation(context, envelope, Object.freeze([]), destination === "install-result" ? "Step 3/3 · Activation result" : "Plugin operation · successor result");
+      await presentStaticOperation(context, envelope, Object.freeze([]), destination === "install-result" ? "Step 2/2 · Activation result" : "Plugin operation · successor result");
     },
     dynamicCompletions(): readonly NativeControlDynamicCandidate[] {
       return activeController?.dynamicCompletions() ?? completions;
+    },
+    inlinePresenter(): PiInlinePresenter | undefined {
+      return currentPresenter();
     },
     async close(reason: SessionShutdownEvent["reason"]): Promise<void> {
       if (closed && activeController === undefined && activeClose === undefined) return;

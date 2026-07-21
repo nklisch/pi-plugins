@@ -155,17 +155,16 @@ describe("production concurrency, presentation, and secret non-retention", () =>
     if (!ptyCapability.available) return;
     for (const [columns, rows] of [[120, 30], [58, 24]] as const) {
       const pty = await PiPtyProcess.start({ sandbox, columns, rows, extraArgs: productionModelArgs });
+      await pty.waitFor("clear/exit", 0, 60_000);
       const mark = pty.mark();
       pty.send("/plugin\r");
-      const output = await pty.waitFor("Plugin Manager", mark, 60_000);
+      const output = await pty.waitFor("Plugins", mark, 60_000);
       pty.send("\r");
       await pty.waitFor("production-bundle", mark, 60_000);
       const semantic = pty.semanticOutput().slice(mark);
-      expect(`${output}${semantic}`).toContain("My Plugins");
-      expect(semantic).toContain("Discover");
-      expect(semantic).toContain("Sources");
-      expect(semantic).toContain("Updates");
-      expect(semantic).toContain("Health");
+      expect(`${output}${semantic}`).toContain("[all]");
+      expect(semantic).toContain("a add");
+      expect(semantic).toContain("m marketplaces");
       pty.send("\u001b\u0004");
       await pty.shutdown();
     }

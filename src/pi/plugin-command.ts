@@ -16,6 +16,7 @@ import type { NativeControlExecutionReport, NativeControlFrameSink } from "../ap
 import type { NativeControlFrame } from "../application/native-control-progress.js";
 import type { PackagedPluginHost } from "../composition/packaged-plugin-host-contract.js";
 import type { PiControlChannel } from "./pi-control-channel.js";
+import type { PiInlinePresenter } from "./manager/pi-control-input.js";
 import type { PiManagerHandoffTicket, PiManagerReloadHandoff, PluginManagerDestination } from "./pi-manager-reload-handoff.js";
 
 export type PluginManagerLiveOperation = Readonly<{
@@ -34,6 +35,8 @@ export interface PluginManagerPresentation {
     frames: readonly NativeControlFrame[],
   ): Promise<void>;
   dynamicCompletions(): readonly NativeControlDynamicCandidate[];
+  /** The surface that can mount mid-operation input custody inline, if one is presented. */
+  inlinePresenter?(): PiInlinePresenter | undefined;
   close(reason: SessionShutdownEvent["reason"]): Promise<void>;
 }
 

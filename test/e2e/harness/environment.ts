@@ -543,7 +543,11 @@ async function sandboxEvidence(sandbox: CleanE2ESandbox): Promise<Readonly<{ inv
       const relativePath = relative(root, child);
       if (entry.isDirectory()) await visit(root, child);
       else if (entry.isFile()) {
-        const info = await stat(child);
+        // Live sandboxes still run sqlite checkpointing and lock handle
+        // churn while evidence is collected; files may vanish mid-walk.
+        const info = await stat(child).catch((error: unknown) =>
+          (error as NodeJS.ErrnoException).code === "ENOENT" ? undefined : Promise.reject(error));
+        if (info === undefined) continue;
         inventory.push(`${relative(sandbox.root, child)}\t${info.size}`);
         if (info.size <= 1_048_576) {
           const bytes = await readFile(child);

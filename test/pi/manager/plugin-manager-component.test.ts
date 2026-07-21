@@ -129,7 +129,7 @@ describe("plugin manager component", () => {
       done = finish;
       return child;
     });
-    expect(h.component.render(70).join("\n")).toContain("Inline action");
+    expect(h.component.render(70).join("\n")).toContain("Plugins");
     expect(h.component.render(70).join("\n")).toContain("Review trust");
     h.component.handleInput("x");
     expect(child.handleInput).toHaveBeenCalledWith("x");
