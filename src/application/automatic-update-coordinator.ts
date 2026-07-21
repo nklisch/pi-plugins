@@ -114,6 +114,12 @@ export function createAutomaticUpdateCoordinator(dependencies: AutomaticUpdateCo
       if (!loaded.ok) return false;
       const records = marketplaceUpdateRecords(loaded.snapshot);
       if (!records.some((record) => record.notices.some((notice) => notice.id === id))) return false;
+      // Skip the write entirely when the update is a durable no-op. The
+      // comparison tolerates explicit-undefined fields that canonical JSON
+      // rejects (for example `automatic: undefined` spreads).
+      const unchanged = records.every((record) => record.notices.every((notice) =>
+        notice.id !== id || JSON.stringify(update(notice)) === JSON.stringify(notice)));
+      if (unchanged) return true;
       const result = await dependencies.mutations.runPreparedMutation(
         { scope: context, plugins: [], expectedGeneration: loaded.snapshot.generation },
         async ({ snapshot }) => ({
@@ -133,21 +139,36 @@ export function createAutomaticUpdateCoordinator(dependencies: AutomaticUpdateCo
     return false;
   }
 
+  function sameAutomaticEvidence(left: UpdateNotice["automatic"], right: UpdateNotice["automatic"]): boolean {
+    if (left === undefined || right === undefined) return left === right;
+    return left.state === right.state && left.reason === right.reason && left.retryAt === right.retryAt;
+  }
+
   function eligibilityUpdate(notice: UpdateNotice, result: AutomaticUpdateEligibility): UpdateNotice {
     const attemptedAt = dependencies.clock.nowEpochMilliseconds();
-    switch (result.kind) {
-      case "eligible": return notice;
-      case "manual": return UpdateNoticeSchema.parse({ ...notice, disposition: "manual-required", automatic: undefined });
-      case "approval-required": return UpdateNoticeSchema.parse({ ...notice, disposition: "approval-required", automatic: { state: "blocked", reason: "approval-required", attemptedAt } });
-      case "awaiting-host-context": return UpdateNoticeSchema.parse({ ...notice, disposition: "automatic-pending", automatic: { state: "pending", reason: "awaiting-host-context", attemptedAt } });
-      case "configuration-required": return UpdateNoticeSchema.parse({ ...notice, disposition: "configuration-blocked", automatic: { state: "blocked", reason: "configuration-required", attemptedAt } });
-      case "secret-unavailable": return UpdateNoticeSchema.parse({ ...notice, disposition: "configuration-blocked", automatic: { state: "blocked", reason: "secret-unavailable", attemptedAt } });
-      case "capability-unavailable": return UpdateNoticeSchema.parse({ ...notice, disposition: "capability-blocked", automatic: { state: "blocked", reason: "capability-unavailable", attemptedAt } });
-      case "project-untrusted": return UpdateNoticeSchema.parse({ ...notice, disposition: "approval-required", automatic: { state: "blocked", reason: "project-untrusted", attemptedAt } });
-      case "recovery-required": return UpdateNoticeSchema.parse({ ...notice, disposition: "recovery-required", automatic: { state: "recovery-required", reason: "recovery-required", attemptedAt } });
-      case "stale": return UpdateNoticeSchema.parse({ ...notice, disposition: "automatic-retryable", automatic: { state: "blocked", reason: "stale", attemptedAt } });
-      case "retryable": return UpdateNoticeSchema.parse({ ...notice, disposition: "automatic-retryable", automatic: { state: "retryable", reason: "retryable", attemptedAt, retryAt: result.retryAt } });
+    const build = (): UpdateNotice => {
+      switch (result.kind) {
+        case "eligible": return notice;
+        case "manual": return UpdateNoticeSchema.parse({ ...notice, disposition: "manual-required", automatic: undefined });
+        case "approval-required": return UpdateNoticeSchema.parse({ ...notice, disposition: "approval-required", automatic: { state: "blocked", reason: "approval-required", attemptedAt } });
+        case "awaiting-host-context": return UpdateNoticeSchema.parse({ ...notice, disposition: "automatic-pending", automatic: { state: "pending", reason: "awaiting-host-context", attemptedAt } });
+        case "configuration-required": return UpdateNoticeSchema.parse({ ...notice, disposition: "configuration-blocked", automatic: { state: "blocked", reason: "configuration-required", attemptedAt } });
+        case "secret-unavailable": return UpdateNoticeSchema.parse({ ...notice, disposition: "configuration-blocked", automatic: { state: "blocked", reason: "secret-unavailable", attemptedAt } });
+        case "capability-unavailable": return UpdateNoticeSchema.parse({ ...notice, disposition: "capability-blocked", automatic: { state: "blocked", reason: "capability-unavailable", attemptedAt } });
+        case "project-untrusted": return UpdateNoticeSchema.parse({ ...notice, disposition: "approval-required", automatic: { state: "blocked", reason: "project-untrusted", attemptedAt } });
+        case "recovery-required": return UpdateNoticeSchema.parse({ ...notice, disposition: "recovery-required", automatic: { state: "recovery-required", reason: "recovery-required", attemptedAt } });
+        case "stale": return UpdateNoticeSchema.parse({ ...notice, disposition: "automatic-retryable", automatic: { state: "blocked", reason: "stale", attemptedAt } });
+        case "retryable": return UpdateNoticeSchema.parse({ ...notice, disposition: "automatic-retryable", automatic: { state: "retryable", reason: "retryable", attemptedAt, retryAt: result.retryAt } });
+      }
+    };
+    const next = build();
+    // An unchanged eligibility outcome keeps its original attempt evidence.
+    // Re-stamping every cycle churns durable generations and races foreground
+    // selection reads against a constantly moving authority.
+    if (result.kind !== "eligible" && next.disposition === notice.disposition && sameAutomaticEvidence(next.automatic, notice.automatic)) {
+      return notice;
     }
+    return next;
   }
 
   function lifecycleOutcome(notice: UpdateNotice, result: AutomaticUpdateLifecycleResult): Readonly<{ notice: UpdateNotice; kind: NativeAutomaticUpdateRunResult["outcomes"][number]["kind"]; reason?: string }> {

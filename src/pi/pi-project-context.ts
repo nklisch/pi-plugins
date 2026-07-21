@@ -35,16 +35,31 @@ export async function createPiProjectContextAdapters(input: Readonly<{
   if (resolved.kind !== "project") throw new Error("project resolver returned user scope");
   const initial: Extract<ScopeContext, { kind: "project" }> = resolved;
   const authority = createProjectRootAuthorityPort(resolution, input.sha256, initial);
+  // Resolution shells out to git for the repository fingerprint. Control
+  // reads revalidate several times per command burst, so concurrent callers
+  // share one in-flight resolution. The result is never reused once settled:
+  // bound-identity replacement must fail closed on the very next call.
+  let inFlight: Promise<Readonly<{ exact: boolean }>> | undefined;
   async function revalidate(signal: AbortSignal): Promise<CurrentProjectRuntimeContext> {
     signal.throwIfAborted();
-    const current = await authority.revalidateCurrent!(signal);
-    if (current.kind !== "project") throw new Error("current project identity is unavailable");
-    const exact = current.projectKey === initial.projectKey &&
-      JSON.stringify(current.identity) === JSON.stringify(initial.identity);
+    inFlight ??= (async () => {
+      try {
+        const current = await authority.revalidateCurrent!(signal);
+        if (current.kind !== "project") throw new Error("current project identity is unavailable");
+        return Object.freeze({
+          exact: current.projectKey === initial.projectKey &&
+            JSON.stringify(current.identity) === JSON.stringify(initial.identity),
+        });
+      } finally {
+        inFlight = undefined;
+      }
+    })();
+    const current = await inFlight;
+    signal.throwIfAborted();
     return Object.freeze({
       identity: initial.identity,
       projectKey: initial.projectKey,
-      trust: exact && input.binding.isProjectTrusted() ? { kind: "trusted" } : { kind: "untrusted" },
+      trust: current.exact && input.binding.isProjectTrusted() ? { kind: "trusted" } : { kind: "untrusted" },
     });
   }
   const trust: ProjectTrustPort = Object.freeze({

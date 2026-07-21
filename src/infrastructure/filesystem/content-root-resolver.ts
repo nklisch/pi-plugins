@@ -22,7 +22,43 @@ import type { Sha256 } from "../../domain/source.js";
 import { join } from "node:path";
 import type { ResolvedContentRoot } from "../../application/ports/content-store.js";
 import { assertLayoutRoot, type ContentStoreLayout } from "./content-store-layout.js";
-import { inspectPublishedRevision } from "./immutable-content-store.js";
+import { fingerprintPublishedRevision, inspectPublishedRevision, type PublishedRevision } from "./immutable-content-store.js";
+
+const VERIFICATION_CACHE_LIMIT = 64;
+
+/**
+ * Per-process memoization of published-revision verification. Payloads are
+ * content-addressed and published no-replace, so a verified revision stays
+ * valid until its sealed-stat fingerprint moves. Read-path callers resolve
+ * the same marketplace on nearly every control command; without this cache
+ * each resolve re-stats and re-hashes the entire retained tree.
+ * Single-flight: the in-flight promise is cached so concurrent resolves
+ * share one verification. Failures are never cached.
+ */
+function createPublishedRevisionCache(sha256: Sha256): (publication: string) => Promise<PublishedRevision> {
+  const cache = new Map<string, Readonly<{ fingerprint: string; value: Promise<PublishedRevision> }>>();
+  return async (publication: string): Promise<PublishedRevision> => {
+    const fingerprint = await fingerprintPublishedRevision(publication).catch(() => undefined);
+    const cached = cache.get(publication);
+    if (cached !== undefined && fingerprint !== undefined && cached.fingerprint === fingerprint) {
+      return cached.value;
+    }
+    const value = inspectPublishedRevision(publication, sha256);
+    if (fingerprint !== undefined) {
+      cache.set(publication, Object.freeze({ fingerprint, value }));
+      if (cache.size > VERIFICATION_CACHE_LIMIT) {
+        const oldest = cache.keys().next().value;
+        if (oldest !== undefined && oldest !== publication) cache.delete(oldest);
+      }
+    }
+    try {
+      return await value;
+    } catch (error) {
+      if (cache.get(publication)?.value === value) cache.delete(publication);
+      throw error;
+    }
+  };
+}
 
 export type ContentRootResolver = Readonly<{
   resolveMarketplace(record: MarketplaceSnapshotRecord, signal: AbortSignal): Promise<ResolvedContentRoot>;
@@ -48,6 +84,7 @@ async function verifyMarketplace(
   layout: ContentStoreLayout,
   sha256: Sha256,
   signal: AbortSignal,
+  verified: (publication: string) => Promise<PublishedRevision>,
 ): Promise<ResolvedContentRoot> {
   throwIfAborted(signal);
   const validated = {
@@ -70,7 +107,7 @@ async function verifyMarketplace(
     binding: record.binding,
   }, sha256);
   await assertLayoutRoot(layout, "marketplaceStoreRoot", "resolveContent");
-  const published = await inspectPublishedRevision(layout.marketplacePath(identity), sha256).catch((cause) => {
+  const published = await verified(layout.marketplacePath(identity)).catch((cause) => {
     if (cause instanceof DomainContractError) throw cause;
     throw resolutionError("marketplace content is not a complete ready revision", cause);
   });
@@ -93,6 +130,7 @@ async function verifyPlugin(
   sha256: Sha256,
   signal: AbortSignal,
   scopeInput: ScopeReference,
+  verified: (publication: string) => Promise<PublishedRevision>,
 ): Promise<ResolvedContentRoot> {
   throwIfAborted(signal);
   let scope: ScopeReference;
@@ -126,7 +164,7 @@ async function verifyPlugin(
   const source = record.evidence.source;
   const identity = createPluginStoreIdentityFromEvidence({ sourceHash: source.sourceHash, binding: record.revision }, sha256);
   await assertLayoutRoot(layout, "pluginStoreRoot", "resolveContent");
-  const published = await inspectPublishedRevision(layout.pluginPath(identity), sha256).catch((cause) => {
+  const published = await verified(layout.pluginPath(identity)).catch((cause) => {
     if (cause instanceof DomainContractError) throw cause;
     throw resolutionError("plugin content is not a complete ready revision", cause);
   });
@@ -144,8 +182,9 @@ async function verifyPlugin(
 }
 
 export function createContentRootResolver(options: Readonly<{ layout: ContentStoreLayout; sha256: Sha256 }>): ContentRootResolver {
+  const verified = createPublishedRevisionCache(options.sha256);
   return Object.freeze({
-    resolveMarketplace: (record, signal) => verifyMarketplace(record, options.layout, options.sha256, signal),
-    resolvePlugin: (record, signal, scope) => verifyPlugin(record, options.layout, options.sha256, signal, scope),
+    resolveMarketplace: (record, signal) => verifyMarketplace(record, options.layout, options.sha256, signal, verified),
+    resolvePlugin: (record, signal, scope) => verifyPlugin(record, options.layout, options.sha256, signal, scope, verified),
   });
 }

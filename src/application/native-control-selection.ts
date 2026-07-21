@@ -65,6 +65,18 @@ function match(items: readonly NativeInspectionSummary[], plugin: PluginKey, sco
   return items.filter((item) => item.subject === subject && item.plugin === plugin && scopeMatches(item, scope));
 }
 
+function attemptDelay(attempt: number, signal: AbortSignal): Promise<void> {
+  // Recapturing instantly after a stale read lands every attempt inside the
+  // same settling burst (policy changes release scheduler leases and publish
+  // host status in a tight cluster). Short backoff lets the burst complete.
+  const milliseconds = Math.min(400, 25 * 2 ** attempt);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { signal.removeEventListener("abort", onAbort); resolve(); }, milliseconds);
+    const onAbort = () => { clearTimeout(timer); signal.removeEventListener("abort", onAbort); reject(signal.reason); };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 async function detail(
   inspection: NativeInspectionService,
   selector: NativeControlPluginSelector,
@@ -81,22 +93,30 @@ async function detail(
     return { kind: "selected", detail: result.detail };
   }
   // Identity selection asks for the current authority rather than binding an
-  // already-issued token. One concurrent generation change may invalidate the
-  // list/detail pair, so recapture once; exact selectors above remain strictly
-  // stale and never retarget themselves.
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  // already-issued token. A concurrent generation change (background notice
+  // reconciliation, scheduler maintenance) may invalidate the list/detail
+  // pair, so recapture a few times; exact selectors above remain strictly
+  // stale and never retarget themselves. Background settling writes are
+  // bounded, so a small attempt budget converges.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
     let page;
     try {
       page = await inspection.list({ subjects: [subject], scope: selector.scope, query: selector.plugin, limit: 100 }, signal);
     } catch (error) {
-      if (attempt === 0 && error instanceof NativeInspectionError && error.code === "SNAPSHOT_STALE") continue;
+      if (attempt < 4 && error instanceof NativeInspectionError && error.code === "SNAPSHOT_STALE") {
+        await attemptDelay(attempt, signal);
+        continue;
+      }
       throw error;
     }
     const matches = match(page.items, selector.plugin, selector.scope, subject);
     if (matches.length === 0) return { kind: "not-found" };
     if (matches.length > 1) return { kind: "ambiguous" };
     const selected = await inspection.detail({ snapshotId: page.snapshotId, detailId: matches[0]!.detailId }, signal);
-    if (selected.kind === "stale" && attempt === 0) continue;
+    if (selected.kind === "stale" && attempt < 4) {
+      await attemptDelay(attempt, signal);
+      continue;
+    }
     if (selected.kind === "stale") return { kind: "stale" };
     if (selected.kind === "invalid-id") return { kind: "invalid" };
     if (selected.kind === "missing") return { kind: "not-found" };
@@ -117,13 +137,16 @@ export function createNativeControlSelectionService(dependencies: Readonly<{
     async update(selectorInput: NativeControlUpdateSelector, signal: AbortSignal): Promise<NativeControlUpdateSelectionResult> {
       const selector = NativeControlUpdateSelectorSchema.parse(selectorInput);
       const canRecapture = selector.installed === undefined && selector.candidate === undefined;
-      for (let attempt = 0; attempt < (canRecapture ? 2 : 1); attempt += 1) {
+      for (let attempt = 0; attempt < (canRecapture ? 5 : 1); attempt += 1) {
         let page;
         try {
           page = await dependencies.inspection.list({ subjects: ["installed", "marketplace-candidate"], scope: selector.scope, query: selector.plugin, limit: 100 }, signal);
         } catch (error) {
           if (error instanceof NativeInspectionError && error.code === "SNAPSHOT_STALE") {
-            if (canRecapture && attempt === 0) continue;
+            if (canRecapture && attempt < 4) {
+              await attemptDelay(attempt, signal);
+              continue;
+            }
             return { kind: "stale" };
           }
           throw error;
@@ -142,7 +165,10 @@ export function createNativeControlSelectionService(dependencies: Readonly<{
           dependencies.inspection.detail({ snapshotId: snapshot, detailId: candidateSummary.detailId }, signal),
         ]);
         if (installedResult.kind === "stale" || candidateResult.kind === "stale") {
-          if (canRecapture && attempt === 0) continue;
+          if (canRecapture && attempt < 4) {
+            await attemptDelay(attempt, signal);
+            continue;
+          }
           return { kind: "stale" };
         }
         if (installedResult.kind !== "found" || candidateResult.kind !== "found") return { kind: installedResult.kind === "unavailable" || candidateResult.kind === "unavailable" ? "unavailable" : "not-found" };

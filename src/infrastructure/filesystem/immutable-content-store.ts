@@ -331,6 +331,36 @@ async function resolvePublishedPayload(publication: string): Promise<string> {
   return payload;
 }
 
+function statTuple(stat: { dev: number; ino: number; mtimeMs: number; ctimeMs: number; size: number }): string {
+  return `${stat.dev}:${stat.ino}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}`;
+}
+
+/**
+ * Cheap identity fingerprint for a sealed published revision. Full
+ * verification hashes every retained file; callers that resolve the same
+ * revision repeatedly (every control-plane read) may instead compare this
+ * fingerprint and skip re-verification while it is unchanged.
+ *
+ * Coverage: marker file identity, payload directory identity, and payload
+ * metadata identity. Payloads are published no-replace with read-only seals,
+ * so any structural change (replacement, GC, re-promotion, directory-level
+ * tampering) moves at least one of these stats. This does not detect an
+ * attacker who chmods individual sealed files and rewrites them in place —
+ * neither did per-read verification, since such a writer already owns the
+ * store root; promotion-time verification remains the strict gate.
+ */
+export async function fingerprintPublishedRevision(publication: string): Promise<string> {
+  const publicationStat = await lstat(publication);
+  if (publicationStat.isDirectory() && !publicationStat.isSymbolicLink()) {
+    const [ready, metadata] = await Promise.all([lstat(join(publication, READY)), lstat(join(publication, METADATA))]);
+    return `dir:${statTuple(publicationStat)}|${statTuple(ready)}|${statTuple(metadata)}`;
+  }
+  const marker = JSON.parse(await readFile(publication, "utf8")) as { payload?: unknown };
+  const payload = join(dirname(publication), String(marker.payload));
+  const [payloadStat, metadataStat] = await Promise.all([lstat(payload), lstat(join(payload, METADATA))]);
+  return `marker:${statTuple(publicationStat)}|${statTuple(payloadStat)}|${statTuple(metadataStat)}`;
+}
+
 export async function inspectPublishedRevision(publication: string, sha256: Sha256): Promise<PublishedRevision> {
   const root = await resolvePublishedPayload(publication);
   const { metadata, manifest } = await readMetadataWithHash(root, sha256);

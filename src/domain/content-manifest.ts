@@ -40,7 +40,7 @@ export const ContentDigestSchema = z
 export type ContentDigest = z.infer<typeof ContentDigestSchema>;
 
 function invalidPath(path: string): boolean {
-  if (path.length === 0 || hasLoneSurrogate(path) || path.includes("\\") || path.includes("\0")) return true;
+  if (path.length === 0 || path.includes("\\") || path.includes("\0")) return true;
   if (path.startsWith("/") || /^[A-Za-z]:/.test(path)) return true;
   const segments = path.split("/");
   if (segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")) return true;
@@ -52,7 +52,7 @@ function invalidPath(path: string): boolean {
     if (segment.includes(":") || /[. ]$/.test(segment) || WINDOWS_DEVICE.test(segment)) return true;
     if (segment.toLowerCase() === ".git") return true;
   }
-  return false;
+  return hasLoneSurrogate(path);
 }
 
 /**
@@ -65,7 +65,10 @@ export function normalizeContentPath(path: string): string {
     throw new TypeError("content path is not a safe relative path");
   }
   const normalized = path.normalize("NFC");
-  if (invalidPath(normalized)) {
+  // NFC normalization of an already-valid path can only merge code points;
+  // it cannot introduce separators, dots, or control characters. Revalidate
+  // only when normalization actually changed the string.
+  if (normalized !== path && invalidPath(normalized)) {
     throw new TypeError("normalized content path is not safe");
   }
   return normalized;
@@ -124,18 +127,20 @@ function pathBytes(path: string): Uint8Array {
   return encoder.encode(normalizeContentPath(path));
 }
 
-function compareEntries(left: ContentManifestEntry, right: ContentManifestEntry): number {
-  // Schema refinements may invoke ordering while another entry is already
-  // invalid. Compare raw NFC bytes here so safeParse reports issues instead of
-  // leaking a path-normalization exception; create/verify validate first.
-  const a = encoder.encode(left.path.normalize("NFC"));
-  const b = encoder.encode(right.path.normalize("NFC"));
+function compareRawBytes(a: Uint8Array, b: Uint8Array): number {
   const length = Math.min(a.byteLength, b.byteLength);
   for (let index = 0; index < length; index += 1) {
     const difference = (a[index] ?? 0) - (b[index] ?? 0);
     if (difference !== 0) return difference;
   }
   return a.byteLength - b.byteLength;
+}
+
+function compareEntries(left: ContentManifestEntry, right: ContentManifestEntry): number {
+  // Schema refinements may invoke ordering while another entry is already
+  // invalid. Compare raw NFC bytes here so safeParse reports issues instead of
+  // leaking a path-normalization exception; create/verify validate first.
+  return compareRawBytes(encoder.encode(left.path.normalize("NFC")), encoder.encode(right.path.normalize("NFC")));
 }
 
 function digestBytes(digest: ContentDigest): Uint8Array {
@@ -213,8 +218,7 @@ function entryDigest(entry: ContentManifestEntry): Uint8Array {
   }
 }
 
-function entryPreimage(entry: ContentManifestEntry): Uint8Array {
-  const path = pathBytes(entry.path);
+function entryPreimage(entry: ContentManifestEntry, path: Uint8Array = pathBytes(entry.path)): Uint8Array {
   const size = entry.kind === "file" ? entry.size : 0;
   return concat([
     Uint8Array.from([entry.kind === "directory" ? 0x44 : entry.kind === "file" ? 0x46 : 0x4c]),
@@ -265,37 +269,41 @@ function preflightManifestInput(input: unknown, limits: ContentManifestLimits): 
   if (Array.isArray(entries)) preflightManifestEntries(entries, limits);
 }
 
-function validateEntries(
-  entries: readonly ContentManifestEntry[],
+/**
+ * Structural checks over entries that already passed ContentManifestEntrySchema.
+ * The schema's superRefine proves each path is canonical NFC, so re-normalizing
+ * here would be pure waste: lowercase keys and ancestor prefixes are derived
+ * directly from the canonical path. This loop dominates read-path latency for
+ * large manifests and must stay allocation-lean.
+ */
+function checkParsedEntries(
+  parsed: readonly ContentManifestEntry[],
+  limits: ContentManifestLimits,
   sha256?: Sha256,
-  inputLimits?: Partial<ContentManifestLimits>,
-): ContentManifestEntry[] {
-  const limits = manifestLimits(inputLimits);
-  preflightManifestEntries(entries, limits);
-  const parsed = entries.map((entry) => ContentManifestEntrySchema.parse(entry));
+): void {
   const byPath = new Map<string, ContentManifestEntry>();
   let totalPathBytes = 0;
   for (const entry of parsed) {
-    const normalized = normalizeContentPath(entry.path);
-    const pathLength = encoder.encode(normalized).byteLength;
+    const pathLength = encoder.encode(entry.path).byteLength;
     totalPathBytes += pathLength;
     if (totalPathBytes > limits.maxTotalPathBytes) throw new Error("content manifest aggregate path limit exceeded");
     if (pathLength > limits.maxPathBytes) throw new Error(`content manifest path length limit exceeded: ${entry.path}`);
-    for (const segment of normalized.split("/")) {
+    for (const segment of entry.path.split("/")) {
       if (encoder.encode(segment).byteLength > limits.maxSegmentBytes) {
         throw new Error(`content manifest path segment length limit exceeded: ${entry.path}`);
       }
     }
-    const key = collisionKey(normalized);
+    const key = entry.path.toLowerCase();
     if (byPath.has(key)) throw new Error(`content manifest path collision: ${entry.path}`);
     byPath.set(key, entry);
   }
   for (const entry of parsed) {
-    const segments = entry.path.split("/");
-    let ancestor = "";
-    for (let index = 0; index < segments.length - 1; index += 1) {
-      ancestor = ancestor.length === 0 ? segments[index]! : `${ancestor}/${segments[index]!}`;
-      const ancestorEntry = byPath.get(collisionKey(ancestor));
+    let ancestor = entry.path;
+    while (true) {
+      const slash = ancestor.lastIndexOf("/");
+      if (slash < 0) break;
+      ancestor = ancestor.slice(0, slash);
+      const ancestorEntry = byPath.get(ancestor.toLowerCase());
       if (ancestorEntry?.kind !== "directory") {
         throw new Error(`content manifest is missing directory ancestor: ${ancestor}`);
       }
@@ -308,7 +316,7 @@ function validateEntries(
       } catch (error) {
         throw new Error(`symlink target is unsafe: ${entry.path}`, { cause: error });
       }
-      if (!byPath.has(collisionKey(link.resolvedPath))) {
+      if (!byPath.has(link.resolvedPath.toLowerCase())) {
         throw new Error(`symlink target is not a retained entry: ${entry.path}`);
       }
       if (sha256 !== undefined && hashContent(encoder.encode(entry.target.normalize("NFC")), sha256) !== entry.digest) {
@@ -316,12 +324,32 @@ function validateEntries(
       }
     }
   }
+}
+
+function validateEntries(
+  entries: readonly ContentManifestEntry[],
+  sha256?: Sha256,
+  inputLimits?: Partial<ContentManifestLimits>,
+): ContentManifestEntry[] {
+  const limits = manifestLimits(inputLimits);
+  preflightManifestEntries(entries, limits);
+  const parsed = entries.map((entry) => ContentManifestEntrySchema.parse(entry));
+  checkParsedEntries(parsed, limits, sha256);
   return parsed;
 }
 
 function computeRootDigest(entries: readonly ContentManifestEntry[], sha256: Sha256): ContentDigest {
-  const sorted = [...entries].sort(compareEntries);
-  const preimage = concat([CONTENT_PREFIX, ...sorted.map(entryPreimage)]);
+  // Encode each canonical path once: sort keys and preimages share the bytes.
+  const encoded = entries.map((entry) => ({ entry, path: encoder.encode(entry.path) }));
+  encoded.sort((left, right) => {
+    const length = Math.min(left.path.byteLength, right.path.byteLength);
+    for (let index = 0; index < length; index += 1) {
+      const difference = (left.path[index] ?? 0) - (right.path[index] ?? 0);
+      if (difference !== 0) return difference;
+    }
+    return left.path.byteLength - right.path.byteLength;
+  });
+  const preimage = concat([CONTENT_PREFIX, ...encoded.map(({ entry, path }) => entryPreimage(entry, path))]);
   return formatDigest(sha256(preimage));
 }
 
@@ -332,16 +360,17 @@ export const ContentManifestSchema = z.object({
   rootDigest: ContentDigestSchema,
 }).strict().readonly().superRefine((manifest, context) => {
   const seen = new Set<string>();
-  let previous: ContentManifestEntry | undefined;
+  let previousBytes: Uint8Array | undefined;
   for (const entry of manifest.entries) {
     let key: string;
     try { key = collisionKey(entry.path); } catch { key = entry.path; }
     if (seen.has(key)) context.addIssue({ code: "custom", path: ["entries"], message: `duplicate or colliding path: ${entry.path}` });
     seen.add(key);
-    if (previous !== undefined && compareEntries(previous, entry) >= 0) {
+    const bytes = encoder.encode(entry.path.normalize("NFC"));
+    if (previousBytes !== undefined && compareRawBytes(previousBytes, bytes) >= 0) {
       context.addIssue({ code: "custom", path: ["entries"], message: "manifest entries must be in unsigned UTF-8 path order" });
     }
-    previous = entry;
+    previousBytes = bytes;
   }
 });
 export type ContentManifest = z.infer<typeof ContentManifestSchema>;
@@ -370,7 +399,9 @@ export function verifyContentManifest(
   const limits = manifestLimits(inputLimits);
   preflightManifestInput(input, limits);
   const manifest = ContentManifestSchema.parse(input);
-  validateEntries(manifest.entries, sha256, limits);
+  // The schema parse already validated every entry; re-parsing them through
+  // validateEntries would duplicate the entire refinement cost per read.
+  checkParsedEntries(manifest.entries, limits, sha256);
   const expected = computeRootDigest(manifest.entries, sha256);
   if (manifest.rootDigest !== expected) throw new Error("content manifest root digest does not match entries");
   return manifest;

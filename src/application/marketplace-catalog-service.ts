@@ -191,9 +191,10 @@ function requestedScopes(selection: MarketplaceCatalogSearchRequest["scope"], pr
 export function createMarketplaceCatalogService(dependencies: MarketplaceCatalogServiceDependencies): MarketplaceCatalogService {
   if (typeof dependencies.sha256 !== "function") throw new TypeError("marketplace catalog requires SHA-256");
 
-  async function project(
+  async function projectWithSnapshot(
     scopeSelection: MarketplaceCatalogSearchRequest["scope"],
     marketplaceIds: readonly import("../domain/marketplace-registration.js").MarketplaceRegistrationId[] | undefined,
+    loaded: Awaited<ReturnType<MarketplaceCatalogServiceDependencies["state"]["read"]>>,
     signal: AbortSignal,
   ): Promise<Projection> {
     const candidates: ProjectedCandidate[] = [];
@@ -204,15 +205,14 @@ export function createMarketplaceCatalogService(dependencies: MarketplaceCatalog
     const filter = marketplaceIds === undefined ? undefined : new Set(marketplaceIds);
 
     const targets = requestedScopes(scopeSelection, dependencies.currentProject);
-    if (targets.length > 0) {
+    if (targets.length > 0 && loaded.ok) {
       // Marketplace configuration is host-global and lives in the user state
       // document. Candidate scope is the requested plugin installation target,
       // not the marketplace registration's storage location.
       const registryScope = ScopeContextSchema.parse({ kind: "user" });
       const registryReference = toScopeReference(registryScope);
       abortIfRequested(signal);
-      const loaded = await dependencies.state.read(registryScope, signal);
-      if (loaded.ok) for (const record of [...marketplaceUpdateRecords(loaded.snapshot)].sort((left, right) => codePointCompare(left.marketplace, right.marketplace))) {
+      for (const record of [...marketplaceUpdateRecords(loaded.snapshot)].sort((left, right) => codePointCompare(left.marketplace, right.marketplace))) {
         const registrationId = deriveMarketplaceRegistrationId({ scope: registryReference, source: record.source }, dependencies.sha256);
         if (filter !== undefined && !filter.has(registrationId)) continue;
         const snapshot = marketplaceSnapshots(loaded.snapshot).find((candidate) => candidate.marketplace === record.marketplace);
@@ -320,6 +320,49 @@ export function createMarketplaceCatalogService(dependencies: MarketplaceCatalog
       unavailableSnapshots,
       snapshotHash: queryFingerprint(fingerprint, dependencies.sha256),
     };
+  }
+
+  // Projections derive only from the user-registry generation, the scope
+  // selection, and verified (cache-fingerprinted) store content. Control
+  // reads routinely project the same catalog several times per command
+  // (evidence capture per scope, then the command's own search/resolve), so
+  // memoize on the generation that anchors correctness. The TTL bounds how
+  // long clock-driven cache staleness (refresh schedules) can lag.
+  const PROJECTION_TTL_MS = 30_000;
+  const projectionCache = new Map<string, Readonly<{ expires: number; value: Promise<Projection> }>>();
+
+  async function project(
+    scopeSelection: MarketplaceCatalogSearchRequest["scope"],
+    marketplaceIds: readonly import("../domain/marketplace-registration.js").MarketplaceRegistrationId[] | undefined,
+    signal: AbortSignal,
+  ): Promise<Projection> {
+    abortIfRequested(signal);
+    const registryScope = ScopeContextSchema.parse({ kind: "user" });
+    const loaded = await dependencies.state.read(registryScope, signal);
+    const generation = loaded.ok ? loaded.snapshot.generation : "unavailable";
+    const key = JSON.stringify([
+      scopeSelection,
+      marketplaceIds === undefined ? null : [...marketplaceIds].sort(codePointCompare),
+      generation,
+      dependencies.currentProject?.projectKey ?? null,
+    ]);
+    const now = dependencies.clock.nowEpochMilliseconds();
+    const cached = projectionCache.get(key);
+    if (cached !== undefined && cached.expires > now) {
+      return cached.value.then((projection) => { signal.throwIfAborted(); return projection; });
+    }
+    const value = projectWithSnapshot(scopeSelection, marketplaceIds, loaded, signal);
+    projectionCache.set(key, Object.freeze({ expires: now + PROJECTION_TTL_MS, value }));
+    if (projectionCache.size > 8) {
+      const oldest = projectionCache.keys().next().value;
+      if (oldest !== undefined && oldest !== key) projectionCache.delete(oldest);
+    }
+    try {
+      return await value;
+    } catch (error) {
+      if (projectionCache.get(key)?.value === value) projectionCache.delete(key);
+      throw error;
+    }
   }
 
   async function exactCandidate(request: Readonly<{ candidateId: MarketplaceCandidateId; snapshot: MarketplaceSnapshotToken }>, signal: AbortSignal) {
