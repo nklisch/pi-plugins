@@ -6,7 +6,10 @@ import { classifyProcessIdentity, readLinuxProcessStartToken } from "../process/
 import { LOCAL_LOCK_DATABASE_MODE } from "./local-lock-filesystem.js";
 
 const SQLITE_BUSY = 5;
-const MAX_RETRIES = 16;
+// Waiting out a live initializer or a busy database must tolerate loaded
+// hosts (parallel test runners, several Pi sessions on one agent dir); the
+// budget below totals roughly five seconds while staying sub-second locally.
+const MAX_RETRIES = 24;
 
 type Identity = Readonly<{ device: string; inode: string }>;
 type Owner = Readonly<{ pid: number; startToken: string; nonce: string }>;
@@ -123,7 +126,7 @@ function isBusy(error: unknown): boolean {
 
 async function wait(signal: AbortSignal, attempt: number): Promise<void> {
   signal.throwIfAborted();
-  const delay = Math.min(50, 2 ** Math.min(attempt, 5));
+  const delay = Math.min(250, 2 ** Math.min(attempt, 8));
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => { signal.removeEventListener("abort", onAbort); resolve(); }, delay);
     const onAbort = () => { clearTimeout(timer); signal.removeEventListener("abort", onAbort); reject(signal.reason); };
