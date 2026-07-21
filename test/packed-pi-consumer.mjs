@@ -307,10 +307,27 @@ def wait_for(token, start=None, timeout=45):
     raise RuntimeError("missing TUI token %r after %d bytes; tail=%r" % (token, begin, tail))
 def send(data):
     os.write(fd, data)
+def wait_for_retry(token, command, timeout=90):
+    needle = token.encode()
+    deadline = time.monotonic() + timeout
+    attempt = 0
+    while time.monotonic() < deadline:
+        mark = len(buffer)
+        send(command)
+        step_deadline = min(deadline, time.monotonic() + 20)
+        while time.monotonic() < step_deadline:
+            if buffer.find(needle, mark) >= 0: return
+            if not pump(min(step_deadline, time.monotonic() + 0.25)): break
+        attempt += 1
+    tail = bytes(buffer[-12000:]).decode("utf-8", "replace")
+    raise RuntimeError("missing TUI token %r after %d attempts; tail=%r" % (token, attempt, tail))
 wait_for("Plugin Host command collision", 0, 60)
 mark = len(buffer); send(("/" + args["command"] + " status\r").encode()); wait_for("Plugin operation", mark, 60); wait_for("Final owner result", mark, 60); send(b"\x1b"); pump(time.monotonic() + 0.5)
 mark = len(buffer); send(b"/reload\r"); wait_for("Plugin Host command collision", mark, 60)
-mark = len(buffer); send(("/" + args["command"] + "\r").encode()); wait_for("Plugins", mark, 60); wait_for("demo", mark, 60)
+# The reloaded host admits commands only after session startup completes;
+# retry the presentation command until the manager surface mounts.
+wait_for_retry("Plugins", ("/" + args["command"] + "\r").encode())
+wait_for("demo", 0, 60)
 mark = len(buffer); send(b"\r"); wait_for("Runtime surface", mark, 60)
 mark = len(buffer); send(b"\r"); wait_for("Add plugin to", mark, 60); send(b"\r"); wait_for("Step 1/2", mark, 60)
 mark = len(buffer); send(b"\r"); wait_for("Step 2/2", mark, 90); wait_for("succeeded", mark, 90)
