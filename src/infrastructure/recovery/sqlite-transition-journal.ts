@@ -30,7 +30,9 @@ const PROTOCOL = "pi-plugin-host-recovery-journal";
 const VERSION = 2;
 const MODE = 0o600;
 const BUSY = 5;
-const MAX_BUSY_RETRIES = 16;
+// Loaded hosts serialize many processes on one scope database; keep the
+// busy budget in the same ~5s class as initialization waits.
+const MAX_BUSY_RETRIES = 24;
 
 type SqliteRow = Record<string, unknown>;
 type FileIdentity = Readonly<{ device: string; inode: string }>;
@@ -52,7 +54,7 @@ function throwIfAborted(signal: AbortSignal): void { if (signal.aborted) throw s
 function isBusy(error: unknown): boolean { return typeof error === "object" && error !== null && (error as { errcode?: unknown }).errcode === BUSY; }
 async function waitForBusyRetry(signal: AbortSignal, attempt: number): Promise<void> {
   throwIfAborted(signal);
-  const delay = Math.min(64, 1 << attempt);
+  const delay = Math.min(250, 1 << Math.min(attempt, 8));
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => { signal.removeEventListener("abort", onAbort); resolve(); }, delay);
     const onAbort = () => { clearTimeout(timer); signal.removeEventListener("abort", onAbort); reject(signal.reason ?? new DOMException("The operation was aborted", "AbortError")); };

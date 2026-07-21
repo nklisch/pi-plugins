@@ -23,7 +23,9 @@ import { openIdentityBoundSqliteDatabase, type IdentityBoundSqliteDatabase } fro
 const PROTOCOL = "pi-plugin-host-lifecycle-state";
 const VERSION = 1;
 const SQLITE_BUSY = 5;
-const MAX_BUSY_RETRIES = 16;
+// Loaded hosts serialize many processes on one scope database; keep the
+// busy budget in the same ~5s class as initialization waits.
+const MAX_BUSY_RETRIES = 24;
 
 type OpenScopeDatabase = {
   readonly database: DatabaseSync;
@@ -93,7 +95,7 @@ function isBusy(error: unknown): boolean {
 
 async function waitForBusy(signal: AbortSignal, attempt: number): Promise<void> {
   signal.throwIfAborted();
-  const delay = Math.min(50, 2 ** Math.min(attempt, 5));
+  const delay = Math.min(250, 2 ** Math.min(attempt, 8));
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => { signal.removeEventListener("abort", onAbort); resolve(); }, delay);
     const onAbort = () => { clearTimeout(timer); signal.removeEventListener("abort", onAbort); reject(signal.reason); };
