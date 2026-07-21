@@ -17,9 +17,10 @@ import type { HookPlanningResult } from "../../runtime/hooks/event-contract.js";
 import type { PiHookEventAdapter } from "./pi-hook-event-adapter.js";
 import type { GuardedCommandHookExecutor, HookPlanExecutionResult } from "../../runtime/hooks/guarded-command-executor.js";
 import type { PiHookDecisionAdapter } from "./pi-hook-decision-adapter.js";
-import { aggregateHookDecisions, eventFailsClosed } from "../../runtime/hooks/hook-decision-aggregator.js";
+import { aggregateHookDecisions } from "../../runtime/hooks/hook-decision-aggregator.js";
 import type { AggregatedHookDecision } from "../../domain/hook-output-contract.js";
 import type { StopContinuationGuard } from "../../runtime/hooks/stop-continuation-guard.js";
+import { createNullHookFailureLog, type HookFailureLog } from "../../runtime/hooks/hook-failure-log.js";
 
 type SessionBeforeCompactResult = { cancel?: boolean };
 type ToolResultEventResult = { content?: ToolResultEvent["content"]; details?: unknown; isError?: boolean };
@@ -32,6 +33,7 @@ export type PiCommandHookRuntimeRegistration = Readonly<{
   continuation: StopContinuationGuard;
   currentProject: () => CurrentProjectRuntimeContext;
   runtimeSignal: AbortSignal;
+  failureLog?: HookFailureLog;
 }>;
 
 function failedDecision(event: AggregatedHookDecision["event"]): AggregatedHookDecision {
@@ -53,6 +55,45 @@ export function registerPiCommandHookRuntime(input: PiCommandHookRuntimeRegistra
       input.executor === undefined || input.decisions === undefined || input.continuation === undefined ||
       typeof input.currentProject !== "function") throw new TypeError("Pi command-hook runtime dependencies are required");
 
+  const failureLog = input.failureLog ?? createNullHookFailureLog();
+
+  function logPlanningFailure(event: string, planning: Extract<HookPlanningResult, { kind: "failed" }>): void {
+    failureLog.record({
+      at: Date.now(),
+      event,
+      phase: "planning",
+      code: planning.code,
+      ...(planning.plugin === undefined ? {} : { plugin: planning.plugin }),
+      ...(planning.componentId === undefined ? {} : { componentId: planning.componentId }),
+    });
+  }
+
+  function logDiagnostics(values: readonly AggregatedHookDecision[]): void {
+    for (const value of values) {
+      for (const diagnostic of value.diagnostics) {
+        failureLog.record({
+          at: Date.now(),
+          event: value.event,
+          phase: "execution",
+          code: diagnostic.code,
+          plugin: diagnostic.plugin,
+          componentId: diagnostic.componentId,
+          detail: diagnostic.message,
+        });
+      }
+    }
+  }
+
+  // Planning failures fail open everywhere: the boundary proceeds without
+  // hook influence, the user gets one visible warning, and the failure log
+  // keeps the exact code for debugging.
+  function planningFailed(ctx: ExtensionContext, event: string, planning: HookPlanningResult): boolean {
+    if (planning.kind === "ready") return false;
+    logPlanningFailure(event, planning);
+    if (ctx.hasUI) ctx.ui.notify(`Hooks skipped for ${event} (${planning.code}); continuing without them. See ${failureLog.file || "the hook failure log"}.`, "warning");
+    return true;
+  }
+
   async function execute(planning: HookPlanningResult): Promise<readonly AggregatedHookDecision[]> {
     if (planning.kind !== "ready") return Object.freeze([]);
     const values: AggregatedHookDecision[] = [];
@@ -67,34 +108,27 @@ export function registerPiCommandHookRuntime(input: PiCommandHookRuntimeRegistra
         values.push(failedDecision(plan.event));
       }
     }
+    logDiagnostics(values);
     return Object.freeze(values);
-  }
-
-  function planningFailure(event: AggregatedHookDecision["event"]): "handled" | "block" | "cancel" | "none" {
-    if (!eventFailsClosed(event)) return "none";
-    if (event === "UserPromptSubmit") return "handled";
-    if (event === "PreToolUse") return "block";
-    if (event === "PreCompact") return "cancel";
-    return "none";
   }
 
   input.pi.on("session_start", async (event: SessionStartEvent, ctx: ExtensionContext): Promise<void> => {
     const planning = input.events.sessionStart(event, ctx);
-    if (planning.kind !== "ready") return;
+    if (planningFailed(ctx, "SessionStart", planning)) return;
     for (const value of await execute(planning)) await input.decisions.applyLifecycle(ctx, value);
   });
 
   input.pi.on("session_shutdown", async (event: SessionShutdownEvent, ctx: ExtensionContext): Promise<void> => {
     input.continuation.reset();
     const planning = input.events.sessionShutdown(event, ctx);
-    if (planning.kind !== "ready") return;
+    if (planningFailed(ctx, "SessionEnd", planning)) return;
     for (const value of await execute(planning)) await input.decisions.applyLifecycle(ctx, value);
   });
 
   input.pi.on("input", async (event: InputEvent, ctx: ExtensionContext): Promise<InputEventResult | undefined> => {
     if (event.source !== "extension") input.continuation.reset();
     const planning = input.events.input(event, ctx);
-    if (planning.kind !== "ready") return planningFailure("UserPromptSubmit") === "handled" ? { action: "handled" } : undefined;
+    if (planningFailed(ctx, "UserPromptSubmit", planning)) return undefined;
     let result: InputEventResult | undefined;
     for (const value of await execute(planning)) {
       const applied = await input.decisions.applyInput(event, ctx, value);
@@ -105,7 +139,7 @@ export function registerPiCommandHookRuntime(input: PiCommandHookRuntimeRegistra
 
   input.pi.on("tool_call", async (event: ToolCallEvent, ctx: ExtensionContext): Promise<ToolCallEventResult | undefined> => {
     const planning = input.events.toolCall(event, ctx);
-    if (planning.kind !== "ready") return planningFailure("PreToolUse") === "block" ? { block: true, reason: "Hook planning failed" } : undefined;
+    if (planningFailed(ctx, "PreToolUse", planning)) return undefined;
     let result: ToolCallEventResult | undefined;
     for (const value of await execute(planning)) {
       const applied = await input.decisions.applyToolCall(event, ctx, value);
@@ -116,7 +150,7 @@ export function registerPiCommandHookRuntime(input: PiCommandHookRuntimeRegistra
 
   input.pi.on("tool_result", async (event: ToolResultEvent, ctx: ExtensionContext): Promise<ToolResultEventResult | undefined> => {
     const planning = input.events.toolResult(event, ctx);
-    if (planning.kind !== "ready") return undefined;
+    if (planningFailed(ctx, "PostToolUse", planning)) return undefined;
     let result: ToolResultEventResult | undefined;
     for (const value of await execute(planning)) {
       const applied = await input.decisions.applyToolResult(event, ctx, value);
@@ -127,7 +161,7 @@ export function registerPiCommandHookRuntime(input: PiCommandHookRuntimeRegistra
 
   input.pi.on("session_before_compact", async (event: SessionBeforeCompactEvent, ctx: ExtensionContext): Promise<SessionBeforeCompactResult | undefined> => {
     const planning = input.events.beforeCompact(event, ctx);
-    if (planning.kind !== "ready") return planningFailure("PreCompact") === "cancel" ? { cancel: true } : undefined;
+    if (planningFailed(ctx, "PreCompact", planning)) return undefined;
     let result: SessionBeforeCompactResult | undefined;
     for (const value of await execute(planning)) {
       const applied = await input.decisions.applyBeforeCompact(ctx, value);
@@ -138,13 +172,13 @@ export function registerPiCommandHookRuntime(input: PiCommandHookRuntimeRegistra
 
   input.pi.on("session_compact", async (event: SessionCompactEvent, ctx: ExtensionContext): Promise<void> => {
     const planning = input.events.compact(event, ctx);
-    if (planning.kind !== "ready") return;
+    if (planningFailed(ctx, "PostCompact", planning)) return;
     for (const value of await execute(planning)) await input.decisions.applyLifecycle(ctx, value);
   });
 
   input.pi.on("agent_settled", async (event: AgentSettledEvent, ctx: ExtensionContext): Promise<void> => {
     const planning = input.events.agentSettled(event, ctx, { stopHookActive: input.continuation.state().stopHookActive });
-    if (planning.kind !== "ready") return;
+    if (planningFailed(ctx, "Stop", planning)) return;
     let continued = false;
     let exhausted = false;
     for (const value of await execute(planning)) {

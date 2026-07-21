@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createPiHookDecisionAdapter } from "../../../src/pi/hooks/pi-hook-decision-adapter.js";
 import { createStopContinuationGuard } from "../../../src/runtime/hooks/stop-continuation-guard.js";
 import type { AggregatedHookDecision } from "../../../src/domain/hook-output-contract.js";
-import type { ExtensionContext, ToolCallEvent, ToolResultEvent } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, InputEvent, ToolCallEvent, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 
 function value(event: AggregatedHookDecision["event"], extra: Partial<AggregatedHookDecision> = {}): AggregatedHookDecision {
   return { event, contexts: [], systemMessages: [], diagnostics: [], ...extra } as AggregatedHookDecision;
@@ -58,15 +58,48 @@ describe("Pi hook decision adapter", () => {
     expect(event.isError).toBe(true);
   });
 
-  it("cancels compaction on fail-closed diagnostics without applying side effects", async () => {
+  it("lets prompts through with a warning when prompt hook execution fails", async () => {
+    const notify = vi.fn();
     const sendMessage = vi.fn();
     const adapter = createPiHookDecisionAdapter({ pi: { sendMessage, setSessionName: vi.fn() } });
-    const result = await adapter.applyBeforeCompact(context(), value("PreCompact", {
-      contexts: ["must not send"],
+    const event = { type: "input", text: "hello", source: "interactive" } as InputEvent;
+    const result = await adapter.applyInput(event, context({ ui: { notify } as never }), value("UserPromptSubmit", {
+      contexts: ["healthy hook context"],
+      diagnostics: [{ code: "HOOK_TIMEOUT", severity: "error", event: "UserPromptSubmit", plugin: "demo@catalog", componentId: "component-v1:hook:1111111111111111111111111111111111111111111111111111111111111111", sourceOrder: { snapshotOrdinal: 0, hookOrdinal: 0 }, message: "safe" }],
+    }));
+    expect(result).toBeUndefined();
+    // Healthy hook output still lands; only the failure is downgraded to a warning.
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(notify).toHaveBeenCalledOnce();
+    expect(notify.mock.calls[0]?.[0]).toContain("HOOK_TIMEOUT");
+    expect(notify.mock.calls[0]?.[1]).toBe("warning");
+  });
+
+  it("still holds prompts back only on explicit hook block decisions", async () => {
+    const adapter = createPiHookDecisionAdapter({ pi: { sendMessage: vi.fn(), setSessionName: vi.fn() } });
+    const event = { type: "input", text: "hello", source: "interactive" } as InputEvent;
+    const result = await adapter.applyInput(event, context(), value("UserPromptSubmit", { block: { reason: "not allowed" } }));
+    expect(result).toEqual({ action: "handled" });
+  });
+
+  it("allows compaction with a warning when compact hooks fail", async () => {
+    const sendMessage = vi.fn();
+    const notify = vi.fn();
+    const adapter = createPiHookDecisionAdapter({ pi: { sendMessage, setSessionName: vi.fn() } });
+    const result = await adapter.applyBeforeCompact(context({ ui: { notify } as never }), value("PreCompact", {
+      contexts: ["healthy hook context"],
       diagnostics: [{ code: "HOOK_INVALID_OUTPUT", severity: "error", event: "PreCompact", plugin: "demo@catalog", componentId: "component-v1:hook:1111111111111111111111111111111111111111111111111111111111111111", sourceOrder: { snapshotOrdinal: 0, hookOrdinal: 0 }, message: "safe" }],
     }));
+    expect(result).toBeUndefined();
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(notify).toHaveBeenCalledOnce();
+    expect(notify.mock.calls[0]?.[0]).toContain("HOOK_INVALID_OUTPUT");
+  });
+
+  it("still cancels compaction on explicit hook block decisions", async () => {
+    const adapter = createPiHookDecisionAdapter({ pi: { sendMessage: vi.fn(), setSessionName: vi.fn() } });
+    const result = await adapter.applyBeforeCompact(context(), value("PreCompact", { block: { reason: "not yet" } }));
     expect(result).toEqual({ cancel: true });
-    expect(sendMessage).not.toHaveBeenCalled();
   });
 });
 

@@ -16,6 +16,7 @@ import {
 import type { PackagedPluginHost } from "../../composition/packaged-plugin-host-contract.js";
 import type { PluginManagerLiveOperation, PluginManagerPresentation } from "../plugin-command.js";
 import type { PiManagerReloadHandoff, PluginManagerDestination } from "../pi-manager-reload-handoff.js";
+import { nativeControlHumanLines } from "../native-control-human.js";
 import { ConfirmationSurface, presentConfirmationSurface } from "./confirmation-surface.js";
 import { createPiControlInputPort, type PiInlinePresenter } from "./pi-control-input.js";
 import { createPiManagerFrameSink } from "./pi-manager-frame-sink.js";
@@ -39,6 +40,17 @@ export interface PluginManagerSession extends PluginManagerPresentation {
   presentHandoff(context: ExtensionContext, destination: PluginManagerDestination, envelope: NativeControlEnvelope): Promise<void>;
 }
 
+function handoffInstallSummary(envelope: NativeControlEnvelope): string {
+  const activation = TrustedInstallActivationResultSchema.safeParse(envelope.data);
+  if (activation.success && activation.data.kind === "succeeded") {
+    return `✓ Added ${activation.data.plugin} · session reloaded`;
+  }
+  if (activation.success && activation.data.kind === "current-state") {
+    return `✓ ${activation.data.plugin} already added · session reloaded`;
+  }
+  return `✓ ${nativeControlHumanLines(envelope)[0] ?? "Plugin added"} · session reloaded`;
+}
+
 function selectedRow(state: PluginManagerState): PluginManagerRow | undefined {
   const rows = pluginManagerVisibleRows(state);
   if (state.focus.row === undefined) return rows[0];
@@ -50,7 +62,7 @@ function actionIntent(action: string, state: PluginManagerState): PluginManagerA
   const row = selectedRow(state);
   if (row === undefined) throw new TypeError("plugin manager action requires a selected row");
   if (action === "enable" || action === "disable" || action === "update") return { action, row };
-  if (action === "uninstall-keep" || action === "uninstall-delete") return { action, row };
+  if (action === "uninstall-delete") return { action, row };
   if (action === "marketplace-refresh" || action === "marketplace-remove" || action === "notice-acknowledge") return { action, row };
   if (action === "project-sync-apply") return { action: "project-sync", mode: "apply-intent" };
   if (action === "project-sync-publish") return { action: "project-sync", mode: "publish-intent" };
@@ -310,7 +322,29 @@ export function createPluginManagerSession(input: Readonly<{
             context.ui.notify("Configuration or exact consent needs renewed input.", "warning");
             return;
           }
-          apply({ type: "activation-result", result: activation.data });
+          if (activation.data.kind === "recovery-required") {
+            // The only result that still earns the screen: it carries the
+            // actionable recovery path. Everything else closes the flow and
+            // lets the manager refresh flip the row behind us.
+            apply({ type: "activation-result", result: activation.data });
+            return;
+          }
+          result = Object.freeze({ kind: "handled", presentation: "local" });
+          if (activation.data.kind === "succeeded") {
+            context.ui.notify(`Added ${activation.data.plugin} · ${activation.data.components.skills} skills · ${activation.data.components.hooks} hooks · ${activation.data.components.mcpServers} MCP servers`, "info");
+          } else if (activation.data.kind === "current-state") {
+            context.ui.notify(`${activation.data.plugin} is already added`, "info");
+          } else if (activation.data.kind === "rolled-back") {
+            context.ui.notify(`Add rolled back (${activation.data.failure}) · ${activation.data.restored ? "previous state restored" : "restore incomplete — check /plugin health"}`, "error");
+          } else if (activation.data.kind === "cancelled") {
+            context.ui.notify("Add cancelled before activation.", "warning");
+          } else if (activation.data.kind === "rejected") {
+            context.ui.notify(`Add rejected (${activation.data.code}).`, "error");
+          } else {
+            context.ui.notify("Install authority changed; review the refreshed candidate.", "warning");
+          }
+          done();
+          return;
         } catch (error) {
           if (closingReason === "reload" || closed) return;
           apply({ type: "busy", value: false });
@@ -527,7 +561,19 @@ export function createPluginManagerSession(input: Readonly<{
     async presentHandoff(context, destination, envelope): Promise<void> {
       const current = bound;
       if (current === undefined || current.sessionId !== context.sessionManager.getSessionId() || current.cwd !== context.cwd) return;
-      await presentStaticOperation(context, envelope, Object.freeze([]), destination === "install-result" ? "Step 2/2 · Activation result" : "Plugin operation · successor result");
+      // Success across a reload is one notification, not a result screen: the
+      // reload itself is the visible effect, and the next /plugin open shows
+      // authoritative state. Failures keep the inspectable operation view.
+      if (envelope.status === "ok" || envelope.status === "no-change") {
+        if (context.mode === "tui" && !closed) {
+          const line = destination === "install-result"
+            ? handoffInstallSummary(envelope)
+            : `✓ ${nativeControlHumanLines(envelope)[0] ?? "Plugin operation completed"}`;
+          context.ui.notify(line, "info");
+        }
+        return;
+      }
+      await presentStaticOperation(context, envelope, Object.freeze([]), destination === "install-result" ? "Activation result" : "Plugin operation · successor result");
     },
     dynamicCompletions(): readonly NativeControlDynamicCandidate[] {
       return activeController?.dynamicCompletions() ?? completions;

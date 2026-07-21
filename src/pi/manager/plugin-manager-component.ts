@@ -224,6 +224,13 @@ export class PluginManagerComponent implements Component, Focusable {
       const actions = pluginManagerAvailableActions(state);
       if (actions.includes("install")) this.activateAction("install");
       else if (actions.includes("marketplace-add")) this.activateAction("marketplace-add");
+    } else if (data.toLowerCase() === "d") {
+      const actions = pluginManagerAvailableActions(state);
+      if (actions.includes("disable")) this.activateAction("disable");
+      else if (actions.includes("enable")) this.activateAction("enable");
+    } else if (data.toLowerCase() === "x") {
+      const actions = pluginManagerAvailableActions(state);
+      if (actions.includes("uninstall-delete")) this.activateAction("uninstall-delete");
     } else if (data.toLowerCase() === "r") this.controller.dispatch({ type: "refresh", scope: "all" });
     else if (data === "?") this.controller.dispatch({ type: "toggle-help" });
     this.invalidate();

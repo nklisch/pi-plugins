@@ -18,8 +18,7 @@ export const PluginManagerActionRegistry = Object.freeze({
   disable: { label: "Disable", description: "Stop loading runtime components but keep the plugin installed" },
   update: { label: "Update plugin", description: "Update the selected installed plugin" },
   "update-all": { label: "Update all", description: "Apply every currently eligible plugin update" },
-  "uninstall-keep": { label: "Remove, keep data", description: "Uninstall the plugin and retain its persistent data" },
-  "uninstall-delete": { label: "Remove and delete data", description: "Uninstall the plugin and erase its persistent data" },
+  "uninstall-delete": { label: "Remove plugin", description: "Uninstall the plugin and erase its persistent data" },
   "marketplace-add": { label: "Add marketplace", description: "Register another global marketplace" },
   "marketplace-refresh": { label: "Refresh marketplace", description: "Fetch the latest marketplace catalog" },
   "marketplace-remove": { label: "Remove marketplace", description: "Unregister this marketplace without changing installed plugins" },
@@ -183,7 +182,7 @@ export function pluginManagerRowActions(row: PluginManagerRow | undefined): read
   if (row.key.subject === "candidate") return Object.freeze(["inspect", "install"]);
   if (row.key.subject === "marketplace") return Object.freeze(["marketplace-refresh", "marketplace-remove"]);
   if (row.key.subject === "notice") return Object.freeze(["inspect", "notice-acknowledge"]);
-  return Object.freeze(["inspect", "uninstall-keep", "uninstall-delete"]);
+  return Object.freeze(["inspect", "uninstall-delete"]);
 }
 
 /** Derive actions from the selected authoritative detail rather than offering contradictory lifecycle verbs. */
@@ -209,7 +208,7 @@ export function pluginManagerAvailableActions(state: PluginManagerState): readon
   if (lifecycle?.activationIntent === "enabled") actions.push("disable");
   else if (lifecycle?.activationIntent === "disabled") actions.push("enable");
   if (lifecycle?.update !== undefined && !["current", "not-applicable", "unknown"].includes(lifecycle.update)) actions.push("update");
-  actions.push("uninstall-keep", "uninstall-delete");
+  actions.push("uninstall-delete");
   if (row.scope === "project") actions.push("project-sync-apply", "project-sync-publish", "project-sync-merge");
   return Object.freeze(actions);
 }

@@ -78,7 +78,7 @@ describe("plugin manager renderer", () => {
     });
     value = pluginManagerReducer(value, { type: "focus", pane: "detail", action: "uninstall-delete" });
     const actionView = renderPluginManager({ state: value, width: 70, height: 8, theme, keybindings, focused: true }).join("\n");
-    expect(actionView).toContain("Remove and delete data");
+    expect(actionView).toContain("Remove plugin");
   });
 
   it("preserves signed information groups and explicit empty/degraded state", () => {

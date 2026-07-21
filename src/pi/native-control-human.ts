@@ -1,4 +1,5 @@
 import { HostStatusSnapshotSchema } from "../application/host-observation-contract.js";
+import { NativeLifecycleOperationResultSchema } from "../application/native-lifecycle-operation-contract.js";
 import { NativeControlHelpSchema } from "../application/native-control-help.js";
 import { NativeInspectionPageSchema } from "../application/native-inspection-contract.js";
 import { NativeControlCommandRegistry } from "../application/native-control-registry.js";
@@ -8,32 +9,30 @@ import {
 } from "../application/native-control-safe-projection.js";
 import { NativeUpdateNotificationPageSchema } from "../application/native-update-contract.js";
 import type { NativeControlEnvelope } from "../application/native-control-contract.js";
-import { projectTerminalText } from "./manager/pi-terminal-text.js";
 
-const MAX_LINES = 512;
-const MAX_SCALARS = 65_536;
-
-function safeLines(value: unknown): readonly string[] {
-  if (value === undefined || value === null) return Object.freeze([]);
-  let serialized: string;
-  try {
-    serialized = JSON.stringify(value, null, 2) ?? String(value);
-  } catch {
-    serialized = String(value);
+function lifecycleLines(envelope: NativeControlEnvelope): readonly string[] | undefined {
+  const parsed = NativeLifecycleOperationResultSchema.safeParse(envelope.data);
+  if (!parsed.success) return undefined;
+  const value = parsed.data;
+  if (value.kind === "expired" || value.kind === "disposed") {
+    return Object.freeze([`${envelope.command.path.join(" ") || "plugin"} · ${value.kind}`]);
   }
-  let scalars = 0;
-  let truncated = false;
-  const rawLines = serialized.split("\n");
-  const lines: string[] = [];
-  for (const raw of rawLines) {
-    if (lines.length >= MAX_LINES || scalars >= MAX_SCALARS) break;
-    const projection = projectTerminalText(raw, Math.min(2_048, MAX_SCALARS - scalars));
-    const line = projection.text;
-    truncated ||= projection.truncated;
-    lines.push(line);
-    scalars += Array.from(line).length;
+  const target = "before" in value ? value.before : "target" in value ? value.target : "restored" in value ? value.restored : undefined;
+  const subject = target === undefined ? value.operation : `${target.plugin} · ${value.operation}`;
+  const lines = [`${subject} · ${value.kind}`];
+  if (value.kind === "current-state") lines.push(`reason: ${value.reason}`);
+  if (value.kind === "needs-action") lines.push(`${value.actions.length} project sync action${value.actions.length === 1 ? "" : "s"} need attention`);
+  if (value.kind === "cancelled") lines.push(`cancelled during ${value.phase}`);
+  if (value.kind === "stale" || value.kind === "conflict") lines.push(`refresh required · ${value.reason}`);
+  if (value.kind === "rejected" || value.kind === "failed") lines.push(`code: ${value.code}`);
+  if (value.kind === "recovery-required") lines.push(`${value.code} · run recovery`);
+  if (value.kind === "rolled-back") lines.push(`${value.failure} · restored ${value.restored.plugin}`);
+  if (value.kind === "succeeded" && value.cleanup !== undefined) {
+    lines.push(`persistent data ${value.cleanup.persistentData} · configuration ${value.cleanup.configuration} · trust ${value.cleanup.trust}`);
   }
-  if (truncated || rawLines.length > lines.length || scalars >= MAX_SCALARS) lines.push("… result truncated");
+  for (const diagnostic of [...value.diagnostics, ...envelope.diagnostics]) {
+    lines.push(`${diagnostic.severity} ${diagnostic.code} · ${diagnostic.action}`);
+  }
   return Object.freeze(lines);
 }
 
@@ -78,13 +77,17 @@ export function nativeControlHumanLines(envelope: NativeControlEnvelope): readon
       ...envelope.diagnostics.map((entry) => `${entry.severity.toUpperCase()} ${entry.code} · ${entry.action}`),
     ]);
   }
+  const lifecycle = lifecycleLines(envelope);
+  if (lifecycle !== undefined) return lifecycle;
+  // Never dump raw result JSON: the envelope's safe human fields and
+  // diagnostics are the presentation contract, and anything else reduces to
+  // one status line.
   const summary = NativeControlCommandRegistry[envelope.command.id].summary.text;
-  const projected = safeLines(envelope.data);
   const human = envelope.human
     .map((field) => field.text)
-    .filter((line) => line !== summary || projected.length === 0);
+    .filter((line) => line !== summary);
   const diagnostics = envelope.diagnostics.map((entry) => `${entry.severity.toUpperCase()} ${entry.code} · ${entry.action}`);
-  const lines = [...human, ...projected, ...diagnostics];
+  const lines = [...human, ...diagnostics];
   return Object.freeze(lines.length > 0
     ? lines
     : [`${envelope.command.path.join(" ") || "plugin"}: ${envelope.status}`]);

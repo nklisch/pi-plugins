@@ -25,6 +25,7 @@ import {
   createPluginHostRuntimeDelegates,
   type PluginHostRuntimeDelegates,
 } from "../pi/plugin-host-runtime-delegates.js";
+import { createNullHookFailureLog, type HookFailureLog } from "../runtime/hooks/hook-failure-log.js";
 import { createPiSubagentSessionContext } from "../pi/pi-subagent-session-context.js";
 import { createGuardedCommandHookExecutor, type GuardedCommandHookExecutor } from "../runtime/hooks/guarded-command-executor.js";
 import { createHookEventPlanner } from "../runtime/hooks/hook-event-planner.js";
@@ -75,9 +76,11 @@ export async function createComposedSkillHookRuntime(input: Readonly<{
   subagents?: SubagentLifecyclePort;
   sha256: Sha256;
   delegates?: PluginHostRuntimeDelegates;
+  failureLog?: HookFailureLog;
 }>): Promise<ComposedSkillHookRuntime> {
   const runtimeAbort = new AbortController();
   const delegates = input.delegates ?? createPluginHostRuntimeDelegates(input.pi);
+  const failureLog = input.failureLog ?? createNullHookFailureLog();
   let lease: RevisionLease | undefined;
   let subagent: RegisteredSubagentHookRuntime | undefined;
   let coordinator: SubagentHookCoordinator | undefined;
@@ -119,6 +122,7 @@ export async function createComposedSkillHookRuntime(input: Readonly<{
       continuation: createStopContinuationGuard(),
       currentProject: () => input.project.current(),
       runtimeSignal: runtimeAbort.signal,
+      failureLog,
     });
 
     if (input.subagents !== undefined) {
@@ -134,6 +138,7 @@ export async function createComposedSkillHookRuntime(input: Readonly<{
         sessions: createPiSubagentSessionContext({ binding: input.binding, project: input.project }),
         runtimeSignal: runtimeAbort.signal,
         continuationBudget: 3,
+        failureLog,
       });
       subagent = await registerSubagentHookRuntime({
         lifecycle: input.subagents,

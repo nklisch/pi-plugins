@@ -55,8 +55,8 @@ describe("plugin manager step latency through the real PTY", () => {
       await pty.waitFor("set: e2e-value", mark, 60_000);
       mark = pty.mark();
       pty.send("\u001b[B\u001b[B\u001b[B\r");
-      await step("install.apply (add)", () => pty.waitFor("Step 2/2 · Activation result", mark, 120_000));
-      expect(pty.semanticOutput().slice(mark)).toContain("succeeded");
+      await step("install.apply (add)", () => pty.waitFor("Added core-local", mark, 120_000));
+      expect(pty.semanticOutput().slice(mark)).toContain("session reloaded");
     } finally {
       await writeFile("/tmp/pi-manager-pty-perf.json", JSON.stringify(timings, null, 2), "utf8");
       await pty.shutdown();

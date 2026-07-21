@@ -76,8 +76,8 @@ describe("plugin manager reducer", () => {
       type: "detail-loaded", request: 1, row: row("demo").key, open: true,
       envelope: { data: { kind: "found", detail: { ...trustedInstallFlowFixture.chooseInspect, lifecycle: { ...trustedInstallFlowFixture.chooseInspect.lifecycle, activationIntent: "enabled", update: "current" } } } } as never,
     });
-    expect(pluginManagerAvailableActions(state)).toEqual(["inspect", "disable", "uninstall-keep", "uninstall-delete"]);
-    expect(pluginManagerMenuActions(state)).toEqual(["disable", "uninstall-keep", "uninstall-delete"]);
+    expect(pluginManagerAvailableActions(state)).toEqual(["inspect", "disable", "uninstall-delete"]);
+    expect(pluginManagerMenuActions(state)).toEqual(["disable", "uninstall-delete"]);
   });
 
   it("keeps independent semantic scroll anchors for detail and operation", () => {

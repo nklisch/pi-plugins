@@ -124,6 +124,26 @@ describe("Pi command-hook runtime registration", () => {
     expect(applyInput).toHaveBeenCalledOnce();
   });
 
+  it("fails open with a warning when prompt planning fails instead of eating the message", async () => {
+    const { api, handlers } = fakeApi();
+    const planner = createHookEventPlanner({ catalog: catalog([snapshot({ kind: "user" }, [hook("UserPromptSubmit", undefined, [], "a")])]) });
+    // Snapshot and session project evidence disagree, so planning fails.
+    const mismatched = { ...project, trust: { kind: project.trust.kind === "trusted" ? "untrusted" : "trusted" } } as typeof project;
+    const events = createPiHookEventAdapter({ planner, currentProject: () => mismatched });
+    const execute = vi.fn(async () => ({ kind: "completed" as const, handlers: [] }));
+    const decisions = { applyInput: vi.fn(), applyToolCall: vi.fn(), applyToolResult: vi.fn(), applyBeforeCompact: vi.fn(), applyLifecycle: vi.fn(), applyStop: vi.fn() } as unknown as PiHookDecisionAdapter;
+    registerPiCommandHookRuntime({ pi: api, events, executor: { execute }, decisions, continuation: createStopContinuationGuard(), currentProject: () => mismatched, runtimeSignal: new AbortController().signal });
+    const notify = vi.fn();
+    const uiCtx = { ...ctx, hasUI: true, ui: { notify } } as unknown as ExtensionContext;
+    const result = await handlers.get("input")!({ type: "input", text: "hello", source: "interactive" }, uiCtx);
+    expect(result).toBeUndefined();
+    expect(execute).not.toHaveBeenCalled();
+    expect(decisions.applyInput).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledOnce();
+    expect(notify.mock.calls[0]?.[0]).toContain("CURRENT_PROJECT_MISMATCH");
+    expect(notify.mock.calls[0]?.[1]).toBe("warning");
+  });
+
   it("preserves compact plan order through sequential lifecycle application", async () => {
     const { api, handlers } = fakeApi();
     const planner = createHookEventPlanner({ catalog: catalog([snapshot({ kind: "user" }, [hook("PostCompact", "manual", [], "a"), hook("SessionStart", "compact", [], "b")])]) });

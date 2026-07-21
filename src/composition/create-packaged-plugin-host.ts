@@ -1,5 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
+import { join } from "node:path";
+import { createHookFailureLog } from "../runtime/hooks/hook-failure-log.js";
 import { VERSION as PI_VERSION, getAgentDir, type ExtensionCommandContext, type ExtensionContext, type SessionShutdownEvent, type SessionStartEvent } from "@earendil-works/pi-coding-agent";
 import { createCompatibilityService } from "../application/compatibility-service.js";
 import { createGenerationMutationCoordinator } from "../application/generation-mutation-coordinator.js";
@@ -242,6 +244,7 @@ export function createPackagedPluginHost(options: PackagedPluginHostOptions): Pa
           leases: recoveryAdapters.leases,
           clock,
           sha256,
+          failureLog: createHookFailureLog({ file: join(paths.hostRoot, "logs", "hooks.jsonl") }),
           ...(qualification.subagents.lifecycle === undefined ? {} : { subagents: qualification.subagents.lifecycle }),
         });
         own(() => skillHook.close());

@@ -101,7 +101,7 @@ describe("subagent hook coordinator", () => {
     await fixture.coordinator.dispose();
   });
 
-  it("maps start block, execution failure, and cancellation fail closed", async () => {
+  it("aborts only on explicit start blocks and runs unhooked after execution failures", async () => {
     const blocked = setup([hook("SubagentStart", "reviewer", [], "b")], async (plan) => ({
       kind: "completed",
       handlers: [parsed(plan, 0, { stop: { reason: "safe block" } })],
@@ -115,9 +115,9 @@ describe("subagent hook coordinator", () => {
       kind: "failed",
       diagnostics: [],
     }));
-    await expect(failed.coordinator.beforeStart(startRequest())).resolves.toMatchObject({
-      action: "abort",
-      code: "hook-failed",
+    await expect(failed.coordinator.beforeStart(startRequest())).resolves.toEqual({
+      action: "continue",
+      prompt: "EXACT_PROMPT_SECRET_CANARY",
     });
 
     const controller = new AbortController();
@@ -180,14 +180,15 @@ describe("subagent hook coordinator", () => {
     await fixture.coordinator.dispose();
   });
 
-  it("fails an unknown claimed parent only when matching hooks are active", async () => {
+  it("runs unhooked when a claimed parent session is unknown", async () => {
     const resolve = vi.fn(async () => undefined);
     const fixture = setup([hook("SubagentStart", "reviewer", [], "b")], async () => ({ kind: "completed", handlers: [] }), resolve);
-    await expect(fixture.coordinator.beforeStart(startRequest())).resolves.toMatchObject({
-      action: "abort",
-      code: "hook-failed",
+    await expect(fixture.coordinator.beforeStart(startRequest())).resolves.toEqual({
+      action: "continue",
+      prompt: "EXACT_PROMPT_SECRET_CANARY",
     });
     expect(resolve).toHaveBeenCalledWith(session().sessionId, expect.any(AbortSignal));
+    expect(fixture.executor.execute).not.toHaveBeenCalled();
     await fixture.coordinator.dispose();
   });
 
@@ -201,14 +202,18 @@ describe("subagent hook coordinator", () => {
     });
   });
 
-  it("does not mix current-project authority", async () => {
+  it("does not mix current-project authority and runs unhooked on mismatch", async () => {
     const resolve = vi.fn(async () => session({ currentProject: { ...project, trust: { kind: "untrusted" } } }));
     const fixture = setup([hook("SubagentStart", "reviewer", [], "b")], async () => ({ kind: "completed", handlers: [] }), resolve);
-    await expect(fixture.coordinator.beforeStart(startRequest())).resolves.toMatchObject({ action: "abort", code: "hook-failed" });
+    await expect(fixture.coordinator.beforeStart(startRequest())).resolves.toEqual({
+      action: "continue",
+      prompt: "EXACT_PROMPT_SECRET_CANARY",
+    });
+    expect(fixture.executor.execute).not.toHaveBeenCalled();
     await fixture.coordinator.dispose();
   });
 
-  it("fails closed when the parent session changes between planning and execution", async () => {
+  it("runs unhooked when the parent session changes between planning and execution", async () => {
     const planned = session();
     const replaced = session({ cwd: "/workspace/replaced" });
     const resolve = vi.fn()
@@ -220,16 +225,16 @@ describe("subagent hook coordinator", () => {
       resolve,
     );
 
-    await expect(fixture.coordinator.beforeStart(startRequest())).resolves.toMatchObject({
-      action: "abort",
-      code: "hook-failed",
+    await expect(fixture.coordinator.beforeStart(startRequest())).resolves.toEqual({
+      action: "continue",
+      prompt: "EXACT_PROMPT_SECRET_CANARY",
     });
     expect(fixture.executor.execute).not.toHaveBeenCalled();
     expect(resolve).toHaveBeenCalledTimes(2);
     await fixture.coordinator.dispose();
   });
 
-  it("maps resolver abort-shaped failures to a typed hook failure when no signal aborted", async () => {
+  it("runs unhooked when the session resolver fails without a caller abort", async () => {
     const resolve = vi.fn(async () => {
       throw new DOMException("adapter stopped", "AbortError");
     });
@@ -239,9 +244,9 @@ describe("subagent hook coordinator", () => {
       resolve,
     );
 
-    await expect(fixture.coordinator.beforeStart(startRequest())).resolves.toMatchObject({
-      action: "abort",
-      code: "hook-failed",
+    await expect(fixture.coordinator.beforeStart(startRequest())).resolves.toEqual({
+      action: "continue",
+      prompt: "EXACT_PROMPT_SECRET_CANARY",
     });
     await fixture.coordinator.dispose();
   });

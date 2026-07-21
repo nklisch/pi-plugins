@@ -61,11 +61,15 @@ export const HookOutputEventPolicyRegistry = Object.freeze(
       : ["UserPromptSubmit", "PreToolUse", "PreCompact", "SubagentStart"].includes(event)
         ? "block"
         : "unsupported",
-    failClosed: ["UserPromptSubmit", "PreToolUse", "PreCompact", "Stop", "SubagentStart", "SubagentStop"].includes(event),
+    // Every boundary fails OPEN on infrastructure failure: a broken hook is
+    // observability noise, never a reason to eat a prompt, block a tool call,
+    // cancel compaction, or abort a subagent. Explicit hook decisions (exit 2,
+    // decision:block, permission deny) remain fully enforced; only planning
+    // errors, timeouts, spawn failures, and invalid output downgrade to a
+    // warning plus a failure-log record.
   }])) as Readonly<Record<ExecutableHookEvent, Readonly<{
     plain: boolean;
     exitTwo: HookOutputExitTwoMeaning;
-    failClosed: boolean;
   }>>>,
 );
 

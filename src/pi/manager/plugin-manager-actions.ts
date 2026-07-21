@@ -17,7 +17,7 @@ import type { PluginManagerRow } from "./plugin-manager-model.js";
 
 export type PluginManagerActionIntent =
   | Readonly<{ action: "enable" | "disable" | "update"; row: PluginManagerRow }>
-  | Readonly<{ action: "uninstall-keep" | "uninstall-delete"; row: PluginManagerRow }>
+  | Readonly<{ action: "uninstall-delete"; row: PluginManagerRow }>
   | Readonly<{ action: "install-open" | "install-run"; row: PluginManagerRow; snapshotId: string; detailId: string }>
   | Readonly<{ action: "install-apply" | "install-recover"; token: string }>
   | Readonly<{ action: "marketplace-add"; source: string; sourceKind?: "github" | "git" | "local-git"; ref?: string }>
@@ -120,14 +120,16 @@ function actionArgv(intent: PluginManagerActionIntent, confirmed: boolean): read
       confirmed,
     });
   }
-  if (intent.action === "uninstall-keep" || intent.action === "uninstall-delete") {
+  if (intent.action === "uninstall-delete") {
     const row = exactRow(intent.row);
+    // Removal always deletes persistent data; keeping data behind is what
+    // Disable is for.
     return nativeControlArgv("lifecycle.uninstall", [row.plugin], {
       scope: row.scope,
       snapshotId: row.snapshotId,
       detailId: row.detailId,
       confirmed,
-      [intent.action === "uninstall-delete" ? "deleteData" : "keepData"]: true,
+      deleteData: true,
     });
   }
   if (intent.action === "install-open" || intent.action === "install-run") {
@@ -165,7 +167,7 @@ function destination(intent: PluginManagerActionIntent): PluginManagerDestinatio
 }
 
 function activating(intent: PluginManagerActionIntent): boolean {
-  return ["enable", "disable", "update", "update-all", "uninstall-keep", "uninstall-delete", "install-run", "install-apply", "install-recover", "project-sync"].includes(intent.action);
+  return ["enable", "disable", "update", "update-all", "uninstall-delete", "install-run", "install-apply", "install-recover", "project-sync"].includes(intent.action);
 }
 
 /** One foreground facade mutation with fresh confirmation, exact frame, abort, and reload semantics. */

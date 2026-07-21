@@ -41,6 +41,12 @@ function hasFailure(value: AggregatedHookDecision): boolean {
   return value.diagnostics.length > 0;
 }
 
+function summarizeDiagnostics(value: AggregatedHookDecision): string {
+  const codes = [...new Set(value.diagnostics.map((diagnostic) => diagnostic.code))].join(", ");
+  const plugins = [...new Set(value.diagnostics.map((diagnostic) => diagnostic.plugin))].join(", ");
+  return `${codes}${plugins.length === 0 ? "" : ` · ${plugins}`}`;
+}
+
 export function createPiHookDecisionAdapter(input: Readonly<{
   pi: Pick<ExtensionAPI, "sendMessage" | "setSessionName">;
 }>): PiHookDecisionAdapter {
@@ -75,15 +81,22 @@ export function createPiHookDecisionAdapter(input: Readonly<{
     return { block: true, reason: reason(value.block?.reason, value.diagnostics[0]?.message ?? "Hook blocked this operation") };
   }
 
+  // Infrastructure diagnostics warn and the boundary continues; only
+  // explicit hook decisions (block / deny / stop) change behavior.
+  function warnFailures(ctx: ExtensionContext, value: AggregatedHookDecision): void {
+    if (!hasFailure(value) || !ctx.hasUI) return;
+    ctx.ui.notify(`Hook failed for ${value.event} (${summarizeDiagnostics(value)}); continuing best-effort.`, "warning");
+  }
+
   async function applyInput(event: InputEvent, ctx: ExtensionContext, value: AggregatedHookDecision): Promise<InputEventResult | undefined> {
-    if (hasFailure(value)) return { action: "handled" };
+    warnFailures(ctx, value);
     sendContext(ctx, value);
     if (value.block !== undefined || value.stop !== undefined || value.permission?.kind === "deny") return { action: "handled" };
     return undefined;
   }
 
   async function applyToolCall(event: ToolCallEvent, ctx: ExtensionContext, value: AggregatedHookDecision): Promise<ToolCallEventResult | undefined> {
-    if (hasFailure(value)) return blocked(value);
+    warnFailures(ctx, value);
     if (value.block !== undefined || value.permission?.kind === "deny") return blocked(value);
     sendContext(ctx, value);
     if (value.permission?.kind === "ask" && !(await ask(ctx))) {
@@ -100,27 +113,27 @@ export function createPiHookDecisionAdapter(input: Readonly<{
   }
 
   async function applyToolResult(_event: ToolResultEvent, ctx: ExtensionContext, value: AggregatedHookDecision): Promise<ToolResultEventResult | undefined> {
-    if (hasFailure(value)) return undefined;
+    warnFailures(ctx, value);
     sendContext(ctx, value);
     if (value.updatedToolOutput !== undefined && value.event === "PostToolUse") return { details: cloneJson(value.updatedToolOutput) };
     return undefined;
   }
 
   async function applyBeforeCompact(ctx: ExtensionContext, value: AggregatedHookDecision): Promise<SessionBeforeCompactResult | undefined> {
-    if (hasFailure(value)) return { cancel: true };
+    warnFailures(ctx, value);
     sendContext(ctx, value);
     if (value.block !== undefined || value.stop !== undefined || value.continuation !== undefined) return { cancel: true };
     return undefined;
   }
 
   async function applyLifecycle(ctx: ExtensionContext, value: AggregatedHookDecision): Promise<void> {
-    if (hasFailure(value)) return;
+    warnFailures(ctx, value);
     sendContext(ctx, value);
     if (value.stop !== undefined || value.continuation !== undefined) ctx.abort();
   }
 
   async function applyStop(ctx: ExtensionContext, value: AggregatedHookDecision): Promise<void> {
-    if (hasFailure(value)) return;
+    warnFailures(ctx, value);
     sendContext(ctx, value);
   }
 

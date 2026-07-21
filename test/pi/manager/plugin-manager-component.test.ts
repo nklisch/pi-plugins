@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CURSOR_MARKER, Key, matchesKey } from "@earendil-works/pi-tui";
 import { PluginManagerComponent } from "../../../src/pi/manager/plugin-manager-component.js";
 import { createPluginManagerState, pluginManagerReducer, type PluginManagerIntent, type PluginManagerState } from "../../../src/pi/manager/plugin-manager-model.js";
+import { trustedInstallFlowFixture } from "../../fixtures/trusted-install/plugin-install-flow.js";
 
 function harness() {
   let state = createPluginManagerState();
@@ -111,6 +112,38 @@ describe("plugin manager component", () => {
       { type: "action", action: "update-all" },
       { type: "action", action: "update" },
     ]));
+  });
+
+  it("toggles enable/disable with d and removes with x from exact detail evidence", () => {
+    const h = harness();
+    const row = {
+      key: { subject: "installed" as const, key: "user:demo", snapshotId: "snapshot", detailId: "detail" },
+      title: "demo", subtitle: "market · user", status: "installed", scope: "user" as const, plugin: "demo@market",
+      completion: { category: "plugin" as const, value: "demo@market", safe: { text: "demo", escaped: false, truncated: false } }, data: {},
+    };
+    let state = pluginManagerReducer(createPluginManagerState(), { type: "page-loading", request: 1, append: false });
+    state = pluginManagerReducer(state, { type: "page-loaded", request: 1, rows: [row], append: false });
+    // Without exact detail evidence the shortcuts are inert.
+    h.setState(state);
+    h.component.handleInput("d");
+    h.component.handleInput("x");
+    expect(h.intents.filter((intent) => intent.type === "action")).toEqual([]);
+    state = pluginManagerReducer(state, { type: "detail-loading", request: 1, row: row.key });
+    state = pluginManagerReducer(state, {
+      type: "detail-loaded", request: 1, row: row.key, open: false,
+      envelope: { data: { kind: "found", detail: { ...trustedInstallFlowFixture.chooseInspect, lifecycle: { ...trustedInstallFlowFixture.chooseInspect.lifecycle, activationIntent: "enabled", update: "current" } } } } as never,
+    });
+    h.setState(state);
+    h.component.handleInput("d");
+    h.component.handleInput("x");
+    expect(h.intents).toEqual(expect.arrayContaining([
+      { type: "action", action: "disable" },
+      { type: "action", action: "uninstall-delete" },
+    ]));
+    // The query pane owns printable keys; shortcuts never fire while searching.
+    h.component.handleInput("/");
+    h.component.handleInput("d");
+    expect(h.intents.filter((intent) => intent.type === "action")).toHaveLength(2);
   });
 
   it("runs a mutating action without closing the manager surface", () => {

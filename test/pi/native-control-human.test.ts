@@ -39,7 +39,7 @@ describe("native control human projection", () => {
     expect(text).not.toContain('"commands"');
   });
 
-  it("bounds and terminal-sanitizes projected data", () => {
+  it("never dumps raw result JSON for unknown commands", () => {
     const envelope = {
       command: { id: "status", path: ["status"] },
       status: "ok",
@@ -49,8 +49,43 @@ describe("native control human projection", () => {
       diagnostics: [],
     } as never;
     const text = nativeControlHumanLines(envelope).join("\n");
-    expect(text.length).toBeLessThan(70_000);
+    expect(text.length).toBeLessThan(1_000);
     expect(text).not.toContain("\u001b");
-    expect(text).toContain("result truncated");
+    expect(text).not.toContain('"value"');
+    expect(text).toContain("status: ok");
+  });
+
+  it("renders lifecycle uninstall results as concise lines instead of JSON", () => {
+    const envelope = {
+      command: { id: "lifecycle.uninstall", path: ["remove"] },
+      status: "ok",
+      exit: { classification: "success", code: 0 },
+      data: {
+        kind: "succeeded",
+        operation: "uninstall",
+        previewId: "native-operation-preview-v1:sha256:" + "a".repeat(64),
+        progress: [],
+        diagnostics: [],
+        effects: { state: "changed", projectFile: "unchanged", completedActionIds: [], pendingActionIds: [] },
+        before: {
+          scope: { kind: "user" },
+          plugin: "demo@catalog",
+          stateGeneration: 3,
+          selectedRevision: "sha256:" + "b".repeat(64),
+          activation: "enabled",
+          targetDigest: "sha256:" + "c".repeat(64),
+          inspectionSnapshotId: "inspection-snapshot-v1:sha256:" + "d".repeat(64),
+          detailId: "inspection-detail-v1:e30." + "e".repeat(64),
+          transition: "none",
+        },
+        cleanup: { persistentData: "deleted", configuration: "retained", trust: "retained", revisions: "collection-deferred" },
+      },
+      human: [],
+      diagnostics: [],
+    } as never;
+    const text = nativeControlHumanLines(envelope).join("\n");
+    expect(text).toContain("demo@catalog · uninstall · succeeded");
+    expect(text).toContain("persistent data deleted");
+    expect(text).not.toContain('"kind"');
   });
 });

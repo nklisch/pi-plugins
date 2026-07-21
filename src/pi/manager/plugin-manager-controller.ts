@@ -410,6 +410,12 @@ export function createPluginManagerController(input: Readonly<{
             // Refresh behind the result screen so Escape returns to current
             // authoritative state (especially after adding/removing a source).
             await refresh("all");
+            if (result.envelope.status === "ok" || result.envelope.status === "no-change") {
+              // A successful routine mutation needs no read-out: return to the
+              // refreshed rows, where the flipped status is the confirmation.
+              // Failures keep the result view so diagnostics stay visible.
+              apply({ type: "intent", intent: { type: "return-manager" } });
+            }
           } catch {
             if (closed) return;
             apply({ type: "intent", intent: { type: "return-manager" } });

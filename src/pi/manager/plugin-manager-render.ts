@@ -268,9 +268,9 @@ function footer(state: PluginManagerState, theme: Theme, keybindings: Keybinding
   }
   const confirm = key("tui.select.confirm", "enter");
   const interrupt = key("app.interrupt", "escape");
-  if (width < 60) return theme.fg("dim", `a add · m marketplaces · ${confirm} details · esc close`);
-  if (width < 90) return theme.fg("dim", `a add · u update · m marketplaces · ${confirm} details · ${interrupt} close`);
-  return theme.fg("dim", `${move} · ←/→ lens · a add · u update · ctrl+u all · m marketplaces · ${confirm} details · ${interrupt} close`);
+  if (width < 60) return theme.fg("dim", `a add · x remove · ${confirm} details · esc close`);
+  if (width < 90) return theme.fg("dim", `a add · d disable · x remove · u update · ${confirm} details · ${interrupt} close`);
+  return theme.fg("dim", `${move} · ←/→ lens · a add · d disable · x remove · u update · ctrl+u all · m marketplaces · ${confirm} details · ${interrupt} close`);
 }
 
 export function renderPluginManager(input: Readonly<{

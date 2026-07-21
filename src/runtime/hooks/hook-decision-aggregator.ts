@@ -1,7 +1,6 @@
 import type { JsonValue } from "../../domain/schema.js";
 import { HOOK_MAX_AGGREGATED_TEXT_BYTES } from "../../domain/hook-runtime-limits.js";
 import type { AggregatedHookDecision, ParsedHookDecision } from "../../domain/hook-output-contract.js";
-import { HookOutputEventPolicyRegistry } from "../../domain/hook-output-contract.js";
 import type { ForeignHookInput } from "./event-contract.js";
 import { createHookRuntimeDiagnostic, type HookRuntimeDiagnostic } from "./hook-runtime-diagnostic.js";
 
@@ -39,7 +38,13 @@ function empty(event: AggregatedHookDecision["event"], diagnostics: readonly Hoo
   });
 }
 
-/** Fold only source-ordered, callback-sanitized decisions. */
+/**
+ * Fold source-ordered, callback-sanitized decisions. One broken hook no
+ * longer discards the explicit decisions of healthy hooks: diagnostics ride
+ * alongside the folded result so callers can warn and log while still
+ * honoring real block/permission/context decisions. The aggregate-limit
+ * collapse below remains total because partial output cannot be trusted.
+ */
 export function aggregateHookDecisions(input: Readonly<{
   event: AggregatedHookDecision["event"];
   originalInput: ForeignHookInput;
@@ -47,9 +52,6 @@ export function aggregateHookDecisions(input: Readonly<{
 }>): AggregatedHookDecision {
   const ordered = [...input.decisions].sort((left, right) => sourceOrder(left).localeCompare(sourceOrder(right)));
   const diagnostics = ordered.filter(isDiagnostic);
-  if (diagnostics.length > 0) {
-    return empty(input.event, diagnostics);
-  }
 
   const contexts: string[] = [];
   const systemMessages: string[] = [];
@@ -63,7 +65,8 @@ export function aggregateHookDecisions(input: Readonly<{
   let title: string | undefined;
   let continuation: Readonly<{ reason?: string }> | undefined;
 
-  for (const decision of ordered as readonly ParsedHookDecision[]) {
+  const decisions = ordered.filter((value): value is ParsedHookDecision => !isDiagnostic(value));
+  for (const decision of decisions) {
     for (const context of decision.contexts) {
       contexts.push(context);
       textBytes += new TextEncoder().encode(context).byteLength;
@@ -120,10 +123,6 @@ export function aggregateHookDecisions(input: Readonly<{
     ...(stop === undefined ? {} : { stop }),
     ...(title === undefined ? {} : { title }),
     ...(continuation === undefined ? {} : { continuation }),
-    diagnostics: Object.freeze([]),
+    diagnostics: Object.freeze([...diagnostics]),
   });
-}
-
-export function eventFailsClosed(event: AggregatedHookDecision["event"]): boolean {
-  return HookOutputEventPolicyRegistry[event as keyof typeof HookOutputEventPolicyRegistry]?.failClosed ?? true;
 }

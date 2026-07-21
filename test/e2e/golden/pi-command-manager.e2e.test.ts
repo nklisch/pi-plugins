@@ -101,8 +101,8 @@ describe("packed headless and native Pi manager parity", () => {
     mark = pty.mark();
     // Field → disclosure → back → Add plugin; the disclosure is never a gate.
     pty.send("\u001b[B\u001b[B\u001b[B\r");
-    await pty.waitFor("Step 2/2 · Activation result", mark, 120_000);
-    expect(pty.semanticOutput().slice(mark)).toContain("succeeded");
+    await pty.waitFor("Added core-local", mark, 120_000);
+    expect(pty.semanticOutput().slice(mark)).toContain("session reloaded");
     await pty.shutdown();
   });
 });

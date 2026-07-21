@@ -15,6 +15,7 @@ import {
 import type { GuardedCommandHookExecutor } from "../hooks/guarded-command-executor.js";
 import type { SubagentHookEventPlanner } from "../hooks/hook-event-planner.js";
 import type { SubagentHookSessionContextPort } from "./subagent-hook-session-context.js";
+import { createNullHookFailureLog, type HookFailureLog } from "../hooks/hook-failure-log.js";
 
 const START_BLOCK_REASON = "Subagent start was blocked by a configured hook";
 const HOOK_FAILURE_REASON = "Subagent hook execution could not be accepted";
@@ -43,7 +44,7 @@ function runtimeAbortDecision(
       };
 }
 
-function hookFailureDecision(
+function invalidRequestDecision(
   boundary: "start" | "completion",
 ): SubagentStartDecision | SubagentCompletionDecision {
   return boundary === "start"
@@ -93,6 +94,7 @@ export function createSubagentHookCoordinator(input: Readonly<{
   sessions: SubagentHookSessionContextPort;
   runtimeSignal: AbortSignal;
   continuationBudget: number;
+  failureLog?: HookFailureLog;
 }>): SubagentHookCoordinator {
   if (
     input === null ||
@@ -115,6 +117,7 @@ export function createSubagentHookCoordinator(input: Readonly<{
   }
 
   const disposed = new AbortController();
+  const failureLog = input.failureLog ?? createNullHookFailureLog();
   let disposePromise: Promise<void> | undefined;
 
   function runtimeUnavailable(): boolean {
@@ -129,6 +132,24 @@ export function createSubagentHookCoordinator(input: Readonly<{
     request: SubagentCompletionRequest,
   ): SubagentCompletionDecision {
     return { action: "complete", result: request.proposedResult };
+  }
+
+  // Hook infrastructure failures never abort a subagent: the child runs
+  // unhooked and the failure log carries the exact code for debugging.
+  function failOpen(
+    boundary: "start" | "completion",
+    request: SubagentStartRequest | SubagentCompletionRequest,
+    code: string,
+  ): SubagentStartDecision | SubagentCompletionDecision {
+    failureLog.record({
+      at: Date.now(),
+      event: boundary === "start" ? "SubagentStart" : "SubagentStop",
+      phase: "execution",
+      code,
+    });
+    return boundary === "start"
+      ? noOpStart(request as SubagentStartRequest)
+      : noOpCompletion(request as SubagentCompletionRequest);
   }
 
   type SelectedPlan = Readonly<{
@@ -147,7 +168,7 @@ export function createSubagentHookCoordinator(input: Readonly<{
         return undefined;
       }
     } catch {
-      return hookFailureDecision(boundary);
+      return failOpen(boundary, request, "HOOK_CATALOG_UNAVAILABLE");
     }
     const parentSessionId = request.identity.parentSessionId;
     if (parentSessionId === undefined) return undefined;
@@ -158,16 +179,16 @@ export function createSubagentHookCoordinator(input: Readonly<{
     } catch {
       if (request.signal.aborted) throw cancellationReason(request.signal);
       if (runtimeUnavailable()) return runtimeAbortDecision(boundary);
-      return hookFailureDecision(boundary);
+      return failOpen(boundary, request, "HOOK_SESSION_UNAVAILABLE");
     }
     if (request.signal.aborted) throw cancellationReason(request.signal);
     if (runtimeUnavailable()) return runtimeAbortDecision(boundary);
-    if (session === undefined) return hookFailureDecision(boundary);
+    if (session === undefined) return failOpen(boundary, request, "HOOK_SESSION_UNAVAILABLE");
 
     try {
       const parsedSession = HookSessionEvidenceSchema.parse(session);
       if (parsedSession.sessionId !== parentSessionId) {
-        return hookFailureDecision(boundary);
+        return failOpen(boundary, request, "HOOK_SESSION_MISMATCH");
       }
       const result = boundary === "start"
         ? input.planner.plan({
@@ -189,11 +210,11 @@ export function createSubagentHookCoordinator(input: Readonly<{
             signal,
           });
       if (result.kind !== "ready" || result.plans.length !== 1) {
-        return hookFailureDecision(boundary);
+        return failOpen(boundary, request, result.kind === "failed" ? result.code : "HOOK_INVALID_PLAN");
       }
       return Object.freeze({ plan: result.plans[0]!, session: parsedSession });
     } catch {
-      return hookFailureDecision(boundary);
+      return failOpen(boundary, request, "HOOK_PLANNING_FAILED");
     }
   }
 
@@ -215,7 +236,7 @@ export function createSubagentHookCoordinator(input: Readonly<{
         await input.sessions.resolve(request.identity.parentSessionId!, signal),
       );
       if (!sameSessionEvidence(selected.session, currentSession)) {
-        return hookFailureDecision(boundary);
+        return failOpen(boundary, request, "HOOK_SESSION_MISMATCH");
       }
       result = await input.executor.execute(plan, {
         currentProject: currentSession.currentProject,
@@ -224,19 +245,28 @@ export function createSubagentHookCoordinator(input: Readonly<{
     } catch {
       if (request.signal.aborted) throw cancellationReason(request.signal);
       if (runtimeUnavailable()) return runtimeAbortDecision(boundary);
-      return hookFailureDecision(boundary);
+      return failOpen(boundary, request, "HOOK_EXECUTION_FAILED");
     }
     if (request.signal.aborted) throw cancellationReason(request.signal);
     if (runtimeUnavailable()) return runtimeAbortDecision(boundary);
-    if (result.kind !== "completed") return hookFailureDecision(boundary);
+    if (result.kind !== "completed") return failOpen(boundary, request, "HOOK_EXECUTION_FAILED");
     const aggregate = aggregateHookDecisions({
       event: plan.event,
       originalInput: plan.input,
       decisions: result.handlers,
     });
-    return aggregate.diagnostics.length === 0
-      ? aggregate
-      : hookFailureDecision(boundary);
+    for (const diagnostic of aggregate.diagnostics) {
+      failureLog.record({
+        at: Date.now(),
+        event: aggregate.event,
+        phase: "execution",
+        code: diagnostic.code,
+        plugin: diagnostic.plugin,
+        componentId: diagnostic.componentId,
+        detail: diagnostic.message,
+      });
+    }
+    return aggregate;
   }
 
   async function beforeStart(
@@ -255,7 +285,7 @@ export function createSubagentHookCoordinator(input: Readonly<{
         signal: requestInput.signal,
       });
     } catch {
-      return hookFailureDecision("start") as SubagentStartDecision;
+      return invalidRequestDecision("start") as SubagentStartDecision;
     }
     if (request.identity.parentSessionId === undefined) return noOpStart(request);
     const signal = AbortSignal.any([
@@ -300,7 +330,7 @@ export function createSubagentHookCoordinator(input: Readonly<{
         signal: requestInput.signal,
       });
     } catch {
-      return hookFailureDecision("completion") as SubagentCompletionDecision;
+      return invalidRequestDecision("completion") as SubagentCompletionDecision;
     }
     if (request.identity.parentSessionId === undefined) return noOpCompletion(request);
     const signal = AbortSignal.any([

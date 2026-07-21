@@ -50,7 +50,7 @@ describe("ordered hook decision aggregation", () => {
     expect(result.title).toBe("later");
   });
 
-  it("gives deny precedence over ask and allow and suppresses partial results on an error", () => {
+  it("gives deny precedence over ask and allow and keeps healthy decisions alongside an error", () => {
     const input = buildUserPromptSubmitInput(session(), "hello", "interactive", undefined);
     const deny = decision(1, { permission: { kind: "deny", reason: "deny" }, contexts: ["unsafe"] });
     const ask = decision(0, { permission: { kind: "ask", reason: "ask" }, contexts: ["safe"] });
@@ -58,10 +58,12 @@ describe("ordered hook decision aggregation", () => {
     expect(result.permission).toEqual({ kind: "deny", reason: "deny" });
     expect(result.contexts).toEqual(["safe", "unsafe"]);
 
+    // One broken hook no longer suppresses the healthy hook's decisions;
+    // the diagnostic rides alongside so callers can warn and log.
     const diagnostic = createHookRuntimeDiagnostic(binding(1), "UserPromptSubmit", "HOOK_INVALID_OUTPUT");
     const failed = aggregateHookDecisions({ event: "UserPromptSubmit", originalInput: input, decisions: [ask, diagnostic] });
-    expect(failed.contexts).toEqual([]);
-    expect(failed.permission).toBeUndefined();
+    expect(failed.contexts).toEqual(["safe"]);
+    expect(failed.permission).toEqual({ kind: "ask", reason: "ask" });
     expect(failed.diagnostics).toEqual([diagnostic]);
   });
 
