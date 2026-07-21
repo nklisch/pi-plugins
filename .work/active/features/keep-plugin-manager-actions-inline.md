@@ -40,7 +40,7 @@ Make the plugin catalog one stable surface containing both installed and availab
 
 ## Mockups
 
-- `.mockups/screens/keep-plugin-manager-actions-inline/catalog.html`
+- `.mockups/screens/simplify-plugin-manager-experience/manager.html`
 
 ## Implementation notes
 

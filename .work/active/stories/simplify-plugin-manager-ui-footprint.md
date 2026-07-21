@@ -44,4 +44,4 @@ Reuse the interaction footprint of Pi's `/settings` and `SelectList`: one select
 
 ## Mockups
 
-- `.mockups/screens/simplify-plugin-manager-ui-footprint/manager.html`
+- `.mockups/screens/simplify-plugin-manager-experience/manager.html`
