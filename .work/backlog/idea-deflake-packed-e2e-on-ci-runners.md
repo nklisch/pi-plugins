@@ -29,3 +29,12 @@ pre-build more in global setup; identify the slowest ~5 tests under
 instead of hoping the scale factor covers host variance; or shard the suite
 across two CI jobs (fileParallelism is off today, so sharding by directory
 would keep determinism while halving per-job load).
+
+## Progress
+
+- 2026-07-21: vitest's own `testTimeout`/`hookTimeout` now honor
+  `PI_PLUGIN_HOST_E2E_TIMEOUT_SCALE` (vitest.e2e.config.ts). Root cause of
+  the recurring `concurrency-presentation-security` masked-activation
+  failure: the test consistently takes ~140 s on CI runners against a fixed
+  120 s vitest budget while its internal waits were already 2x-scaled.
+  Remaining: profiling/sharding directions above.
