@@ -51,10 +51,18 @@ function resultLines(result: TrustedInstallActivationResult, theme: Theme): stri
   } else if (result.kind === "current-state") {
     lines.push(`${safe(result.plugin)} already ${safe(result.activation)} · ${safe(result.reason)}`);
   } else if (result.kind === "recovery-required") {
+    const culprit = "progress" in result
+      ? [...result.progress].reverse().find((event) => event.state === "failed") ?? [...result.progress].reverse().find((event) => event.code !== undefined)
+      : undefined;
     lines.push(
-      `Recovery action: ${safe(result.action)}`,
-      result.session === undefined ? "Host recovery remains authoritative; return to status after reload." : "Review the renewed owner session before retrying recovery.",
-      "Committed owner evidence is retained; cancellation does not override it.",
+      "The plugin was committed, but post-activation checks did not all pass.",
+      ...(culprit === undefined ? [] : [`Failed at: ${safe(culprit.phase)}${culprit.code === undefined ? "" : ` · ${safe(culprit.code)}`}`]),
+      result.action === "run-recovery"
+        ? "Next step: press enter to run host recovery (run-recovery, safe to retry)."
+        : `Next step: review the renewed session, then retry recovery (${safe(result.action)}).`,
+      result.session === undefined
+        ? "Host recovery stays authoritative; /plugin health shows the pending state."
+        : "Committed evidence is retained; leaving this screen does not undo it.",
     );
   } else if (result.kind === "rolled-back") {
     lines.push(`Rollback: ${safe(result.failure)} · ${result.restored ? "restored" : "restore incomplete"}`);
@@ -67,10 +75,9 @@ function resultLines(result: TrustedInstallActivationResult, theme: Theme): stri
   } else if (result.kind === "needs-input") {
     lines.push(...result.issues.map((issue) => `${safe(issue.code)}${issue.key === undefined ? "" : ` · ${safe(issue.key)}`}`));
   }
-  if ("progress" in result) {
-    lines.push("", theme.fg("accent", "Activation evidence"));
-    for (const event of result.progress) lines.push(`#${event.sequence} ${safe(event.phase)} ${safe(event.state)}${event.code === undefined ? "" : ` ${safe(event.code)}`}`);
-  }
+  // The live frames already showed progress while the operation ran, and
+  // only recovery-required reaches this screen now; re-dumping the full
+  // evidence list is the "long unreadable result" users bounce off.
   return lines;
 }
 
@@ -184,7 +191,7 @@ function installContent(state: PluginInstallState, theme: Theme): InstallContent
     : undefined;
   return {
     lines: [
-      plain(theme.fg("accent", theme.bold("Step 2/2 · Activation result"))),
+      plain(theme.fg("accent", theme.bold("Add plugin · Recovery required"))),
       ...(state.result === undefined ? [plain(theme.fg("warning", "Activation result unavailable"))] : resultLines(state.result, theme).map(plain)),
       plain(""),
       choice(state, "continue", recoverySession === undefined ? "Return to installed plugins" : "Review recovery configuration", theme),

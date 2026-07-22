@@ -6,6 +6,7 @@ tags: [tui, compatibility]
 parent: null
 depends_on: []
 release_binding: 0.1.11
+gate_origin: null
 created: 2026-07-21
 updated: 2026-07-21
 ---

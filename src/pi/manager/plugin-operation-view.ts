@@ -1,5 +1,5 @@
 import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, type Component, type TUI } from "@earendil-works/pi-tui";
+import { truncateToWidth, wrapTextWithAnsi, type Component, type TUI } from "@earendil-works/pi-tui";
 import type { NativeControlEnvelope } from "../../application/native-control-contract.js";
 import { TrustedInstallActivationResultSchema } from "../../application/trusted-install-contract.js";
 import { NativeControlFrameSchema, type NativeControlFrame } from "../../application/native-control-progress.js";
@@ -74,7 +74,6 @@ export class PluginOperationView implements Component {
     this.frames.push(frame);
     if (this.frames.length > 200) this.frames.splice(0, this.frames.length - 200);
     if (frame.type === "result") this.envelope = frame.result;
-    this.offset = 0;
   }
 
   finish(envelope: NativeControlEnvelope): void {
@@ -82,7 +81,6 @@ export class PluginOperationView implements Component {
     // The schema-validated final envelope is stronger than any prior progress
     // or local cancellation request and is always rendered last.
     this.envelope = envelope;
-    this.offset = 0;
   }
 
   private content(): string[] {
@@ -112,7 +110,7 @@ export class PluginOperationView implements Component {
         lines.push(...nativeControlHumanLines(this.envelope).map((line) => safe(line)));
       }
     }
-    lines.push(this.theme.fg("dim", this.envelope === undefined ? "Configured up/down/page keys scroll · Escape cancels once and waits" : "Configured up/down/page keys scroll · Escape closes result"));
+    lines.push(this.theme.fg("dim", this.envelope === undefined ? "Escape cancels once and waits" : "Escape closes"));
     return lines;
   }
 
@@ -129,10 +127,10 @@ export class PluginOperationView implements Component {
         this.cancellationRequested = true;
         this.cancel?.();
       }
-    } else if (this.keybindings.matches(data, "tui.select.up") || matchesKey(data, Key.up)) this.offset += 1;
-    else if (this.keybindings.matches(data, "tui.select.down") || matchesKey(data, Key.down)) this.offset = Math.max(0, this.offset - 1);
-    else if (this.keybindings.matches(data, "tui.select.pageUp") || matchesKey(data, Key.pageUp)) this.offset += Math.max(1, this.height() - 2);
-    else if (this.keybindings.matches(data, "tui.select.pageDown") || matchesKey(data, Key.pageDown)) this.offset = Math.max(0, this.offset - Math.max(1, this.height() - 2));
+    }
+    // No scroll keys: the view always shows the live tail (latest progress +
+    // final result). The old bottom-anchored offset moved the window in a way
+    // that read as "arrows push lines off the screen and nothing is selected".
   }
 
   render(width: number): string[] {
@@ -149,8 +147,9 @@ export class PluginOperationView implements Component {
     const wrapped = this.content().flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width)))
       .map((line) => truncateToWidth(line, Math.max(1, width), ""));
     const height = Math.max(1, this.height());
-    const end = Math.max(0, wrapped.length - this.offset);
-    return wrapped.slice(Math.max(0, end - height), end);
+    if (wrapped.length <= height) return wrapped;
+    const omitted = wrapped.length - height + 1;
+    return [this.theme.fg("dim", `… ${omitted} earlier line${omitted === 1 ? "" : "s"} omitted`), ...wrapped.slice(omitted)];
   }
 
   invalidate(): void {}

@@ -9,7 +9,7 @@ const theme = { fg: (_token: string, text: string) => text, bold: (text: string)
 const keybindings = { matches: (data: string, id: string) => (id.includes("cancel") || id === "app.interrupt") && data === "\u001b" } as any;
 
 describe("plugin operation view", () => {
-  it("renders long exact progress/result output bounded and scrollable", () => {
+  it("renders long exact progress/result output bounded to the live tail without scroll keys", () => {
     const cancel = vi.fn();
     const close = vi.fn();
     const view = new PluginOperationView({ theme, keybindings, height: () => 12, cancel, close });
@@ -21,8 +21,11 @@ describe("plugin operation view", () => {
     expect(lines.length).toBeLessThanOrEqual(12);
     expect(lines.every((line) => visibleWidth(line) <= 38)).toBe(true);
     expect(lines.join("\n")).toContain("status ok");
+    expect(lines[0]).toContain("earlier lines omitted");
+    // Arrow keys are inert: the view always shows the live tail.
     view.handleInput("\u001b[A");
-    expect(view.render(38)).not.toEqual(lines);
+    view.handleInput("\u001b[B");
+    expect(view.render(38)).toEqual(lines);
     view.handleInput("\u001b");
     expect(close).toHaveBeenCalledOnce();
     expect(cancel).not.toHaveBeenCalled();

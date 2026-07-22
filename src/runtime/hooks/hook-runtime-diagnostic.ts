@@ -61,6 +61,8 @@ export function createHookRuntimeDiagnostic(
   event: OrdinaryHookEvent | SubagentHookEvent,
   code: HookRuntimeDiagnosticCode,
   severity: "warning" | "error" = "error",
+  /** Underlying cause preserved for the failure log; never user-supplied text. */
+  detail?: string,
 ): HookRuntimeDiagnostic {
   return HookRuntimeDiagnosticSchema.parse({
     code,
@@ -69,6 +71,6 @@ export function createHookRuntimeDiagnostic(
     plugin: binding.plugin,
     componentId: binding.componentId,
     sourceOrder: binding.sourceOrder,
-    message: messages[code],
+    message: detail === undefined ? messages[code] : `${messages[code]} (${detail})`.slice(0, 512),
   });
 }

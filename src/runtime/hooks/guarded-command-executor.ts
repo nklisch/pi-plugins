@@ -75,20 +75,23 @@ function combineSignals(...signals: readonly AbortSignal[]): AbortSignal {
   return AbortSignal.any(valid);
 }
 
-function failureCode(error: unknown): "HOOK_CANCELLED" | "HOOK_TIMEOUT" | "HOOK_OUTPUT_LIMIT" | "HOOK_SPAWN_FAILED" | "HOOK_AUTHORITY_REJECTED" | "HOOK_CONFIGURATION_FAILED" | "HOOK_EXECUTABLE_UNAVAILABLE" {
+function failureCode(error: unknown): Readonly<{ code: "HOOK_CANCELLED" | "HOOK_TIMEOUT" | "HOOK_OUTPUT_LIMIT" | "HOOK_SPAWN_FAILED" | "HOOK_AUTHORITY_REJECTED" | "HOOK_CONFIGURATION_FAILED" | "HOOK_EXECUTABLE_UNAVAILABLE"; detail?: string }> {
   if (error instanceof HookExecutionContextError) {
-    if (error.code === "CONFIGURATION_FAILED") return "HOOK_CONFIGURATION_FAILED";
-    return "HOOK_AUTHORITY_REJECTED";
+    if (error.code === "CONFIGURATION_FAILED") return { code: "HOOK_CONFIGURATION_FAILED" };
+    // The context rejection carries the exact cause (ACTIVE_BINDING_UNAVAILABLE,
+    // BINDING_MISMATCH, CURRENT_PROJECT_MISMATCH, INVALID_REQUEST); collapsing
+    // it away made startup races and stale bindings indistinguishable.
+    return { code: "HOOK_AUTHORITY_REJECTED", detail: error.code };
   }
   if (error !== null && typeof error === "object" && "code" in error) {
     const code = (error as { readonly code?: unknown }).code;
-    if (code === "TIMEOUT") return "HOOK_TIMEOUT";
-    if (code === "OUTPUT_LIMIT") return "HOOK_OUTPUT_LIMIT";
-    if (code === "CANCELLED") return "HOOK_CANCELLED";
-    if (code === "SPAWN_FAILED" || code === "PIPE_FAILED" || code === "STDIN_FAILED" || code === "NULL_EXIT") return "HOOK_SPAWN_FAILED";
+    if (code === "TIMEOUT") return { code: "HOOK_TIMEOUT" };
+    if (code === "OUTPUT_LIMIT") return { code: "HOOK_OUTPUT_LIMIT" };
+    if (code === "CANCELLED") return { code: "HOOK_CANCELLED" };
+    if (code === "SPAWN_FAILED" || code === "PIPE_FAILED" || code === "STDIN_FAILED" || code === "NULL_EXIT") return { code: "HOOK_SPAWN_FAILED" };
   }
-  if (error !== null && typeof error === "object" && "name" in error && (error as { name?: unknown }).name === "AbortError") return "HOOK_CANCELLED";
-  return "HOOK_EXECUTABLE_UNAVAILABLE";
+  if (error !== null && typeof error === "object" && "name" in error && (error as { name?: unknown }).name === "AbortError") return { code: "HOOK_CANCELLED" };
+  return { code: "HOOK_EXECUTABLE_UNAVAILABLE" };
 }
 
 function isAbort(error: unknown, signal: AbortSignal): boolean {
@@ -240,8 +243,8 @@ export function createGuardedCommandHookExecutor(dependencies: Readonly<{
           });
         } catch (error) {
           if (isAbort(error, callerSignal)) cancelled = true;
-          const code = isAbort(error, callerSignal) ? "HOOK_CANCELLED" : failureCode(error);
-          outcomes[index] = createHookRuntimeDiagnostic(binding, plan.event, code);
+          const failure = isAbort(error, callerSignal) ? { code: "HOOK_CANCELLED" as const } : failureCode(error);
+          outcomes[index] = createHookRuntimeDiagnostic(binding, plan.event, failure.code, "error", failure.detail);
         }
       }
     }
