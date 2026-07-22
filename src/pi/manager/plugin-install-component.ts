@@ -2,6 +2,7 @@ import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent"
 import { CURSOR_MARKER, Key, matchesKey, truncateToWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import type { TrustedInstallActivationResult } from "../../application/trusted-install-contract.js";
 import { formatMcpEndpoint, projectTerminalText } from "./pi-terminal-text.js";
+import { plainLifecycleFailure, plainLifecyclePhase } from "../plain-language.js";
 import type { PluginInstallEvent, PluginInstallFocus, PluginInstallState } from "./plugin-install-flow.js";
 
 function safe(value: unknown, limit = 2_048): string {
@@ -55,25 +56,25 @@ function resultLines(result: TrustedInstallActivationResult, theme: Theme): stri
       ? [...result.progress].reverse().find((event) => event.state === "failed") ?? [...result.progress].reverse().find((event) => event.code !== undefined)
       : undefined;
     lines.push(
-      "The plugin was committed, but post-activation checks did not all pass.",
-      ...(culprit === undefined ? [] : [`Failed at: ${safe(culprit.phase)}${culprit.code === undefined ? "" : ` · ${safe(culprit.code)}`}`]),
+      "The plugin was installed, but Pi couldn't confirm it's working yet.",
+      ...(culprit === undefined ? [] : [`It stopped during ${plainLifecyclePhase(culprit.phase)}.`]),
       result.action === "run-recovery"
-        ? "Next step: press enter to run host recovery (run-recovery, safe to retry)."
-        : `Next step: review the renewed session, then retry recovery (${safe(result.action)}).`,
+        ? "Press enter to finish setting it up — this is safe to retry."
+        : "Press enter to review its settings and finish setup.",
       result.session === undefined
-        ? "Host recovery stays authoritative; /plugin health shows the pending state."
-        : "Committed evidence is retained; leaving this screen does not undo it.",
+        ? "If this keeps happening, /plugin → Health shows what's pending."
+        : "Leaving this screen won't uninstall anything.",
     );
   } else if (result.kind === "rolled-back") {
-    lines.push(`Rollback: ${safe(result.failure)} · ${result.restored ? "restored" : "restore incomplete"}`);
+    lines.push(`It couldn't be added — ${plainLifecycleFailure(result.failure)}. The change was undone${result.restored ? "" : "; check /plugin → Health"}.`);
   } else if (result.kind === "rejected" || result.kind === "failed") {
-    lines.push(`Code: ${safe(result.code)}`);
+    lines.push(`It couldn't be added — ${plainLifecycleFailure(result.code)}.`);
   } else if (result.kind === "cancelled") {
-    lines.push(`Cancelled before effect at ${safe(result.phase)}`);
+    lines.push(`Cancelled during ${plainLifecyclePhase(result.phase)} — nothing was installed.`);
   } else if (result.kind === "stale" || result.kind === "conflict") {
-    lines.push(`Authority changed: ${safe(result.reason)} · refresh and explicitly retry`);
+    lines.push("Things changed while installing — go back and try again.");
   } else if (result.kind === "needs-input") {
-    lines.push(...result.issues.map((issue) => `${safe(issue.code)}${issue.key === undefined ? "" : ` · ${safe(issue.key)}`}`));
+    lines.push(...result.issues.map((issue) => `${plainLifecycleFailure(issue.code)}${issue.key === undefined ? "" : ` · ${safe(issue.key)}`}`));
   }
   // The live frames already showed progress while the operation ran, and
   // only recovery-required reaches this screen now; re-dumping the full
@@ -191,7 +192,7 @@ function installContent(state: PluginInstallState, theme: Theme): InstallContent
     : undefined;
   return {
     lines: [
-      plain(theme.fg("accent", theme.bold("Add plugin · Recovery required"))),
+      plain(theme.fg("accent", theme.bold("Add plugin · Result"))),
       ...(state.result === undefined ? [plain(theme.fg("warning", "Activation result unavailable"))] : resultLines(state.result, theme).map(plain)),
       plain(""),
       choice(state, "continue", recoverySession === undefined ? "Return to installed plugins" : "Review recovery configuration", theme),

@@ -29,7 +29,7 @@ describe("signed plugin install flow", () => {
 
     state = pluginInstallReducer(state, { type: "activation-result", result: trustedInstallFlowFixture.activationResult });
     lines = renderPluginInstall({ state, width: 84, height: 30, theme });
-    expect(lines.join("\n")).toContain("Add plugin · Recovery required");
+    expect(lines.join("\n")).toContain("Add plugin · Result");
     expect(lines.join("\n")).toContain("succeeded");
     expect(lines.join("\n")).toContain("1 discoverable skills");
     expect(lines.every((line) => visibleWidth(line) <= 84)).toBe(true);
@@ -45,8 +45,8 @@ describe("signed plugin install flow", () => {
     state = pluginInstallReducer(state, { type: "activation-result", result });
     const output = renderPluginInstall({ state, width: 58, height: 20, theme }).join("\n");
     expect(output).toContain(result.kind);
-    if (result.kind === "recovery-required") expect(output).toContain("run-recovery");
-    if (result.kind === "rolled-back") expect(output).toContain("restored");
+    if (result.kind === "recovery-required") expect(output).toContain("finish setting it up");
+    if (result.kind === "rolled-back") expect(output).toContain("change was undone");
   });
 
   it("retains only non-sensitive values across Back while exact evidence remains current", () => {

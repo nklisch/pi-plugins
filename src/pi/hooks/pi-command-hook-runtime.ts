@@ -21,6 +21,7 @@ import { aggregateHookDecisions } from "../../runtime/hooks/hook-decision-aggreg
 import type { AggregatedHookDecision } from "../../domain/hook-output-contract.js";
 import type { StopContinuationGuard } from "../../runtime/hooks/stop-continuation-guard.js";
 import { createNullHookFailureLog, type HookFailureLog } from "../../runtime/hooks/hook-failure-log.js";
+import { plainHookWarning } from "../plain-language.js";
 
 type SessionBeforeCompactResult = { cancel?: boolean };
 type ToolResultEventResult = { content?: ToolResultEvent["content"]; details?: unknown; isError?: boolean };
@@ -85,12 +86,15 @@ export function registerPiCommandHookRuntime(input: PiCommandHookRuntimeRegistra
   }
 
   // Planning failures fail open everywhere: the boundary proceeds without
-  // hook influence, the user gets one visible warning, and the failure log
-  // keeps the exact code for debugging.
+  // hook influence, the user gets one plain-language warning, and the
+  // failure log keeps the exact code for debugging.
   function planningFailed(ctx: ExtensionContext, event: string, planning: HookPlanningResult): boolean {
     if (planning.kind === "ready") return false;
     logPlanningFailure(event, planning);
-    if (ctx.hasUI) ctx.ui.notify(`Hooks skipped for ${event} (${planning.code}); continuing without them. See ${failureLog.file || "the hook failure log"}.`, "warning");
+    if (ctx.hasUI) {
+      const sentence = plainHookWarning({ event, code: planning.code, ...(planning.plugin === undefined ? {} : { plugin: planning.plugin }) });
+      ctx.ui.notify(failureLog.file === "" ? sentence : `${sentence} Details: ${failureLog.file}`, "warning");
+    }
     return true;
   }
 

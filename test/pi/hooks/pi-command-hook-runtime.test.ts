@@ -140,7 +140,8 @@ describe("Pi command-hook runtime registration", () => {
     expect(execute).not.toHaveBeenCalled();
     expect(decisions.applyInput).not.toHaveBeenCalled();
     expect(notify).toHaveBeenCalledOnce();
-    expect(notify.mock.calls[0]?.[0]).toContain("CURRENT_PROJECT_MISMATCH");
+    expect(notify.mock.calls[0]?.[0]).toContain("the project changed underneath it");
+    expect(notify.mock.calls[0]?.[0]).not.toContain("CURRENT_PROJECT_MISMATCH");
     expect(notify.mock.calls[0]?.[1]).toBe("warning");
   });
 

@@ -322,7 +322,7 @@ def wait_for_retry(token, command, timeout=90):
     tail = bytes(buffer[-12000:]).decode("utf-8", "replace")
     raise RuntimeError("missing TUI token %r after %d attempts; tail=%r" % (token, attempt, tail))
 wait_for("Plugin Host command collision", 0, 60)
-mark = len(buffer); send(("/" + args["command"] + " status\r").encode()); wait_for("Plugin operation", mark, 60); wait_for("Final owner result", mark, 60); send(b"\x1b"); pump(time.monotonic() + 0.5)
+mark = len(buffer); send(("/" + args["command"] + " status\r").encode()); wait_for("Plugin operation", mark, 60); wait_for("Result", mark, 60); send(b"\x1b"); pump(time.monotonic() + 0.5)
 mark = len(buffer); send(b"/reload\r"); wait_for("Plugin Host command collision", mark, 60)
 # The reloaded host admits commands only after session startup completes;
 # retry the presentation command until the manager surface mounts.
@@ -358,7 +358,7 @@ if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
     transcript,
   })], { cwd: workspace, env, timeout: 240_000 });
   const tuiBytes = await readFile(transcript, "utf8");
-  for (const expected of ["Plugins", "Step 1/2", "Added demo@", "session reloaded", "Final owner result", "demo"]) {
+  for (const expected of ["Plugins", "Step 1/2", "Added demo@", "session reloaded", "Result", "demo"]) {
     if (!tuiBytes.includes(expected)) throw new Error(`real Pi PTY transcript missing ${expected}`);
   }
   if (tuiBytes.includes("SECRET-CANARY")) throw new Error("real Pi PTY transcript leaked a secret canary");

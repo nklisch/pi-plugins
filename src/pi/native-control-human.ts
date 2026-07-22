@@ -9,6 +9,7 @@ import {
 } from "../application/native-control-safe-projection.js";
 import { NativeUpdateNotificationPageSchema } from "../application/native-update-contract.js";
 import type { NativeControlEnvelope } from "../application/native-control-contract.js";
+import { plainLifecycleFailure, plainLifecyclePhase } from "./plain-language.js";
 
 function lifecycleLines(envelope: NativeControlEnvelope): readonly string[] | undefined {
   const parsed = NativeLifecycleOperationResultSchema.safeParse(envelope.data);
@@ -20,13 +21,13 @@ function lifecycleLines(envelope: NativeControlEnvelope): readonly string[] | un
   const target = "before" in value ? value.before : "target" in value ? value.target : "restored" in value ? value.restored : undefined;
   const subject = target === undefined ? value.operation : `${target.plugin} · ${value.operation}`;
   const lines = [`${subject} · ${value.kind}`];
-  if (value.kind === "current-state") lines.push(`reason: ${value.reason}`);
+  if (value.kind === "current-state") lines.push("already in the wanted state — nothing to do");
   if (value.kind === "needs-action") lines.push(`${value.actions.length} project sync action${value.actions.length === 1 ? "" : "s"} need attention`);
-  if (value.kind === "cancelled") lines.push(`cancelled during ${value.phase}`);
-  if (value.kind === "stale" || value.kind === "conflict") lines.push(`refresh required · ${value.reason}`);
-  if (value.kind === "rejected" || value.kind === "failed") lines.push(`code: ${value.code}`);
-  if (value.kind === "recovery-required") lines.push(`${value.code} · run recovery`);
-  if (value.kind === "rolled-back") lines.push(`${value.failure} · restored ${value.restored.plugin}`);
+  if (value.kind === "cancelled") lines.push(`cancelled during ${plainLifecyclePhase(value.phase)}`);
+  if (value.kind === "stale" || value.kind === "conflict") lines.push("things changed — refresh and try again");
+  if (value.kind === "rejected" || value.kind === "failed") lines.push(plainLifecycleFailure(value.code));
+  if (value.kind === "recovery-required") lines.push("setup didn't finish — run recovery to complete it");
+  if (value.kind === "rolled-back") lines.push(`${plainLifecycleFailure(value.failure)} · ${value.restored.plugin} was restored`);
   if (value.kind === "succeeded" && value.cleanup !== undefined) {
     lines.push(`persistent data ${value.cleanup.persistentData} · configuration ${value.cleanup.configuration} · trust ${value.cleanup.trust}`);
   }

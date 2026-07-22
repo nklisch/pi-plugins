@@ -12,6 +12,7 @@ import type { AggregatedHookDecision } from "../../domain/hook-output-contract.j
 type SessionBeforeCompactResult = { cancel?: boolean };
 type ToolResultEventResult = { content?: ToolResultEvent["content"]; details?: unknown; isError?: boolean };
 import { HOOK_ASK_TIMEOUT_MS } from "../../domain/hook-runtime-limits.js";
+import { plainHookWarning } from "../plain-language.js";
 
 const CONTEXT_MESSAGE_TYPE = "pi-plugin-host.hook-context-v1";
 
@@ -41,10 +42,11 @@ function hasFailure(value: AggregatedHookDecision): boolean {
   return value.diagnostics.length > 0;
 }
 
-function summarizeDiagnostics(value: AggregatedHookDecision): string {
-  const codes = [...new Set(value.diagnostics.map((diagnostic) => diagnostic.code))].join(", ");
-  const plugins = [...new Set(value.diagnostics.map((diagnostic) => diagnostic.plugin))].join(", ");
-  return `${codes}${plugins.length === 0 ? "" : ` · ${plugins}`}`;
+function firstDiagnosticSentence(value: AggregatedHookDecision): string {
+  const first = value.diagnostics[0];
+  if (first === undefined) return "A plugin's hook didn't run. Continuing without it.";
+  const rest = value.diagnostics.length - 1;
+  return `${plainHookWarning({ event: first.event, code: first.code, plugin: first.plugin })}${rest === 0 ? "" : ` (${rest} more in the hook log)`}`;
 }
 
 export function createPiHookDecisionAdapter(input: Readonly<{
@@ -81,11 +83,12 @@ export function createPiHookDecisionAdapter(input: Readonly<{
     return { block: true, reason: reason(value.block?.reason, value.diagnostics[0]?.message ?? "Hook blocked this operation") };
   }
 
-  // Infrastructure diagnostics warn and the boundary continues; only
-  // explicit hook decisions (block / deny / stop) change behavior.
+  // Infrastructure diagnostics warn in plain language and the boundary
+  // continues; only explicit hook decisions (block / deny / stop) change
+  // behavior. Exact codes stay in the failure log.
   function warnFailures(ctx: ExtensionContext, value: AggregatedHookDecision): void {
     if (!hasFailure(value) || !ctx.hasUI) return;
-    ctx.ui.notify(`Hook failed for ${value.event} (${summarizeDiagnostics(value)}); continuing best-effort.`, "warning");
+    ctx.ui.notify(firstDiagnosticSentence(value), "warning");
   }
 
   async function applyInput(event: InputEvent, ctx: ExtensionContext, value: AggregatedHookDecision): Promise<InputEventResult | undefined> {

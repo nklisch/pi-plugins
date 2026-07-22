@@ -71,7 +71,8 @@ describe("Pi hook decision adapter", () => {
     // Healthy hook output still lands; only the failure is downgraded to a warning.
     expect(sendMessage).toHaveBeenCalledOnce();
     expect(notify).toHaveBeenCalledOnce();
-    expect(notify.mock.calls[0]?.[0]).toContain("HOOK_TIMEOUT");
+    expect(notify.mock.calls[0]?.[0]).toContain("it took too long");
+    expect(notify.mock.calls[0]?.[0]).not.toContain("HOOK_TIMEOUT");
     expect(notify.mock.calls[0]?.[1]).toBe("warning");
   });
 
@@ -93,7 +94,8 @@ describe("Pi hook decision adapter", () => {
     expect(result).toBeUndefined();
     expect(sendMessage).toHaveBeenCalledOnce();
     expect(notify).toHaveBeenCalledOnce();
-    expect(notify.mock.calls[0]?.[0]).toContain("HOOK_INVALID_OUTPUT");
+    expect(notify.mock.calls[0]?.[0]).toContain("unexpected response");
+    expect(notify.mock.calls[0]?.[0]).not.toContain("HOOK_INVALID_OUTPUT");
   });
 
   it("still cancels compaction on explicit hook block decisions", async () => {

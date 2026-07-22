@@ -4,6 +4,7 @@ import type { NativeControlEnvelope } from "../../application/native-control-con
 import { TrustedInstallActivationResultSchema } from "../../application/trusted-install-contract.js";
 import { NativeControlFrameSchema, type NativeControlFrame } from "../../application/native-control-progress.js";
 import { nativeControlHumanLines } from "../native-control-human.js";
+import { plainLifecycleFailure } from "../plain-language.js";
 import { projectTerminalText } from "./pi-terminal-text.js";
 
 function safe(value: unknown, limit = 2_048): string {
@@ -90,10 +91,10 @@ export class PluginOperationView implements Component {
       else if (frame.type === "progress") lines.push(`#${frame.sequence} ${safe(frame.phase)} ${safe(frame.state)}${frame.code === undefined ? "" : ` ${safe(frame.code)}`}`);
     }
     if (this.cancellationRequested && this.envelope === undefined) {
-      lines.push(this.theme.fg("warning", "Cancellation requested once; waiting for the owner result."));
+      lines.push(this.theme.fg("warning", "Cancelling — waiting for the plugin host to confirm."));
     }
     if (this.envelope !== undefined) {
-      lines.push(this.theme.fg("accent", "Final owner result"));
+      lines.push(this.theme.fg("accent", "Result"));
       lines.push(`${safe(this.envelope.command.id)} ${safe(this.envelope.status)} · ${safe(this.envelope.exit.classification)} (${this.envelope.exit.code})`);
       const install = TrustedInstallActivationResultSchema.safeParse(this.envelope.data);
       if (install.success) {
@@ -101,9 +102,9 @@ export class PluginOperationView implements Component {
         if (install.data.kind === "succeeded") {
           lines.push(`${safe(install.data.plugin)} · ${safe(install.data.scope.kind)} · ${safe(install.data.revision)}`);
           lines.push(`${install.data.components.skills} skills discoverable · ${install.data.components.hooks} hooks registered · ${install.data.components.mcpServers} MCP servers ready`);
-        } else if (install.data.kind === "recovery-required") lines.push(`recovery action ${safe(install.data.action)}`);
-        else if (install.data.kind === "rolled-back") lines.push(`${safe(install.data.failure)} · ${install.data.restored ? "restored" : "restore incomplete"}`);
-        else if (install.data.kind === "stale" || install.data.kind === "conflict") lines.push(`refresh required · ${safe(install.data.reason)}`);
+        } else if (install.data.kind === "recovery-required") lines.push("setup didn't finish — run recovery from /plugin to complete it");
+        else if (install.data.kind === "rolled-back") lines.push(`couldn't finish — ${plainLifecycleFailure(install.data.failure)} · ${install.data.restored ? "the change was undone" : "check /plugin → Health"}`);
+        else if (install.data.kind === "stale" || install.data.kind === "conflict") lines.push("things changed — refresh and try again");
         if ("progress" in install.data) for (const event of install.data.progress) lines.push(`#${event.sequence} ${safe(event.phase)} ${safe(event.state)}${event.code === undefined ? "" : ` ${safe(event.code)}`}`);
         for (const diagnostic of this.envelope.diagnostics) lines.push(`${safe(diagnostic.severity)} ${safe(diagnostic.code)} · ${safe(diagnostic.action)}`);
       } else {

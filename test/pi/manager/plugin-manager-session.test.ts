@@ -84,7 +84,7 @@ describe("plugin manager live command presentation", () => {
     expect(settle).not.toHaveBeenCalled();
     h.component.handleInput("\u001b");
     h.component.handleInput("\u001b");
-    await vi.waitFor(() => expect(h.component.render(60).join("\n")).toContain("Final owner result"));
+    await vi.waitFor(() => expect(h.component.render(60).join("\n")).toContain("Result"));
     expect(aborts).toBe(1);
     h.component.handleInput("\u001b");
     await pending;

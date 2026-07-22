@@ -17,6 +17,7 @@ import type { PackagedPluginHost } from "../../composition/packaged-plugin-host-
 import type { PluginManagerLiveOperation, PluginManagerPresentation } from "../plugin-command.js";
 import type { PiManagerReloadHandoff, PluginManagerDestination } from "../pi-manager-reload-handoff.js";
 import { nativeControlHumanLines } from "../native-control-human.js";
+import { plainLifecycleFailure } from "../plain-language.js";
 import { ConfirmationSurface, presentConfirmationSurface } from "./confirmation-surface.js";
 import { createPiControlInputPort, type PiInlinePresenter } from "./pi-control-input.js";
 import { createPiManagerFrameSink } from "./pi-manager-frame-sink.js";
@@ -335,13 +336,13 @@ export function createPluginManagerSession(input: Readonly<{
           } else if (activation.data.kind === "current-state") {
             context.ui.notify(`${activation.data.plugin} is already added`, "info");
           } else if (activation.data.kind === "rolled-back") {
-            context.ui.notify(`Add rolled back (${activation.data.failure}) · ${activation.data.restored ? "previous state restored" : "restore incomplete — check /plugin health"}`, "error");
+            context.ui.notify(`Couldn't add it — ${plainLifecycleFailure(activation.data.failure)}. The change was undone${activation.data.restored ? "" : "; check /plugin → Health for what's left pending"}.`, "error");
           } else if (activation.data.kind === "cancelled") {
-            context.ui.notify("Add cancelled before activation.", "warning");
+            context.ui.notify("Add cancelled — nothing was installed.", "warning");
           } else if (activation.data.kind === "rejected") {
-            context.ui.notify(`Add rejected (${activation.data.code}).`, "error");
+            context.ui.notify(`Adding was rejected — ${plainLifecycleFailure(activation.data.code)}.`, "error");
           } else {
-            context.ui.notify("Install authority changed; review the refreshed candidate.", "warning");
+            context.ui.notify("Things changed while installing — press a to try again.", "warning");
           }
           done();
           return;
