@@ -1,7 +1,7 @@
 ---
 id: release-0.1.16
 kind: release
-stage: implementing
+stage: done
 tags: []
 parent: null
 depends_on: []
@@ -30,7 +30,14 @@ Release gates skipped by explicit maintainer instruction. The standard package v
 
 ## Publication
 
-- Pending.
+- Shipped: 2026-07-22
+- Mapping: tag-based
+- Source commit: `f4b3251`
+- Tag: `v0.1.16`
+- GitHub Actions publish run: `29941503904`
+- npm integrity: `sha512-2dun7tKViZbYQMdK2TgnWKcuTn510BrxmIdrP1Ddghq2qlh9oJy89COOZQQUTAl4X/RqiolTFfaEH2Klievyzw==`
+- GitHub: https://github.com/nklisch/pi-plugins/releases/tag/v0.1.16
+- npm: https://www.npmjs.com/package/@nklisch/pi-plugins/v/0.1.16
 
 ## Shipped items
 
