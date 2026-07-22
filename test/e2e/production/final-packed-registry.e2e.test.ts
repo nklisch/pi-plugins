@@ -59,8 +59,8 @@ describe("final from-empty packed registry acceptance", () => {
     });
     expect(installed.installedReceipts).toContainEqual(expect.objectContaining({
       name: "@nklisch/pi-mcp-adapter",
-      version: "2.11.0-nklisch.2",
-      integrity: "sha512-ocrvhYsBSnIu/M9kW9U6qCscCQWrQ9uUZdF/T4/e6x/666DTgowP8gh5jbPHjLk7MnzWiwIjXUgSQB4aWHm8Pg==",
+      version: "2.11.0-nklisch.3",
+      integrity: "sha512-keVNCjw0ZldLr5p6TwB3UvM9dHc9SwhCHbSQQOvdR+nhMFRua2lHdAG3nMqmr9CK1torEd8e5PX3ZyptXXhmbQ==",
     }));
     expect(installed.installedReceipts).toContainEqual(expect.objectContaining({
       name: "@nklisch/pi-subagents",

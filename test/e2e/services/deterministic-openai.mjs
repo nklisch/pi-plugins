@@ -41,17 +41,20 @@ function toolResults(body) {
     .map(messageText);
 }
 
-function parseJsonText(text) {
-  try { return JSON.parse(text); } catch { return undefined; }
-}
-
-function sourceStatus(results) {
+// The programmatic MCP gateway renders status as human lines:
+// "✓|○|⚠|✗ [plugin · ]<nativeKey> · <serverKey> (<state>)". Server keys are
+// source-qualified, so scenarios list/call by key without identity JSON.
+function statusServers(results) {
   for (const text of results) {
-    const value = parseJsonText(text);
-    if (Array.isArray(value) && value.length === 0) return undefined;
-    if (Array.isArray(value) && value[0]?.identity && value[0]?.servers?.[0]?.key) return value[0];
+    const servers = [];
+    for (const line of text.split("\n")) {
+      const match = /^[✓○⚠✗] (?:\S+ · )?(\S+) · (mcp-server-v1:[0-9a-f]{64})/u.exec(line.trim());
+      if (match) servers.push({ nativeKey: match[1], key: match[2] });
+    }
+    if (servers.length > 0) return servers;
+    if (text.includes("no servers configured")) return [];
   }
-  throw new Error("MCP status result did not contain a source identity");
+  throw new Error("MCP status result did not list any servers");
 }
 
 function toolCall(name, args) {
@@ -96,18 +99,17 @@ function responseFor(body) {
 
   if (selected === "mcp") {
     if (results.length === 0) return toolCall("mcp", { action: "status" });
-    const status = sourceStatus(results);
-    if (status === undefined) return { kind: "text", text: "PARENT_MCP_ABSENT" };
-    const source = JSON.stringify(status.identity);
+    const servers = statusServers(results);
+    if (servers.length === 0) return { kind: "text", text: "PARENT_MCP_ABSENT" };
     const user = latestUserText(body);
     const failure = user.includes("PRODUCTION_MCP_FAILURE");
     const cancellation = user.includes("PRODUCTION_MCP_CANCEL");
-    const selectedServer = status.servers.find((server) => server.nativeKey === (failure ? "failing" : "identity"));
+    const selectedServer = servers.find((server) => server.nativeKey === (failure ? "failing" : "identity"));
     if (selectedServer === undefined) throw new Error("selected MCP server was not registered");
     const server = selectedServer.key;
-    if (results.length === 1) return toolCall("mcp", { action: "list", source, server });
+    if (results.length === 1) return toolCall("mcp", { action: "list", server });
     if (failure) return { kind: "text", text: `PARENT_MCP_FAILURE_OBSERVED ${results.at(-1)}` };
-    if (results.length === 2) return toolCall("mcp", { action: "call", source, server, tool: "identity", args: cancellation ? "{\"delay\":true}" : "{}" });
+    if (results.length === 2) return toolCall("mcp", { action: "call", server, tool: "identity", args: cancellation ? "{\"delay\":true}" : "{}" });
     return { kind: "text", text: `PARENT_MCP_OBSERVED ${results.at(-1)}` };
   }
 

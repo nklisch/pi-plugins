@@ -10,13 +10,13 @@ import {
 
 export const PI_MCP_ADAPTER_RECEIPT: PublishedPackageReceipt = Object.freeze({
   packageName: "@nklisch/pi-mcp-adapter",
-  version: "2.11.0-nklisch.2",
-  registryIntegrity: "sha512-ocrvhYsBSnIu/M9kW9U6qCscCQWrQ9uUZdF/T4/e6x/666DTgowP8gh5jbPHjLk7MnzWiwIjXUgSQB4aWHm8Pg==",
-  installedTreeDigest: "sha256:a8326e59befb9584a6eadecc8ecf1f631bb0913f25ad0afbe31159dd0b810bde",
+  version: "2.11.0-nklisch.3",
+  registryIntegrity: "sha512-keVNCjw0ZldLr5p6TwB3UvM9dHc9SwhCHbSQQOvdR+nhMFRua2lHdAG3nMqmr9CK1torEd8e5PX3ZyptXXhmbQ==",
+  installedTreeDigest: "sha256:de900313591f7e68767e881b8c35aa081a12da692c879e6ca77112e6755c9f7c",
   license: "MIT",
   licenseSha256: "2d20dfacd9742706e564470dc77438608a1e54b0ed46959f080709389209093c",
-  releaseTag: "v2.11.0-nklisch.2@ff2d099cc12ca3b2fd768497e8325b7db18d8993",
-  releaseCommit: "706c163935eb9f2c0e77f2335623651acb633e91",
+  releaseTag: "v2.11.0-nklisch.3@edc0ffa77dde0ee70455ee8bf72f43ee4a313f89",
+  releaseCommit: "111d79f7d292e928315c5cade586798ef395158a",
   upstreamBaseCommit: "82724dccc13a49310530898f922bafff12b7f3fe",
   nodeEngine: ">=22.19.0",
   piPeerRange: ">=0.79.1 <1",

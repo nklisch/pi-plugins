@@ -18,8 +18,8 @@ import {
 } from "../support/pi-mcp-adapter-fixture.js";
 
 const EXPECTED_PACKAGE = "@nklisch/pi-mcp-adapter";
-const EXPECTED_VERSION = "2.11.0-nklisch.2";
-const EXPECTED_INTEGRITY = "sha512-ocrvhYsBSnIu/M9kW9U6qCscCQWrQ9uUZdF/T4/e6x/666DTgowP8gh5jbPHjLk7MnzWiwIjXUgSQB4aWHm8Pg==";
+const EXPECTED_VERSION = "2.11.0-nklisch.3";
+const EXPECTED_INTEGRITY = "sha512-keVNCjw0ZldLr5p6TwB3UvM9dHc9SwhCHbSQQOvdR+nhMFRua2lHdAG3nMqmr9CK1torEd8e5PX3ZyptXXhmbQ==";
 const EXPECTED_LICENSE_SHA256 = "2d20dfacd9742706e564470dc77438608a1e54b0ed46959f080709389209093c";
 const fixtureServer = fileURLToPath(new URL("../fixtures/mcp/stdio-server.mjs", import.meta.url));
 const roots: string[] = [];
