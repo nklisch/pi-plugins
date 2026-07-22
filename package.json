@@ -65,7 +65,7 @@
     "@nklisch/pi-subagents"
   ],
   "dependencies": {
-    "@nklisch/pi-mcp-adapter": "2.11.0-nklisch.0",
+    "@nklisch/pi-mcp-adapter": "2.11.0-nklisch.2",
     "@nklisch/pi-subagents": "18.0.4-nklisch.0",
     "jiti": "2.7.0",
     "semver": "7.8.1",
@@ -86,5 +86,8 @@
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*"
-  }
+  },
+  "bundleDependencies": [
+    "@nklisch/pi-subagents"
+  ]
 }
