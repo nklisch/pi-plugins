@@ -38,3 +38,7 @@ would keep determinism while halving per-job load).
   failure: the test consistently takes ~140 s on CI runners against a fixed
   120 s vitest budget while its internal waits were already 2x-scaled.
   Remaining: profiling/sharding directions above.
+- 2026-07-22: same masked-activation test then straddled the SCALED internal
+  PTY marker waits (60 s literal × 2 = 120 s expiry, test body ~153 s).
+  Raised those literals (120 s/150 s) in
+  concurrency-presentation-security.e2e.test.ts.

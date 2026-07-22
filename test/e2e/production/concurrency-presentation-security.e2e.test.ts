@@ -179,13 +179,13 @@ describe("production concurrency, presentation, and secret non-retention", () =>
     const pty = await PiPtyProcess.start({ sandbox, columns: 120, rows: 30 });
     let mark = pty.mark();
     pty.send("/plugin install secret-required@native-e2e-market --scope user\r");
-    await pty.waitFor("Secret token", mark, 60_000);
+    await pty.waitFor("Secret token", mark, 120_000);
     pty.send(`${E2E_SECRET_CANARY}\r`);
-    await pty.waitFor("Confirm exact plugin action", mark, 60_000);
+    await pty.waitFor("Confirm exact plugin action", mark, 120_000);
     pty.send(" ");
     for (let page = 0; page < 12; page += 1) pty.send("\u001b[6~");
     pty.send("\r");
-    await pty.waitFor(/input-required|unavailable|failed/iu, mark, 90_000);
+    await pty.waitFor(/input-required|unavailable|failed/iu, mark, 150_000);
     expect(pty.rawOutput()).not.toContain(E2E_SECRET_CANARY);
     expect(pty.semanticOutput()).not.toContain(E2E_SECRET_CANARY);
     pty.send("\u0004");
