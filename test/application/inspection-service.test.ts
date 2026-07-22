@@ -255,6 +255,48 @@ describe("plugin inspection service review-hardening matrix", () => {
     });
   });
 
+  it("projects a plugin package.json pi.extensions block as a metadata-only foreign pi-extension component", async () => {
+    const files = new Map([
+      [".claude-plugin/plugin.json", text(JSON.stringify({ name: "demo" }))],
+      ["package.json", text(JSON.stringify({ name: "pkg", pi: { extensions: ["./extensions"], skills: ["./skills"] } }))],
+      ["skills/demo/SKILL.md", text("---\nname: demo\ndescription: demo skill\n---\n# demo\n")],
+    ]);
+    const result = await service(files).inspect(
+      makeInput(files, entryForClaude()),
+      new AbortController().signal,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.components.skills).toHaveLength(1);
+    expect(result.value.components.foreign).toHaveLength(1);
+    expect(result.value.components.foreign[0]).toMatchObject({
+      kind: "foreign",
+      nativeKind: { value: "pi-extension" },
+      declarationSubkey: "pi.extensions",
+      declaration: { value: ["./extensions"] },
+    });
+  });
+
+  it("ignores a package.json without pi.extensions and never treats malformed JSON as a failure", async () => {
+    const plain = new Map([
+      [".claude-plugin/plugin.json", text(JSON.stringify({ name: "demo" }))],
+      ["package.json", text(JSON.stringify({ name: "pkg" }))],
+      ["skills/demo/SKILL.md", text("---\nname: demo\ndescription: demo skill\n---\n# demo\n")],
+    ]);
+    const plainResult = await service(plain).inspect(makeInput(plain, entryForClaude()), new AbortController().signal);
+    expect(plainResult.ok).toBe(true);
+    if (plainResult.ok) expect(plainResult.value.components.foreign).toHaveLength(0);
+
+    const malformed = new Map([
+      [".claude-plugin/plugin.json", text(JSON.stringify({ name: "demo" }))],
+      ["package.json", text("{not json")],
+      ["skills/demo/SKILL.md", text("---\nname: demo\ndescription: demo skill\n---\n# demo\n")],
+    ]);
+    const malformedResult = await service(malformed).inspect(makeInput(malformed, entryForClaude()), new AbortController().signal);
+    expect(malformedResult.ok).toBe(true);
+    if (malformedResult.ok) expect(malformedResult.value.components.foreign).toHaveLength(0);
+  });
+
   it("preserves result, boundary, and abort semantics across the value and handoff boundaries", async () => {
     const entry = entryForClaude();
     const malformed = new Map([[".claude-plugin/plugin.json", text('{"name":"demo","name":"again"}')]]);

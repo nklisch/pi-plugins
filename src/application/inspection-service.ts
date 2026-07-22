@@ -23,6 +23,7 @@ import {
   type ContentManifestEntry,
 } from "../domain/content-manifest.js";
 import {
+  ForeignComponentDeclarationSchema,
   type ComponentLocatorClaim,
   type PluginManifestClaims,
 } from "../domain/bundle-ingestion.js";
@@ -45,7 +46,7 @@ import {
   type NativeHost,
   type Provenance,
 } from "../domain/provenance.js";
-import type { JsonValue } from "../domain/schema.js";
+import { JsonValueSchema, type JsonValue } from "../domain/schema.js";
 import {
   serializePluginSource,
   verifyResolvedPluginSource,
@@ -766,11 +767,46 @@ function createService(dependencies: InspectionDependencies): PluginInspectionSe
       }
     }
 
+    // A plugin-root package.json with pi.extensions ships a Pi extension
+    // (tools/commands). This host deliberately never imports plugin code
+    // in-process, so the extension is projected as a foreign metadata-only
+    // component: visible in review and diagnostics, never executed.
+    const foreignDeclarations = [...plan.catalogForeign];
+    const packageEntry = content.get("package.json");
+    if (packageEntry?.kind === "file") {
+      const packageProvenance = ProvenanceSchema.parse({
+        location: { host: precedence[0] ?? "claude", documentKind: "convention", path: "package.json", pointer: "" },
+      });
+      const packageText = decodeUtf8(await readBytes(packageEntry, limits.manifestBytes), entry.identity.value.key, packageProvenance);
+      if (!packageText.ok) return packageText;
+      let extensions: unknown;
+      try {
+        const parsed: unknown = JSON.parse(packageText.value);
+        const pi = parsed !== null && typeof parsed === "object" && "pi" in parsed
+          ? (parsed as { pi?: unknown }).pi
+          : undefined;
+        extensions = pi !== null && typeof pi === "object" && "extensions" in pi
+          ? (pi as { extensions?: unknown }).extensions
+          : undefined;
+      } catch {
+        // package.json is not a host document; malformed JSON is not a failure.
+        extensions = undefined;
+      }
+      if (Array.isArray(extensions) && extensions.length > 0) {
+        foreignDeclarations.push(ForeignComponentDeclarationSchema.parse({
+          nativeHost: precedence[0] ?? "claude",
+          nativeKind: { value: "pi-extension", provenance: [packageProvenance] },
+          declarationSubkey: "pi.extensions",
+          declaration: { value: JsonValueSchema.parse(extensions), provenance: [packageProvenance] },
+        }));
+      }
+    }
+
     return reconcilePluginBundle({
       entry,
       source,
       manifestClaims,
-      foreignDeclarations: plan.catalogForeign,
+      foreignDeclarations,
       configuration: [],
       components: dedupeSkillNames(components, precedence),
       metadata: entry.metadata,

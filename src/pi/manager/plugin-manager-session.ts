@@ -333,6 +333,9 @@ export function createPluginManagerSession(input: Readonly<{
           result = Object.freeze({ kind: "handled", presentation: "local" });
           if (activation.data.kind === "succeeded") {
             context.ui.notify(`Added ${activation.data.plugin} · ${activation.data.components.skills} skills · ${activation.data.components.hooks} hooks · ${activation.data.components.mcpServers} MCP servers`, "info");
+            if (candidateDetail.compatibility.components.foreign.some((component) => component.nativeKind.text === "pi-extension")) {
+              context.ui.notify(`Heads up: ${activation.data.plugin} also ships a Pi extension (tools/commands), which this host doesn't run — those won't register. Install it pi-natively to use them.`, "warning");
+            }
           } else if (activation.data.kind === "current-state") {
             context.ui.notify(`${activation.data.plugin} is already added`, "info");
           } else if (activation.data.kind === "rolled-back") {

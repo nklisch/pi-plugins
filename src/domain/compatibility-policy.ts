@@ -790,6 +790,14 @@ const foreignRules = {
     message: "Foreign runtime components are retained as metadata only and are never executed",
     rank: 10,
   }),
+  piExtension: supportedRule({
+    id: "foreign.pi-extension",
+    surface: "foreign",
+    disposition: "metadata-only",
+    requirementCapabilityIds: noRequirements,
+    message: "This plugin ships a Pi extension (tools/commands). This host doesn't run plugin extensions, so those won't register — install the plugin pi-natively to use them",
+    rank: 10,
+  }),
 } as const;
 
 const reportRules = {

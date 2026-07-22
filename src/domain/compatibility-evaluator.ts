@@ -557,7 +557,9 @@ function evaluateForeign(
   ]);
   const ruleId = component.nativeKind.value === "hook-handler"
     ? CompatibilityPolicyRegistry.hookHandlers.unsupportedHandler.id
-    : CompatibilityPolicyRegistry.foreign.defaultDeny.id;
+    : component.nativeKind.value === "pi-extension"
+      ? CompatibilityPolicyRegistry.foreign.piExtension.id
+      : CompatibilityPolicyRegistry.foreign.defaultDeny.id;
   // Foreign components are never executed by this host, so their policy
   // outcome is the rule's disposition: retained and skipped, or blocked.
   return decision(ruleOutcome(ruleId), [], [diagnostic(pluginKey, ruleId, ruleSeverity(ruleId), provenances, {

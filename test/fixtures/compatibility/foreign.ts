@@ -34,6 +34,22 @@ const baseline = () => directPlugin();
 
 export const foreignPolicyFixtures: readonly PolicyFixture[] = [
   {
+    id: "foreign-pi-extension-metadata-only",
+    ruleId: "foreign.pi-extension",
+    positive: () => directPlugin({ components: {
+      foreign: [foreign("pi-extension", "c")],
+    } }),
+    negative: baseline,
+    positiveVerdict: "metadata-only",
+    diagnosticRuleId: "foreign.pi-extension",
+    positiveExpected: expectedOutcome(["metadata-only"], true, {
+      diagnosticCodes: ["UNSUPPORTED_DECLARATION"],
+      diagnosticRuleIds: ["foreign.pi-extension"],
+      diagnosticSourcePointers: ["/pi-extension"],
+    }),
+    negativeExpected: expectedOutcome([], true),
+  },
+  {
     id: "foreign-default-deny-all-native-kinds",
     ruleId: "foreign.default-deny",
     positive: () => directPlugin({ components: {
