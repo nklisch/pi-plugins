@@ -114,25 +114,6 @@ describe("plugin manager component", () => {
     ]));
   });
 
-  it("runs update-all and auto-update setup from the updates view", () => {
-    const h = harness();
-    const notice = {
-      key: { subject: "notice" as const, key: "notice-1" },
-      title: "demo@market", subtitle: "1.0 → 1.1 · user", status: "manual-required · unresolved", scope: "user" as const, plugin: "demo@market",
-      completion: { category: "notice" as const, value: "notice-1", safe: { text: "demo@market", escaped: false, truncated: false } }, data: {},
-    };
-    let state = pluginManagerReducer(createPluginManagerState(), { type: "intent", intent: { type: "set-view", view: "updates" } });
-    state = pluginManagerReducer(state, { type: "page-loading", request: 1, append: false });
-    state = pluginManagerReducer(state, { type: "page-loaded", request: 1, rows: [notice], append: false });
-    h.setState(state);
-    h.component.handleInput("\u0015");
-    h.component.handleInput("p");
-    expect(h.intents).toEqual(expect.arrayContaining([
-      { type: "action", action: "update-all" },
-      { type: "action", action: "update-policy" },
-    ]));
-  });
-
   it("runs update-all and auto-update setup from the installed view's updates lens", () => {
     const h = harness();
     let state = pluginManagerReducer(createPluginManagerState(), { type: "intent", intent: { type: "cycle-filter", delta: -1 } });

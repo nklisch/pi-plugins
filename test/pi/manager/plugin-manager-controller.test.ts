@@ -52,7 +52,7 @@ const emptyBrowse = () => report("browse", { candidates: [], observations: [] })
 const emptyNotices = () => report("updates.notices.list", { notices: [], unreadCount: 0, unresolvedCount: 0 });
 const healthStatus = () => report("status", {
   status: "ready",
-  local: { recovery: "settled", runtime: "ready" },
+  local: { recovery: "settled", runtime: "reconciled" },
   update: { state: "standby", unresolvedCount: 0, unreadCount: 0, scopes: [] },
   blocked: [],
   capabilities: {
@@ -120,32 +120,38 @@ describe("plugin manager controller", () => {
     expect(controller.state().page.rows[0]).toMatchObject({ plugin: "demo@market", scope: "user", title: "demo", status: "installed" });
     expect(controller.state().updateCounts).toEqual({ unread: 2, unresolved: 3 });
     expect(controller.state().updatesPolicy).toEqual({ application: "manual", cadence: "balanced" });
+    expect(controller.state().health.status).toBe("ready");
   });
 
-  it("loads the Health section from the public host status envelope", async () => {
-    const execute = vi.fn(async (argv: readonly string[]) => ({
-      envelope: createNativeControlEnvelope({
-        executionId, command: "status", status: "ok", data: {
-          status: "degraded",
-          local: { recovery: "settled", runtime: "degraded" },
-          update: { state: "standby", unresolvedCount: 1, unreadCount: 2, scopes: [] },
-          blocked: [],
-          capabilities: {
-            mcp: { status: "available", explanation: "ready" },
-            subagents: { status: "unavailable", explanation: "not composed" },
-            piReload: { status: "available", explanation: "ready" },
-            secrets: { status: "unavailable", explanation: "not configured" },
-          },
-        } as never,
-      }),
-      delivery: "complete" as const,
-      deliveredThrough: -1,
-    }));
+  it("surfaces a degraded host through the heading indicator rather than a view", async () => {
+    const execute = vi.fn(async (argv: readonly string[]) => {
+      if (argv[0] === "status") {
+        return {
+          envelope: createNativeControlEnvelope({
+            executionId, command: "status", status: "ok", data: {
+              status: "degraded",
+              local: { recovery: "settled", runtime: "degraded" },
+              update: { state: "standby", unresolvedCount: 1, unreadCount: 2, scopes: [] },
+              blocked: [],
+              capabilities: {
+                mcp: { status: "available", explanation: "ready" },
+                subagents: { status: "unavailable", explanation: "not composed" },
+                piReload: { status: "available", explanation: "ready" },
+                secrets: { status: "unavailable", explanation: "not configured" },
+              },
+            } as never,
+          }),
+          delivery: "complete" as const,
+          deliveredThrough: -1,
+        };
+      }
+      return catalogResult(argv);
+    });
     const controller = createPluginManagerController({ execute });
-    controller.dispatch({ type: "set-view", view: "health" });
-    await controller.idle();
+    await controller.refresh("all");
     expect(execute).toHaveBeenCalledWith(["status"], expect.any(AbortSignal));
-    expect(controller.state().page.rows).toMatchObject([{ key: { subject: "health" }, title: "Plugin host", status: "degraded" }]);
+    expect(controller.state().health).toMatchObject({ status: "degraded" });
+    expect(controller.state().page.rows.every((row) => row.key.subject !== "health" as never)).toBe(true);
   });
 
   it("uses latest-intent-wins for search and ignores a late aborted response", async () => {

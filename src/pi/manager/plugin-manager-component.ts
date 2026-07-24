@@ -213,8 +213,8 @@ export class PluginManagerComponent implements Component, Focusable {
       } else this.controller.dispatch({ type: "open-detail" });
     } else if (data === "/" && pane === "list") this.controller.dispatch({ type: "focus-query" });
     else if (data.toLowerCase() === "m" && pane === "list") this.controller.dispatch({ type: "set-view", view: state.view === "marketplaces" ? "installed" : "marketplaces" });
-    else if (matchesKey(data, Key.ctrl("u")) && pane === "list" && (state.view === "installed" || state.view === "updates")) this.activateAction("update-all");
-    else if (data.toLowerCase() === "p" && pane === "list" && (state.view === "updates" || state.view === "installed" && state.filter === "updates")) this.activateAction("update-policy");
+    else if (matchesKey(data, Key.ctrl("u")) && pane === "list" && state.view === "installed") this.activateAction("update-all");
+    else if (data.toLowerCase() === "p" && pane === "list" && state.view === "installed" && state.filter === "updates") this.activateAction("update-policy");
     else if (data.toLowerCase() === "u" && pane === "list" && state.view === "installed") {
       const rows = pluginManagerVisibleRows(state);
       const row = state.focus.row === undefined

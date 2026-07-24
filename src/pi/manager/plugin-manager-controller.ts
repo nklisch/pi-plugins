@@ -14,7 +14,7 @@ import type { NativeControlExecutionReport } from "../../application/ports/nativ
 import type { NativeControlEnvelope } from "../../application/native-control-contract.js";
 import type { NativeControlFrame } from "../../application/native-control-progress.js";
 import type { JsonValue } from "../../domain/schema.js";
-import { detailCommand, pageCommand, updateStatusCommand } from "./plugin-manager-commands.js";
+import { detailCommand, hostStatusCommand, pageCommand, updateNoticesCommand, updateStatusCommand } from "./plugin-manager-commands.js";
 import {
   createPluginManagerState,
   pluginManagerReducer,
@@ -115,20 +115,6 @@ function marketplaceRows(envelope: NativeControlEnvelope): readonly PluginManage
   }));
 }
 
-function healthRows(envelope: NativeControlEnvelope): readonly PluginManagerRow[] | undefined {
-  const parsed = HostStatusSnapshotSchema.safeParse(envelope.data);
-  if (!parsed.success) return undefined;
-  return Object.freeze([Object.freeze({
-    key: Object.freeze({ subject: "health" as const, key: "host" }),
-    title: "Plugin host",
-    subtitle: `${parsed.data.local.recovery} recovery · ${parsed.data.local.runtime} runtime`,
-    status: parsed.data.status,
-    statusTone: parsed.data.status === "ready" ? "success" as const : parsed.data.status === "degraded" ? "warning" as const : "error" as const,
-    completion: Object.freeze({ category: "plugin" as const, value: "host", safe: safe("Plugin host") }),
-    data: parsed.data as unknown as JsonValue,
-  })]);
-}
-
 function noticeRows(envelope: NativeControlEnvelope): readonly PluginManagerRow[] | undefined {
   const parsed = NativeUpdateNotificationPageSchema.safeParse(envelope.data);
   if (!parsed.success) return undefined;
@@ -151,9 +137,7 @@ function noticeRows(envelope: NativeControlEnvelope): readonly PluginManagerRow[
 function rowsFor(view: PluginManagerState["view"] | "browse", envelope: NativeControlEnvelope): readonly PluginManagerRow[] | undefined {
   if (view === "installed") return installedRows(envelope);
   if (view === "browse") return browseRows(envelope);
-  if (view === "marketplaces") return marketplaceRows(envelope);
-  if (view === "health") return healthRows(envelope);
-  return noticeRows(envelope);
+  return marketplaceRows(envelope);
 }
 
 export function mergePluginCatalogRows(installed: readonly PluginManagerRow[], available: readonly PluginManagerRow[], notices: readonly PluginManagerRow[]): readonly PluginManagerRow[] {
@@ -233,7 +217,7 @@ export function createPluginManagerController(input: Readonly<{
         apply({ type: "updates-policy", application: status.data.policy.global.application, cadence: status.data.policy.global.cadence });
       }
     }).catch(() => undefined);
-    const health = input.execute(pageCommand({ view: "health", query: "" }), controller.signal).then((result) => {
+    const health = input.execute(hostStatusCommand(), controller.signal).then((result) => {
       const parsed = HostStatusSnapshotSchema.safeParse(result.envelope.data);
       if (parsed.success) apply({
         type: "health-loaded",
@@ -265,9 +249,11 @@ export function createPluginManagerController(input: Readonly<{
           // cursor. A unified catalog must not pretend one source's cursor also
           // represents discovery and update-notice pagination.
           for (let page = 0; page < 5; page += 1) {
-            const result = await input.execute(pageCommand({ view, query: captured.query, ...(next === undefined ? {} : { next }) }), controller.signal);
+            const result = await input.execute(view === "updates"
+              ? updateNoticesCommand(next)
+              : pageCommand({ view, query: captured.query, ...(next === undefined ? {} : { next }) }), controller.signal);
             if (controller.signal.aborted || owned !== request || closed) return Object.freeze([]);
-            const parsed = rowsFor(view, result.envelope);
+            const parsed = view === "updates" ? noticeRows(result.envelope) : rowsFor(view, result.envelope);
             if (parsed === undefined) throw new Error("catalog page did not match its facade contract");
             rows.push(...parsed);
             next = result.envelope.page?.next;

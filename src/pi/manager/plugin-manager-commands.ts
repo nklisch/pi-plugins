@@ -54,15 +54,21 @@ export function pageCommand(input: Readonly<{
       limit: 50,
     });
   }
-  if (input.view === "marketplaces") {
-    return nativeControlArgv("marketplace.list", [], { limit: 50 });
-  }
-  if (input.view === "health") return nativeControlArgv("status");
+  return nativeControlArgv("marketplace.list", [], { limit: 50 });
+}
+
+/** Update notices never render as rows; they feed the catalog's update flags and counts. */
+export function updateNoticesCommand(next?: string): readonly string[] {
   return nativeControlArgv("updates.notices.list", [], {
     scope: "all-current",
-    after: input.next,
+    after: next,
     limit: 50,
   });
+}
+
+/** Host health shows as a heading indicator, not a view; diagnostics stay on /plugin doctor. */
+export function hostStatusCommand(): readonly string[] {
+  return nativeControlArgv("status");
 }
 
 export function updateStatusCommand(): readonly string[] {
@@ -98,9 +104,6 @@ export function detailCommand(row: PluginManagerRow): readonly string[] | undefi
   }
   if (row.key.subject === "candidate" && row.plugin !== undefined && row.scope !== undefined) {
     return nativeControlArgv("inspection.show", [row.plugin], { scope: row.scope });
-  }
-  if (row.key.subject === "notice" && row.plugin !== undefined) {
-    return nativeControlArgv("updates.status", [], { scope: "all-current", plugin: row.plugin });
   }
   return undefined;
 }

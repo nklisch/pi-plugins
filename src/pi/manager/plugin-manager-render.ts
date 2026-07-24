@@ -17,18 +17,7 @@ import { NativeControlStatusTone, pluginManagerStatusTone, type PluginManagerSta
 const VIEW_LABELS: Readonly<Record<PluginManagerView, string>> = Object.freeze({
   installed: "Plugins",
   marketplaces: "Marketplaces",
-  updates: "Updates",
-  health: "Health",
 });
-
-const VIEW_DESCRIPTIONS: Readonly<Record<PluginManagerView, string>> = Object.freeze({
-  installed: "Installed and available plugins for your user account or the current project.",
-  marketplaces: "Global marketplaces. Plugin scope is chosen when a plugin is added.",
-  updates: "Available plugin revisions and notices that need attention.",
-  health: "Runtime capabilities, recovery state, and blocked plugins.",
-});
-
-const VIEWS: readonly PluginManagerView[] = ["installed", "marketplaces", "updates", "health"];
 
 function plain(value: unknown, limit = 2_048): string {
   return projectTerminalText(typeof value === "string" ? value : String(value ?? ""), limit).text;
@@ -75,29 +64,9 @@ function boundedWindow(lines: readonly string[], selected: number, height: numbe
   return lines.slice(start, start + size);
 }
 
-function homeLines(state: PluginManagerState, theme: Theme, bodyHeight: number): readonly string[] {
-  const sourceCount = state.view === "marketplaces" ? state.page.rows.length : undefined;
-  const values: Readonly<Record<PluginManagerView, string>> = {
-    installed: `${state.installedCount} installed`,
-    marketplaces: sourceCount === undefined ? "manage marketplaces" : `${sourceCount} configured`,
-    updates: state.updateCounts.unresolved === 0 ? "none pending" : `${state.updateCounts.unresolved} need attention`,
-    health: "runtime and capabilities",
-  };
-  const rows = VIEWS.map((view) => {
-    const selected = view === state.view;
-    const line = `${selected ? "→" : " "} ${VIEW_LABELS[view].padEnd(14)}  ${values[view]}`;
-    return selected ? theme.bg("selectedBg", theme.fg("accent", line)) : line;
-  });
-  const title = theme.fg("accent", theme.bold("Plugin Manager"));
-  if (bodyHeight <= 5) return [title, rows[VIEWS.indexOf(state.view)]!];
-  return [title, "", ...rows, "", theme.fg("muted", VIEW_DESCRIPTIONS[state.view])];
-}
-
 function emptyMessage(view: PluginManagerView): string {
   if (view === "installed") return "No plugins available · press a to add a marketplace";
-  if (view === "marketplaces") return "No marketplaces configured · press a to add a GitHub marketplace";
-  if (view === "updates") return "No pending plugin updates · p sets up auto updates";
-  return "Plugin host health is unavailable · press r to retry";
+  return "No marketplaces configured · press a to add a GitHub marketplace";
 }
 
 function queryLine(state: PluginManagerState, theme: Theme, focused: boolean): string {
@@ -108,7 +77,7 @@ function queryLine(state: PluginManagerState, theme: Theme, focused: boolean): s
 
 function listLines(state: PluginManagerState, theme: Theme, focused: boolean, bodyHeight: number): readonly string[] {
   const health = state.health.status === "loading" ? "checking host…" : `host ${state.health.status}`;
-  const policySurface = state.view === "updates" || state.view === "installed" && state.filter === "updates";
+  const policySurface = state.view === "installed" && state.filter === "updates";
   const policy = policySurface && state.updatesPolicy !== undefined
     ? state.updatesPolicy.application === "automatic" ? ` · auto on · ${state.updatesPolicy.cadence}` : " · auto off"
     : "";
@@ -166,33 +135,26 @@ function detailLines(state: PluginManagerState, theme: Theme, bodyHeight: number
   if (row === undefined) return [heading, "", theme.fg("muted", "No item selected")];
   if (state.detail.loading) return [heading, "", theme.fg("accent", "… loading exact details")];
   const lines: string[] = [heading, "", theme.bold(plain(row.plugin ?? row.title)), styledStatus(theme, row.status, row.statusTone), ""];
-  if (row.key.subject === "health" && row.data !== null && typeof row.data === "object") {
-    const health = row.data as { local?: { recovery?: unknown; runtime?: unknown }; update?: { state?: unknown; unresolvedCount?: unknown }; capabilities?: Record<string, { status?: unknown; explanation?: unknown }>; blocked?: readonly { plugin?: unknown; code?: unknown }[] };
-    lines.push(`Recovery      ${plain(health.local?.recovery)}`, `Runtime       ${plain(health.local?.runtime)}`, `Updates       ${plain(health.update?.state)} · ${plain(health.update?.unresolvedCount)} unresolved`, "", theme.fg("accent", "Capabilities"));
-    for (const [name, capability] of Object.entries(health.capabilities ?? {})) lines.push(`  ${styledStatus(theme, `${name} · ${plain(capability.status)}`)}`, `    ${theme.fg("muted", plain(capability.explanation))}`);
-    for (const blocked of health.blocked ?? []) lines.push(theme.fg("error", `  ${plain(blocked.plugin)} · ${plain(blocked.code)}`));
+  const parsed = NativeInspectionDetailResultSchema.safeParse(state.detail.envelope?.data);
+  if (parsed.success && parsed.data.kind === "found") {
+    const detail = parsed.data.detail;
+    lines.push(
+      `Scope         ${row.scope ?? "unknown"}`,
+      `Installed     ${plain(detail.summary.revision.installed?.text ?? "not installed")}`,
+      `Available     ${plain(detail.summary.revision.available?.text ?? "not reported")}`,
+      `Origin        ${sourceSummary(detail.source)}`,
+      "",
+      theme.fg("accent", "Runtime surface"),
+      `  ${detail.compatibility.components.counts.skills} skills · ${detail.compatibility.components.counts.hooks} command hooks · ${detail.compatibility.components.counts.mcpServers} MCP servers`,
+      "",
+      theme.fg("accent", "Compatibility / health"),
+      `  ${styledStatus(theme, detail.compatibility.status)} · trust ${plain(detail.trust)}`,
+      `  ${detail.compatibility.requirements.length} requirements · ${detail.diagnostics.length} diagnostics`,
+    );
   } else {
-    const parsed = NativeInspectionDetailResultSchema.safeParse(state.detail.envelope?.data);
-    if (parsed.success && parsed.data.kind === "found") {
-      const detail = parsed.data.detail;
-      lines.push(
-        `Scope         ${row.scope ?? "unknown"}`,
-        `Installed     ${plain(detail.summary.revision.installed?.text ?? "not installed")}`,
-        `Available     ${plain(detail.summary.revision.available?.text ?? "not reported")}`,
-        `Origin        ${sourceSummary(detail.source)}`,
-        "",
-        theme.fg("accent", "Runtime surface"),
-        `  ${detail.compatibility.components.counts.skills} skills · ${detail.compatibility.components.counts.hooks} command hooks · ${detail.compatibility.components.counts.mcpServers} MCP servers`,
-        "",
-        theme.fg("accent", "Compatibility / health"),
-        `  ${styledStatus(theme, detail.compatibility.status)} · trust ${plain(detail.trust)}`,
-        `  ${detail.compatibility.requirements.length} requirements · ${detail.diagnostics.length} diagnostics`,
-      );
-    } else {
-      lines.push(`Scope         ${row.scope ?? "unknown"}`, `Marketplace   ${plain(row.subtitle)}`, "", theme.fg("warning", "Exact detail is unavailable. Press R to retry."));
-      if (state.detail.errorCode !== undefined) lines.push(theme.fg("error", state.detail.errorCode));
-      else lines.push(...envelopeLines(state.detail.envelope, theme));
-    }
+    lines.push(`Scope         ${row.scope ?? "unknown"}`, `Marketplace   ${plain(row.subtitle)}`, "", theme.fg("warning", "Exact detail is unavailable. Press R to retry."));
+    if (state.detail.errorCode !== undefined) lines.push(theme.fg("error", state.detail.errorCode));
+    else lines.push(...envelopeLines(state.detail.envelope, theme));
   }
   if (state.operation.state !== "idle") {
     lines.push("", styledStatus(theme, state.operation.state), ...(state.operation.state === "running" ? [theme.fg("accent", `… ${plain(state.operation.action ?? "working")}`)] : []));
@@ -272,10 +234,6 @@ function footer(state: PluginManagerState, theme: Theme, keybindings: Keybinding
   }
   const confirm = key("tui.select.confirm", "enter");
   const interrupt = key("app.interrupt", "escape");
-  if (state.view === "updates") {
-    if (width < 60) return theme.fg("dim", "ctrl+u all · p auto updates · esc close");
-    return theme.fg("dim", `${move} · ctrl+u update all · p auto updates · ${confirm} details · m plugins · ${interrupt} close`);
-  }
   if (state.view === "installed" && state.filter === "updates") {
     if (width < 60) return theme.fg("dim", "ctrl+u all · p auto updates · esc close");
     return theme.fg("dim", `${move} · ←/→ lens · u update · ctrl+u all · p auto updates · ${confirm} details · ${interrupt} close`);

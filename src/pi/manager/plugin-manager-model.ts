@@ -5,7 +5,7 @@ import type { NativeControlFrame } from "../../application/native-control-progre
 import type { JsonValue } from "../../domain/schema.js";
 import type { PluginManagerStatusTone } from "./plugin-manager-status.js";
 
-export type PluginManagerView = "installed" | "marketplaces" | "updates" | "health";
+export type PluginManagerView = "installed" | "marketplaces";
 export type PluginManagerPane = "query" | "list" | "detail";
 export type PluginManagerFilter = "all" | "installed" | "available" | "updates";
 export type PluginManagerScrollRegion = "detail" | "operation";
@@ -32,7 +32,7 @@ export const PluginManagerActionRegistry = Object.freeze({
 export type PluginManagerActionId = keyof typeof PluginManagerActionRegistry;
 
 export type PluginManagerRowKey = Readonly<{
-  subject: "installed" | "candidate" | "marketplace" | "notice" | "health";
+  subject: "installed" | "candidate" | "marketplace" | "notice";
   key: string;
   snapshotId?: string;
   detailId?: string;
@@ -104,11 +104,7 @@ export type PluginManagerIntent =
   | Readonly<{ type: "move-action"; delta: number }>
   | Readonly<{ type: "scroll"; region: PluginManagerScrollRegion; delta: number }>
   | Readonly<{ type: "select-row"; row: PluginManagerRowKey }>
-  | Readonly<{ type: "open-section" }>
-  | Readonly<{ type: "return-sections" }>
   | Readonly<{ type: "open-detail" }>
-  | Readonly<{ type: "open-actions" }>
-  | Readonly<{ type: "return-detail" }>
   | Readonly<{ type: "detail-back" }>
   | Readonly<{ type: "focus-query" }>
   | Readonly<{ type: "next-page" }>
@@ -181,7 +177,7 @@ function sameRow(left: PluginManagerRowKey | undefined, right: PluginManagerRowK
 }
 
 export function pluginManagerRowActions(row: PluginManagerRow | undefined): readonly PluginManagerActionId[] {
-  if (row === undefined || row.key.subject === "health") return Object.freeze([]);
+  if (row === undefined) return Object.freeze([]);
   if (row.key.subject === "candidate") return Object.freeze(["inspect", "install"]);
   if (row.key.subject === "marketplace") return Object.freeze(["marketplace-refresh", "marketplace-remove"]);
   if (row.key.subject === "notice") return Object.freeze(["inspect", "notice-acknowledge"]);
@@ -194,8 +190,6 @@ export function pluginManagerAvailableActions(state: PluginManagerState): readon
     ? state.page.rows[0]
     : state.page.rows.find((candidate) => rowKeyIdentity(candidate.key) === rowKeyIdentity(state.focus.row!));
   if (state.view === "marketplaces") return Object.freeze(["marketplace-add", ...pluginManagerRowActions(row)]);
-  if (state.view === "health") return Object.freeze(["diagnose-host"]);
-  if (state.view === "updates") return Object.freeze(["update-all", "update-policy", ...pluginManagerRowActions(row)]);
   // The updates lens is where update work happens; batch and policy actions
   // accompany whatever row-level actions the selection supports.
   const lens: readonly PluginManagerActionId[] = state.view === "installed" && state.filter === "updates"
@@ -280,7 +274,6 @@ function reduceIntent(state: PluginManagerState, intent: PluginManagerIntent): P
   if (intent.type === "scroll") {
     return Object.freeze({ ...state, scroll: Object.freeze({ ...state.scroll, [intent.region]: Math.max(0, state.scroll[intent.region] + intent.delta) }) });
   }
-  if (intent.type === "open-section" || intent.type === "return-sections") return state;
   if (intent.type === "open-detail") {
     const index = Math.max(0, selectedIndex(state));
     const row = pluginManagerVisibleRows(state)[index];
@@ -288,7 +281,6 @@ function reduceIntent(state: PluginManagerState, intent: PluginManagerIntent): P
     const action = pluginManagerMenuActions(state)[0];
     return Object.freeze({ ...state, focus: Object.freeze({ pane: "detail", row: row.key, ...(action === undefined ? {} : { action }) }) });
   }
-  if (intent.type === "open-actions" || intent.type === "return-detail") return state;
   if (intent.type === "detail-back") return Object.freeze({ ...state, focus: Object.freeze({ pane: "list", ...(state.focus.row === undefined ? {} : { row: state.focus.row }) }) });
   if (intent.type === "focus-query") return Object.freeze({ ...state, focus: Object.freeze({ pane: "query" }) });
   if (intent.type === "toggle-help") return Object.freeze({ ...state, help: !state.help });

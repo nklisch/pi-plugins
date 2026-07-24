@@ -54,8 +54,8 @@ describe("plugin manager reducer", () => {
     expect(state.page.pages).toBe(5);
     expect(state.page.rows.map((entry) => entry.title)).toEqual(["3", "4", "5", "6", "7"]);
     expect(state.installedCount).toBe(5);
-    state = pluginManagerReducer(state, { type: "intent", intent: { type: "set-view", view: "health" } });
-    expect(state.view).toBe("health");
+    state = pluginManagerReducer(state, { type: "intent", intent: { type: "set-view", view: "marketplaces" } });
+    expect(state.view).toBe("marketplaces");
     expect(state.page.rows).toEqual([]);
     expect(state.focus).toMatchObject({ pane: "list" });
     expect(state.installedCount).toBe(5);
@@ -78,27 +78,6 @@ describe("plugin manager reducer", () => {
     });
     expect(pluginManagerAvailableActions(state)).toEqual(["inspect", "disable", "uninstall-delete"]);
     expect(pluginManagerMenuActions(state)).toEqual(["disable", "uninstall-delete"]);
-  });
-
-  it("offers update-all and auto-update setup from the updates view, with or without notices", () => {
-    let state = createPluginManagerState();
-    state = pluginManagerReducer(state, { type: "intent", intent: { type: "set-view", view: "updates" } });
-    expect(pluginManagerAvailableActions(state)).toEqual(["update-all", "update-policy"]);
-    expect(pluginManagerMenuActions(state)).toEqual(["update-all", "update-policy"]);
-
-    const notice: PluginManagerRow = {
-      key: { subject: "notice", key: "notice-1" },
-      title: "demo@market",
-      subtitle: "1.0 → 1.1 · user",
-      status: "manual-required · unresolved",
-      scope: "user",
-      plugin: "demo@market",
-      completion: { category: "notice", value: "notice-1", safe: { text: "demo@market", escaped: false, truncated: false } },
-      data: {},
-    };
-    state = pluginManagerReducer(state, { type: "page-loading", request: 1, append: false });
-    state = pluginManagerReducer(state, { type: "page-loaded", request: 1, rows: [notice], append: false });
-    expect(pluginManagerAvailableActions(state)).toEqual(["update-all", "update-policy", "inspect", "notice-acknowledge"]);
   });
 
   it("offers update-all and auto-update setup from the installed view's updates lens", () => {
