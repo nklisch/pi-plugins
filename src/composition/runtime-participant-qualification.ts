@@ -12,7 +12,15 @@ import {
 } from "../application/ports/subagent-lifecycle.js";
 
 export const PACKAGED_HOST_NODE_RANGE = ">=24";
-export const PACKAGED_HOST_PI_RANGE = ">=0.80.0 <0.81.0";
+/**
+ * Admission policy: any pre-1.0 Pi at or above the verified API floor. A
+ * minor-version cap hard-broke every installed host on each Pi minor release
+ * (MCP/subagent capabilities collapsed to unavailable behind it), which is
+ * too brittle for a plugin-management host. The structural ExtensionAPI
+ * shape check in hostApiStatus stays as the fail-closed guard against real
+ * API drift; published adapter packages still enforce their own peer ranges.
+ */
+export const PACKAGED_HOST_PI_RANGE = ">=0.80.0 <1.0.0";
 
 export type RuntimeQualificationStatus = Readonly<{
   status: "available" | "unavailable";

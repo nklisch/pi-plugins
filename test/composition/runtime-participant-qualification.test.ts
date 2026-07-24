@@ -34,15 +34,25 @@ function mcp(provider: unknown) {
   } as never;
 }
 
-async function decide(runtime: unknown) {
+async function decide(runtime: unknown, piVersion = "0.80.8") {
   return await qualifyRuntimeParticipants({
     pi: pi as never,
     nodeVersion: "24.0.0",
-    piVersion: "0.80.8",
+    piVersion,
     mcp: runtime as never,
     signal: new AbortController().signal,
   });
 }
+
+const publishedProvider = {
+  kind: "published-package",
+  packageName: "qualified-mcp-adapter",
+  version: "2.0.0",
+  integrity: "sha512-test",
+  nodeEngine: ">=24 <25",
+  piPeerRange: ">=0.79.1 <1",
+  contractVersion: 1,
+};
 
 describe("runtime participant qualification", () => {
   it("does not qualify a mere MCP port or test-provider evidence", async () => {
@@ -51,17 +61,32 @@ describe("runtime participant qualification", () => {
   });
 
   it("uses complete published-package and actual Node/Pi range evidence", async () => {
-    const provider = {
-      kind: "published-package",
-      packageName: "qualified-mcp-adapter",
-      version: "2.0.0",
-      integrity: "sha512-test",
-      nodeEngine: ">=24 <25",
-      piPeerRange: ">=0.80.0 <0.81.0",
-      contractVersion: 1,
-    };
+    const provider = publishedProvider;
     expect((await decide(mcp(provider))).mcp.status).toBe("available");
     expect((await decide(mcp({ ...provider, piPeerRange: ">=0.81.0" }))).mcp.status).toBe("unavailable");
     expect((await decide(mcp({ ...provider, nodeEngine: ">=25" }))).mcp.status).toBe("unavailable");
+  });
+
+  it("admits any pre-1.0 Pi at or above the API floor and rejects outside it", async () => {
+    // The 0.81 regression: a minor-version cap used to fail host-API
+    // qualification here and collapse every runtime capability to unavailable.
+    expect((await decide(mcp(publishedProvider), "0.79.9")).hostApi.status).toBe("unavailable");
+    expect((await decide(mcp(publishedProvider), "0.80.0")).hostApi.status).toBe("available");
+    expect((await decide(mcp(publishedProvider), "0.81.1")).hostApi.status).toBe("available");
+    expect((await decide(mcp(publishedProvider), "0.81.1")).mcp.status).toBe("available");
+    expect((await decide(mcp(publishedProvider), "0.99.0")).hostApi.status).toBe("available");
+    expect((await decide(mcp(publishedProvider), "1.0.0")).hostApi.status).toBe("unavailable");
+  });
+
+  it("still fails closed when the Pi API shape drifts even inside the range", async () => {
+    const drifted = await qualifyRuntimeParticipants({
+      pi: { on() {} } as never,
+      nodeVersion: "24.0.0",
+      piVersion: "0.81.1",
+      mcp: mcp(publishedProvider) as never,
+      signal: new AbortController().signal,
+    });
+    expect(drifted.hostApi.status).toBe("unavailable");
+    expect(drifted.mcp.status).toBe("unavailable");
   });
 });
