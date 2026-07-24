@@ -26,11 +26,11 @@ function choice(state: PluginInstallState, value: PluginInstallFocus, text: stri
 }
 
 function progressLines(state: PluginInstallState, theme: Theme): string[] {
-  if (state.frames.length === 0) return state.busy ? [theme.fg("warning", "Waiting for application.control acceptance…")] : [];
-  const lines = [theme.fg("accent", "Live application.control progress")];
+  if (state.frames.length === 0) return state.busy ? [theme.fg("warning", "Waiting for the plugin host…")] : [];
+  const lines = [theme.fg("accent", "Progress")];
   for (const frame of state.frames) {
-    if (frame.type === "accepted") lines.push(`#${frame.sequence} accepted ${safe(frame.command)}`);
-    else if (frame.type === "progress") lines.push(`#${frame.sequence} ${safe(frame.phase)} ${safe(frame.state)}${frame.code === undefined ? "" : ` ${safe(frame.code)}`}`);
+    if (frame.type === "accepted") lines.push(theme.fg("muted", `#${frame.sequence} accepted`));
+    else if (frame.type === "progress") lines.push(`#${frame.sequence} ${plainLifecyclePhase(frame.phase)} · ${safe(frame.state)}`);
   }
   return lines;
 }
@@ -122,7 +122,7 @@ function installContent(state: PluginInstallState, theme: Theme): InstallContent
     const detail = state.candidate;
     const lines: InstallLine[] = [
       plain(theme.fg("accent", theme.bold("Add plugin"))),
-      plain("The install session is opened with the current facade evidence."),
+      plain("Adding uses the details you just reviewed."),
       plain(""),
       plain(theme.bold(safe(detail.summary.plugin))),
       plain(`${safe(detail.summary.marketplace.text)} · ${safe(detail.summary.scope.kind)}`),
@@ -176,14 +176,13 @@ function installContent(state: PluginInstallState, theme: Theme): InstallContent
       plain(""),
       ...progressLines(state, theme).map(plain),
       ...(state.busy ? [plain("")] : []),
-      plain(`Exact consent: ${safe(session.consent.consentId)}`),
       reviewed
         ? plain(theme.fg("success", "✓ complete executable disclosure reviewed"))
         : plain(theme.fg("muted", "Disclosure stays available above; it is not required to add.")),
       choice(state, "back", "Back", theme),
       choice(state, "continue", state.busy
-        ? `${state.submission === "recover" ? "Recovering" : "Applying"} through application.control…`
-        : state.submission === "recover" ? "Retry owner recovery" : "Add plugin", theme),
+        ? state.submission === "recover" ? "Finishing setup…" : "Adding…"
+        : state.submission === "recover" ? "Finish setup" : "Add plugin", theme),
     );
     return { lines, disclosureOffset, disclosureCount: disclosure.length };
   }

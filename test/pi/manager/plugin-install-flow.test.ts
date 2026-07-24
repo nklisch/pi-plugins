@@ -12,7 +12,7 @@ describe("signed plugin install flow", () => {
     let state = createPluginInstallState(trustedInstallFlowFixture.chooseInspect);
     let lines = renderPluginInstall({ state, width: 84, height: 30, theme });
     expect(lines.join("\n")).toContain("Add plugin");
-    expect(lines.join("\n")).toContain("install session");
+    expect(lines.join("\n")).toContain("details you just reviewed");
     expect(lines.join("\n")).toContain("activatable");
 
     state = pluginInstallReducer(state, { type: "session-opened", session: trustedInstallFlowFixture.states.missingInput.session });
@@ -132,6 +132,6 @@ describe("signed plugin install flow", () => {
     state = pluginInstallReducer(state, { type: "session-opened", session: retry.session!, submission: "recover" });
     expect(state).toMatchObject({ step: "configure-trust", submission: "recover" });
     expect(state.consentId).toBeUndefined();
-    expect(renderPluginInstall({ state, width: 72, height: 20, theme }).join("\n")).toContain("Retry owner recovery");
+    expect(renderPluginInstall({ state, width: 72, height: 20, theme }).join("\n")).toContain("Finish setup");
   });
 });

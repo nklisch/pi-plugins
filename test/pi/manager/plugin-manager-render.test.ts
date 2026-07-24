@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { createNativeControlEnvelope } from "../../../src/application/native-control-contract.js";
+import { compileNativeDiagnostics } from "../../../src/application/native-diagnostic-compiler.js";
 import { createPluginManagerState, pluginManagerReducer, type PluginManagerRow } from "../../../src/pi/manager/plugin-manager-model.js";
 import { renderPluginManager } from "../../../src/pi/manager/plugin-manager-render.js";
 import { trustedInstallFlowFixture } from "../../fixtures/trusted-install/plugin-install-flow.js";
+
+const sha256 = (bytes: Uint8Array) => new Uint8Array(createHash("sha256").update(bytes).digest());
+const safe = (text: string) => ({ text, escaped: false, truncated: false });
 
 const theme = {
   fg: (_token: string, text: string) => `\u001b[31m${text}\u001b[39m`,
@@ -102,5 +107,59 @@ describe("plugin manager renderer", () => {
     const error = renderPluginManager({ state: empty, width: 60, height: 16, theme, keybindings, focused: true }).join("\n");
     expect(error).toContain("HOST_BLOCKED");
     expect(error).toContain("No plugins available");
+  });
+
+  it("names the actual reasons when compatibility is red (the krometrail scenario)", () => {
+    const detailId = trustedInstallFlowFixture.chooseInspect.summary.detailId;
+    const incompatibleDetail = {
+      ...trustedInstallFlowFixture.chooseInspect,
+      trust: "not-applicable",
+      compatibility: {
+        ...trustedInstallFlowFixture.chooseInspect.compatibility,
+        status: "incompatible",
+        requirements: [
+          { id: "requirement-v1:pi.mcp.runtime:component-1", capability: safe("pi.mcp.runtime"), status: "unavailable", explanation: safe("Plugin-scoped MCP runtime is available (unavailable)"), provenance: [] },
+          { id: "requirement-v1:pi.mcp.transport.stdio:component-1", capability: safe("pi.mcp.transport.stdio"), status: "unavailable", explanation: safe("MCP standard-I/O transport is available (unavailable)"), provenance: [] },
+        ],
+      },
+      diagnostics: compileNativeDiagnostics({ findings: [
+        { key: "incompatible", subjectId: detailId },
+        { key: "requirementUnavailable", subjectId: detailId, componentId: "component-v1:mcp-server:" + "3".repeat(64) },
+        { key: "updateAvailable", subjectId: detailId },
+      ] }, sha256),
+    };
+    let detailed = state();
+    detailed = pluginManagerReducer(detailed, { type: "intent", intent: { type: "open-detail" } });
+    detailed = pluginManagerReducer(detailed, { type: "detail-loading", request: 1, row: row.key });
+    detailed = pluginManagerReducer(detailed, {
+      type: "detail-loaded", request: 1, row: row.key, open: true,
+      envelope: createNativeControlEnvelope({ executionId, command: "inspection.show", status: "ok", data: { kind: "found", detail: incompatibleDetail } as never }),
+    });
+    const rendered = renderPluginManager({ state: detailed, width: 120, height: 30, theme, keybindings, focused: true }).join("\n");
+    expect(rendered).toContain("Plugin-scoped MCP runtime — unavailable");
+    expect(rendered).toContain("MCP standard-I/O transport — unavailable");
+    expect(rendered).not.toContain("trust not-applicable");
+    expect(rendered).not.toContain("requirements ·");
+    expect(rendered).not.toContain("diagnostics");
+    expect(rendered).not.toContain("incompatible with this host");
+  });
+
+  it("renders envelope failure in plain language without exit jargon", () => {
+    let value = state();
+    value = pluginManagerReducer(value, { type: "operation-started", action: "update" });
+    value = pluginManagerReducer(value, {
+      type: "operation-finished",
+      envelope: createNativeControlEnvelope({
+        executionId,
+        command: "lifecycle.update",
+        status: "unavailable",
+        diagnostics: [{ code: "CONTROL_TARGET_SELECTION_FAILED", severity: "error", action: "reinspect" }],
+      }),
+    });
+    const rendered = renderPluginManager({ state: value, width: 120, height: 30, theme, keybindings, focused: true }).join("\n");
+    expect(rendered).toContain("couldn't finish");
+    expect(rendered).toContain("current details couldn't be loaded");
+    expect(rendered).not.toContain("exit");
+    expect(rendered).not.toContain("CONTROL_TARGET_SELECTION_FAILED");
   });
 });

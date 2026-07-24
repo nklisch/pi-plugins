@@ -1,7 +1,9 @@
 import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { NativeInspectionDetailResultSchema } from "../../application/native-inspection-contract.js";
+import { NativeInspectionDetailResultSchema, type NativeInspectionDetail } from "../../application/native-inspection-contract.js";
 import type { NativeControlEnvelope } from "../../application/native-control-contract.js";
+import { presentControlFailure } from "../../application/native-failure-presenter.js";
+import { plainLifecyclePhase } from "../plain-language.js";
 import { projectTerminalText } from "./pi-terminal-text.js";
 import {
   PluginManagerActionRegistry,
@@ -76,12 +78,15 @@ function queryLine(state: PluginManagerState, theme: Theme, focused: boolean): s
 }
 
 function listLines(state: PluginManagerState, theme: Theme, focused: boolean, bodyHeight: number): readonly string[] {
-  const health = state.health.status === "loading" ? "checking host…" : `host ${state.health.status}`;
+  // The heading stays quiet unless something needs attention: health only
+  // appears when the host is not ready, the update count only when nonzero.
+  const health = state.health.status === "ready" ? "" : state.health.status === "loading" ? " · checking host…" : ` · host ${state.health.status}`;
+  const updates = state.updateCounts.unresolved > 0 ? ` · ${state.updateCounts.unresolved} updates` : "";
   const policySurface = state.view === "installed" && state.filter === "updates";
   const policy = policySurface && state.updatesPolicy !== undefined
     ? state.updatesPolicy.application === "automatic" ? ` · auto on · ${state.updatesPolicy.cadence}` : " · auto off"
     : "";
-  const heading = `${theme.fg("accent", theme.bold(VIEW_LABELS[state.view]))} ${theme.fg("muted", `· ${health} · ${state.updateCounts.unresolved} updates${policy}`)}`;
+  const heading = `${theme.fg("accent", theme.bold(VIEW_LABELS[state.view]))}${theme.fg("muted", `${health}${updates}${policy}`)}`;
   const rows = pluginManagerVisibleRows(state).map((row) => {
     const selected = selectedRow(state) !== undefined && rowKeyIdentity(selectedRow(state)!.key) === rowKeyIdentity(row.key);
     const line = `${selected ? "→" : " "} ${plain(row.title, 256)}  ${styledStatus(theme, row.status, row.statusTone)}`;
@@ -118,6 +123,54 @@ function listLines(state: PluginManagerState, theme: Theme, focused: boolean, bo
   ];
 }
 
+/**
+ * Turn a requirement's registry explanation ("Bash is available
+ * (unavailable)") into a name the user recognizes. Falls back to the
+ * capability id when the description has no availability phrasing.
+ */
+function requirementName(explanation: string, capability: string): string {
+  const description = explanation.replace(/\s*\((?:available|unavailable)\)\s*$/u, "");
+  const name = description.replace(/\s+(?:is|are) available$/u, "");
+  if (name.length > 0) return name;
+  return description.length > 0 ? description : capability;
+}
+
+/**
+ * Red states lead with named reasons, never counts. Diagnostics that only
+ * restate the status line or the named requirements are not repeated.
+ */
+function compatibilityLines(detail: NativeInspectionDetail, theme: Theme): readonly string[] {
+  const lines: string[] = [theme.fg("accent", "Compatibility / health")];
+  const trustNote = ["not-applicable", "authorized"].includes(detail.trust) ? "" : ` · trust ${plain(detail.trust)}`;
+  lines.push(`  ${styledStatus(theme, detail.compatibility.status)}${trustNote}`);
+
+  const unavailable = detail.compatibility.requirements.filter((requirement) => requirement.status === "unavailable");
+  for (const requirement of unavailable.slice(0, 4)) {
+    lines.push(theme.fg("error", `  ! ${plain(requirementName(requirement.explanation.text, requirement.capability.text), 128)} — unavailable`));
+  }
+  if (unavailable.length > 4) lines.push(theme.fg("muted", `  … ${unavailable.length - 4} more unavailable`));
+
+  const restated = new Set(["COMPATIBILITY_INCOMPATIBLE", "RUNTIME_REQUIREMENT_UNAVAILABLE"]);
+  const errors = detail.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+  const named = errors.filter((diagnostic) => !restated.has(diagnostic.code));
+  const shown = (named.length > 0 ? named : unavailable.length === 0 ? errors : []).slice(0, 3);
+  const seen = new Set<string>();
+  for (const diagnostic of shown) {
+    const summary = plain(diagnostic.summary.text, 256);
+    if (seen.has(summary)) continue;
+    seen.add(summary);
+    lines.push(theme.fg("error", `  ! ${summary}`));
+  }
+  const overflow = (named.length > 0 ? named : unavailable.length === 0 ? errors : []).length - shown.length;
+  if (overflow > 0) lines.push(theme.fg("muted", `  … ${overflow} more`));
+
+  if (unavailable.length === 0 && errors.length === 0) {
+    const warnings = detail.diagnostics.filter((diagnostic) => diagnostic.severity === "warning").slice(0, 2);
+    for (const diagnostic of warnings) lines.push(theme.fg("muted", `  △ ${plain(diagnostic.summary.text, 256)}`));
+  }
+  return lines;
+}
+
 function sourceSummary(value: unknown): string {
   if (value === null || typeof value !== "object") return "unavailable";
   const source = value as Record<string, unknown>;
@@ -147,9 +200,7 @@ function detailLines(state: PluginManagerState, theme: Theme, bodyHeight: number
       theme.fg("accent", "Runtime surface"),
       `  ${detail.compatibility.components.counts.skills} skills · ${detail.compatibility.components.counts.hooks} command hooks · ${detail.compatibility.components.counts.mcpServers} MCP servers`,
       "",
-      theme.fg("accent", "Compatibility / health"),
-      `  ${styledStatus(theme, detail.compatibility.status)} · trust ${plain(detail.trust)}`,
-      `  ${detail.compatibility.requirements.length} requirements · ${detail.diagnostics.length} diagnostics`,
+      ...compatibilityLines(detail, theme),
     );
   } else {
     lines.push(`Scope         ${row.scope ?? "unknown"}`, `Marketplace   ${plain(row.subtitle)}`, "", theme.fg("warning", "Exact detail is unavailable. Press R to retry."));
@@ -203,19 +254,42 @@ function actionLines(state: PluginManagerState, theme: Theme, bodyHeight: number
   ];
 }
 
+/** One plain clause per envelope status; exit classes and codes stay in machine output. */
+const ENVELOPE_STATUS_CLAUSE: Readonly<Record<string, string>> = Object.freeze({
+  ok: "done",
+  "no-change": "done — nothing to change",
+  "input-required": "needs more input",
+  "not-found": "not found — refresh and try again",
+  stale: "things changed — refresh and try again",
+  conflict: "things changed — refresh and try again",
+  unavailable: "couldn't finish — something it needed wasn't available",
+  rejected: "wasn't allowed",
+  partial: "partly done",
+  "recovery-required": "needs recovery to finish",
+  cancelled: "cancelled",
+  failed: "didn't finish",
+  "presentation-required": "needs a screen",
+});
+
 function envelopeLines(envelope: NativeControlEnvelope | undefined, theme: Theme): readonly string[] {
   if (envelope === undefined) return [];
-  const lines = [`${styledStatus(theme, envelope.status, NativeControlStatusTone[envelope.status])} · exit ${envelope.exit.classification} (${envelope.exit.code})`];
-  for (const field of envelope.human) lines.push(plain(field.text));
-  for (const diagnostic of envelope.diagnostics) lines.push(theme.fg(diagnostic.severity === "error" ? "error" : diagnostic.severity === "warning" ? "warning" : "muted", `${diagnostic.code} · ${plain(diagnostic.action)}`));
+  const clause = ENVELOPE_STATUS_CLAUSE[envelope.status] ?? envelope.status;
+  const lines = [`${styledStatus(theme, envelope.status, NativeControlStatusTone[envelope.status])} · ${clause}`];
+  for (const field of envelope.human.slice(0, 4)) lines.push(plain(field.text));
+  for (const diagnostic of envelope.diagnostics.slice(0, 3)) {
+    const friendly = presentControlFailure(diagnostic.code);
+    lines.push(friendly === undefined
+      ? theme.fg("muted", `${diagnostic.code} · ${plain(diagnostic.action)}`)
+      : theme.fg(diagnostic.severity === "error" ? "error" : "warning", plain(friendly.text)));
+  }
   return lines;
 }
 
 function operationLines(state: PluginManagerState, theme: Theme): readonly string[] {
   const lines = [theme.fg("accent", theme.bold(`Plugin operation / ${plain(state.operation.action ?? "result")}`)), "", styledStatus(theme, state.operation.state)];
   for (const item of state.operation.frames) {
-    if (item.type === "accepted") lines.push(`#${item.sequence} accepted ${plain(item.command)}`);
-    else if (item.type === "progress") lines.push(`#${item.sequence} ${plain(item.phase)} ${plain(item.state)}${item.code === undefined ? "" : ` ${plain(item.code)}`}`);
+    if (item.type === "accepted") lines.push(theme.fg("muted", `#${item.sequence} accepted`));
+    else if (item.type === "progress") lines.push(`#${item.sequence} ${plainLifecyclePhase(item.phase)} · ${plain(item.state)}`);
   }
   lines.push(...envelopeLines(state.operation.envelope, theme));
   if (state.operation.state === "cancelling") lines.push(theme.fg("warning", "Cancellation requested; waiting for the owner result."));
@@ -234,6 +308,10 @@ function footer(state: PluginManagerState, theme: Theme, keybindings: Keybinding
   }
   const confirm = key("tui.select.confirm", "enter");
   const interrupt = key("app.interrupt", "escape");
+  if (state.view === "marketplaces") {
+    if (width < 60) return theme.fg("dim", "a add · r refresh · esc close");
+    return theme.fg("dim", `${move} · a add · r refresh catalog · ${confirm} details · ${interrupt} close`);
+  }
   if (state.view === "installed" && state.filter === "updates") {
     if (width < 60) return theme.fg("dim", "ctrl+u all · p auto updates · esc close");
     return theme.fg("dim", `${move} · ←/→ lens · u update · ctrl+u all · p auto updates · ${confirm} details · ${interrupt} close`);

@@ -232,7 +232,13 @@ export class PluginManagerComponent implements Component, Focusable {
     } else if (data.toLowerCase() === "x") {
       const actions = pluginManagerAvailableActions(state);
       if (actions.includes("uninstall-delete")) this.activateAction("uninstall-delete");
-    } else if (data.toLowerCase() === "r") this.controller.dispatch({ type: "refresh", scope: "all" });
+    } else if (data.toLowerCase() === "r") {
+      // On the marketplaces view, refresh means the selected marketplace's
+      // catalog — one keystroke instead of detail → actions → refresh.
+      if (pane === "list" && state.view === "marketplaces" && pluginManagerAvailableActions(state).includes("marketplace-refresh")) {
+        this.activateAction("marketplace-refresh");
+      } else this.controller.dispatch({ type: "refresh", scope: "all" });
+    }
     else if (data === "?") this.controller.dispatch({ type: "toggle-help" });
     this.invalidate();
     this.tui.requestRender();

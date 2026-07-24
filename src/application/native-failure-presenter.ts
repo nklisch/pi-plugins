@@ -81,7 +81,9 @@ function lineFor(diagnostic: NativeDiagnostic): string | undefined {
     case "SOURCE_UNAVAILABLE":
       return "The plugin's content isn't available right now; retry in a moment.";
     case "COMPATIBILITY_INCOMPATIBLE":
-      return "This plugin declares something pi can't run, so it can't be installed.";
+      // Fires for unsupported declarations AND for capabilities missing from
+      // this session; the requirement lines carry the specifics.
+      return "Something this plugin declares can't run in this pi session.";
     case "RUNTIME_REQUIREMENT_UNAVAILABLE":
       return "A capability this plugin needs isn't available in this pi session.";
     case "TRUST_REQUIRED":
@@ -139,7 +141,9 @@ export function presentRecoveryRequired(): SafeDisplayField {
 export function presentControlFailure(code: string): SafeDisplayField | undefined {
   switch (code) {
     case "CONTROL_TARGET_SELECTION_FAILED":
-      return safe("The plugin couldn't be prepared for install; inspect it for the specific reason.");
+      // Selection fails for any lifecycle action (add/update/enable/remove),
+      // so the text must not name install specifically.
+      return safe("That couldn't start — the plugin's current details couldn't be loaded. Refresh and try again.");
     case "CONTROL_SELECTION_UNAVAILABLE":
       return safe("That plugin can't be inspected right now; refresh the marketplace and retry.");
     case "CONTROL_READINESS_BLOCKED":

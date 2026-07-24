@@ -73,38 +73,36 @@ function needsConfirmation(intent: PluginManagerActionIntent): intent is Confirm
 
 export function pluginManagerActionConfirmation(intent: ConfirmedPluginManagerActionIntent): PluginManagerActionConfirmation {
   if (intent.action === "project-sync") {
+    const sentence = intent.mode === "apply-intent"
+      ? "Install and remove this project's plugins to match its declared intent."
+      : intent.mode === "publish-intent"
+        ? "Record this project's current plugins as its declared intent."
+        : "Resolve the competing declared plugin intents for this project.";
     return Object.freeze({
       action: intent.action,
-      title: "Synchronize project plugin intent?",
-      lines: Object.freeze([
-        `mode: ${intent.mode}`,
-        "This changes the current project's declared plugin intent.",
-      ]),
+      title: "Synchronize project plugins?",
+      lines: Object.freeze([sentence]),
       destructive: true,
     });
   }
   if (intent.action === "marketplace-remove") {
     return Object.freeze({
       action: intent.action,
-      title: "Confirm marketplace removal",
+      title: `Remove marketplace ${intent.row.title}?`,
       lines: Object.freeze([
-        `registration: ${intent.row.key.key}`,
-        "The global marketplace registration will be removed; installed plugin state is not inferred here.",
+        ...(intent.row.subtitle.length === 0 ? [] : [intent.row.subtitle]),
+        "Plugins installed from it stay installed; they stop receiving update checks.",
       ]),
       destructive: true,
     });
   }
   const row = exactRow(intent.row);
-  const persistentData = "delete persistent plugin data";
   return Object.freeze({
     action: intent.action,
-    title: "Remove plugin and its data?",
+    title: `Remove ${row.plugin}?`,
     lines: Object.freeze([
-      `plugin: ${row.plugin}`,
       `scope: ${row.scope}`,
-      `snapshot: ${row.snapshotId}`,
-      `detail: ${row.detailId}`,
-      `data: ${persistentData}`,
+      "This uninstalls the plugin and erases its saved data. To keep the data, disable it instead.",
     ]),
     destructive: true,
   });
