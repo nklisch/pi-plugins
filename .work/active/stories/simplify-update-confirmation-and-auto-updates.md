@@ -5,7 +5,7 @@ stage: done
 tags: [tui]
 parent: null
 depends_on: []
-release_binding: null
+release_binding: 0.1.17
 created: 2026-07-22
 updated: 2026-07-22
 ---
