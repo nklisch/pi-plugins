@@ -17,39 +17,69 @@ const keybindings = {
 } as any;
 
 describe("confirmation surface", () => {
-  it("requires the complete executable disclosure to be reachable before confirmation", () => {
+  it("confirms with a single enter even when an executable disclosure exists", () => {
     const done = vi.fn();
-    const overlay = new ConfirmationSurface({
+    const surface = new ConfirmationSurface({
       theme,
       keybindings,
-      title: "Confirm exact trust",
-      lines: ["plugin: demo@market", "scope: user"],
+      title: "Update demo@market?",
+      lines: ["3 skills · 1 hook · 0 MCP servers"],
       disclosure: Array.from({ length: 30 }, (_, index) => `executable-${index}`),
       height: () => 6,
       done,
     });
 
-    overlay.handleInput(" ");
-    overlay.render(36);
-    overlay.handleInput("\r");
-    expect(done).not.toHaveBeenCalled();
+    surface.handleInput("\r");
+    expect(done).toHaveBeenCalledWith(true);
+  });
 
-    for (let index = 0; index < 20; index += 1) {
-      overlay.handleInput("\u001b[6~");
-      overlay.render(36);
+  it("confirms and cancels with y/n", () => {
+    const accepted = vi.fn();
+    new ConfirmationSurface({ theme, keybindings, title: "Add plugin?", lines: ["plugin: demo"], done: accepted })
+      .handleInput("y");
+    expect(accepted).toHaveBeenCalledWith(true);
+
+    const declined = vi.fn();
+    new ConfirmationSurface({ theme, keybindings, title: "Add plugin?", lines: ["plugin: demo"], done: declined })
+      .handleInput("n");
+    expect(declined).toHaveBeenCalledWith(false);
+  });
+
+  it("keeps the exact disclosure one space away and scrollable", () => {
+    const done = vi.fn();
+    const surface = new ConfirmationSurface({
+      theme,
+      keybindings,
+      title: "Update demo@market?",
+      lines: ["plugin: demo"],
+      disclosure: Array.from({ length: 30 }, (_, index) => `executable-${index}`),
+      height: () => 6,
+      done,
+    });
+
+    expect(surface.render(36).join("\n")).not.toContain("executable-0");
+    surface.handleInput(" ");
+    expect(surface.render(36).join("\n")).not.toContain("executable-0");
+
+    surface.handleInput("\u001b[6~");
+    expect(surface.render(36).join("\n")).toContain("executable-0");
+    for (let index = 0; index < 19; index += 1) {
+      surface.handleInput("[6~");
+      surface.render(36);
     }
-    const tail = overlay.render(36);
+    const tail = surface.render(36);
     expect(tail.join("\n")).toContain("executable-29");
     expect(tail.every((line) => visibleWidth(line) <= 36)).toBe(true);
-    overlay.handleInput("\r");
+    // Reviewing the disclosure never strands the user: accept is still one key.
+    surface.handleInput("y");
     expect(done).toHaveBeenCalledWith(true);
   });
 
   it("cancels a fresh confirmation without approval", () => {
     const done = vi.fn();
-    const overlay = new ConfirmationSurface({ theme, keybindings, title: "Delete data", lines: ["plugin: demo"], done });
-    overlay.handleInput("\u001b");
-    overlay.handleInput("\r");
+    const surface = new ConfirmationSurface({ theme, keybindings, title: "Delete data", lines: ["plugin: demo"], done });
+    surface.handleInput("");
+    surface.handleInput("\r");
     expect(done).toHaveBeenCalledOnce();
     expect(done).toHaveBeenCalledWith(false);
   });

@@ -96,7 +96,7 @@ function homeLines(state: PluginManagerState, theme: Theme, bodyHeight: number):
 function emptyMessage(view: PluginManagerView): string {
   if (view === "installed") return "No plugins available · press a to add a marketplace";
   if (view === "marketplaces") return "No marketplaces configured · press a to add a GitHub marketplace";
-  if (view === "updates") return "No pending plugin updates";
+  if (view === "updates") return "No pending plugin updates · p sets up auto updates";
   return "Plugin host health is unavailable · press r to retry";
 }
 
@@ -108,7 +108,11 @@ function queryLine(state: PluginManagerState, theme: Theme, focused: boolean): s
 
 function listLines(state: PluginManagerState, theme: Theme, focused: boolean, bodyHeight: number): readonly string[] {
   const health = state.health.status === "loading" ? "checking host…" : `host ${state.health.status}`;
-  const heading = `${theme.fg("accent", theme.bold(VIEW_LABELS[state.view]))} ${theme.fg("muted", `· ${health} · ${state.updateCounts.unresolved} updates`)}`;
+  const policySurface = state.view === "updates" || state.view === "installed" && state.filter === "updates";
+  const policy = policySurface && state.updatesPolicy !== undefined
+    ? state.updatesPolicy.application === "automatic" ? ` · auto on · ${state.updatesPolicy.cadence}` : " · auto off"
+    : "";
+  const heading = `${theme.fg("accent", theme.bold(VIEW_LABELS[state.view]))} ${theme.fg("muted", `· ${health} · ${state.updateCounts.unresolved} updates${policy}`)}`;
   const rows = pluginManagerVisibleRows(state).map((row) => {
     const selected = selectedRow(state) !== undefined && rowKeyIdentity(selectedRow(state)!.key) === rowKeyIdentity(row.key);
     const line = `${selected ? "→" : " "} ${plain(row.title, 256)}  ${styledStatus(theme, row.status, row.statusTone)}`;
@@ -268,6 +272,14 @@ function footer(state: PluginManagerState, theme: Theme, keybindings: Keybinding
   }
   const confirm = key("tui.select.confirm", "enter");
   const interrupt = key("app.interrupt", "escape");
+  if (state.view === "updates") {
+    if (width < 60) return theme.fg("dim", "ctrl+u all · p auto updates · esc close");
+    return theme.fg("dim", `${move} · ctrl+u update all · p auto updates · ${confirm} details · m plugins · ${interrupt} close`);
+  }
+  if (state.view === "installed" && state.filter === "updates") {
+    if (width < 60) return theme.fg("dim", "ctrl+u all · p auto updates · esc close");
+    return theme.fg("dim", `${move} · ←/→ lens · u update · ctrl+u all · p auto updates · ${confirm} details · ${interrupt} close`);
+  }
   if (width < 60) return theme.fg("dim", `a add · m marketplaces · x remove · ${confirm} details · esc close`);
   if (width < 90) return theme.fg("dim", `a add · m marketplaces · d disable · x remove · u update · ${confirm} details · ${interrupt} close`);
   return theme.fg("dim", `${move} · ←/→ lens · a add · d disable · x remove · u update · ctrl+u all · m marketplaces · ${confirm} details · ${interrupt} close`);

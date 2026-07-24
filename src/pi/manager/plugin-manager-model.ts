@@ -18,6 +18,7 @@ export const PluginManagerActionRegistry = Object.freeze({
   disable: { label: "Disable", description: "Stop loading runtime components but keep the plugin installed" },
   update: { label: "Update plugin", description: "Update the selected installed plugin" },
   "update-all": { label: "Update all", description: "Apply every currently eligible plugin update" },
+  "update-policy": { label: "Auto updates…", description: "Turn automatic plugin updates on or off and choose how often Pi checks" },
   "uninstall-delete": { label: "Remove plugin", description: "Uninstall the plugin and erase its persistent data" },
   "marketplace-add": { label: "Add marketplace", description: "Register another global marketplace" },
   "marketplace-refresh": { label: "Refresh marketplace", description: "Fetch the latest marketplace catalog" },
@@ -86,6 +87,7 @@ export type PluginManagerState = Readonly<{
   detail: PluginManagerDetailState;
   installedCount: number;
   updateCounts: Readonly<{ unread: number; unresolved: number }>;
+  updatesPolicy?: Readonly<{ application: "manual" | "automatic"; cadence: string }>;
   operation: PluginManagerOperationState;
   viewport: Readonly<{ columns: number; rows: number }>;
   scroll: Readonly<Record<PluginManagerScrollRegion, number>>;
@@ -129,6 +131,7 @@ export type PluginManagerEvent =
   | Readonly<{ type: "select-row"; row: PluginManagerRowKey }>
   | Readonly<{ type: "focus"; pane: PluginManagerPane; action?: string }>
   | Readonly<{ type: "update-counts"; unread: number; unresolved: number }>
+  | Readonly<{ type: "updates-policy"; application: "manual" | "automatic"; cadence: string }>
   | Readonly<{ type: "health-loaded"; status: PluginManagerState["health"]["status"]; explanation?: string }>
   | Readonly<{ type: "frame"; frame: NativeControlFrame }>
   | Readonly<{ type: "operation-started"; action: string }>
@@ -192,19 +195,25 @@ export function pluginManagerAvailableActions(state: PluginManagerState): readon
     : state.page.rows.find((candidate) => rowKeyIdentity(candidate.key) === rowKeyIdentity(state.focus.row!));
   if (state.view === "marketplaces") return Object.freeze(["marketplace-add", ...pluginManagerRowActions(row)]);
   if (state.view === "health") return Object.freeze(["diagnose-host"]);
+  if (state.view === "updates") return Object.freeze(["update-all", "update-policy", ...pluginManagerRowActions(row)]);
+  // The updates lens is where update work happens; batch and policy actions
+  // accompany whatever row-level actions the selection supports.
+  const lens: readonly PluginManagerActionId[] = state.view === "installed" && state.filter === "updates"
+    ? Object.freeze(["update-all", "update-policy"] as const)
+    : Object.freeze([]);
   if (row === undefined) {
-    if (state.view === "installed") return Object.freeze(["marketplace-add"]);
+    if (state.view === "installed") return Object.freeze([...lens, "marketplace-add"]);
     return Object.freeze([]);
   }
-  if (row.key.subject !== "installed") return pluginManagerRowActions(row);
+  if (row.key.subject !== "installed") return Object.freeze([...lens, ...pluginManagerRowActions(row)]);
   const detail = NativeInspectionDetailResultSchema.safeParse(
     state.detail.row !== undefined && rowKeyIdentity(state.detail.row) === rowKeyIdentity(row.key)
       ? state.detail.envelope?.data
       : undefined,
   );
-  if (!detail.success || detail.data.kind !== "found") return Object.freeze(["inspect"]);
+  if (!detail.success || detail.data.kind !== "found") return Object.freeze([...lens, "inspect"]);
   const lifecycle = detail.data.detail.lifecycle;
-  const actions: PluginManagerActionId[] = ["inspect"];
+  const actions: PluginManagerActionId[] = [...lens, "inspect"];
   if (lifecycle?.activationIntent === "enabled") actions.push("disable");
   else if (lifecycle?.activationIntent === "disabled") actions.push("enable");
   if (lifecycle?.update !== undefined && !["current", "not-applicable", "unknown"].includes(lifecycle.update)) actions.push("update");
@@ -344,6 +353,7 @@ export function pluginManagerReducer(state: PluginManagerState, event: PluginMan
     return Object.freeze({ ...state, detail: Object.freeze({ loading: false, request: event.request, row: event.row, errorCode: event.code }) });
   }
   if (event.type === "update-counts") return Object.freeze({ ...state, updateCounts: Object.freeze({ unread: event.unread, unresolved: event.unresolved }) });
+  if (event.type === "updates-policy") return Object.freeze({ ...state, updatesPolicy: Object.freeze({ application: event.application, cadence: event.cadence }) });
   if (event.type === "health-loaded") return Object.freeze({ ...state, health: Object.freeze({ status: event.status, ...(event.explanation === undefined ? {} : { explanation: event.explanation }) }) });
   if (event.type === "operation-started") return Object.freeze({ ...state, operation: Object.freeze({ state: "running", action: event.action, frames: Object.freeze([]) }) });
   if (event.type === "operation-cancelling") {

@@ -69,6 +69,24 @@ export function updateStatusCommand(): readonly string[] {
   return nativeControlArgv("updates.status", [], { scope: "all-current" });
 }
 
+export type UpdatePolicySetChange =
+  | Readonly<{ policyKind: "application"; policyMode: "manual" | "automatic" }>
+  | Readonly<{ policyKind: "cadence"; cadence: "paused" | "conservative" | "balanced" | "frequent" }>;
+
+/** Global policy changes serialize through the registry like every other UI intent. */
+export function updatePolicySetCommand(
+  change: UpdatePolicySetChange,
+  exact?: Readonly<{ previewId: string; consentId?: string }>,
+): readonly string[] {
+  return nativeControlArgv("updates.policy.set", [], {
+    policyKind: change.policyKind,
+    policyTarget: "global",
+    ...(change.policyKind === "application" ? { policyMode: change.policyMode } : { cadence: change.cadence }),
+    previewId: exact?.previewId,
+    consentId: exact?.consentId,
+  });
+}
+
 export function detailCommand(row: PluginManagerRow): readonly string[] | undefined {
   if (row.key.subject === "installed" && row.plugin !== undefined && row.scope !== undefined &&
       row.key.snapshotId !== undefined && row.key.detailId !== undefined) {

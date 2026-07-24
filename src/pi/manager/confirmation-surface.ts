@@ -42,15 +42,18 @@ export class ConfirmationSurface implements Component {
   handleInput(data: string): void {
     if (this.disposed) return;
     const page = Math.max(1, this.height() - 3);
-    if (data === " " && this.disclosure.length > 0) {
+    // Accept is one keystroke. The exact disclosure stays one Space away for
+    // review, but reading it is the user's choice — gating confirm on
+    // "expand, then scroll to the exact end" read as a broken dialog.
+    if (data === "y" || data === "Y" || this.keybindings.matches(data, "tui.select.confirm")) this.finish(true);
+    else if (data === "n" || data === "N" || this.keybindings.matches(data, "tui.select.cancel") || this.keybindings.matches(data, "app.interrupt")) this.finish(false);
+    else if (data === " " && this.disclosure.length > 0) {
       this.disclosed = !this.disclosed;
       this.offset = 0;
     } else if (this.keybindings.matches(data, "tui.select.up") || matchesKey(data, Key.up)) this.offset = Math.max(0, this.offset - 1);
     else if (this.keybindings.matches(data, "tui.select.down") || matchesKey(data, Key.down)) this.offset = Math.min(this.maxOffset, this.offset + 1);
     else if (this.keybindings.matches(data, "tui.select.pageUp") || matchesKey(data, Key.pageUp)) this.offset = Math.max(0, this.offset - page);
     else if (this.keybindings.matches(data, "tui.select.pageDown") || matchesKey(data, Key.pageDown)) this.offset = Math.min(this.maxOffset, this.offset + page);
-    else if (this.keybindings.matches(data, "tui.select.confirm") && (this.disclosure.length === 0 || this.disclosed && this.offset >= this.maxOffset)) this.finish(true);
-    else if (this.keybindings.matches(data, "tui.select.cancel") || this.keybindings.matches(data, "app.interrupt")) this.finish(false);
   }
 
   private finish(value: boolean): void {
@@ -77,9 +80,10 @@ export class ConfirmationSurface implements Component {
     const bodyHeight = Math.max(1, height - 3);
     this.maxOffset = Math.max(0, content.length - bodyHeight);
     this.offset = Math.min(this.offset, this.maxOffset);
-    const confirm = this.disclosure.length === 0 || this.disclosed && this.offset >= this.maxOffset
-      ? "Enter confirm · Escape cancel"
-      : "Review the complete disclosure to the end before confirming · Escape cancel";
+    const hints = ["y confirm", "n cancel"];
+    if (this.disclosure.length > 0) hints.push(this.disclosed ? "space hide details" : "space details");
+    if (this.maxOffset > 0) hints.push("↑/↓ scroll");
+    const confirm = hints.join(" · ");
     const boundedWidth = Math.max(1, width);
     const border = this.theme.fg("borderAccent", "─".repeat(boundedWidth));
     const indent = boundedWidth > 1 ? " " : "";

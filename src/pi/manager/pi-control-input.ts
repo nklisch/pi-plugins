@@ -78,31 +78,46 @@ export function createPiControlInputPort(input: Readonly<{
     }
   }
 
+  function confirmTitle(request: NativeControlInputRequest): string {
+    const plugin = request.expected.plugin === undefined ? undefined : safe(request.expected.plugin);
+    if (request.purpose === "update") return plugin === undefined ? "Update plugin?" : `Update ${plugin}?`;
+    if (request.purpose === "trusted-install") return plugin === undefined ? "Add plugin?" : `Add ${plugin}?`;
+    if (request.purpose === "trusted-install-recovery") return plugin === undefined ? "Finish setting up?" : `Finish setting up ${plugin}?`;
+    return "Confirm plugin action";
+  }
+
   async function confirm(request: NativeControlInputRequest, signal: AbortSignal): Promise<boolean> {
+    // The short view answers "what am I approving?" in plain terms; exact
+    // identity evidence (digests, revisions) lives in the disclosure below.
     const lines = [
+      ...(request.expected.scope === undefined ? [] : [`scope: ${safe(request.expected.scope.kind)}`]),
+      ...(request.consent === undefined
+        ? request.expected.plugin === undefined ? [] : [`plugin: ${safe(request.expected.plugin)}`]
+        : [
+          safe(request.consent.statement.text),
+          `runtime: ${request.consent.components.counts.skills} skills · ${request.consent.components.counts.hooks} hooks · ${request.consent.components.counts.mcpServers} MCP servers · persistent data`,
+          `limitations: subagents ${safe(request.consent.subagentInterception)} · remote MCP discovery ${safe(request.consent.remoteMcpDiscovery)}`,
+        ]),
+    ];
+    const disclosure = [
       `purpose: ${safe(request.purpose)}`,
       ...(request.expected.plugin === undefined ? [] : [`plugin: ${safe(request.expected.plugin)}`]),
-      ...(request.expected.scope === undefined ? [] : [`scope: ${safe(request.expected.scope.kind)}`]),
       ...(request.expected.immutableRevision === undefined ? [] : [`revision: ${safe(request.expected.immutableRevision)}`]),
       ...(request.consent === undefined ? [] : [
-        safe(request.consent.statement.text),
-        `runtime: ${request.consent.components.counts.skills} skills · ${request.consent.components.counts.hooks} hooks · ${request.consent.components.counts.mcpServers} MCP servers · persistent data`,
-        `limitations: subagents ${safe(request.consent.subagentInterception)} · remote MCP discovery ${safe(request.consent.remoteMcpDiscovery)}`,
-      ]),
-    ];
-    const disclosure = request.consent === undefined ? [] : [
       ...request.consent.components.skills.map((skill) => `skill ${safe(skill.name.text)} · ${safe(skill.root.text)}`),
       ...request.consent.components.hooks.map((hook) => `hook ${safe(hook.event.text)} · ${safe(hook.handler.command.text)}${hook.handler.kind === "exec" ? ` ${hook.handler.args.map((arg) => safe(arg.text)).join(" ")}` : ""}`),
       ...request.consent.components.mcpServers.map((mcp) => `MCP ${safe(mcp.nativeKey.text)} · ${safe(mcp.transport ?? "unavailable")} · ${safe(mcp.command?.text ?? (mcp.url === undefined ? "remote" : formatMcpEndpoint(mcp.url)))} · tools ${mcp.toolPolicy.allowed.map((tool) => safe(tool.text)).join(", ") || "runtime discovery"}`),
       ...request.consent.components.foreign.map((component) => `foreign ${safe(component.nativeHost)} ${safe(component.nativeKind.text)} · ${safe(component.verdict)}`),
       ...request.consent.requirements.map((requirement) => `requirement ${safe(requirement.capability.text)} · ${safe(requirement.status)} · ${safe(requirement.explanation.text)}`),
       ...(request.consent.configurationEnvironmentNames.length === 0 ? [] : [`configuration environment names: ${request.consent.configurationEnvironmentNames.map((name) => safe(name.text)).join(", ")}`]),
+      ]),
     ];
     if (input.mode === "rpc") return input.context.ui.confirm("Plugin trust / action", [...lines, ...disclosure].join(" · "), { signal });
+    const title = confirmTitle(request);
     const presenter = input.present?.();
     if (presenter !== undefined) {
       const confirmed = await presenter.presentInline<boolean>((tui, theme, keybindings, done) =>
-        new ConfirmationSurface({ theme, keybindings, title: "Confirm exact plugin action", lines, disclosure, height: () => tui.terminal.rows, done }));
+        new ConfirmationSurface({ theme, keybindings, title, lines, disclosure, height: () => tui.terminal.rows, done }));
       return confirmed === true;
     }
     let settle: ((confirmed: boolean) => void) | undefined;
@@ -112,7 +127,7 @@ export function createPiControlInputPort(input: Readonly<{
     try {
       return await input.context.ui.custom<boolean>((tui, theme, keybindings, done) => {
         settle = done;
-        return new ConfirmationSurface({ theme, keybindings, title: "Confirm exact plugin action", lines, disclosure, height: () => tui.terminal.rows, done });
+        return new ConfirmationSurface({ theme, keybindings, title, lines, disclosure, height: () => tui.terminal.rows, done });
       });
     } finally {
       signal.removeEventListener("abort", abort);

@@ -119,6 +119,7 @@ describe("plugin manager controller", () => {
     expect(calls).toContainEqual(["updates", "status", "--scope", "all-current"]);
     expect(controller.state().page.rows[0]).toMatchObject({ plugin: "demo@market", scope: "user", title: "demo", status: "installed" });
     expect(controller.state().updateCounts).toEqual({ unread: 2, unresolved: 3 });
+    expect(controller.state().updatesPolicy).toEqual({ application: "manual", cadence: "balanced" });
   });
 
   it("loads the Health section from the public host status envelope", async () => {

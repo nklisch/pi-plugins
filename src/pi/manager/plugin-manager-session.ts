@@ -5,6 +5,12 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, type Component } from "@earendil-works/pi-tui";
 import { NativeInspectionDetailResultSchema } from "../../application/native-inspection-contract.js";
+import {
+  NativeUpdatePolicyApplyResultSchema,
+  NativeUpdatePolicyPreviewResultSchema,
+  NativeUpdateStatusSchema,
+} from "../../application/native-update-contract.js";
+import type { UpdateCadence } from "../../domain/update-policy.js";
 import type { NativeControlDynamicCandidate } from "../../application/native-control-help.js";
 import type { NativeControlEnvelope } from "../../application/native-control-contract.js";
 import type { NativeControlExecutionReport, NativeControlFrameSink } from "../../application/ports/native-control-execution.js";
@@ -30,7 +36,7 @@ import {
   type PluginManagerActionRunner,
 } from "./plugin-manager-actions.js";
 import { PluginManagerComponent, type PluginManagerCloseResult } from "./plugin-manager-component.js";
-import { detailCommand } from "./plugin-manager-commands.js";
+import { detailCommand, updatePolicySetCommand, updateStatusCommand, type UpdatePolicySetChange } from "./plugin-manager-commands.js";
 import { createPluginManagerController, type PluginManagerController } from "./plugin-manager-controller.js";
 import { pluginManagerVisibleRows, rowKeyIdentity, type PluginManagerRow, type PluginManagerState } from "./plugin-manager-model.js";
 import { PluginOperationView } from "./plugin-operation-view.js";
@@ -210,6 +216,109 @@ export function createPluginManagerSession(input: Readonly<{
       ...(description === undefined ? {} : { description }),
       done: (value) => done(value),
     }));
+  }
+
+  async function confirmInline(context: ExtensionCommandContext, title: string, lines: readonly string[]): Promise<boolean> {
+    const presenter = currentPresenter();
+    if (presenter !== undefined) {
+      const confirmed = await presenter.presentInline<boolean>((tui, theme, keybindings, done) => new ConfirmationSurface({
+        theme,
+        keybindings,
+        title,
+        lines,
+        height: () => tui.terminal.rows,
+        done,
+      }));
+      return confirmed === true;
+    }
+    return presentConfirmationSurface(context, { title, lines }, new AbortController().signal);
+  }
+
+  /** One policy change, including the exact consent-preview round trip enabling automatic updates requires. */
+  async function runPolicySet(context: ExtensionCommandContext, change: UpdatePolicySetChange): Promise<"applied" | "cancelled" | "failed"> {
+    const signal = new AbortController().signal;
+    const run = (argv: readonly string[]) => input.host.runWithPiOperationContext(context, signal, (application) =>
+      application.control.runArgv(argv, { mode: "tui", output: "json" }, signal));
+    let report = await run(updatePolicySetCommand(change));
+    const preview = NativeUpdatePolicyPreviewResultSchema.safeParse(report.envelope.data);
+    if (preview.success) {
+      if (preview.data.kind === "rejected") {
+        context.ui.notify(`Update policy change was rejected (${preview.data.code.toLowerCase().replaceAll("_", " ")}).`, "warning");
+        return "failed";
+      }
+      const consent = preview.data.preview.consent;
+      if (!consent.required || consent.consentId === undefined) {
+        // Unreachable today (the facade only previews when consent is
+        // required and always binds its id); fail loudly if that changes.
+        context.ui.notify("Update policy preview did not match the public facade contract.", "error");
+        return "failed";
+      }
+      const audience = consent.disclosure === "global-current-and-future" ? "every current and future plugin"
+        : consent.disclosure === "scope-current-and-future" ? "current and future plugins in this scope"
+          : "the current target";
+      const approved = await confirmInline(context,
+        change.policyKind === "application" && change.policyMode === "automatic" ? "Turn on automatic updates?" : "Change update policy?",
+        [
+          `Applies to ${audience}.`,
+          "Eligible updates install without asking each time; trust, configuration, and recovery checks still run.",
+        ]);
+      if (!approved) return "cancelled";
+      report = await run(updatePolicySetCommand(change, { previewId: preview.data.preview.previewId, consentId: consent.consentId }));
+    }
+    const applied = NativeUpdatePolicyApplyResultSchema.safeParse(report.envelope.data);
+    if (!applied.success) {
+      context.ui.notify("Update policy response did not match the public facade contract.", "error");
+      return "failed";
+    }
+    if (applied.data.kind === "changed" || applied.data.kind === "unchanged") return "applied";
+    if (applied.data.kind === "stale") context.ui.notify("Things changed while setting update policy — try again.", "warning");
+    else if (applied.data.kind === "rejected") context.ui.notify(`Update policy change was rejected (${applied.data.code.toLowerCase().replaceAll("_", " ")}).`, "warning");
+    else context.ui.notify("Update policy change could not complete.", "warning");
+    return "failed";
+  }
+
+  async function runUpdatePolicyFlow(context: ExtensionCommandContext): Promise<Readonly<{ kind: "cancelled" | "handled"; presentation?: "local" | "successor" }>> {
+    const signal = new AbortController().signal;
+    let current: Readonly<{ application: "manual" | "automatic"; cadence: UpdateCadence }> | undefined;
+    try {
+      const report = await input.host.runWithPiOperationContext(context, signal, (application) =>
+        application.control.runArgv(updateStatusCommand(), { mode: "tui", output: "json" }, signal));
+      const status = NativeUpdateStatusSchema.safeParse(report.envelope.data);
+      if (status.success) current = status.data.policy.global;
+    } catch { /* an unreadable current policy must not block choosing a new one */ }
+    const modeIndex = await promptChoice(context,
+      `Automatic updates (currently ${current === undefined ? "unknown" : current.application === "automatic" ? "on" : "off"})`,
+      ["On — install eligible updates automatically", "Off — tell me about updates, I'll apply them"]);
+    if (modeIndex === undefined) return Object.freeze({ kind: "cancelled" as const });
+    const mode = modeIndex === 0 ? "automatic" as const : "manual" as const;
+    let cadence: UpdateCadence | undefined;
+    if (mode === "automatic") {
+      const cadences = [
+        { value: "balanced" as const, label: "Every 6 hours (balanced)" },
+        { value: "conservative" as const, label: "Once a day (conservative)" },
+        { value: "frequent" as const, label: "Every hour (frequent)" },
+        { value: "paused" as const, label: "Never check (paused)" },
+      ];
+      const cadenceIndex = await promptChoice(context, `How often should Pi check? (currently ${current?.cadence ?? "unknown"})`, cadences.map((entry) => entry.label));
+      if (cadenceIndex === undefined) return Object.freeze({ kind: "cancelled" as const });
+      cadence = cadences[cadenceIndex]!.value;
+    }
+    try {
+      if (current?.application !== mode) {
+        const result = await runPolicySet(context, { policyKind: "application", policyMode: mode });
+        if (result === "cancelled") return Object.freeze({ kind: "cancelled" as const });
+        if (result === "failed") return Object.freeze({ kind: "handled" as const, presentation: "local" as const });
+      }
+      if (cadence !== undefined && current?.cadence !== cadence) {
+        const result = await runPolicySet(context, { policyKind: "cadence", cadence });
+        if (result === "failed") return Object.freeze({ kind: "handled" as const, presentation: "local" as const });
+      }
+    } catch {
+      context.ui.notify("Update policy change could not complete.", "error");
+      return Object.freeze({ kind: "handled" as const, presentation: "local" as const });
+    }
+    context.ui.notify(mode === "automatic" ? `Automatic updates on · ${cadence ?? current?.cadence ?? ""}` : "Automatic updates off — you'll be notified about updates instead", "info");
+    return Object.freeze({ kind: "handled" as const, presentation: "local" as const });
   }
 
   async function chooseInstallScope(
@@ -418,6 +527,7 @@ export function createPluginManagerSession(input: Readonly<{
     const actions = {
       async run(action: string, state: PluginManagerState) {
         if (action === "install") return runInstallFlow(context, state);
+        if (action === "update-policy") return runUpdatePolicyFlow(context);
         let resolvedIntent: PluginManagerActionIntent;
         if (action === "marketplace-add") {
           const sourceKinds = ["github", "git", "local-git"] as const;

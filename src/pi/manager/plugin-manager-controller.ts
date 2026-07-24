@@ -228,7 +228,10 @@ export function createPluginManagerController(input: Readonly<{
     const controller = new AbortController();
     const updates = input.execute(updateStatusCommand(), controller.signal).then((result) => {
       const status = NativeUpdateStatusSchema.safeParse(result.envelope.data);
-      if (status.success) apply({ type: "update-counts", unread: status.data.unreadCount, unresolved: status.data.unresolvedCount });
+      if (status.success) {
+        apply({ type: "update-counts", unread: status.data.unreadCount, unresolved: status.data.unresolvedCount });
+        apply({ type: "updates-policy", application: status.data.policy.global.application, cadence: status.data.policy.global.cadence });
+      }
     }).catch(() => undefined);
     const health = input.execute(pageCommand({ view: "health", query: "" }), controller.signal).then((result) => {
       const parsed = HostStatusSnapshotSchema.safeParse(result.envelope.data);

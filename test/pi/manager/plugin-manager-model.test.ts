@@ -80,6 +80,45 @@ describe("plugin manager reducer", () => {
     expect(pluginManagerMenuActions(state)).toEqual(["disable", "uninstall-delete"]);
   });
 
+  it("offers update-all and auto-update setup from the updates view, with or without notices", () => {
+    let state = createPluginManagerState();
+    state = pluginManagerReducer(state, { type: "intent", intent: { type: "set-view", view: "updates" } });
+    expect(pluginManagerAvailableActions(state)).toEqual(["update-all", "update-policy"]);
+    expect(pluginManagerMenuActions(state)).toEqual(["update-all", "update-policy"]);
+
+    const notice: PluginManagerRow = {
+      key: { subject: "notice", key: "notice-1" },
+      title: "demo@market",
+      subtitle: "1.0 → 1.1 · user",
+      status: "manual-required · unresolved",
+      scope: "user",
+      plugin: "demo@market",
+      completion: { category: "notice", value: "notice-1", safe: { text: "demo@market", escaped: false, truncated: false } },
+      data: {},
+    };
+    state = pluginManagerReducer(state, { type: "page-loading", request: 1, append: false });
+    state = pluginManagerReducer(state, { type: "page-loaded", request: 1, rows: [notice], append: false });
+    expect(pluginManagerAvailableActions(state)).toEqual(["update-all", "update-policy", "inspect", "notice-acknowledge"]);
+  });
+
+  it("offers update-all and auto-update setup from the installed view's updates lens", () => {
+    let state = createPluginManagerState();
+    state = pluginManagerReducer(state, { type: "intent", intent: { type: "cycle-filter", delta: -1 } });
+    expect(state.filter).toBe("updates");
+    expect(pluginManagerAvailableActions(state)).toEqual(["update-all", "update-policy", "marketplace-add"]);
+    expect(pluginManagerMenuActions(state)).toEqual(["update-all", "update-policy", "marketplace-add"]);
+    state = pluginManagerReducer(state, { type: "intent", intent: { type: "cycle-filter", delta: 1 } });
+    expect(state.filter).toBe("all");
+    expect(pluginManagerAvailableActions(state)).toEqual(["marketplace-add"]);
+  });
+
+  it("tracks the global update policy as presentation state", () => {
+    let state = createPluginManagerState();
+    expect(state.updatesPolicy).toBeUndefined();
+    state = pluginManagerReducer(state, { type: "updates-policy", application: "automatic", cadence: "balanced" });
+    expect(state.updatesPolicy).toEqual({ application: "automatic", cadence: "balanced" });
+  });
+
   it("keeps independent semantic scroll anchors for detail and operation", () => {
     let state = createPluginManagerState();
     for (const region of ["detail", "operation"] as const) {
