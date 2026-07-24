@@ -283,6 +283,7 @@ export function createPluginManagerController(input: Readonly<{
         ]);
         if (controller.signal.aborted || owned !== request || closed) return;
         apply({ type: "page-loaded", request: owned, rows: mergePluginCatalogRows(installed, available, notices), append: false });
+        await reconcileDetailAfterPageLoad();
         return;
       }
       const result = await input.execute(pageCommand({
@@ -297,6 +298,7 @@ export function createPluginManagerController(input: Readonly<{
         return;
       }
       apply({ type: "page-loaded", request: owned, rows, append, ...(result.envelope.page?.next === undefined ? {} : { next: result.envelope.page.next }) });
+      await reconcileDetailAfterPageLoad();
     } catch (error) {
       if (!isAbort(error, controller.signal) && owned === request && !closed) {
         apply({ type: "page-failed", request: owned, code: "CONTROL_READ_FAILED" });
@@ -304,6 +306,17 @@ export function createPluginManagerController(input: Readonly<{
     } finally {
       if (pageAbort === controller) pageAbort = undefined;
     }
+  }
+
+  /**
+   * After a page reload retargets the detail pane to the same plugin's new
+   * authority identity, replace the now-stale displayed detail. Bounded: the
+   * load reconciles detail.row to the focused row, so this cannot loop.
+   */
+  async function reconcileDetailAfterPageLoad(): Promise<void> {
+    if (closed || model.focus.pane !== "detail" || model.focus.row === undefined) return;
+    if (model.detail.row !== undefined && rowKeyIdentity(model.detail.row) === rowKeyIdentity(model.focus.row)) return;
+    await loadDetail({ force: true, open: true });
   }
 
   async function loadDetail(options: Readonly<{ force?: boolean; open?: boolean }> = {}): Promise<boolean> {

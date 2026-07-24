@@ -45,6 +45,28 @@ describe("plugin manager reducer", () => {
     expect(state.focus.row?.key).toBe("d");
   });
 
+  it("reconciles the detail pane on page reload: follows the same plugin, closes when it disappears", () => {
+    const rowV1 = row("demo");
+    const rowV2: PluginManagerRow = { ...row("demo"), key: { ...row("demo").key, snapshotId: "snapshot-2", detailId: "detail-2" } };
+    let state = createPluginManagerState();
+    state = pluginManagerReducer(state, { type: "page-loading", request: 1, append: false });
+    state = pluginManagerReducer(state, { type: "page-loaded", request: 1, rows: [rowV1, row("other")], append: false });
+    state = pluginManagerReducer(state, { type: "intent", intent: { type: "open-detail" } });
+    expect(state.focus.pane).toBe("detail");
+    // Same plugin, rotated authority: the pane stays open on the new identity.
+    state = pluginManagerReducer(state, { type: "page-loading", request: 2, append: false });
+    state = pluginManagerReducer(state, { type: "page-loaded", request: 2, rows: [rowV2, row("other")], append: false });
+    expect(state.focus).toMatchObject({ pane: "detail" });
+    expect(state.focus.row?.key).toBe("demo");
+    expect(state.focus.row?.snapshotId).toBe("snapshot-2");
+    // Plugin gone: the pane closes instead of showing stale detail over a
+    // substituted selection.
+    state = pluginManagerReducer(state, { type: "page-loading", request: 3, append: false });
+    state = pluginManagerReducer(state, { type: "page-loaded", request: 3, rows: [row("other")], append: false });
+    expect(state.focus).toMatchObject({ pane: "list" });
+    expect(state.focus.row?.key).toBe("other");
+  });
+
   it("bounds appended pages and resets authority on view/search changes", () => {
     let state = createPluginManagerState();
     for (let request = 1; request <= 7; request += 1) {

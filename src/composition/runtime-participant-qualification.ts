@@ -19,8 +19,10 @@ export const PACKAGED_HOST_NODE_RANGE = ">=24";
  * too brittle for a plugin-management host. The structural ExtensionAPI
  * shape check in hostApiStatus stays as the fail-closed guard against real
  * API drift; published adapter packages still enforce their own peer ranges.
+ * The `<1.0.0-0` cap also excludes 1.0.0 prereleases, which would otherwise
+ * satisfy the range under includePrerelease.
  */
-export const PACKAGED_HOST_PI_RANGE = ">=0.80.0 <1.0.0";
+export const PACKAGED_HOST_PI_RANGE = ">=0.80.0 <1.0.0-0";
 
 export type RuntimeQualificationStatus = Readonly<{
   status: "available" | "unavailable";

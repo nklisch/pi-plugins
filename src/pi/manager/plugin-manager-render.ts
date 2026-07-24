@@ -1,7 +1,7 @@
 import type { KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { NativeInspectionDetailResultSchema, type NativeInspectionDetail } from "../../application/native-inspection-contract.js";
-import type { NativeControlEnvelope } from "../../application/native-control-contract.js";
+import type { NativeControlEnvelope, NativeControlStatus } from "../../application/native-control-contract.js";
 import { presentControlFailure } from "../../application/native-failure-presenter.js";
 import { plainLifecyclePhase } from "../plain-language.js";
 import { projectTerminalText } from "./pi-terminal-text.js";
@@ -153,16 +153,19 @@ function compatibilityLines(detail: NativeInspectionDetail, theme: Theme): reado
   const restated = new Set(["COMPATIBILITY_INCOMPATIBLE", "RUNTIME_REQUIREMENT_UNAVAILABLE"]);
   const errors = detail.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
   const named = errors.filter((diagnostic) => !restated.has(diagnostic.code));
-  const shown = (named.length > 0 ? named : unavailable.length === 0 ? errors : []).slice(0, 3);
+  const source = named.length > 0 ? named : unavailable.length === 0 ? errors : [];
+  // Dedupe before slicing so the overflow count reflects distinct reasons.
+  const distinct: typeof source = [];
   const seen = new Set<string>();
-  for (const diagnostic of shown) {
-    const summary = plain(diagnostic.summary.text, 256);
-    if (seen.has(summary)) continue;
-    seen.add(summary);
-    lines.push(theme.fg("error", `  ! ${summary}`));
+  for (const diagnostic of source) {
+    if (seen.has(diagnostic.summary.text)) continue;
+    seen.add(diagnostic.summary.text);
+    distinct.push(diagnostic);
   }
-  const overflow = (named.length > 0 ? named : unavailable.length === 0 ? errors : []).length - shown.length;
-  if (overflow > 0) lines.push(theme.fg("muted", `  … ${overflow} more`));
+  for (const diagnostic of distinct.slice(0, 3)) {
+    lines.push(theme.fg("error", `  ! ${plain(diagnostic.summary.text, 256)}`));
+  }
+  if (distinct.length > 3) lines.push(theme.fg("muted", `  … ${distinct.length - 3} more`));
 
   if (unavailable.length === 0 && errors.length === 0) {
     const warnings = detail.diagnostics.filter((diagnostic) => diagnostic.severity === "warning").slice(0, 2);
@@ -255,7 +258,7 @@ function actionLines(state: PluginManagerState, theme: Theme, bodyHeight: number
 }
 
 /** One plain clause per envelope status; exit classes and codes stay in machine output. */
-const ENVELOPE_STATUS_CLAUSE: Readonly<Record<string, string>> = Object.freeze({
+const ENVELOPE_STATUS_CLAUSE: Readonly<Record<NativeControlStatus, string>> = Object.freeze({
   ok: "done",
   "no-change": "done — nothing to change",
   "input-required": "needs more input",

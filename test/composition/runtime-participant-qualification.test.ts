@@ -75,7 +75,10 @@ describe("runtime participant qualification", () => {
     expect((await decide(mcp(publishedProvider), "0.81.1")).hostApi.status).toBe("available");
     expect((await decide(mcp(publishedProvider), "0.81.1")).mcp.status).toBe("available");
     expect((await decide(mcp(publishedProvider), "0.99.0")).hostApi.status).toBe("available");
+    expect((await decide(mcp(publishedProvider), "0.99.0-beta.1")).hostApi.status).toBe("available");
     expect((await decide(mcp(publishedProvider), "1.0.0")).hostApi.status).toBe("unavailable");
+    expect((await decide(mcp(publishedProvider), "1.0.0-beta.1")).hostApi.status).toBe("unavailable");
+    expect((await decide(mcp(publishedProvider), "1.0.0-rc.1")).hostApi.status).toBe("unavailable");
   });
 
   it("still fails closed when the Pi API shape drifts even inside the range", async () => {

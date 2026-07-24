@@ -168,8 +168,35 @@ describe("plugin manager component", () => {
     let state = pluginManagerReducer(createPluginManagerState(), { type: "page-loading", request: 1, append: false });
     state = pluginManagerReducer(state, { type: "page-loaded", request: 1, rows: [row], append: false });
     state = pluginManagerReducer(state, { type: "intent", intent: { type: "open-detail" } });
+    state = pluginManagerReducer(state, { type: "detail-loading", request: 1, row: row.key });
     h.setState(state);
     expect(state.focus.pane).toBe("detail");
+    h.component.handleInput("u");
+    expect(h.intents).toContainEqual({ type: "action", action: "update" });
+  });
+
+  it("keeps u inert in the detail pane while the same plugin's detail reloads after authority rotation", () => {
+    const h = harness();
+    const row = (snapshotId: string, detailId: string) => ({
+      key: { subject: "installed" as const, key: "user:demo", snapshotId, detailId },
+      title: "demo", subtitle: "market · user", status: "update available", scope: "user" as const, plugin: "demo@market", hasUpdate: true,
+      completion: { category: "plugin" as const, value: "demo@market", safe: { text: "demo", escaped: false, truncated: false } }, data: {},
+    });
+    let state = pluginManagerReducer(createPluginManagerState(), { type: "page-loading", request: 1, append: false });
+    state = pluginManagerReducer(state, { type: "page-loaded", request: 1, rows: [row("s1", "d1")], append: false });
+    state = pluginManagerReducer(state, { type: "intent", intent: { type: "open-detail" } });
+    state = pluginManagerReducer(state, { type: "detail-loading", request: 1, row: row("s1", "d1").key });
+    // Authority rotates but the plugin stays: the pane follows the new key
+    // while the displayed detail still belongs to the old one.
+    state = pluginManagerReducer(state, { type: "page-loading", request: 2, append: false });
+    state = pluginManagerReducer(state, { type: "page-loaded", request: 2, rows: [row("s2", "d2")], append: false });
+    h.setState(state);
+    expect(state.focus.pane).toBe("detail");
+    h.component.handleInput("u");
+    expect(h.intents.filter((intent) => intent.type === "action")).toEqual([]);
+    // Once the reconciled detail lands, u works again.
+    state = pluginManagerReducer(state, { type: "detail-loading", request: 2, row: row("s2", "d2").key });
+    h.setState(state);
     h.component.handleInput("u");
     expect(h.intents).toContainEqual({ type: "action", action: "update" });
   });

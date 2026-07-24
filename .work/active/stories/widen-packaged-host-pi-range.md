@@ -50,9 +50,10 @@ behavioral (non-shape) drift.
 
 ## Verification
 
-- `vitest run` — 1707 pass, 0 fail (includes new host-range boundary tests:
-  0.79.9/1.0.0 rejected, 0.80.0/0.81.1/0.99.0 admitted, API-shape drift still
-  fails closed inside the range).
-- `tsc --noEmit` clean; dependency boundaries clean (437 modules).
-- `npm run test:package` — build, compiled imports, packed real-Pi 0.80.8
-  RPC/JSON/PTY acceptance all green.
+- `vitest run` — 1718 pass, 0 fail (includes host-range boundary tests:
+  0.79.9/1.0.0/1.0.0-beta.1/1.0.0-rc.1 rejected, 0.80.0/0.81.1/0.99.0 and
+  0.x prereleases admitted, API-shape drift still fails closed inside the
+  range). The prerelease cap is `<1.0.0-0` after adversarial review caught
+  includePrerelease admitting 1.0.0 betas.
+- `npm test` (release gate): typecheck, boundaries, unit suite, build,
+  compiled imports, packed real-Pi 0.80.8 RPC/JSON/PTY acceptance — all green.

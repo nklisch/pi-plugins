@@ -112,6 +112,19 @@ describe("signed plugin install flow", () => {
     expect(state.focus).toBe("continue");
   });
 
+  it("never moves focus when committing an optional value", () => {
+    let state = createPluginInstallState(trustedInstallFlowFixture.chooseInspect);
+    const session = trustedInstallFlowFixture.states.missingInput.session;
+    const withOptional = [...session.fields, { key: "NICK", label: { text: "Nick", escaped: false, truncated: false }, kind: "string", required: false, sensitive: false, defaultPresent: false, constraints: {}, state: "missing" }];
+    state = pluginInstallReducer(state, { type: "session-opened", session: { ...session, fields: withOptional } as never });
+    state = pluginInstallReducer(state, { type: "set-value", key: "ROOT", value: "/audit" });
+    expect(state.focus).toBe("continue");
+    // Choosing to fill an optional value afterwards must not bounce the user.
+    state = pluginInstallReducer(state, { type: "focus", focus: Object.freeze({ field: "NICK" }) });
+    state = pluginInstallReducer(state, { type: "set-value", key: "NICK", value: "demo" });
+    expect(state.focus).toEqual({ field: "NICK" });
+  });
+
   it("keeps the focused control inside the visible window", () => {
     let state = createPluginInstallState(trustedInstallFlowFixture.chooseInspect);
     state = pluginInstallReducer(state, { type: "session-opened", session: trustedInstallFlowFixture.states.missingInput.session });

@@ -82,10 +82,23 @@ manager since notice rows were retired.
 
 ## Verification
 
-- `vitest run` — 1715 pass, 0 fail, including a new regression test
-  replicating the krometrail scenario (two unavailable MCP requirements +
-  incompatible status render as named reasons; no trust/count/exit jargon)
-  and a plain-language envelope failure test.
-- `tsc --noEmit` clean; dependency boundaries clean (437 modules).
-- `npm run test:package` — build, compiled imports, packed real-Pi 0.80.8
-  RPC/JSON/PTY acceptance all green.
+- `vitest run` — 1718 pass, 0 fail, including a regression test replicating
+  the krometrail scenario (two unavailable MCP requirements + incompatible
+  status render as named reasons; no trust/count/exit jargon), plain-language
+  envelope failure, focus auto-advance, update-leads-menu, mark-read,
+  unread-notice merge, `u`-in-detail, and `x`-removes-marketplace coverage.
+- `npm test` (release gate): typecheck, boundaries, 1718 unit tests, build,
+  compiled imports, packed real-Pi 0.80.8 RPC/JSON/PTY acceptance — all green.
+
+## Review (pre-release)
+
+- Complementary GLM-5.2 pass: ship-with-fixes. Fixed: focus auto-advance
+  over-fired on optional-field commits (now gated to required-and-outstanding
+  fields, with a regression test); `r` marketplace refresh now works from the
+  detail pane like `u`/`x`; diagnostic overflow dedupes before counting;
+  ENVELOPE_STATUS_CLAUSE got its exhaustiveness constraint.
+- Focused adversarial GPT-5.6 pass: ship-with-fixes. Fixed: stale-row
+  substitution in the detail pane — a refresh that removes the open plugin
+  now drops the pane to the list, a same-plugin authority rotation retargets
+  focus and force-reloads the detail, and `u` stays inert while the displayed
+  detail doesn't belong to the focused row.

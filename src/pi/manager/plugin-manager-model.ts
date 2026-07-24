@@ -329,10 +329,23 @@ export function pluginManagerReducer(state: PluginManagerState, event: PluginMan
     const rows = event.append ? boundedAppend(state.page.rows, event.rows, pages) : Object.freeze([...event.rows]);
     const existing = state.focus.row === undefined ? undefined : rows.find((row) => sameRow(row.key, state.focus.row));
     const fallback = rows[Math.min(priorIndex, Math.max(0, rows.length - 1))];
-    const row = existing?.key ?? fallback?.key;
+    // The detail pane must never show plugin A while a refresh silently
+    // substitutes plugin B's row underneath it: follow the same plugin's new
+    // authority identity, or drop to the list when the plugin is gone.
+    let focus: PluginManagerState["focus"];
+    if (state.focus.pane === "detail" && state.focus.row !== undefined && existing === undefined) {
+      const focused = state.focus.row;
+      const samePlugin = rows.find((row) => row.key.subject === focused.subject && row.key.key === focused.key);
+      focus = samePlugin === undefined
+        ? Object.freeze({ pane: "list", ...(fallback === undefined ? {} : { row: fallback.key }) })
+        : Object.freeze({ pane: "detail", row: samePlugin.key, ...(state.focus.action === undefined ? {} : { action: state.focus.action }) });
+    } else {
+      const row = existing?.key ?? fallback?.key;
+      focus = Object.freeze({ pane: state.focus.pane, ...(row === undefined ? {} : { row }), ...(state.focus.action === undefined ? {} : { action: state.focus.action }) });
+    }
     return Object.freeze({
       ...state,
-      focus: Object.freeze({ pane: state.focus.pane, ...(row === undefined ? {} : { row }), ...(state.focus.action === undefined ? {} : { action: state.focus.action }) }),
+      focus,
       installedCount: state.view === "installed" ? rows.filter((entry) => entry.key.subject === "installed").length : state.installedCount,
       page: Object.freeze({ rows, loading: false, request: event.request, pages: Math.min(5, pages), append: event.append, ...(event.next === undefined ? {} : { next: event.next }) }),
     });

@@ -217,12 +217,16 @@ export class PluginManagerComponent implements Component, Focusable {
     else if (data.toLowerCase() === "p" && pane === "list" && state.view === "installed" && state.filter === "updates") this.activateAction("update-policy");
     else if (data.toLowerCase() === "u" && state.view === "installed") {
       // Works from the list and from the open detail pane — opening details
-      // must not be a toll on the most common row action.
+      // must not be a toll on the most common row action. In the detail pane
+      // the displayed detail must still belong to the focused row, so a
+      // refresh that is mid-reconciliation cannot update a substituted row.
       const rows = pluginManagerVisibleRows(state);
       const row = state.focus.row === undefined
         ? rows[0]
         : rows.find((candidate) => rowKeyIdentity(candidate.key) === rowKeyIdentity(state.focus.row!));
-      if (row?.key.subject === "installed" && row.hasUpdate === true) this.activateAction("update");
+      const detailCurrent = pane !== "detail" ||
+        row !== undefined && state.detail.row !== undefined && rowKeyIdentity(state.detail.row) === rowKeyIdentity(row.key);
+      if (detailCurrent && row?.key.subject === "installed" && row.hasUpdate === true) this.activateAction("update");
     } else if (data.toLowerCase() === "a") {
       const actions = pluginManagerAvailableActions(state);
       if (actions.includes("install")) this.activateAction("install");
@@ -238,8 +242,9 @@ export class PluginManagerComponent implements Component, Focusable {
       } else if (actions.includes("uninstall-delete")) this.activateAction("uninstall-delete");
     } else if (data.toLowerCase() === "r") {
       // On the marketplaces view, refresh means the selected marketplace's
-      // catalog — one keystroke instead of detail → actions → refresh.
-      if (pane === "list" && state.view === "marketplaces" && pluginManagerAvailableActions(state).includes("marketplace-refresh")) {
+      // catalog — one keystroke instead of detail → actions → refresh. Like
+      // u/x, it works from the list and the open detail pane alike.
+      if (state.view === "marketplaces" && pluginManagerAvailableActions(state).includes("marketplace-refresh")) {
         this.activateAction("marketplace-refresh");
       } else this.controller.dispatch({ type: "refresh", scope: "all" });
     }
