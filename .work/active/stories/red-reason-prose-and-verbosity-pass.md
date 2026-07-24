@@ -62,14 +62,14 @@ plain typing and arrow navigation)
 | Add plugin (no config, one scope) | `a` → Enter | 2 |
 | Add plugin (multi-scope) | `a` → Enter scope → Enter | 3 |
 | Add plugin (required config) | `a` → per field (Enter, type, Enter) → navigate → Enter; secrets prompt masked at apply | 3 + fields |
-| Update plugin | `u` → `y` | 2 |
-| Update plugin via detail menu | Enter → ↓ → Enter → `y` | 4 |
+| Update plugin | `u` → `y` (either pane) | 2 |
+| Update plugin via detail menu | Enter → Enter → `y` (Update now leads) | 3 |
 | Update all | `ctrl+u` | 1 |
 | Enable/disable | `d` | 1 |
 | Remove plugin | `x` → `y` | 2 |
 | Add marketplace | `m` → `a` → Enter type → location → Enter ref → esc result | 5 |
 | Refresh marketplace | `m` → `r` (was 4: detail → actions → refresh → esc) | 2 |
-| Remove marketplace | `m` → Enter → ↓ → Enter → `y` → esc | 6 |
+| Remove marketplace | `m` → `x` → `y` | 3 |
 | Auto-update setup | updates lens → `p` → mode → cadence → `y` consent | 4 |
 | Doctor | `/plugin doctor` → esc | 2 |
 | Search | `/` → type → Enter | 1 |
@@ -82,7 +82,7 @@ manager since notice rows were retired.
 
 ## Verification
 
-- `vitest run` — 1709 pass, 0 fail, including a new regression test
+- `vitest run` — 1715 pass, 0 fail, including a new regression test
   replicating the krometrail scenario (two unavailable MCP requirements +
   incompatible status render as named reasons; no trust/count/exit jargon)
   and a plain-language envelope failure test.

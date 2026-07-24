@@ -101,7 +101,16 @@ export function pluginInstallReducer(state: PluginInstallState, event: PluginIns
     return Object.freeze({ ...rest, disclosure, scroll: Object.freeze({ ...state.scroll, disclosure: 0 }) });
   }
   if (event.type === "consent") return Object.freeze({ ...state, consentId: event.consentId });
-  if (event.type === "set-value") return Object.freeze({ ...state, values: Object.freeze({ ...state.values, [event.key]: event.value }) });
+  if (event.type === "set-value") {
+    const values = Object.freeze({ ...state.values, [event.key]: event.value });
+    // Committing the last required value lands on the primary action instead
+    // of stranding focus on the field just finished. Sensitive values are
+    // collected masked at apply, so they never block the advance.
+    const awaiting = state.session?.fields.some((field) =>
+      field.required && !field.sensitive && ["missing", "invalid"].includes(field.state) && values[field.key] === undefined) === true;
+    const focus = !awaiting && typeof state.focus !== "string" ? "continue" as const : state.focus;
+    return Object.freeze({ ...state, values, focus });
+  }
   if (event.type === "edit-start") {
     const current = state.values[event.key];
     const buffer = typeof current === "string" ? current : "";

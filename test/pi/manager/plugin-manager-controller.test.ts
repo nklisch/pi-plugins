@@ -107,6 +107,24 @@ describe("plugin manager controller", () => {
     expect(rows[0]?.availableScopes).toEqual(["user", "project"]);
   });
 
+  it("attaches unread notice ids to the matching installed row", () => {
+    const installed: PluginManagerRow = Object.freeze({
+      key: Object.freeze({ subject: "installed" as const, key: "user:demo@market", snapshotId: "s", detailId: "d" }),
+      title: "demo", subtitle: "market · user", status: "installed", scope: "user" as const, plugin: "demo@market",
+      completion: Object.freeze({ category: "plugin" as const, value: "demo@market", safe: safe("demo") }),
+      data: Object.freeze({}),
+    });
+    const notice = (id: string, unread: boolean, plugin = "demo@market"): PluginManagerRow => Object.freeze({
+      key: Object.freeze({ subject: "notice" as const, key: id }),
+      title: plugin, subtitle: "1.0 → 1.1", status: "manual-required", scope: "user" as const, plugin,
+      completion: Object.freeze({ category: "notice" as const, value: id, safe: safe(plugin) }),
+      data: Object.freeze({ id, unread }),
+    });
+    const rows = mergePluginCatalogRows([installed], [], [notice("n-read", false), notice("n-unread", true), notice("n-other", true, "other@market")]);
+    expect(rows[0]?.unreadNoticeIds).toEqual(["n-unread"]);
+    expect(rows[0]?.hasUpdate).toBe(true);
+  });
+
   it("loads installed authority and update counts only through canonical facade argv", async () => {
     const calls: readonly string[][] = [];
     const execute = vi.fn(async (argv: readonly string[]) => {

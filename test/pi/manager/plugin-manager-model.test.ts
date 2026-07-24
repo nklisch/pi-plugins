@@ -80,6 +80,30 @@ describe("plugin manager reducer", () => {
     expect(pluginManagerMenuActions(state)).toEqual(["disable", "uninstall-delete"]);
   });
 
+  it("leads with update when one is available and offers mark-read in the updates lens", () => {
+    let state = createPluginManagerState();
+    const updateRow: PluginManagerRow = { ...row("demo"), hasUpdate: true, unreadNoticeIds: Object.freeze(["update-notice-v1:sha256:" + "a".repeat(64)]) };
+    state = pluginManagerReducer(state, { type: "page-loading", request: 1, append: false });
+    state = pluginManagerReducer(state, { type: "page-loaded", request: 1, rows: [updateRow], append: false });
+    state = pluginManagerReducer(state, { type: "detail-loading", request: 1, row: updateRow.key });
+    state = pluginManagerReducer(state, {
+      type: "detail-loaded", request: 1, row: updateRow.key, open: true,
+      envelope: { data: { kind: "found", detail: { ...trustedInstallFlowFixture.chooseInspect, lifecycle: { ...trustedInstallFlowFixture.chooseInspect.lifecycle, activationIntent: "enabled", update: "manual-required" } } } } as never,
+    });
+    expect(pluginManagerMenuActions(state)).toEqual(["update", "disable", "uninstall-delete"]);
+    state = pluginManagerReducer(state, { type: "intent", intent: { type: "cycle-filter", delta: -1 } });
+    // The lens switch clears the open detail; mark-read must still be offered
+    // because it only needs the notice ids carried by the row itself.
+    expect(pluginManagerMenuActions(state)).toEqual(["update-all", "update-policy", "notice-acknowledge"]);
+    state = pluginManagerReducer(state, { type: "intent", intent: { type: "open-detail" } });
+    state = pluginManagerReducer(state, { type: "detail-loading", request: 2, row: updateRow.key });
+    state = pluginManagerReducer(state, {
+      type: "detail-loaded", request: 2, row: updateRow.key, open: true,
+      envelope: { data: { kind: "found", detail: { ...trustedInstallFlowFixture.chooseInspect, lifecycle: { ...trustedInstallFlowFixture.chooseInspect.lifecycle, activationIntent: "enabled", update: "manual-required" } } } } as never,
+    });
+    expect(pluginManagerMenuActions(state)).toEqual(["update-all", "update-policy", "update", "disable", "notice-acknowledge", "uninstall-delete"]);
+  });
+
   it("offers update-all and auto-update setup from the installed view's updates lens", () => {
     let state = createPluginManagerState();
     state = pluginManagerReducer(state, { type: "intent", intent: { type: "cycle-filter", delta: -1 } });

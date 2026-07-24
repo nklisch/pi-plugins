@@ -158,6 +158,39 @@ describe("plugin manager component", () => {
     expect(h.intents.filter((intent) => intent.type === "action")).toHaveLength(2);
   });
 
+  it("runs update with u from the open detail pane", () => {
+    const h = harness();
+    const row = {
+      key: { subject: "installed" as const, key: "user:demo", snapshotId: "snapshot", detailId: "detail" },
+      title: "demo", subtitle: "market · user", status: "update available", scope: "user" as const, plugin: "demo@market", hasUpdate: true,
+      completion: { category: "plugin" as const, value: "demo@market", safe: { text: "demo", escaped: false, truncated: false } }, data: {},
+    };
+    let state = pluginManagerReducer(createPluginManagerState(), { type: "page-loading", request: 1, append: false });
+    state = pluginManagerReducer(state, { type: "page-loaded", request: 1, rows: [row], append: false });
+    state = pluginManagerReducer(state, { type: "intent", intent: { type: "open-detail" } });
+    h.setState(state);
+    expect(state.focus.pane).toBe("detail");
+    h.component.handleInput("u");
+    expect(h.intents).toContainEqual({ type: "action", action: "update" });
+  });
+
+  it("removes the selected marketplace with x from the marketplaces view", () => {
+    const h = harness();
+    const marketplace = {
+      key: { subject: "marketplace" as const, key: "marketplace-registration-v1:sha256:" + "a".repeat(64) },
+      title: "community", subtitle: "github", status: "ready",
+      completion: { category: "marketplace" as const, value: "community", safe: { text: "community", escaped: false, truncated: false } }, data: {},
+    };
+    let state = pluginManagerReducer(createPluginManagerState(), { type: "intent", intent: { type: "set-view", view: "marketplaces" } });
+    state = pluginManagerReducer(state, { type: "page-loading", request: 1, append: false });
+    state = pluginManagerReducer(state, { type: "page-loaded", request: 1, rows: [marketplace], append: false });
+    h.setState(state);
+    h.component.handleInput("x");
+    expect(h.intents).toContainEqual({ type: "action", action: "marketplace-remove" });
+    // x never means uninstall on this view.
+    expect(h.intents.filter((intent) => intent.type === "action" && intent.action === "uninstall-delete")).toEqual([]);
+  });
+
   it("runs a mutating action without closing the manager surface", () => {
     const h = harness();
     h.setState({ ...createPluginManagerState(), focus: { pane: "detail", action: "install" } });

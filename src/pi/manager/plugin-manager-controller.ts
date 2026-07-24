@@ -142,10 +142,25 @@ function rowsFor(view: PluginManagerState["view"] | "browse", envelope: NativeCo
 
 export function mergePluginCatalogRows(installed: readonly PluginManagerRow[], available: readonly PluginManagerRow[], notices: readonly PluginManagerRow[]): readonly PluginManagerRow[] {
   const updates = new Set(notices.flatMap((row) => row.plugin === undefined || row.scope === undefined ? [] : [`${row.scope}\0${row.plugin}`]));
+  const unread = new Map<string, string[]>();
+  for (const row of notices) {
+    if (row.plugin === undefined || row.scope === undefined) continue;
+    const notice = row.data as Readonly<{ id?: unknown; unread?: unknown }>;
+    if (notice.unread !== true || typeof notice.id !== "string") continue;
+    const key = `${row.scope}\0${row.plugin}`;
+    unread.set(key, [...(unread.get(key) ?? []), notice.id]);
+  }
   const installedKeys = new Set(installed.flatMap((row) => row.plugin === undefined || row.scope === undefined ? [] : [`${row.scope}\0${row.plugin}`]));
   const rows = installed.map((row) => {
-    const hasUpdate = row.plugin !== undefined && row.scope !== undefined && updates.has(`${row.scope}\0${row.plugin}`);
-    return hasUpdate ? Object.freeze({ ...row, status: "update available", statusTone: "warning" as const, hasUpdate: true }) : row;
+    const key = row.plugin === undefined || row.scope === undefined ? undefined : `${row.scope}\0${row.plugin}`;
+    const hasUpdate = key !== undefined && updates.has(key);
+    const unreadNoticeIds = key === undefined ? undefined : unread.get(key);
+    const decorated = Object.freeze({
+      ...row,
+      ...(hasUpdate ? { status: "update available", statusTone: "warning" as const, hasUpdate: true } : {}),
+      ...(unreadNoticeIds === undefined || unreadNoticeIds.length === 0 ? {} : { unreadNoticeIds: Object.freeze(unreadNoticeIds) }),
+    });
+    return decorated;
   });
   const availableSources = new Map<string, number>();
   for (const row of available) {

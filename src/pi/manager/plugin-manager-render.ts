@@ -309,8 +309,8 @@ function footer(state: PluginManagerState, theme: Theme, keybindings: Keybinding
   const confirm = key("tui.select.confirm", "enter");
   const interrupt = key("app.interrupt", "escape");
   if (state.view === "marketplaces") {
-    if (width < 60) return theme.fg("dim", "a add · r refresh · esc close");
-    return theme.fg("dim", `${move} · a add · r refresh catalog · ${confirm} details · ${interrupt} close`);
+    if (width < 60) return theme.fg("dim", "a add · r refresh · x remove · esc close");
+    return theme.fg("dim", `${move} · a add · r refresh catalog · x remove · ${confirm} details · ${interrupt} close`);
   }
   if (state.view === "installed" && state.filter === "updates") {
     if (width < 60) return theme.fg("dim", "ctrl+u all · p auto updates · esc close");

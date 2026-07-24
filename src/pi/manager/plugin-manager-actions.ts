@@ -151,7 +151,10 @@ function actionArgv(intent: PluginManagerActionIntent, confirmed: boolean): read
   if (intent.action === "marketplace-remove") {
     return nativeControlArgv("marketplace.remove", [intent.row.key.key], { confirmed });
   }
-  if (intent.action === "notice-acknowledge") return nativeControlArgv("updates.notices.acknowledge", [intent.row.key.key]);
+  if (intent.action === "notice-acknowledge") {
+    const ids = intent.row.unreadNoticeIds;
+    return nativeControlArgv("updates.notices.acknowledge", ids !== undefined && ids.length > 0 ? [...ids] : [intent.row.key.key]);
+  }
   if (intent.action === "update-all") return nativeControlArgv("updates.automatic.run", [], { limit: 100, explicit: true });
   if (intent.action === "project-sync") return nativeControlArgv("project.sync", [], { mode: intent.mode, confirmed });
   if (intent.action === "operation-status" || intent.action === "operation-cancel") {

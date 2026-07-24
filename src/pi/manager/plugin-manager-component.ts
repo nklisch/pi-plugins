@@ -215,7 +215,9 @@ export class PluginManagerComponent implements Component, Focusable {
     else if (data.toLowerCase() === "m" && pane === "list") this.controller.dispatch({ type: "set-view", view: state.view === "marketplaces" ? "installed" : "marketplaces" });
     else if (matchesKey(data, Key.ctrl("u")) && pane === "list" && state.view === "installed") this.activateAction("update-all");
     else if (data.toLowerCase() === "p" && pane === "list" && state.view === "installed" && state.filter === "updates") this.activateAction("update-policy");
-    else if (data.toLowerCase() === "u" && pane === "list" && state.view === "installed") {
+    else if (data.toLowerCase() === "u" && state.view === "installed") {
+      // Works from the list and from the open detail pane — opening details
+      // must not be a toll on the most common row action.
       const rows = pluginManagerVisibleRows(state);
       const row = state.focus.row === undefined
         ? rows[0]
@@ -231,7 +233,9 @@ export class PluginManagerComponent implements Component, Focusable {
       else if (actions.includes("enable")) this.activateAction("enable");
     } else if (data.toLowerCase() === "x") {
       const actions = pluginManagerAvailableActions(state);
-      if (actions.includes("uninstall-delete")) this.activateAction("uninstall-delete");
+      if (state.view === "marketplaces") {
+        if (actions.includes("marketplace-remove")) this.activateAction("marketplace-remove");
+      } else if (actions.includes("uninstall-delete")) this.activateAction("uninstall-delete");
     } else if (data.toLowerCase() === "r") {
       // On the marketplaces view, refresh means the selected marketplace's
       // catalog — one keystroke instead of detail → actions → refresh.

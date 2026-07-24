@@ -23,7 +23,7 @@ export const PluginManagerActionRegistry = Object.freeze({
   "marketplace-add": { label: "Add marketplace", description: "Register another global marketplace" },
   "marketplace-refresh": { label: "Refresh marketplace", description: "Fetch the latest marketplace catalog" },
   "marketplace-remove": { label: "Remove marketplace", description: "Unregister this marketplace without changing installed plugins" },
-  "notice-acknowledge": { label: "Acknowledge notice", description: "Mark this update notice as read" },
+  "notice-acknowledge": { label: "Mark update read", description: "Silence this update notification without updating" },
   "project-sync-apply": { label: "Project sync · apply intent", description: "Apply the project's declared plugin intent" },
   "project-sync-publish": { label: "Project sync · publish intent", description: "Publish current project plugin intent" },
   "project-sync-merge": { label: "Project sync · resolve merge", description: "Resolve competing project plugin intent" },
@@ -48,6 +48,8 @@ export type PluginManagerRow = Readonly<{
   availableScopes?: readonly ("user" | "project")[];
   sourceIdentity?: string;
   plugin?: string;
+  /** Unread update notice ids for this plugin+scope, when any exist. */
+  unreadNoticeIds?: readonly string[];
   completion: NativeControlDynamicCandidate;
   data: JsonValue;
   hasUpdate?: boolean;
@@ -200,18 +202,25 @@ export function pluginManagerAvailableActions(state: PluginManagerState): readon
     return Object.freeze([]);
   }
   if (row.key.subject !== "installed") return Object.freeze([...lens, ...pluginManagerRowActions(row)]);
+  // Marking a notice read needs no lifecycle detail — only the notice ids the
+  // catalog merge already attached to the row.
+  const ack: readonly PluginManagerActionId[] = state.view === "installed" && state.filter === "updates" &&
+    row.unreadNoticeIds !== undefined && row.unreadNoticeIds.length > 0
+    ? Object.freeze(["notice-acknowledge"])
+    : Object.freeze([]);
   const detail = NativeInspectionDetailResultSchema.safeParse(
     state.detail.row !== undefined && rowKeyIdentity(state.detail.row) === rowKeyIdentity(row.key)
       ? state.detail.envelope?.data
       : undefined,
   );
-  if (!detail.success || detail.data.kind !== "found") return Object.freeze([...lens, "inspect"]);
+  if (!detail.success || detail.data.kind !== "found") return Object.freeze([...lens, ...ack, "inspect"]);
   const lifecycle = detail.data.detail.lifecycle;
   const actions: PluginManagerActionId[] = [...lens, "inspect"];
+  // Update leads when one is available: it is why the row is highlighted.
+  if (lifecycle?.update !== undefined && !["current", "not-applicable", "unknown"].includes(lifecycle.update)) actions.push("update");
   if (lifecycle?.activationIntent === "enabled") actions.push("disable");
   else if (lifecycle?.activationIntent === "disabled") actions.push("enable");
-  if (lifecycle?.update !== undefined && !["current", "not-applicable", "unknown"].includes(lifecycle.update)) actions.push("update");
-  actions.push("uninstall-delete");
+  actions.push(...ack, "uninstall-delete");
   if (row.scope === "project") actions.push("project-sync-apply", "project-sync-publish", "project-sync-merge");
   return Object.freeze(actions);
 }

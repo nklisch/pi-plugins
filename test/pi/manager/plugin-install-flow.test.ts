@@ -90,6 +90,28 @@ describe("signed plugin install flow", () => {
     expect(actions).toContainEqual({ type: "continue" });
   });
 
+  it("lands on Add after the last required non-sensitive value is committed", () => {
+    let state = createPluginInstallState(trustedInstallFlowFixture.chooseInspect);
+    state = pluginInstallReducer(state, { type: "session-opened", session: trustedInstallFlowFixture.states.missingInput.session });
+    // NAME is required but defaulted; ROOT is required and missing; TOKEN is
+    // required but sensitive (collected masked at apply, so it never gates).
+    state = pluginInstallReducer(state, { type: "set-value", key: "ROOT", value: "/audit" });
+    expect(state.focus).toBe("continue");
+  });
+
+  it("keeps focus on the field while required values are still outstanding", () => {
+    let state = createPluginInstallState(trustedInstallFlowFixture.chooseInspect);
+    const session = trustedInstallFlowFixture.states.missingInput.session;
+    const secondMissing = session.fields.map((field) => field.key === "TOKEN" ? { ...field, sensitive: false } : field);
+    state = pluginInstallReducer(state, { type: "session-opened", session: { ...session, fields: secondMissing } as never });
+    state = pluginInstallReducer(state, { type: "focus", focus: Object.freeze({ field: "ROOT" }) });
+    state = pluginInstallReducer(state, { type: "set-value", key: "ROOT", value: "/audit" });
+    expect(state.focus).toEqual({ field: "ROOT" });
+    state = pluginInstallReducer(state, { type: "focus", focus: Object.freeze({ field: "TOKEN" }) });
+    state = pluginInstallReducer(state, { type: "set-value", key: "TOKEN", value: "x" });
+    expect(state.focus).toBe("continue");
+  });
+
   it("keeps the focused control inside the visible window", () => {
     let state = createPluginInstallState(trustedInstallFlowFixture.chooseInspect);
     state = pluginInstallReducer(state, { type: "session-opened", session: trustedInstallFlowFixture.states.missingInput.session });
