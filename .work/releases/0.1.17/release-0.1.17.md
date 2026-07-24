@@ -1,14 +1,14 @@
 ---
 id: release-0.1.17
 kind: release
-stage: implementing
+stage: done
 tags: []
 parent: null
 depends_on: []
 release_binding: 0.1.17
 gate_origin: null
 created: 2026-07-23
-updated: 2026-07-23
+updated: 2026-07-24
 ---
 
 # 0.1.17
@@ -33,7 +33,14 @@ Release gates skipped by explicit maintainer instruction. The standard package v
 
 ## Publication
 
-- Pending.
+- Shipped: 2026-07-24
+- Mapping: tag-based
+- Source commit: `5888148`
+- Tag: `v0.1.17`
+- GitHub Actions publish run: `30092531762`
+- npm integrity: `sha512-DvWPfTJYq1F9ayrqceb1MxniD4PbNqRNrFQc08w2D4LzFtoijsC/SPYE3U/+fG1O1Blm/Y7D83gCIRrjog0Vfw==`
+- GitHub: https://github.com/nklisch/pi-plugins/releases/tag/v0.1.17
+- npm: https://www.npmjs.com/package/@nklisch/pi-plugins/v/0.1.17
 
 ## Shipped items
 
