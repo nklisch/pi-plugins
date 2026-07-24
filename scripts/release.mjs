@@ -69,6 +69,17 @@ try {
   process.exit(1);
 } catch { /* tag does not exist: good */ }
 
+// A tag cut from a stale local main fails the publish workflow's on-main
+// guard (the bot's publication records land on main after every release).
+// Refuse early instead of publishing an off-main tag.
+execFileSync("git", ["fetch", "origin", "main"], { cwd: root, stdio: "inherit" });
+try {
+  git("merge-base", "--is-ancestor", "origin/main", "HEAD");
+} catch {
+  console.error("local main is behind origin/main; merge or rebase before releasing so the tag ships from main");
+  process.exit(1);
+}
+
 const template = `---
 id: release-${version}
 kind: release

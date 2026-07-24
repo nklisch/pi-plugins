@@ -45,7 +45,7 @@ jobs:
               echo "Tag $GITHUB_REF_NAME does not match package.json version $manifest_version." >&2
               exit 1
             fi
-            git fetch --depth=1 origin main
+            git fetch origin main
             if ! git merge-base --is-ancestor HEAD FETCH_HEAD; then
               echo "Tagged commit is not on main; releases must ship from main." >&2
               exit 1
