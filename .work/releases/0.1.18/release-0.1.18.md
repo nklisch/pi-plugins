@@ -1,7 +1,7 @@
 ---
 id: release-0.1.18
 kind: release
-stage: implementing
+stage: done
 tags: []
 parent: null
 depends_on: []
@@ -53,3 +53,14 @@ Pi minor releases no longer break the installed host, and red states explain the
 ## Shipped items
 
 Bodies live in git history under the `delete-refs` retention policy.
+
+## Publication
+
+- Shipped: 2026-07-24
+- Mapping: tag-based
+- Source commit: `f85e8f0`
+- Tag: `v0.1.18`
+- GitHub Actions publish run: `30104353157`
+- npm integrity: `sha512-EjK5fHGZkIyBSKwW1+PQa9TSlRSlYBfVUqL/h9H75gw2PdKb9c19RQYhzdQqnIFjQlK8yCNkH3w40we/2m5ejw==`
+- GitHub: https://github.com/nklisch/pi-plugins/releases/tag/v0.1.18
+- npm: https://www.npmjs.com/package/@nklisch/pi-plugins/v/0.1.18
